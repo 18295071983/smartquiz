@@ -1,330 +1,699 @@
-# 智能题库应用开发标准规范
+# 答题宝 (SmartQuiz) — 开发规范
 
-## 1. 概述
+> **版本: 2.0 | 更新日期: 2026-05-16**
 
-本规范旨在为智能题库应用的开发提供统一的标准和指导，确保代码质量、可维护性和可扩展性。所有开发人员在参与项目开发时应严格遵守本规范。
+---
 
-## 2. 代码风格规范
+## 一、概述
 
-### 2.1 缩进与格式
+本文档定义了「答题宝」Android 项目的全部开发规范，涵盖架构设计、代码风格、资源命名、线程管理、依赖注入、Compose 最佳实践、AI 模块开发、WebView 安全、数据库迁移、测试要求以及性能指标。所有团队成员和 AI 编码助手必须严格遵守。
 
-- 使用4个空格进行缩进，不使用制表符
-- 每行代码长度不超过120个字符
-- 方法体和代码块使用大括号包围，大括号放在行尾
-- 不同逻辑块之间使用空行分隔
-- 运算符两侧使用空格
-- 逗号后使用空格
+---
 
-### 2.2 注释规范
+## 二、架构规范
 
-- 类和方法必须添加Javadoc注释
-- 复杂逻辑必须添加行内注释
-- 注释应清晰、简洁，说明代码的目的和实现逻辑
-- 避免冗余注释，注释应与代码保持同步
+### 2.1 整体架构
 
-### 2.3 空行使用
-
-- 类成员变量之间使用空行分隔
-- 方法之间使用空行分隔
-- 逻辑块之间使用空行分隔
-- 文件末尾保留一个空行
-
-## 3. 命名规范
-
-### 3.1 包名
-
-- 使用小写字母和点分隔
-- 遵循反向域名命名规则：`com.oilquiz.app.模块名`
-- 模块名使用语义化的英文单词
-
-### 3.2 类名
-
-- 使用大驼峰命名法（PascalCase）
-- 类名应具有描述性，清晰表达类的用途
-- 避免使用缩写，除非是广泛认可的缩写
-
-### 3.3 方法名
-
-- 使用小驼峰命名法（camelCase）
-- 方法名应动词开头，清晰表达方法的功能
-- 简短、描述性强，避免过长的方法名
-
-### 3.4 变量名
-
-- 使用小驼峰命名法（camelCase）
-- 变量名应具有描述性，清晰表达变量的用途
-- 避免使用单个字母作为变量名（循环变量除外）
-- 常量使用全大写，单词之间用下划线分隔
-
-### 3.5 资源命名
-
-- 布局文件：`activity_功能名.xml`、`fragment_功能名.xml`
-- 字符串资源：`功能名_描述`
-- 颜色资源：`颜色用途`
-- 图标资源：`ic_功能名`
-
-## 4. 架构设计规范
-
-### 4.1 整体架构
-
-- 采用MVVM架构模式
-- 分层设计：UI层、业务逻辑层、数据层
-- 组件化开发，模块之间低耦合
-
-### 4.2 包结构
+项目采用 **MVVM (Model-View-ViewModel)** 架构，结合 **Repository 模式** 实现数据层抽象，使用 **Hilt** 进行依赖注入。
 
 ```
-com.oilquiz.app
-├── ui/             # 界面相关
-│   ├── activity/   # Activity
-│   ├── fragment/   # Fragment
-│   ├── adapter/    # 适配器
-│   └── widget/     # 自定义控件
-├── viewModel/      # 视图模型
-├── repository/     # 数据仓库
-├── model/          # 数据模型
-├── database/       # 数据库相关
-├── service/        # 服务
-├── util/           # 工具类
-├── ai/             # AI模块
-│   ├── service/    # AI服务管理
-│   ├── util/       # AI工具类
-│   ├── device/     # 设备管理
-│   └── model/      # 模型管理
-└── constant/       # 常量
+┌─────────────────────────────────────────────────┐
+│  View Layer (Activity / Fragment / Compose)     │
+│  ├─ ui/activity/   ├─ ui/fragment/              │
+│  └─ ui/compose/    └─ ui/widget/                │
+├─────────────────────────────────────────────────┤
+│  ViewModel Layer                                │
+│  └─ viewmodel/                                  │
+├─────────────────────────────────────────────────┤
+│  Repository Layer                               │
+│  └─ repository/                                 │
+├─────────────────────────────────────────────────┤
+│  Data Layer                                     │
+│  ├─ database/ (Room)                            │
+│  ├─ infra/ (Network, Logging)                   │
+│  └─ manager/ (Business Logic Managers)          │
+└─────────────────────────────────────────────────┘
 ```
 
-### 4.3 类职责
+### 2.2 分层职责
+
+| 层级 | 目录 | 职责 |
+|------|------|------|
+| View | `ui/` | UI 渲染、用户交互、不包含业务逻辑 |
+| ViewModel | `viewmodel/` | 持有 UI 状态，调用 Repository，暴露 LiveData/StateFlow |
+| Repository | `repository/` | 数据访问抽象层，协调多个数据源 |
+| Data | `database/`, `infra/`, `manager/` | 数据持久化、网络通信、业务逻辑管理 |
+
+### 2.3 依赖方向
+
+```
+Activity/Fragment → ViewModel → Repository → Database / Manager / Network
+```
+
+**严禁反向依赖**：ViewModel 不持有 Activity 引用，Repository 不持有 ViewModel 引用。
+
+---
+
+## 三、项目结构
+
+```
+d:\quzp\app\
+├── src/main/java/com/smartquiz/app/
+│   ├── ai/                    # AI 模块
+│   │   ├── agent/             # AI Agent 引擎
+│   │   ├── tool/              # AI 工具集
+│   │   ├── gpu/               # GPU 加速
+│   │   └── model/             # 模型管理
+│   ├── database/              # Room 数据库
+│   │   ├── entity/            # 实体类
+│   │   ├── dao/               # DAO 接口
+│   │   └── migration/         # 数据库迁移
+│   ├── di/                    # Hilt 依赖注入模块
+│   ├── infra/                 # 基础设施层
+│   │   ├── network/           # 网络请求
+│   │   ├── logging/           # 日志系统
+│   │   └── crash/             # 崩溃上报
+│   ├── manager/               # 业务逻辑管理器
+│   ├── model/                 # 数据模型（非数据库实体）
+│   ├── repository/            # 仓库层
+│   ├── resource/              # 资源管理
+│   ├── toolkit/               # 工具集
+│   ├── ui/                    # 界面层
+│   │   ├── activity/          # Activity
+│   │   ├── fragment/          # Fragment
+│   │   ├── compose/           # Jetpack Compose 组件
+│   │   ├── widget/            # 自定义控件
+│   │   └── adapter/           # RecyclerView Adapter
+│   ├── util/                  # 静态工具类
+│   ├── viewmodel/             # ViewModel
+│   ├── weather/               # 天气模块
+│   └── webview/               # WebView 模块
+└── src/test/                  # 单元测试
+```
+
+---
+
+## 四、命名规范
+
+### 4.1 Java 命名规范
+
+| 类型 | 规则 | 示例 |
+|------|------|------|
+| 类名 | PascalCase（大驼峰） | `QuizActivity`, `QuestionViewModel` |
+| 方法名 | camelCase（小驼峰） | `loadQuestions()`, `onSubmitAnswer()` |
+| 常量 | UPPER_SNAKE_CASE | `MAX_QUESTION_COUNT`, `DEFAULT_TIMEOUT_MS` |
+| 变量名 | camelCase | `questionList`, `isLoading` |
+| 接口 | PascalCase，以 `I` 开头或直接描述 | `IOnAnswerListener`, `QuestionDao` |
+| 抽象类 | PascalCase，以 `Base` 或 `Abstract` 开头 | `BaseActivity`, `BaseFragment`, `BaseAITool` |
+| 枚举 | PascalCase | `QuestionType`, `DifficultyLevel` |
+| 包名 | 全小写，单词直接拼接 | `com.smartquiz.app.viewmodel` |
+
+### 4.2 Kotlin 命名规范
+
+| 类型 | 规则 | 示例 |
+|------|------|------|
+| 类名 | PascalCase | `QuizRepository`, `AnswerValidator` |
+| 函数名 | camelCase | `loadQuizById()`, `validateAnswer()` |
+| 属性名 | camelCase | `questionCount`, `selectedAnswer` |
+| 伴生对象常量 | UPPER_SNAKE_CASE | `TAG`, `DEFAULT_PAGE_SIZE` |
+| 扩展函数 | camelCase | `String.isValidAnswer()`, `View.showOrHide()` |
+| 数据类 | PascalCase | `data class UserProfile(...)` |
+| 密封类 | PascalCase | `sealed class Result<T>` |
+
+### 4.3 资源文件命名
+
+| 资源类型 | 命名规则 | 示例 |
+|------|------|------|
+| 图标 | `ic_` 前缀 | `ic_quiz_start.xml`, `ic_timer_24.xml` |
+| 背景 | `bg_` 前缀 | `bg_card_rounded.xml`, `bg_gradient_primary.xml` |
+| Activity 布局 | `activity_` 前缀 | `activity_main.xml`, `activity_quiz_detail.xml` |
+| Fragment 布局 | `fragment_` 前缀 | `fragment_question_list.xml` |
+| 列表项布局 | `item_` 前缀 | `item_question_card.xml`, `item_option_radio.xml` |
+| Compose 组件布局 | `layout_` 前缀 | `layout_question_screen.xml` |
+| 对话框布局 | `dialog_` 前缀 | `dialog_result_summary.xml` |
+| 字符串 | 模块_描述 | `quiz_submit_button`, `error_network_timeout` |
+| 颜色 | 语义化命名 | `color_primary`, `color_surface`, `color_error` |
+| 尺寸 | `dimen_` 前缀 + 用途 | `dimen_card_elevation`, `dimen_text_title` |
+| 主题 | `theme_` 前缀 | `style/Theme.SmartQuiz` |
+
+---
+
+## 五、基类规范
 
-- **Activity/Fragment**：负责UI展示和用户交互
-- **ViewModel**：处理业务逻辑，管理UI状态
-- **Repository**：处理数据访问，包括本地数据库和网络请求
-- **Model**：定义数据结构
-- **Util**：提供通用工具方法
+### 5.1 BaseActivity
 
-### 4.4 依赖注入
+所有 Activity **必须** 继承 `BaseActivity`：
 
-- 使用依赖注入框架（如Hilt）管理依赖
-- 避免硬编码依赖，提高代码可测试性
-
-## 5. 数据库操作规范
-
-### 5.1 Room数据库使用
-
-- 所有数据库操作使用Room Persistence Library
-- 实体类使用`@Entity`注解
-- DAO接口使用`@Dao`注解
-- 数据库类使用`@Database`注解
-
-### 5.2 数据访问
-
-- 所有数据库操作通过Repository层进行
-- 复杂查询使用@Query注解
-- 批量操作使用事务
-- 避免在UI线程执行数据库操作
-
-### 5.3 数据库版本管理
-
-- 数据库版本号递增
-- 版本变更时编写迁移脚本
-- 开发环境使用fallbackToDestructiveMigration()
-- 生产环境使用具体的迁移策略
-
-## 6. UI设计规范
-
-### 6.1 布局设计
-
-- 使用ConstraintLayout作为根布局
-- 避免嵌套过深的布局层次
-- 使用dp作为尺寸单位
-- 支持不同屏幕尺寸的适配
-
-### 6.2 主题与样式
-
-- 使用Material Design设计规范
-- 定义统一的主题和样式
-- 支持深色模式
-- 使用主题属性定义颜色和尺寸
-
-### 6.3 资源管理
-
-- 图片资源使用Vector Drawable
-- 字符串资源放入strings.xml
-- 颜色资源放入colors.xml
-- 尺寸资源放入dimens.xml
-
-## 7. 错误处理规范
-
-### 7.1 异常处理
-
-- 捕获具体的异常类型，避免捕获通用Exception
-- 异常处理应包含适当的日志记录
-- 向用户展示友好的错误信息
-- 避免在finally块中抛出异常
-
-### 7.2 错误日志
-
-- 使用Android Log类进行日志记录
-- 日志级别使用适当：DEBUG、INFO、WARN、ERROR
-- 日志内容应包含足够的上下文信息
-- 避免在发布版本中输出敏感信息
-
-### 7.3 网络错误处理
-
-- 处理网络连接失败的情况
-- 处理服务器返回错误的情况
-- 提供网络状态的用户反馈
-- 实现网络请求的重试机制
-
-## 8. 性能优化规范
-
-### 8.1 内存优化
-
-- 避免内存泄漏
-- 使用弱引用和软引用
-- 及时释放不再使用的资源
-- 合理使用缓存
-
-### 8.2 UI优化
-
-- 使用RecyclerView替代ListView
-- 实现视图缓存
-- 避免在onDraw方法中进行耗时操作
-- 使用AsyncTask或Handler处理耗时操作
-
-### 8.3 数据库优化
-
-- 使用索引加速查询
-- 批量操作减少数据库访问次数
-- 使用分页查询减少内存消耗
-- 合理设计表结构和索引
-
-### 8.4 网络优化
-
-- 使用OkHttp的缓存机制
-- 实现请求合并和去重
-- 使用Gson或Moshi进行JSON解析
-- 压缩网络传输数据
-
-## 9. 安全规范
-
-### 9.1 数据安全
-
-- 用户密码使用加密存储
-- 敏感数据传输使用HTTPS
-- 避免在代码中硬编码敏感信息
-- 使用SharedPreferences存储非敏感数据
-
-### 9.2 权限管理
-
-- 只请求必要的权限
-- 使用运行时权限请求
-- 权限请求时提供清晰的说明
-- 处理权限被拒绝的情况
-
-### 9.3 代码安全
-
-- 避免SQL注入
-- 避免XSS攻击
-- 验证用户输入
-- 防止敏感信息泄露
-
-## 10. 版本控制规范
-
-### 10.1 Git使用
-
-- 使用Git进行版本控制
-- 遵循Git Flow工作流程
-- 分支命名规范：feature/功能名、bugfix/问题描述
-- 提交信息清晰、简洁，说明修改内容
-
-### 10.2 代码审查
-
-- 代码提交前进行自我审查
-- 团队成员之间进行代码审查
-- 审查重点：代码质量、安全性、性能
-- 使用代码审查工具辅助审查
-
-### 10.3 版本号管理
-
-- 遵循语义化版本号规范：Major.Minor.Patch
-- Major：重大功能变更
-- Minor：新功能添加
-- Patch：bug修复
-
-## 11. 文档规范
-
-### 11.1 项目文档
-
-- 项目README.md包含项目概述、安装说明、使用指南
-- 架构文档描述系统架构和模块关系
-- API文档描述接口规范和使用方法
-- 数据库文档描述数据库结构和操作流程
-
-### 11.2 代码文档
-
-- 类和方法使用Javadoc注释
-- 复杂算法和业务逻辑添加详细注释
-- 接口和抽象类描述其用途和实现要求
-- 文档应与代码保持同步
-
-### 11.3 测试文档
-
-- 单元测试文档描述测试覆盖范围和测试方法
-- 集成测试文档描述测试场景和测试步骤
-- 性能测试文档描述测试方法和性能指标
-- 测试结果文档记录测试结果和问题分析
-
-## 12. 测试规范
-
-### 12.1 单元测试
-
-- 为核心功能编写单元测试
-- 使用JUnit和Mockito进行测试
-- 测试覆盖率目标：核心功能80%以上
-- 测试方法命名规范：test_功能_预期结果
-
-### 12.2 集成测试
-
-- 测试模块之间的交互
-- 测试数据库操作和网络请求
-- 模拟不同的网络和设备状态
-- 测试异常情况的处理
-
-### 12.3 UI测试
-
-- 使用Espresso进行UI测试
-- 测试用户交互流程
-- 测试不同屏幕尺寸的适配
-- 测试深色模式和浅色模式
-
-## 13. 构建与发布规范
-
-### 13.1 构建配置
-
-- 使用Gradle进行构建
-- 配置不同的构建变体：debug、release
-- 签名配置使用安全的方式存储
-- 依赖版本使用统一的变量管理
-
-### 13.2 发布流程
-
-- 发布前进行全面测试
-- 生成发布版本的APK或AAB
-- 进行应用签名
-- 上传到应用商店
-
-### 13.3 版本发布
-
-- 发布前更新版本号和版本名称
-- 编写发布说明，描述功能变更和bug修复
-- 进行灰度发布，收集用户反馈
-- 正式发布后进行监控和分析
-
-## 14. 总结
-
-本规范为智能题库应用的开发提供了全面的指导，涵盖了代码风格、架构设计、数据库操作、UI设计、错误处理、性能优化、安全规范、版本控制、文档规范和测试规范等方面。
-
-遵循本规范可以提高代码质量，减少开发过程中的问题，提高开发效率，确保应用的稳定性和可维护性。同时，规范也为团队协作提供了统一的标准，便于代码审查和知识共享。
-
-随着项目的发展和技术的进步，本规范应定期更新和完善，以适应新的需求和技术趋势。
+```java
+public class QuizDetailActivity extends BaseActivity {
+    @Override
+    protected int getLayoutResId() {
+        return R.layout.activity_quiz_detail;
+    }
+
+    @Override
+    protected void initView() {
+        // 初始化视图
+    }
+
+    @Override
+    protected void initData() {
+        // 初始化数据
+    }
+}
+```
+
+`BaseActivity` 提供以下通用能力：
+- 统一的 Toolbar 管理
+- 通用的 Loading / Error / Empty 状态处理
+- Toast / Snackbar 工具方法
+- 生命周期感知的日志记录
+- 权限请求封装
+
+### 5.2 BaseFragment
+
+所有 Fragment **必须** 继承 `BaseFragment`：
+
+```java
+public class QuestionListFragment extends BaseFragment {
+    @Override
+    protected int getLayoutResId() {
+        return R.layout.fragment_question_list;
+    }
+
+    @Override
+    protected void initView(View rootView) {
+        // 初始化视图
+    }
+
+    @Override
+    protected void initData() {
+        // 初始化数据
+    }
+}
+```
+
+---
+
+## 六、状态管理规范
+
+### 6.1 View 层状态
+
+| 使用场景 | 推荐方式 | 说明 |
+|------|------|------|
+| Fragment / Activity (传统 View) | `LiveData` | 生命周期感知，自动管理订阅 |
+| Jetpack Compose | `StateFlow` | 支持 Compose 的 `collectAsState()` |
+| 一次性事件（Toast、导航） | `SingleLiveEvent` / `Channel` | 避免事件被重复消费 |
+
+```kotlin
+// ViewModel 中使用 StateFlow
+class QuizViewModel @Inject constructor(
+    private val quizRepository: QuizRepository
+) : ViewModel() {
+
+    private val _questions = MutableStateFlow<List<Question>>(emptyList())
+    val questions: StateFlow<List<Question>> = _questions.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    fun loadQuestions(categoryId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _questions.value = quizRepository.getQuestionsByCategory(categoryId)
+            _isLoading.value = false
+        }
+    }
+}
+```
+
+### 6.2 不可变性
+
+暴露给 UI 层的状态必须是不可变的：
+- `LiveData` 对外暴露为只读类型
+- `StateFlow` 使用 `asStateFlow()` 转换
+- 数据类使用 `val` 属性
+
+---
+
+## 七、错误处理规范
+
+### 7.1 基本原则
+
+- 所有可能抛出异常的代码必须用 `try-catch` 包裹
+- 异常信息必须记录到日志系统
+- 向用户展示友好的中文错误提示
+
+```java
+try {
+    List<Question> questions = quizRepository.loadFromNetwork();
+    updateUI(questions);
+} catch (NetworkException e) {
+    Logger.e(TAG, "网络请求失败", e);
+    showError(getString(R.string.error_network_timeout));
+} catch (Exception e) {
+    Logger.e(TAG, "加载题目失败", e);
+    showError(getString(R.string.error_unknown));
+}
+```
+
+### 7.2 异常分类
+
+| 异常类型 | 处理策略 |
+|------|------|
+| `NetworkException` | 显示网络错误提示，提供重试按钮 |
+| `DatabaseException` | 记录日志，回退到缓存数据 |
+| `AIModelException` | 降级到本地规则引擎 |
+| `IllegalArgumentException` | 开发阶段快速失败，生产环境兜底 |
+| `OutOfMemoryError` | 释放缓存，提示用户重启 |
+
+---
+
+## 八、线程管理规范
+
+### 8.1 强制规则
+
+| 规则 | 说明 |
+|------|------|
+| **禁止使用 AsyncTask** | AsyncTask 已在 API 30 中废弃 |
+| **所有异步操作使用 Coroutines** | Kotlin Coroutines 是唯一的异步方案 |
+| **UI 操作必须在主线程** | 使用 `withContext(Dispatchers.Main)` 切换 |
+| **IO 操作必须在 IO 线程** | 使用 `withContext(Dispatchers.IO)` |
+| **CPU 密集型操作在 Default 线程** | 使用 `withContext(Dispatchers.Default)` |
+
+### 8.2 Coroutines 最佳实践
+
+```kotlin
+class QuestionRepository @Inject constructor(
+    private val questionDao: QuestionDao,
+    private val apiService: ApiService
+) {
+    suspend fun getQuestions(categoryId: String): List<Question> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val remote = apiService.fetchQuestions(categoryId)
+                questionDao.insertAll(remote)
+                remote
+            } catch (e: Exception) {
+                questionDao.getByCategory(categoryId)
+            }
+        }
+    }
+}
+```
+
+### 8.3 作用域管理
+
+| 作用域 | 使用场景 | 生命周期 |
+|------|------|------|
+| `viewModelScope` | ViewModel 中的操作 | 跟随 ViewModel |
+| `lifecycleScope` | Activity/Fragment 中的操作 | 跟随 LifecycleOwner |
+| `GlobalScope` | **禁止使用** | — |
+
+---
+
+## 九、依赖注入规范
+
+### 9.1 Hilt 配置
+
+项目使用 Hilt 进行依赖注入，所有依赖关系通过注解声明：
+
+```kotlin
+@HiltAndroidApp
+class SmartQuizApplication : Application()
+```
+
+```kotlin
+@AndroidEntryPoint
+class QuizDetailActivity : BaseActivity() {
+    @Inject lateinit var quizViewModel: QuizViewModel
+}
+```
+
+### 9.2 Module 定义
+
+```kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+object DatabaseModule {
+
+    @Provides
+    @Singleton
+    fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
+        return Room.databaseBuilder(context, AppDatabase::class.java, "smartquiz.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
+    }
+}
+```
+
+### 9.3 作用域注解
+
+| 注解 | 作用域 | 使用场景 |
+|------|------|------|
+| `@Singleton` | 应用全局单例 | Database, Retrofit, SharedPreferences |
+| `@ViewModelScoped` | ViewModel 范围内单例 | 与单个 ViewModel 绑定的依赖 |
+| `@ActivityScoped` | Activity 范围内单例 | 与单个 Activity 绑定的依赖 |
+| `@FragmentScoped` | Fragment 范围内单例 | 与单个 Fragment 绑定的依赖 |
+| 无作用域 | 每次注入都创建新实例 | 无状态工具类 |
+
+---
+
+## 十、Jetpack Compose 最佳实践
+
+### 10.1 基本规范
+
+- 使用 **Material 3** 设计组件
+- 遵循 **状态提升 (State Hoisting)** 模式
+- 使用 `@Preview` 注解预览组件
+- 避免在 Composable 函数中执行副作用，使用 `LaunchedEffect` / `SideEffect`
+- 使用 `remember` 和 `rememberSaveable` 管理局部状态
+
+```kotlin
+@Composable
+fun QuestionCard(
+    question: Question,
+    onAnswerSelected: (Answer) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = question.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            question.options.forEach { option ->
+                AnswerOption(
+                    option = option,
+                    isSelected = option.isSelected,
+                    onClick = { onAnswerSelected(option) }
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun QuestionCardPreview() {
+    SmartQuizTheme {
+        QuestionCard(
+            question = Question.mock(),
+            onAnswerSelected = {}
+        )
+    }
+}
+```
+
+### 10.2 主题与样式
+
+- 使用 `MaterialTheme` 定义颜色、排版、形状
+- 支持深色模式：在 `Theme.kt` 中配置 `darkColorScheme`
+- 不得在 Composable 中硬编码颜色值
+
+---
+
+## 十一、AI 模块开发规范
+
+### 11.1 AI Agent 引擎
+
+AI 模块的核心是 `AIAgentEngine`，负责协调 AI 工具调用和模型推理：
+
+```java
+public class AIAgentEngine {
+    private final AIToolManager toolManager;
+    private final ModelManager modelManager;
+
+    public void execute(String input, AIAgentCallback callback) {
+        // 1. 解析输入意图
+        // 2. 选择合适的 AI Tool
+        // 3. 执行推理
+        // 4. 返回结果
+    }
+}
+```
+
+### 11.2 BaseAITool 模式
+
+所有 AI 工具 **必须** 继承 `BaseAITool`：
+
+```java
+public abstract class BaseAITool {
+    protected Context context;
+    protected AIToolCallback callback;
+
+    public abstract String getToolName();
+    public abstract String getToolDescription();
+    public abstract void execute(String input, Map<String, Object> params);
+    public abstract void cancel();
+    public abstract void release();
+
+    protected void onSuccess(String result) {
+        if (callback != null) {
+            callback.onToolSuccess(getToolName(), result);
+        }
+    }
+
+    protected void onError(String error) {
+        if (callback != null) {
+            callback.onToolError(getToolName(), error);
+        }
+    }
+}
+```
+
+### 11.3 Callback 处理
+
+```java
+public interface AIToolCallback {
+    void onToolStart(String toolName);
+    void onToolProgress(String toolName, int progress);
+    void onToolSuccess(String toolName, String result);
+    void onToolError(String toolName, String error);
+    void onToolCancelled(String toolName);
+}
+```
+
+### 11.4 AI 模块目录规范
+
+| 目录 | 用途 | 内容示例 |
+|------|------|------|
+| `ai/agent/` | Agent 引擎 | `AIAgentEngine`, `QuizAgent`, `SearchAgent` |
+| `ai/tool/` | AI 工具集 | `QuestionGenerateTool`, `AnswerVerifyTool` |
+| `ai/gpu/` | GPU 加速代码 | `GpuDelegate`, `OpenCLHelper` |
+| `ai/model/` | 模型管理 | `ModelManager`, `ModelDownloader` |
+
+---
+
+## 十二、WebView 安全规范
+
+### 12.1 基础安全要求
+
+- 所有 WebView 必须使用 `SecurityWebViewClient`
+- 禁止启用 `allowFileAccess`（默认已是 false）
+- 禁止启用 `allowUniversalAccessFromFileURLs`
+- JS Bridge 必须对输入参数进行合法性校验
+
+### 12.2 JS Bridge 规范
+
+```java
+@JavascriptInterface
+public void onJsCall(String action, String data) {
+    // 1. 校验 action 白名单
+    if (!isValidAction(action)) {
+        Logger.w(TAG, "非法的 JS Bridge 调用: " + action);
+        return;
+    }
+
+    // 2. 校验 data 格式
+    try {
+        JSONObject json = new JSONObject(data);
+        // 3. 字段级校验
+        if (!json.has("required_field")) {
+            return;
+        }
+        // 4. 执行业务逻辑
+        handleJsAction(action, json);
+    } catch (JSONException e) {
+        Logger.e(TAG, "JS Bridge 数据解析失败", e);
+    }
+}
+```
+
+### 12.3 FileRedirectManager
+
+所有本地文件访问必须通过 `FileRedirectManager` 进行路径白名单校验，防止路径遍历攻击。
+
+---
+
+## 十三、数据库规范
+
+### 13.1 Room 实体定义
+
+```kotlin
+@Entity(tableName = "questions")
+data class QuestionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "category_id") val categoryId: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "type") val type: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long
+)
+```
+
+### 13.2 DAO 接口
+
+```kotlin
+@Dao
+interface QuestionDao {
+    @Query("SELECT * FROM questions WHERE category_id = :categoryId")
+    fun getByCategory(categoryId: String): Flow<List<QuestionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(questions: List<QuestionEntity>)
+
+    @Delete
+    suspend fun delete(question: QuestionEntity)
+}
+```
+
+### 13.3 数据库迁移规则
+
+| 规则 | 说明 |
+|------|------|
+| **禁止使用 `fallbackToDestructiveMigration`** | 生产环境绝不允许破坏性迁移 |
+| 每个迁移必须有对应的测试 | 验证迁移前后的数据完整性 |
+| 迁移命名：`MIGRATION_X_Y` | X = 旧版本号，Y = 新版本号 |
+| 复杂迁移必须有注释 | 解释每个 SQL 语句的目的 |
+
+```kotlin
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE questions ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'EASY'")
+    }
+}
+```
+
+---
+
+## 十四、测试规范
+
+### 14.1 测试框架
+
+| 测试类型 | 框架 | 用途 |
+|------|------|------|
+| 单元测试 | JUnit 4 | 业务逻辑验证 |
+| Mock | Mockito | 模拟依赖对象 |
+| Android 测试 | Robolectric | 模拟 Android 环境运行测试 |
+| UI 测试 | Espresso / Compose Testing | 界面交互测试 |
+
+### 14.2 测试示例
+
+```kotlin
+@RunWith(RobolectricTestRunner::class)
+class QuestionViewModelTest {
+
+    @Mock
+    private lateinit var repository: QuizRepository
+
+    private lateinit var viewModel: QuestionViewModel
+
+    @Before
+    fun setUp() {
+        MockitoAnnotations.openMocks(this)
+        viewModel = QuestionViewModel(repository)
+    }
+
+    @Test
+    fun `loadQuestions should update questions LiveData`() = runTest {
+        val mockQuestions = listOf(Question("1", "测试题目", "SINGLE"))
+        Mockito.`when`(repository.getQuestionsByCategory("1")).thenReturn(mockQuestions)
+
+        viewModel.loadQuestions("1")
+
+        assertEquals(mockQuestions, viewModel.questions.value)
+    }
+}
+```
+
+---
+
+## 十五、代码审查清单
+
+每次代码审查必须确认以下项目：
+
+| # | 检查项 | 状态 |
+|---|------|------|
+| 1 | Activity 继承 BaseActivity | ☐ |
+| 2 | Fragment 继承 BaseFragment | ☐ |
+| 3 | ViewModel 使用 @HiltViewModel | ☐ |
+| 4 | 没有直接数据库访问（通过 Repository） | ☐ |
+| 5 | 异常被 try-catch 包裹 | ☐ |
+| 6 | 没有使用 AsyncTask | ☐ |
+| 7 | 异步操作使用 Coroutines | ☐ |
+| 8 | 用户可见字符串使用中文资源 | ☐ |
+| 9 | 代码注释使用英文 | ☐ |
+| 10 | 新功能有对应的单元测试 | ☐ |
+| 11 | 数据库变更包含 Migration | ☐ |
+| 12 | WebView JS Bridge 有输入校验 | ☐ |
+| 13 | 日志级别正确（e/w/i/d） | ☐ |
+| 14 | 没有引入新的第三方依赖（未经讨论） | ☐ |
+| 15 | 资源命名符合前缀规范 | ☐ |
+
+---
+
+## 十六、性能指标
+
+### 16.1 关键指标
+
+| 指标 | 目标值 | 测量方法 |
+|------|------|------|
+| 冷启动时间 | < 3 秒 | Android Vitals / 自定义打点 |
+| 热启动时间 | < 1 秒 | Android Vitals |
+| 内存占用 | < 200 MB | Android Profiler |
+| APK 体积 | < 80 MB | APK Analyzer |
+| 帧率 | ≥ 60 FPS | GPU 渲染分析 |
+| ANR 率 | < 0.1% | Google Play Console |
+| 崩溃率 | < 0.5% | Firebase Crashlytics |
+
+### 16.2 优化建议
+
+- 使用 App Startup 库优化初始化流程
+- 图片使用 WebP 格式，大图使用 Coil/Glide 加载
+- 列表使用 RecyclerView + Paging 3 分页加载
+- LargeHeap 仅在充分评估后启用
+- 使用 Baseline Profile 提升首次启动性能
+
+### 16.3 构建配置
+
+| 配置项 | 值 |
+|------|------|
+| minSdk | 31 (Android 12) |
+| targetSdk | 34 (Android 14) |
+| compileSdk | 34 |
+| Gradle | 8.13 |
+| AGP | 8.4.0 |
+| JDK | 17 |
+| Kotlin | 1.9.x |
+
+---
+
+## 十七、版本历史
+
+| 版本 | 日期 | 变更内容 |
+|------|------|------|
+| 1.0 | 2025-10-01 | 初始版本 |
+| 2.0 | 2026-05-16 | 增加 AI 模块规范、Compose 最佳实践、性能指标 |
+
+---
+
+*本文档由「答题宝」技术团队维护，任何修订需经过 Code Review 流程。*
