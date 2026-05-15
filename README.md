@@ -114,6 +114,10 @@ app/
 
 ## 快速开始
 
+> **详细指南请参阅：**
+> - [**SETUP_GUIDE.md**](SETUP_GUIDE.md) — 环境搭建、构建、安装到设备的完整步骤
+> - [**DEVELOPMENT_GUIDE.md**](DEVELOPMENT_GUIDE.md) — 架构说明、功能开发、调试、Git 协作、问题排查
+
 ### 环境要求
 
 - **Android Studio**: Hedgehog (2023.1.1) 或更高版本
@@ -126,7 +130,7 @@ app/
 
 1. 克隆仓库
 ```bash
-git clone https://github.com/your-username/smartquiz.git
+git clone https://github.com/18295071983/smartquiz.git
 ```
 
 2. 使用 Android Studio 打开项目
