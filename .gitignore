@@ -170,5 +170,21 @@ test_crash.bat
 test_crash.ps1
 proguard-rules-release.pro
 
+# ============ Gradle wrapper distribution (downloaded) ============
+gradle/wrapper/bin/
+gradle/wrapper/init.d/
+gradle/wrapper/lib/
+gradle/wrapper/gradle-wrapper-shared-*.jar
+gradle/wrapper/gradle-*.zip
+
+# ============ AAR/Zip binaries ============
+*.aar
+*.zip
+
+# ============ Temp/Export ============
+subapp/
+导出子应用_*/
+src/main/cpp/native-lib-clean.cpp
+
 # ============ Fonts (large files) ============
 src/main/assets/fonts/

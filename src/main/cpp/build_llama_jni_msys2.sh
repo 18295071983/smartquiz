@@ -31,6 +31,22 @@ GLSLC="$NDK_DIR/shader-tools/windows-x86_64/glslc.exe"
 # 将glslc所在目录添加到PATH（CMake查找glslc需要）
 export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
+# OpenCL ICD Loader路径（优先使用已编译的）
+OPENCL_ICD_DIR="$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build_android"
+OPENCL_LIB_PATHS=(
+    "$OPENCL_ICD_DIR/libOpenCL.so"
+    "$SCRIPT_DIR/opencl/build/lib/libOpenCL.so"
+    "$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build/libOpenCL.so"
+    "$NDK_DIR/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so"
+)
+OPENCL_LIB=""
+for path in "${OPENCL_LIB_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        OPENCL_LIB="$path"
+        break
+    fi
+done
+
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
     log_error "CMake not found at: $CMAKE"
@@ -53,9 +69,22 @@ else
     VULKAN_ENABLED=1
 fi
 
+# 检查OpenCL ICD Loader（仅ARM64需要）
+OPENCL_ENABLED=0
+if [ -n "$OPENCL_LIB" ]; then
+    log_info "使用OpenCL ICD Loader: $OPENCL_LIB"
+    OPENCL_ENABLED=1
+else
+    log_warn "OpenCL ICD Loader (libOpenCL.so) 未找到"
+    log_warn "请先运行: $SCRIPT_DIR/opencl/build_icd_loader.sh"
+    log_warn "ARM64构建将禁用OpenCL支持"
+    OPENCL_ENABLED=0
+fi
+
 log_info "使用CMake: $CMAKE"
 log_info "使用Ninja: $NINJA"
 log_info "Vulkan支持: $VULKAN_ENABLED"
+log_info "OpenCL支持: $OPENCL_ENABLED"
 
 # 检查NDK
 if [ ! -d "$NDK_DIR" ]; then
@@ -102,7 +131,7 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
-    -DGGML_OPENCL=ON \
+    -DGGML_OPENCL=$OPENCL_ENABLED \
     -DGGML_VULKAN=$VULKAN_ENABLED \
     -DGGML_CUDA=OFF \
     -DGGML_RPC=OFF \
@@ -110,8 +139,8 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
     -DGGLSLC_EXECUTABLE="$GLSLC" \
     -DOpenCL_INCLUDE_DIRS="$SCRIPT_DIR/opencl/headers" \
-    -DOpenCL_LIBRARIES="$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build/libOpenCL.so" \
-    -DOpenCL_FOUND=TRUE \
+    -DOpenCL_LIBRARIES="$OPENCL_LIB" \
+    -DOpenCL_FOUND=$OPENCL_ENABLED \
     -DOpenCL_VERSION_STRING="3.0" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"
@@ -123,22 +152,43 @@ cd "$ARM64_BUILD_DIR" || exit 1
     exit 1
 }
 
-# 复制ARM64库
-if [ -f "libllama-jni.so" ]; then
-    cp "libllama-jni.so" "$JNI_LIBS_DIR/arm64-v8a/"
-    log_info "ARM64库已复制到: $JNI_LIBS_DIR/arm64-v8a/libllama-jni.so"
-else
+# 检查ARM64库（可能直接输出到jniLibs或在build目录）
+ARM64_LIB_FOUND=0
+ARM64_LIB_PATHS=(
+    "$JNI_LIBS_DIR/arm64-v8a/libllama-jni.so"
+    "libllama-jni.so"
+    "CMakeFiles/llama-jni.dir/libllama-jni.so"
+)
+for path in "${ARM64_LIB_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        log_info "ARM64库已找到: $path"
+        ARM64_LIB_FOUND=1
+        # 如果不在目标目录，复制过去
+        if [ "$path" != "$JNI_LIBS_DIR/arm64-v8a/libllama-jni.so" ]; then
+            cp "$path" "$JNI_LIBS_DIR/arm64-v8a/"
+            log_info "ARM64库已复制到: $JNI_LIBS_DIR/arm64-v8a/libllama-jni.so"
+        fi
+        break
+    fi
+done
+
+if [ $ARM64_LIB_FOUND -eq 0 ]; then
     log_error "未找到ARM64库文件"
+    log_info "搜索过的路径:"
+    for path in "${ARM64_LIB_PATHS[@]}"; do
+        log_info "  $path"
+    done
     exit 1
 fi
 
-# 复制libOpenCL.so到ARM64目录
-OPENCL_LIB="$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build/libOpenCL.so"
-if [ -f "$OPENCL_LIB" ]; then
+# 复制libOpenCL.so到ARM64目录（使用之前检测到的路径）
+if [ -n "$OPENCL_LIB" ] && [ -f "$OPENCL_LIB" ]; then
     cp "$OPENCL_LIB" "$JNI_LIBS_DIR/arm64-v8a/"
     log_info "libOpenCL.so已复制到: $JNI_LIBS_DIR/arm64-v8a/libOpenCL.so"
 else
-    log_warn "未找到libOpenCL.so，OpenCL GPU加速将不可用"
+    if [ $OPENCL_ENABLED -eq 1 ]; then
+        log_warn "未找到libOpenCL.so，OpenCL GPU加速将不可用"
+    fi
 fi
 
 # ============================================
@@ -174,12 +224,32 @@ cd "$X64_BUILD_DIR" || exit 1
     exit 1
 }
 
-# 复制x86_64库
-if [ -f "libllama-jni.so" ]; then
-    cp "libllama-jni.so" "$JNI_LIBS_DIR/x86_64/"
-    log_info "x86_64库已复制到: $JNI_LIBS_DIR/x86_64/libllama-jni.so"
-else
+# 检查x86_64库（可能直接输出到jniLibs或在build目录）
+X64_LIB_FOUND=0
+X64_LIB_PATHS=(
+    "$JNI_LIBS_DIR/x86_64/libllama-jni.so"
+    "libllama-jni.so"
+    "CMakeFiles/llama-jni.dir/libllama-jni.so"
+)
+for path in "${X64_LIB_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        log_info "x86_64库已找到: $path"
+        X64_LIB_FOUND=1
+        # 如果不在目标目录，复制过去
+        if [ "$path" != "$JNI_LIBS_DIR/x86_64/libllama-jni.so" ]; then
+            cp "$path" "$JNI_LIBS_DIR/x86_64/"
+            log_info "x86_64库已复制到: $JNI_LIBS_DIR/x86_64/libllama-jni.so"
+        fi
+        break
+    fi
+done
+
+if [ $X64_LIB_FOUND -eq 0 ]; then
     log_error "未找到x86_64库文件"
+    log_info "搜索过的路径:"
+    for path in "${X64_LIB_PATHS[@]}"; do
+        log_info "  $path"
+    done
     exit 1
 fi
 

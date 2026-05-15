@@ -1,4 +1,4 @@
-﻿#include <jni.h>
+#include <jni.h>
 #include <string>
 #include <memory>
 #include <android/log.h>
@@ -13,6 +13,9 @@
 #include "ggml-backend.h"
 
 #ifdef GGML_USE_OPENCL
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
 #include <dlfcn.h>
 #include <CL/cl.h>
 #endif
