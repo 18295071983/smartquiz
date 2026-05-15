@@ -119,6 +119,11 @@ public class AgentService {
         toolNameAliases.put("get_weather", "app_toolkit");
         toolNameAliases.put("weather_query", "app_toolkit");
         toolNameAliases.put("weather", "app_toolkit");
+        toolNameAliases.put("get_location", "location");
+        toolNameAliases.put("location_query", "location");
+        toolNameAliases.put("get_current_location", "location");
+        toolNameAliases.put("get_city", "location");
+        toolNameAliases.put("get_gps", "location");
         toolNameAliases.put("network_search", "network_search");
         toolNameAliases.put("search", "network_search");
         toolNameAliases.put("web_search", "network_search");
@@ -141,6 +146,10 @@ public class AgentService {
         registerToolSchema("get_weather", "查询天气", "action(操作类型,必填: weather_current/weather_forecast/weather_hourly/weather_air/weather_alerts/weather_indices/weather_all), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("weather", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("weather_query", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("location", "获取位置信息", "action(操作类型,可选: get_current/get_city/get_coordinates)");
+        registerToolSchema("get_location", "获取位置信息", "action(操作类型,可选)");
+        registerToolSchema("get_current_location", "获取当前位置", "action(操作类型,可选)");
+        registerToolSchema("get_city", "获取当前城市", "无参数");
         registerToolSchema("network_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
         registerToolSchema("web_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
@@ -169,6 +178,9 @@ public class AgentService {
             new ToolParamSchema("city", "string", "城市名称", false, "北京"),
             new ToolParamSchema("lat", "number", "纬度", false, 0),
             new ToolParamSchema("lon", "number", "经度", false, 0));
+
+        registerToolParamSchema("location",
+            new ToolParamSchema("action", "string", "操作类型：get_current(获取完整位置), get_city(获取城市), get_coordinates(获取坐标)", false, "get_current"));
 
         registerToolParamSchema("network_search",
             new ToolParamSchema("query", "string", "搜索关键词", true, null),
@@ -301,17 +313,6 @@ public class AgentService {
             Matcher m4 = p4.matcher(output);
             while (m4.find()) {
                 calls.add(new ToolCall(m4.group(1), m4.group(2)));
-            }
-        }
-
-        if (calls.isEmpty()) {
-            Pattern p5 = Pattern.compile("\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"arguments\"\\s*:\\s*(\\{[^}]*\\})\\s*\\}", Pattern.DOTALL);
-            Matcher m5 = p5.matcher(output);
-            while (m5.find()) {
-                String toolName = m5.group(1);
-                if (isKnownOrAliasedTool(toolName)) {
-                    calls.add(new ToolCall(toolName, m5.group(2)));
-                }
             }
         }
 
@@ -613,6 +614,10 @@ public class AgentService {
             String lower = userMessage.toLowerCase();
             if (lower.contains("天气") || lower.contains("气温") || lower.contains("下雨") || lower.contains("温度"))
                 return "weather";
+            if (lower.contains("我在哪") || lower.contains("我的位置") || lower.contains("我在什么地方") || 
+                lower.contains("定位") || lower.contains("我的城市") || lower.contains("gps") || 
+                lower.contains("我所在") || (lower.contains("我在") && lower.length() < 10))
+                return "location";
             if (lower.contains("搜索") || lower.contains("查找") || lower.contains("检索"))
                 return "search";
             if (lower.contains("计算") || lower.contains("算一下") || lower.matches(".*[\\d+\\-*/=().\\s]+.*"))
@@ -753,6 +758,7 @@ public class AgentService {
     private String getPrimaryToolForIntent(String intentType) {
         switch (intentType) {
             case "weather": return "get_weather";
+            case "location": return "location";
             case "search": return "network_search";
             case "calculate": return "calculate";
             case "database": return "database_query";

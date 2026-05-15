@@ -18,8 +18,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 import java.util.concurrent.CompletableFuture;
+import java.util.Map;
+import java.util.HashMap;
 
-public class AIWeatherManager {
+public class AIWeatherManager implements AITool {
 
     private static final String TAG = "AIWeatherManager";
     
@@ -59,6 +61,26 @@ public class AIWeatherManager {
 
     public void setWeatherProvider(WeatherProvider provider) {
         this.currentProvider = provider;
+    }
+
+    private String getHefengApiKey() {
+        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+        String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
+        if (apiKey == null || apiKey.isEmpty()) {
+            Log.w(TAG, "和风天气API Key未配置，使用默认Key");
+            return HEFENG_DEFAULT_API_KEY;
+        }
+        return apiKey;
+    }
+
+    private String getOpenWeatherMapApiKey() {
+        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+        String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
+        if (apiKey == null || apiKey.isEmpty()) {
+            Log.w(TAG, "OpenWeatherMap API Key未配置，使用默认Key");
+            return "37574c70b8d19d7db691c97af40b5947";
+        }
+        return apiKey;
     }
 
     public WeatherProvider getWeatherProvider() {
@@ -138,11 +160,7 @@ public class AIWeatherManager {
     private CompletableFuture<String> getOpenWeatherMapCurrentWeather(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
+                String apiKey = getOpenWeatherMapApiKey();
                 
                 String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
                 String urlString = CURRENT_WEATHER_URL + "?q=" + encodedCity + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
@@ -170,12 +188,7 @@ public class AIWeatherManager {
     private CompletableFuture<String> getHefengCurrentWeather(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -195,12 +208,7 @@ public class AIWeatherManager {
     private CompletableFuture<String> getHefengCurrentWeatherByLocation(double lat, double lon) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String cityName = getHefengCityNameByLocation(lat, lon, apiKey);
 
@@ -218,11 +226,7 @@ public class AIWeatherManager {
     private CompletableFuture<String> getOpenWeatherMapCurrentWeatherByLocation(double lat, double lon) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
+                String apiKey = getOpenWeatherMapApiKey();
 
                 String urlString = CURRENT_WEATHER_URL + "?lat=" + lat + "&lon=" + lon + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
                 URL url = new URL(urlString);
@@ -347,11 +351,7 @@ public class AIWeatherManager {
     public CompletableFuture<String> getHefengForecast(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -410,11 +410,7 @@ public class AIWeatherManager {
     public CompletableFuture<String> getHefengHourly(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -468,11 +464,7 @@ public class AIWeatherManager {
     public CompletableFuture<String> getHefengAirQuality(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -532,11 +524,7 @@ public class AIWeatherManager {
     public CompletableFuture<String> getHefengAlerts(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -600,11 +588,7 @@ public class AIWeatherManager {
     public CompletableFuture<String> getHefengIndices(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = HEFENG_DEFAULT_API_KEY;
-                }
+                String apiKey = getHefengApiKey();
 
                 String locationId = getHefengLocationId(city, apiKey);
                 if (locationId == null || locationId.isEmpty()) {
@@ -726,29 +710,12 @@ public class AIWeatherManager {
         });
     }
 
-    private String getHefengApiKey() {
-        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-        String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-        if (apiKey == null || apiKey.isEmpty()) {
-            apiKey = HEFENG_DEFAULT_API_KEY;
-        }
-        return apiKey;
-    }
-
     // 获取详细天气信息（使用One Call 3.0，需要额外订阅）
     public CompletableFuture<String> getOneCallWeather(double lat, double lon, String exclude, String units, String lang) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 从APIKeyManager获取API密钥
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
+                String apiKey = getOpenWeatherMapApiKey();
                 
-                // 如果没有API密钥，使用默认密钥（仅用于测试）
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
-                
-                // 构建API请求URL
                 StringBuilder urlBuilder = new StringBuilder(ONE_CALL_URL);
                 urlBuilder.append("?lat=").append(lat);
                 urlBuilder.append("&lon=").append(lon);
@@ -793,16 +760,8 @@ public class AIWeatherManager {
     public CompletableFuture<String> getTimestampWeather(double lat, double lon, long timestamp, String units, String lang) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 从APIKeyManager获取API密钥
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
+                String apiKey = getOpenWeatherMapApiKey();
                 
-                // 如果没有API密钥，使用默认密钥（仅用于测试）
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
-                
-                // 构建API请求URL
                 StringBuilder urlBuilder = new StringBuilder(ONE_CALL_TIMESTAMP_URL);
                 urlBuilder.append("?lat=").append(lat);
                 urlBuilder.append("&lon=").append(lon);
@@ -845,16 +804,8 @@ public class AIWeatherManager {
     public CompletableFuture<String> getDailyAggregationWeather(double lat, double lon, long startDate, long endDate, String units, String lang) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 从APIKeyManager获取API密钥
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
+                String apiKey = getOpenWeatherMapApiKey();
                 
-                // 如果没有API密钥，使用默认密钥（仅用于测试）
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
-                
-                // 构建API请求URL
                 StringBuilder urlBuilder = new StringBuilder(ONE_CALL_DAILY_AGGREGATION_URL);
                 urlBuilder.append("?lat=").append(lat);
                 urlBuilder.append("&lon=").append(lon);
@@ -898,16 +849,8 @@ public class AIWeatherManager {
     public CompletableFuture<String> getWeatherOverview(double lat, double lon, String units, String lang) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 从APIKeyManager获取API密钥
-                APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-                String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
+                String apiKey = getOpenWeatherMapApiKey();
                 
-                // 如果没有API密钥，使用默认密钥（仅用于测试）
-                if (apiKey == null) {
-                    apiKey = "37574c70b8d19d7db691c97af40b5947";
-                }
-                
-                // 构建API请求URL
                 StringBuilder urlBuilder = new StringBuilder(ONE_CALL_OVERVIEW_URL);
                 urlBuilder.append("?lat=").append(lat);
                 urlBuilder.append("&lon=").append(lon);
@@ -1240,5 +1183,267 @@ public class AIWeatherManager {
                "5. 天气概览: 输入经纬度，例如 '天气概览 39.9 116.4'\n\n" +
                "注意: One Call 3.0 API 需要单独订阅，部分功能可能需要付费使用。\n" +
                "如果使用默认API密钥，可能会遇到限制或错误。";
+    }
+    
+    @Override
+    public String getName() {
+        return "ai_weather";
+    }
+    
+    @Override
+    public String getDescription() {
+        return "AI天气管理工具，支持实时天气查询、天气预报、24小时预报、空气质量、天气预警、生活指数等功能，支持和风天气和OpenWeatherMap两个API提供商";
+    }
+    
+    @Override
+    public AIToolResult execute(Map<String, Object> parameters) {
+        try {
+            String action = (String) parameters.get("action");
+            if (action == null) {
+                action = "current";
+            }
+            
+            String city = (String) parameters.get("city");
+            Object latObj = parameters.get("lat");
+            Object lonObj = parameters.get("lon");
+            Double lat = null;
+            Double lon = null;
+            
+            if (latObj != null) {
+                if (latObj instanceof Double) {
+                    lat = (Double) latObj;
+                } else if (latObj instanceof Number) {
+                    lat = ((Number) latObj).doubleValue();
+                }
+            }
+            if (lonObj != null) {
+                if (lonObj instanceof Double) {
+                    lon = (Double) lonObj;
+                } else if (lonObj instanceof Number) {
+                    lon = ((Number) lonObj).doubleValue();
+                }
+            }
+            
+            boolean useLocation = lat != null && lon != null;
+            
+            switch (action) {
+                case "current":
+                    return getCurrentWeatherAITool(city, lat, lon, useLocation);
+                case "forecast":
+                    return getForecastAITool(city, lat, lon, useLocation);
+                case "hourly":
+                    return getHourlyAITool(city, lat, lon, useLocation);
+                case "air_quality":
+                    return getAirQualityAITool(city, lat, lon, useLocation);
+                case "alerts":
+                    return getAlertsAITool(city, lat, lon, useLocation);
+                case "indices":
+                    return getIndicesAITool(city, lat, lon, useLocation);
+                case "all":
+                    return getAllWeatherAITool(city, lat, lon, useLocation);
+                case "one_call":
+                    return getOneCallAITool(lat, lon, parameters);
+                default:
+                    return getCurrentWeatherAITool(city, lat, lon, useLocation);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error executing AI weather tool: " + e.getMessage(), e);
+            return new AIToolResult("天气查询失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getCurrentWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getCurrentWeatherByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getCurrentWeather(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting current weather: " + e.getMessage(), e);
+            return new AIToolResult("获取当前天气失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getForecastAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getHefengForecastByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getHefengForecast(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting forecast: " + e.getMessage(), e);
+            return new AIToolResult("获取天气预报失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getHourlyAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getHefengHourlyByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getHefengHourly(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting hourly: " + e.getMessage(), e);
+            return new AIToolResult("获取小时预报失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getAirQualityAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getHefengAirQualityByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getHefengAirQuality(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting air quality: " + e.getMessage(), e);
+            return new AIToolResult("获取空气质量失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getAlertsAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getHefengAlertsByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getHefengAlerts(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting alerts: " + e.getMessage(), e);
+            return new AIToolResult("获取天气预警失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getIndicesAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            String result;
+            if (useLocation) {
+                result = getHefengIndicesByLocation(lat, lon).get();
+            } else if (city != null && !city.isEmpty()) {
+                result = getHefengIndices(city).get();
+            } else {
+                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting indices: " + e.getMessage(), e);
+            return new AIToolResult("获取生活指数失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getAllWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
+        try {
+            StringBuilder allData = new StringBuilder();
+            
+            CompletableFuture<String> currentFuture = useLocation ? 
+                getCurrentWeatherByLocation(lat, lon) : getCurrentWeather(city);
+            CompletableFuture<String> forecastFuture = useLocation ?
+                getHefengForecastByLocation(lat, lon) : getHefengForecast(city != null ? city : "北京");
+            CompletableFuture<String> hourlyFuture = useLocation ?
+                getHefengHourlyByLocation(lat, lon) : getHefengHourly(city != null ? city : "北京");
+            CompletableFuture<String> airFuture = useLocation ?
+                getHefengAirQualityByLocation(lat, lon) : getHefengAirQuality(city != null ? city : "北京");
+            CompletableFuture<String> alertsFuture = useLocation ?
+                getHefengAlertsByLocation(lat, lon) : getHefengAlerts(city != null ? city : "北京");
+            CompletableFuture<String> indicesFuture = useLocation ?
+                getHefengIndicesByLocation(lat, lon) : getHefengIndices(city != null ? city : "北京");
+            
+            CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get();
+            
+            allData.append(currentFuture.get()).append("\n\n");
+            allData.append(forecastFuture.get()).append("\n\n");
+            allData.append(hourlyFuture.get()).append("\n\n");
+            allData.append(airFuture.get()).append("\n\n");
+            allData.append(alertsFuture.get()).append("\n\n");
+            allData.append(indicesFuture.get());
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", allData.toString());
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting all weather: " + e.getMessage(), e);
+            return new AIToolResult("获取完整天气信息失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult getOneCallAITool(Double lat, Double lon, Map<String, Object> parameters) {
+        if (lat == null || lon == null) {
+            return new AIToolResult("one_call 需要提供经纬度", new HashMap<>());
+        }
+        
+        try {
+            String exclude = (String) parameters.get("exclude");
+            String units = (String) parameters.get("units");
+            String lang = (String) parameters.get("lang");
+            
+            String result = getOneCallWeather(lat, lon, exclude, units, lang).get();
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", result);
+            return new AIToolResult(resultMap, new HashMap<>());
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting one call weather: " + e.getMessage(), e);
+            return new AIToolResult("获取详细天气信息失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    @Override
+    public Map<String, String> getParameterDescriptions() {
+        Map<String, String> descriptions = new HashMap<>();
+        descriptions.put("action", "操作类型: current(当前天气), forecast(天气预报), hourly(24小时预报), air_quality(空气质量), alerts(天气预警), indices(生活指数), all(全部信息), one_call(详细天气)");
+        descriptions.put("city", "城市名称（用于按城市查询）");
+        descriptions.put("lat", "纬度（用于按坐标查询）");
+        descriptions.put("lon", "经度（用于按坐标查询）");
+        descriptions.put("provider", "API提供商: hefeng(和风天气,默认), openweathermap");
+        return descriptions;
     }
 }

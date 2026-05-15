@@ -87,6 +87,7 @@ public class AIToolManager {
             tools.put("app_operation", new AppOperationTool(context));
             tools.put("translation", new TranslationTool(context));
             tools.put("location", new LocationTool(context));
+            tools.put("ai_weather", new AIWeatherManager(context));
             tools.put("app_toolkit", new AppToolkitAITool(context));
             
             Log.i(TAG, "AIToolManager initialized with " + tools.size() + " tools");

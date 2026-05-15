@@ -401,7 +401,8 @@ public class SmartIntentRecognizer {
             }
 
             if (matchCount > 0) {
-                double confidence = 0.4 + (0.6 * Math.min(1.0, (double) matchCount / 2.0));
+                double matchRatio = (double) matchCount / Math.max(1, keywords.length);
+                double confidence = 0.35 + 0.65 * Math.min(1.0, matchRatio * 2.5);
 
                 if (intent == Intent.WEATHER) {
                     String city = extractCityName(message);
@@ -440,36 +441,52 @@ public class SmartIntentRecognizer {
             Pattern[] patterns = entry.getValue();
 
             for (Pattern pattern : patterns) {
-                if (pattern.matcher(message).find()) {
-                    double confidence = 0.8;
+                java.util.regex.Matcher matcher = pattern.matcher(message);
+                if (matcher.find()) {
+                    double confidence = 0.55;
                     String entity = null;
                     Map<String, Object> params = new HashMap<>();
+                    boolean hasEntity = false;
 
                     if (intent == Intent.WEATHER) {
                         String city = extractCityName(message);
                         if (city != null) {
                             entity = city;
                             params.put("city", city);
+                            hasEntity = true;
                         }
                     } else if (intent == Intent.CALCULATOR) {
                         String expr = extractMathExpression(message);
                         if (expr != null) {
                             entity = expr;
                             params.put("expression", expr);
+                            hasEntity = true;
                         }
                     } else if (intent == Intent.WEB) {
                         String url = extractUrl(message);
                         if (url != null) {
                             entity = url;
                             params.put("url", url);
+                            hasEntity = true;
                         }
                     } else if (intent == Intent.TRANSLATE) {
                         String lang = extractTargetLanguage(message);
                         if (lang != null) {
                             entity = lang;
                             params.put("target_language", lang);
+                            hasEntity = true;
                         }
                     }
+
+                    if (hasEntity) {
+                        confidence += 0.25;
+                    }
+
+                    int matchLength = matcher.end() - matcher.start();
+                    double coverageRatio = (double) matchLength / Math.max(1, message.length());
+                    confidence += 0.15 * Math.min(1.0, coverageRatio * 2.0);
+
+                    confidence = Math.min(0.95, Math.max(0.0, confidence));
 
                     return new IntentResult(intent, confidence, entity, params, "pattern");
                 }
@@ -525,9 +542,9 @@ public class SmartIntentRecognizer {
 
     private IntentResult parseLLMResponse(String response, String originalMessage) {
         String cleaned = response.toUpperCase().trim();
-        cleaned = cleaned.replaceAll("[^A-Z]", "");
+        String alphaOnly = cleaned.replaceAll("[^A-Z]", "");
 
-        Map<String, Intent> labelMap = new HashMap<>();
+        Map<String, Intent> labelMap = new LinkedHashMap<>();
         labelMap.put("WEATHER", Intent.WEATHER);
         labelMap.put("SEARCH", Intent.SEARCH);
         labelMap.put("QUIZ", Intent.QUIZ);
@@ -542,24 +559,50 @@ public class SmartIntentRecognizer {
         labelMap.put("ANALYSIS", Intent.ANALYSIS);
         labelMap.put("CHAT", Intent.CHAT);
 
+        String bestLabel = null;
+        Intent bestIntent = null;
+        double bestConfidence = 0;
+
         for (Map.Entry<String, Intent> entry : labelMap.entrySet()) {
-            if (cleaned.contains(entry.getKey())) {
-                Intent intent = entry.getValue();
-                String entity = null;
-                Map<String, Object> params = new HashMap<>();
+            String label = entry.getKey();
+            double conf;
 
-                if (intent == Intent.WEATHER) entity = extractCityName(originalMessage);
-                else if (intent == Intent.SEARCH) entity = extractSearchQuery(originalMessage);
-                else if (intent == Intent.QUIZ) entity = extractSubject(originalMessage);
-                else if (intent == Intent.CALCULATOR) entity = extractMathExpression(originalMessage);
-                else if (intent == Intent.TRANSLATE) entity = extractTargetLanguage(originalMessage);
-                else if (intent == Intent.WEB) entity = extractUrl(originalMessage);
-
-                if (entity != null) params.put(getEntityKey(intent), entity);
-
-                AILogger.i(TAG, "LLM intent: " + intent.id + " raw=" + response);
-                return new IntentResult(intent, 0.85, entity, params, "llm");
+            if (alphaOnly.equals(label)) {
+                conf = 0.85;
+            } else if (alphaOnly.startsWith(label)) {
+                conf = 0.78;
+            } else if (alphaOnly.contains(label)) {
+                conf = 0.65;
+            } else {
+                continue;
             }
+
+            if (conf > bestConfidence) {
+                bestConfidence = conf;
+                bestLabel = label;
+                bestIntent = entry.getValue();
+            }
+        }
+
+        if (bestIntent != null) {
+            Intent intent = bestIntent;
+            String entity = null;
+            Map<String, Object> params = new HashMap<>();
+
+            if (intent == Intent.WEATHER) entity = extractCityName(originalMessage);
+            else if (intent == Intent.SEARCH) entity = extractSearchQuery(originalMessage);
+            else if (intent == Intent.QUIZ) entity = extractSubject(originalMessage);
+            else if (intent == Intent.CALCULATOR) entity = extractMathExpression(originalMessage);
+            else if (intent == Intent.TRANSLATE) entity = extractTargetLanguage(originalMessage);
+            else if (intent == Intent.WEB) entity = extractUrl(originalMessage);
+
+            if (entity != null) {
+                params.put(getEntityKey(intent), entity);
+                bestConfidence = Math.min(0.95, bestConfidence + 0.05);
+            }
+
+            AILogger.i(TAG, "LLM intent: " + intent.id + " conf=" + bestConfidence + " raw=" + response);
+            return new IntentResult(intent, bestConfidence, entity, params, "llm");
         }
 
         return null;

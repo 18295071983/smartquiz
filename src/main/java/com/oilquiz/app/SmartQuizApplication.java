@@ -24,8 +24,13 @@ public class SmartQuizApplication extends Application {
 
     private static final String TAG = "SmartQuizApplication";
     private static SmartQuizApplication instance;
+    private static android.app.Activity currentActivity;
     private int resumeCount = 0;
     private boolean isBackground = false;
+    
+    public static android.app.Activity getCurrentActivity() {
+        return currentActivity;
+    }
 
     @Override
     public void onCreate() {
@@ -94,14 +99,17 @@ public class SmartQuizApplication extends Application {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+                currentActivity = activity;
             }
             
             @Override
             public void onActivityStarted(Activity activity) {
+                currentActivity = activity;
             }
             
             @Override
             public void onActivityResumed(Activity activity) {
+                currentActivity = activity;
                 resumeCount++;
                 if (isBackground) {
                     // 应用从后台回到前台
@@ -129,6 +137,9 @@ public class SmartQuizApplication extends Application {
             
             @Override
             public void onActivityStopped(Activity activity) {
+                if (currentActivity == activity) {
+                    currentActivity = null;
+                }
                 resumeCount--;
                 if (resumeCount == 0) {
                     // 所有Activity都停止了，应用进入后台
@@ -155,6 +166,9 @@ public class SmartQuizApplication extends Application {
             
             @Override
             public void onActivityDestroyed(Activity activity) {
+                if (currentActivity == activity) {
+                    currentActivity = null;
+                }
             }
         });
     }

@@ -1199,7 +1199,7 @@ public class AppToolkitAITool implements AITool {
     }
     
     private String callWeatherApi(String type, Map<String, Object> parameters) {
-        com.oilquiz.app.weather.WeatherService weatherService = new com.oilquiz.app.weather.WeatherService();
+        com.oilquiz.app.weather.WeatherService weatherService = com.oilquiz.app.weather.WeatherService.getInstance(context);
         String city = (String) parameters.get("city");
         Double latObj = (Double) parameters.get("lat");
         Double lonObj = (Double) parameters.get("lon");
@@ -1211,9 +1211,9 @@ public class AppToolkitAITool implements AITool {
             switch (type) {
                 case "current":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getNowWeatherByLocation(lat, lon).get();
+                        return weatherService.getCurrentWeatherByLocation(lat, lon).get();
                     } else {
-                        return weatherService.getNowWeather(city != null ? city : "北京").get();
+                        return weatherService.getCurrentWeather(city != null ? city : "北京").get();
                     }
                 case "forecast":
                     if (lat != 0 && lon != 0) {
@@ -1235,15 +1235,15 @@ public class AppToolkitAITool implements AITool {
                     }
                 case "alerts":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getWeatherAlertsByLocation(lat, lon).get();
+                        return weatherService.getAlertsByLocation(lat, lon).get();
                     } else {
-                        return weatherService.getWeatherAlerts(city != null ? city : "北京").get();
+                        return weatherService.getAlerts(city != null ? city : "北京").get();
                     }
                 case "indices":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getLivingIndicesByLocation(lat, lon).get();
+                        return weatherService.getIndicesByLocation(lat, lon).get();
                     } else {
-                        return weatherService.getLivingIndices(city != null ? city : "北京").get();
+                        return weatherService.getIndices(city != null ? city : "北京").get();
                     }
                 default:
                     return "未知的天气查询类型";
