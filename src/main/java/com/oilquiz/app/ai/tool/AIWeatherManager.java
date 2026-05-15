@@ -43,7 +43,6 @@ public class AIWeatherManager implements AITool {
     private static final String HEFENG_ALERT_URL = HEFENG_API_HOST + "/v7/warning/now";
     private static final String HEFENG_INDICES_URL = HEFENG_API_HOST + "/v7/indices/1d";
     private static final String HEFENG_GEOCODE_URL = HEFENG_GEO_HOST + "/v2/city/lookup";
-    private static final String HEFENG_DEFAULT_API_KEY = "be2af1f8490344feb8a7125ab46608dd";
 
     private final Context context;
     private final Gson gson;
@@ -68,8 +67,7 @@ public class AIWeatherManager implements AITool {
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
         String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
         if (apiKey == null || apiKey.isEmpty()) {
-            Log.w(TAG, "和风天气API Key未配置，使用默认Key");
-            return HEFENG_DEFAULT_API_KEY;
+            throw new IllegalStateException("和风天气API Key未配置，请在设置中配置");
         }
         return apiKey;
     }
@@ -78,8 +76,7 @@ public class AIWeatherManager implements AITool {
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
         String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
         if (apiKey == null || apiKey.isEmpty()) {
-            Log.w(TAG, "OpenWeatherMap API Key未配置，使用默认Key");
-            return "37574c70b8d19d7db691c97af40b5947";
+            throw new IllegalStateException("OpenWeatherMap API Key未配置，请在设置中配置");
         }
         return apiKey;
     }

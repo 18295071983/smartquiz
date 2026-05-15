@@ -19,6 +19,7 @@ import java.io.FileInputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * AppToolkit AI工具类
@@ -1211,39 +1212,39 @@ public class AppToolkitAITool implements AITool {
             switch (type) {
                 case "current":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getCurrentWeatherByLocation(lat, lon).get();
+                        return weatherService.getCurrentWeatherByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getCurrentWeather(city != null ? city : "北京").get();
+                        return weatherService.getCurrentWeather(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 case "forecast":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getForecastByLocation(lat, lon).get();
+                        return weatherService.getForecastByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getForecast(city != null ? city : "北京").get();
+                        return weatherService.getForecast(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 case "hourly":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getHourlyByLocation(lat, lon).get();
+                        return weatherService.getHourlyByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getHourly(city != null ? city : "北京").get();
+                        return weatherService.getHourly(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 case "air":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getAirQualityByLocation(lat, lon).get();
+                        return weatherService.getAirQualityByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getAirQuality(city != null ? city : "北京").get();
+                        return weatherService.getAirQuality(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 case "alerts":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getAlertsByLocation(lat, lon).get();
+                        return weatherService.getAlertsByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getAlerts(city != null ? city : "北京").get();
+                        return weatherService.getAlerts(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 case "indices":
                     if (lat != 0 && lon != 0) {
-                        return weatherService.getIndicesByLocation(lat, lon).get();
+                        return weatherService.getIndicesByLocation(lat, lon).get(15, TimeUnit.SECONDS);
                     } else {
-                        return weatherService.getIndices(city != null ? city : "北京").get();
+                        return weatherService.getIndices(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
                     }
                 default:
                     return "未知的天气查询类型";

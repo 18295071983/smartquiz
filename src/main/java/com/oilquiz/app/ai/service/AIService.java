@@ -34,6 +34,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class AIService {
@@ -73,6 +75,12 @@ public class AIService {
     private final ExecutorService modelInitSerialExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "AIService-model-init-serial");
         t.setPriority(Thread.NORM_PRIORITY - 1);
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final ScheduledExecutorService watchdogScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "AIService-watchdog");
         t.setDaemon(true);
         return t;
     });
@@ -801,21 +809,16 @@ public class AIService {
                     final long timeoutMs = 60000;
                     final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
                     
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(timeoutMs);
-                            if (!completed.get()) {
-                                AILogger.w(TAG, "Generation timeout after " + timeoutMs + "ms, stopping...");
-                                LlamaHelper.stopGeneration();
-                                mainHandler.post(() -> callback.onError(new Exception("生成超时，请重试")));
-                                if (taskFuture[0] != null && !taskFuture[0].isDone()) {
-                                    taskFuture[0].cancel(true);
-                                }
+                    ScheduledFuture<?> watchdogFuture = watchdogScheduler.schedule(() -> {
+                        if (!completed.get()) {
+                            AILogger.w(TAG, "Generation timeout after " + timeoutMs + "ms, stopping...");
+                            LlamaHelper.stopGeneration();
+                            mainHandler.post(() -> callback.onError(new Exception("生成超时，请重试")));
+                            if (taskFuture[0] != null && !taskFuture[0].isDone()) {
+                                taskFuture[0].cancel(true);
                             }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
                         }
-                    }).start();
+                    }, timeoutMs, TimeUnit.MILLISECONDS);
                     
                     LlamaHelper.generateStream(formattedPrompt, adjustedMaxTokens, 0.7f, 0.9f, 40, new LlamaHelper.TokenCallback() {
                         @Override
@@ -826,6 +829,7 @@ public class AIService {
                         @Override
                         public void onComplete(String fullText) {
                             completed.set(true);
+                            watchdogFuture.cancel(false);
                             long elapsed = System.currentTimeMillis() - startTime;
                             float inferenceSpeed = LlamaHelper.getInferenceSpeed();
                             int tokenCount = LlamaHelper.getTokenCount();
@@ -849,6 +853,7 @@ public class AIService {
                         @Override
                         public void onError(String error) {
                             completed.set(true);
+                            watchdogFuture.cancel(false);
                             AILogger.e(TAG, "LlamaHelper.TokenCallback: onError called, error: " + error);
                             sendLogBroadcast("ERROR", "[AIService] 生成错误: " + error);
                             mainHandler.post(() -> callback.onError(new Exception(error)));
@@ -866,21 +871,16 @@ public class AIService {
                     final long timeoutMs = 60000;
                     final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
                     
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(timeoutMs);
-                            if (!completed.get()) {
-                                AILogger.w(TAG, "Chat send timeout after " + timeoutMs + "ms, stopping...");
-                                LlamaHelper.chatStop();
-                                mainHandler.post(() -> callback.onError(new Exception("生成超时，请重试")));
-                                if (taskFuture[0] != null && !taskFuture[0].isDone()) {
-                                    taskFuture[0].cancel(true);
-                                }
+                    ScheduledFuture<?> watchdogFuture2 = watchdogScheduler.schedule(() -> {
+                        if (!completed.get()) {
+                            AILogger.w(TAG, "Chat send timeout after " + timeoutMs + "ms, stopping...");
+                            LlamaHelper.chatStop();
+                            mainHandler.post(() -> callback.onError(new Exception("生成超时，请重试")));
+                            if (taskFuture[0] != null && !taskFuture[0].isDone()) {
+                                taskFuture[0].cancel(true);
                             }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
                         }
-                    }).start();
+                    }, timeoutMs, TimeUnit.MILLISECONDS);
                     
                     // 使用chatSend，由Native层管理上下文
                     LlamaHelper.chatSend(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
@@ -892,6 +892,7 @@ public class AIService {
                         @Override
                         public void onComplete(String fullText) {
                             completed.set(true);
+                            watchdogFuture2.cancel(false);
                             AILogger.i(TAG, "LlamaHelper.chatSend: onComplete called");
                             sendLogBroadcast("INFO", "[AIService] 生成完成");
                             
@@ -908,6 +909,7 @@ public class AIService {
                         @Override
                         public void onError(String error) {
                             completed.set(true);
+                            watchdogFuture2.cancel(false);
                             AILogger.e(TAG, "LlamaHelper.chatSend: onError called, error: " + error);
                             sendLogBroadcast("ERROR", "[AIService] 生成错误: " + error);
                             mainHandler.post(() -> callback.onError(new Exception(error)));
@@ -1298,6 +1300,7 @@ public class AIService {
         if (crashHandler != null) {
             crashHandler.stopMonitoring();
         }
+        watchdogScheduler.shutdownNow();
         executorService.execute(() -> {
             synchronized (modelInitLock) {
                 try {
