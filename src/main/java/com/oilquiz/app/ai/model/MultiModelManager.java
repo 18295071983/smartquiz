@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.ConcurrentModificationException;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -79,50 +80,15 @@ public class MultiModelManager {
     }
 
     private void initDefaultModels() {
-        ModelInfo model1 = new ModelInfo();
-        model1.id = "qwen2.5-7b-q4_k_m";
-        model1.name = "Qwen 2.5 7B";
-        model1.description = "Q4_K_M";
-        model1.sizeMB = 4800;
-        model1.contextLength = 32000;
-        model1.quantization = "Q4_K_M";
-        model1.recommendedGpuLayers = getRecommendedGpuLayers(4800);
-        model1.minRamMB = getMinRamMB(4800);
-        addModel(model1);
-
-        ModelInfo model2 = new ModelInfo();
-        model2.id = "qwen2.5-3b-q4_k_m";
-        model2.name = "Qwen 2.5 3B";
-        model2.description = "Q4_K_M";
-        model2.sizeMB = 2500;
-        model2.contextLength = 32000;
-        model2.quantization = "Q4_K_M";
-        model2.recommendedGpuLayers = getRecommendedGpuLayers(2500);
-        model2.minRamMB = getMinRamMB(2500);
-        addModel(model2);
-
-        ModelInfo model3 = new ModelInfo();
-        model3.id = "llama3-8b-instruct-q4_k_m";
-        model3.name = "Llama 3 8B";
-        model3.description = "Q4_K_M";
-        model3.sizeMB = 5000;
-        model3.contextLength = 128000;
-        model3.quantization = "Q4_K_M";
-        model3.recommendedGpuLayers = getRecommendedGpuLayers(5000);
-        model3.minRamMB = getMinRamMB(5000);
-        addModel(model3);
-
-        ModelInfo model4 = new ModelInfo();
-        model4.id = "gemma-2-9b-it-q4_k_m";
-        model4.name = "Gemma 2 9B";
-        model4.description = "Q4_K_M";
-        model4.sizeMB = 5600;
-        model4.contextLength = 256000;
-        model4.quantization = "Q4_K_M";
-        model4.recommendedGpuLayers = getRecommendedGpuLayers(5600);
-        model4.minRamMB = getMinRamMB(5600);
-        addModel(model4);
-
+        List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(context);
+        for (ModelPresetConfig.ModelPreset preset : presets) {
+            if (!preset.id.matches("\\d+")) {
+                ModelInfo info = ModelPresetConfig.toModelInfo(preset);
+                info.recommendedGpuLayers = getRecommendedGpuLayers(info.sizeMB);
+                info.minRamMB = getMinRamMB(info.sizeMB);
+                addModel(info);
+            }
+        }
         Log.i(TAG, "Default models initialized: " + modelMap.size() + " models");
     }
 

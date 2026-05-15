@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.HashMap;
 
@@ -1395,7 +1396,7 @@ public class AIWeatherManager implements AITool {
             CompletableFuture<String> indicesFuture = useLocation ?
                 getHefengIndicesByLocation(lat, lon) : getHefengIndices(city != null ? city : "北京");
             
-            CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get();
+            CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get(15, TimeUnit.SECONDS);
             
             allData.append(currentFuture.get()).append("\n\n");
             allData.append(forecastFuture.get()).append("\n\n");

@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class AttachmentManager {
 
@@ -100,6 +102,7 @@ public class AttachmentManager {
 
     private Context context;
     private File attachmentDir;
+    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor();
     private static int savedFilesCount = 0;
 
     public AttachmentManager(Context context) {
@@ -128,7 +131,7 @@ public class AttachmentManager {
             return;
         }
 
-        new Thread(() -> {
+        saveExecutor.execute(() -> {
             List<AttachmentFile> savedFiles = new ArrayList<>();
 
             for (Uri uri : uris) {
@@ -145,7 +148,7 @@ public class AttachmentManager {
             if (callback != null) {
                 callback.onSuccess(savedFiles);
             }
-        }).start();
+        });
     }
 
     private AttachmentFile saveSingleFile(Context context, Uri uri) throws IOException {

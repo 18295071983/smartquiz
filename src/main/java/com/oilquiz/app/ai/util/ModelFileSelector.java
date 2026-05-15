@@ -15,7 +15,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public class ModelFileSelector {
-    
+
+    private static final String TAG = "ModelFileSelector";
+
     /**
      * 创建选择模型文件的Intent
      * @param context 上下文
@@ -105,7 +107,7 @@ public class ModelFileSelector {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "Failed to get path from content URI", e);
         }
         
         // 如果无法通过ContentResolver获取路径，尝试其他方法
@@ -183,7 +185,7 @@ public class ModelFileSelector {
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e(TAG, "Failed to get file size from URI", e);
             }
             
             // 记录文件大小获取结果
@@ -226,7 +228,7 @@ public class ModelFileSelector {
             
             return true;
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, "Failed to copy URI to file", e);
             
             // 回调错误
             if (progressCallback != null) {
@@ -263,7 +265,7 @@ public class ModelFileSelector {
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e(TAG, "Failed to get file name from URI", e);
             }
         }
         if (result == null) {

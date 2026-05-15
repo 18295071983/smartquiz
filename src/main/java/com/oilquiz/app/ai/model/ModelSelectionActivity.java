@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.model;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 import androidx.core.app.ActivityCompat;
@@ -17,8 +18,13 @@ import com.oilquiz.app.R;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class ModelSelectionActivity extends AppCompatActivity {
+
+    private static final String TAG = "ModelSelectionActivity";
+    private final ExecutorService simulationExecutor = Executors.newSingleThreadExecutor();
 
     private RecyclerView modelRecyclerView;
     private ModelAdapter modelAdapter;
@@ -50,74 +56,12 @@ public class ModelSelectionActivity extends AppCompatActivity {
 
     private void initModels() {
         models = new ArrayList<>();
-        // 添加示例模型
-        models.add(new Model(
-                "1",
-                "Llama-3-8B",
-                "通用对话模型，平衡性能与质量",
-                "Llama 3",
-                8192,
-                128000,
-                "8B",
-                "4-bit",
-                "4GB",
-                "20 t/s",
-                85.5f,
-                90.2f,
-                "通用对话、知识问答、创意写作",
-                false
-        ));
-
-        models.add(new Model(
-                "2",
-                "Qwen-2-7B",
-                "中文优化模型，适合中文对话",
-                "Qwen",
-                8192,
-                128000,
-                "7B",
-                "4-bit",
-                "3.5GB",
-                "25 t/s",
-                88.0f,
-                89.5f,
-                "中文对话、翻译、知识问答",
-                false
-        ));
-
-        models.add(new Model(
-                "3",
-                "GPT-4",
-                "OpenAI最强模型",
-                "GPT-4",
-                128000,
-                1000000,
-                "1.76T",
-                "N/A",
-                "N/A",
-                "30 t/s",
-                95.0f,
-                98.0f,
-                "复杂推理、创意内容、多模态",
-                false
-        ));
-
-        models.add(new Model(
-                "4",
-                "Claude-3",
-                "Anthropic大语言模型",
-                "Claude",
-                200000,
-                1000000,
-                "100B+",
-                "N/A",
-                "N/A",
-                "25 t/s",
-                94.0f,
-                97.0f,
-                "长文本处理、创意写作、多语言",
-                false
-        ));
+        List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(this);
+        for (ModelPresetConfig.ModelPreset preset : presets) {
+            if (preset.id.matches("\\d+")) {
+                models.add(ModelPresetConfig.toDisplayModel(preset));
+            }
+        }
     }
 
     private void initAdapter() {
@@ -164,17 +108,16 @@ public class ModelSelectionActivity extends AppCompatActivity {
     private void handleModelDownload(Model model) {
         // 模拟下载操作
         showLoading();
-        new Thread(() -> {
+        simulationExecutor.execute(() -> {
             try {
-                Thread.sleep(2000); // 模拟下载时间
+                Thread.sleep(2000);
                 runOnUiThread(() -> {
                     hideLoading();
-                    // 显示下载完成提示
                 });
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Log.e(TAG, "Download simulation interrupted", e);
             }
-        }).start();
+        });
     }
 
     private void handleModelDelete(Model model) {

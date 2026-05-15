@@ -359,6 +359,7 @@ class StreamingInferenceManager {
     private final Context context;
     private final Map<String, StreamingContext> activeStreams = new ConcurrentHashMap<>();
     private final Handler mainHandler;
+    private final ExecutorService streamingExecutor = Executors.newSingleThreadExecutor();
 
     public StreamingInferenceManager(Context context) {
         this.context = context.getApplicationContext();
@@ -371,7 +372,7 @@ class StreamingInferenceManager {
         StreamingContext context = new StreamingContext(streamId, modelId, callback);
         activeStreams.put(streamId, context);
 
-        new Thread(() -> executeStreaming(context, prompt, params)).start();
+        streamingExecutor.execute(() -> executeStreaming(context, prompt, params));
 
         return streamId;
     }

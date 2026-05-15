@@ -6,6 +6,10 @@ import android.util.Log;
 import com.oilquiz.app.database.DatabaseManager;
 import com.oilquiz.app.model.Question;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -137,9 +141,84 @@ public class AIFileParser {
 
     // 解析JSON文件
     private List<Question> parseJsonFile(String filePath) throws IOException {
-        // 这里应该实现JSON解析
-        // 暂时返回空列表
-        return new ArrayList<>();
+        List<Question> questions = new ArrayList<>();
+        StringBuilder jsonContent = new StringBuilder();
+        BufferedReader reader = new BufferedReader(new FileReader(filePath));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            jsonContent.append(line);
+        }
+        reader.close();
+        
+        try {
+            JSONArray jsonArray = new JSONArray(jsonContent.toString());
+            for (int i = 0; i < jsonArray.length(); i++) {
+                JSONObject jsonObject = jsonArray.getJSONObject(i);
+                Question question = new Question();
+                
+                if (jsonObject.has("questionText")) {
+                    question.setQuestionText(jsonObject.getString("questionText"));
+                } else if (jsonObject.has("question")) {
+                    question.setQuestionText(jsonObject.getString("question"));
+                } else if (jsonObject.has("content")) {
+                    question.setQuestionText(jsonObject.getString("content"));
+                }
+                
+                if (jsonObject.has("optionA")) question.setOptionA(jsonObject.getString("optionA"));
+                if (jsonObject.has("optionB")) question.setOptionB(jsonObject.getString("optionB"));
+                if (jsonObject.has("optionC")) question.setOptionC(jsonObject.getString("optionC"));
+                if (jsonObject.has("optionD")) question.setOptionD(jsonObject.getString("optionD"));
+                if (jsonObject.has("a")) question.setOptionA(jsonObject.getString("a"));
+                if (jsonObject.has("b")) question.setOptionB(jsonObject.getString("b"));
+                if (jsonObject.has("c")) question.setOptionC(jsonObject.getString("c"));
+                if (jsonObject.has("d")) question.setOptionD(jsonObject.getString("d"));
+                
+                if (jsonObject.has("correctAnswer")) {
+                    question.setCorrectAnswer(jsonObject.getString("correctAnswer"));
+                } else if (jsonObject.has("answer")) {
+                    question.setCorrectAnswer(jsonObject.getString("answer"));
+                }
+                
+                if (jsonObject.has("explanation")) {
+                    question.setExplanation(jsonObject.getString("explanation"));
+                } else if (jsonObject.has("analysis")) {
+                    question.setExplanation(jsonObject.getString("analysis"));
+                }
+                
+                if (jsonObject.has("category")) {
+                    question.setCategory(jsonObject.getString("category"));
+                } else if (jsonObject.has("subject")) {
+                    question.setCategory(jsonObject.getString("subject"));
+                }
+                
+                if (jsonObject.has("questionType")) {
+                    question.setQuestionType(jsonObject.getString("questionType"));
+                } else if (jsonObject.has("type")) {
+                    question.setQuestionType(jsonObject.getString("type"));
+                }
+                
+                if (jsonObject.has("difficulty")) {
+                    try {
+                        question.setDifficulty(jsonObject.getInt("difficulty"));
+                    } catch (JSONException e) {
+                        String diffStr = jsonObject.getString("difficulty");
+                        switch (diffStr) {
+                            case "简单": question.setDifficulty(1); break;
+                            case "中等": question.setDifficulty(2); break;
+                            case "困难": question.setDifficulty(3); break;
+                            default: question.setDifficulty(2);
+                        }
+                    }
+                }
+                
+                questions.add(question);
+            }
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON解析错误: " + e.getMessage());
+            throw new IOException("JSON文件格式错误: " + e.getMessage());
+        }
+        
+        return questions;
     }
 
     // 创建题目对象

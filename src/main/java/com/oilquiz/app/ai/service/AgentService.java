@@ -392,13 +392,19 @@ public class AgentService {
                 lastException = e;
                 AILogger.w(TAG, "Tool " + realToolName + " timeout on attempt " + (attempt + 1));
                 if (attempt < maxRetries) {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(500); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return new ToolResult(displayName, "工具执行被中断", false, 0, attempt);
+                    }
                 }
             } catch (ExecutionException e) {
                 lastException = e;
                 AILogger.w(TAG, "Tool " + realToolName + " execution error on attempt " + (attempt + 1) + ": " + e.getMessage());
                 if (attempt < maxRetries) {
-                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(300); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return new ToolResult(displayName, "工具执行被中断", false, 0, attempt);
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

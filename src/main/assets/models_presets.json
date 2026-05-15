@@ -1,0 +1,108 @@
+{
+  "presets": [
+    {
+      "id": "qwen2.5-7b-q4_k_m",
+      "name": "Qwen 2.5 7B",
+      "sizeBytes": 4800000000,
+      "contextLength": 32000,
+      "minRamMB": 8640,
+      "description": "Q4_K_M",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "id": "qwen2.5-3b-q4_k_m",
+      "name": "Qwen 2.5 3B",
+      "sizeBytes": 2500000000,
+      "contextLength": 32000,
+      "minRamMB": 4500,
+      "description": "Q4_K_M",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "id": "llama3-8b-instruct-q4_k_m",
+      "name": "Llama 3 8B",
+      "sizeBytes": 5000000000,
+      "contextLength": 128000,
+      "minRamMB": 9000,
+      "description": "Q4_K_M",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "id": "gemma-2-9b-it-q4_k_m",
+      "name": "Gemma 2 9B",
+      "sizeBytes": 5600000000,
+      "contextLength": 256000,
+      "minRamMB": 10080,
+      "description": "Q4_K_M",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "id": "1",
+      "name": "Llama-3-8B",
+      "sizeBytes": 4000000000,
+      "contextLength": 8192,
+      "minRamMB": 6000,
+      "description": "通用对话模型，平衡性能与质量",
+      "architecture": "Llama 3",
+      "vocabSize": 128000,
+      "parameters": "8B",
+      "quantization": "4-bit",
+      "memory": "4GB",
+      "tps": "20 t/s",
+      "performanceScore": 85.5,
+      "qualityScore": 90.2,
+      "useCases": "通用对话、知识问答、创意写作"
+    },
+    {
+      "id": "2",
+      "name": "Qwen-2-7B",
+      "sizeBytes": 3500000000,
+      "contextLength": 8192,
+      "minRamMB": 5000,
+      "description": "中文优化模型，适合中文对话",
+      "architecture": "Qwen",
+      "vocabSize": 128000,
+      "parameters": "7B",
+      "quantization": "4-bit",
+      "memory": "3.5GB",
+      "tps": "25 t/s",
+      "performanceScore": 88.0,
+      "qualityScore": 89.5,
+      "useCases": "中文对话、翻译、知识问答"
+    },
+    {
+      "id": "3",
+      "name": "GPT-4",
+      "sizeBytes": 0,
+      "contextLength": 128000,
+      "minRamMB": 0,
+      "description": "OpenAI最强模型",
+      "architecture": "GPT-4",
+      "vocabSize": 1000000,
+      "parameters": "1.76T",
+      "quantization": "N/A",
+      "memory": "N/A",
+      "tps": "30 t/s",
+      "performanceScore": 95.0,
+      "qualityScore": 98.0,
+      "useCases": "复杂推理、创意内容、多模态"
+    },
+    {
+      "id": "4",
+      "name": "Claude-3",
+      "sizeBytes": 0,
+      "contextLength": 200000,
+      "minRamMB": 0,
+      "description": "Anthropic大语言模型",
+      "architecture": "Claude",
+      "vocabSize": 1000000,
+      "parameters": "100B+",
+      "quantization": "N/A",
+      "memory": "N/A",
+      "tps": "25 t/s",
+      "performanceScore": 94.0,
+      "qualityScore": 97.0,
+      "useCases": "长文本处理、创意写作、多语言"
+    }
+  ]
+}
