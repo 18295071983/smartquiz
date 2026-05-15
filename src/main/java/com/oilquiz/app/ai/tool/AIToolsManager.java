@@ -9,6 +9,9 @@ import com.oilquiz.app.model.Question;
 
 import org.json.JSONObject;
 
+import com.oilquiz.app.model.ScoreHistory;
+import com.oilquiz.app.model.User;
+
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -260,24 +263,56 @@ public class AIToolsManager {
 
     // 获取统计信息
     private String getStatistics(String parameters) {
-        // 解析参数: type (可选)
-        // 格式: "type: 答题"
+        // 解析参数: type (可选), userId (可选)
+        // 格式: "type: 答题, userId: 1"
         try {
             String type = "all";
+            Long userId = null;
             if (parameters != null && !parameters.isEmpty()) {
                 if (parameters.contains("type:")) {
-                    type = parameters.split("type:")[1].trim();
+                    type = parameters.split("type:")[1].split(",")[0].trim();
+                }
+                if (parameters.contains("userId:")) {
+                    String userIdStr = parameters.split("userId:")[1].split(",")[0].trim();
+                    try {
+                        userId = Long.parseLong(userIdStr);
+                    } catch (NumberFormatException e) {
+                        Log.w(TAG, "无效的用户ID: " + userIdStr);
+                    }
                 }
             }
 
             // 从数据库获取统计信息
             int totalQuestions = databaseManager.getQuestionCount().get(10, TimeUnit.SECONDS);
-                int completedQuizzes = 0; // 暂时返回0，因为没有直接的方法
-                double averageScore = 0.0; // 暂时返回0，因为需要用户ID
+            DatabaseManager.QuestionStatistics stats = databaseManager.getQuestionStatistics().get(10, TimeUnit.SECONDS);
+            
+            int completedQuizzes = 0;
+            double averageScore = 0.0;
+            
+            if (userId != null) {
+                List<ScoreHistory> scoreHistory = databaseManager.getScoreHistory(userId).get(10, TimeUnit.SECONDS);
+                completedQuizzes = scoreHistory.size();
+                Float avgScore = databaseManager.getAverageScore(userId).get(10, TimeUnit.SECONDS);
+                averageScore = avgScore != null ? avgScore : 0.0;
+            } else {
+                List<ScoreHistory> allScores = databaseManager.getScoreHistoryByCategory(type).get(10, TimeUnit.SECONDS);
+                completedQuizzes = allScores.size();
+                if (!allScores.isEmpty()) {
+                    float totalScore = 0;
+                    for (ScoreHistory score : allScores) {
+                        totalScore += score.getScore();
+                    }
+                    averageScore = totalScore / allScores.size();
+                }
+            }
 
             StringBuilder result = new StringBuilder();
             result.append("学习统计信息:\n");
             result.append("总题目数: " + totalQuestions + "\n");
+            result.append("简单题: " + stats.easyQuestions + "\n");
+            result.append("中等题: " + stats.mediumQuestions + "\n");
+            result.append("困难题: " + stats.hardQuestions + "\n");
+            result.append("分类数: " + stats.categories + "\n");
             result.append("已完成测验数: " + completedQuizzes + "\n");
             result.append("平均得分: " + String.format("%.2f", averageScore) + "\n");
 
@@ -481,33 +516,97 @@ public class AIToolsManager {
 
     // 数据库操作
     private String databaseOperations(String parameters) {
-        // 解析参数: operation, table
+        // 解析参数: operation, table, category, userId
         // 格式: "operation: count, table: questions"
         try {
             String operation = "count";
             String table = "questions";
+            String category = null;
+            Long userId = null;
 
             if (parameters != null && !parameters.isEmpty()) {
                 if (parameters.contains("operation:")) {
                     operation = parameters.split("operation:")[1].split(",")[0].trim();
                 }
                 if (parameters.contains("table:")) {
-                    table = parameters.split("table:")[1].trim();
+                    table = parameters.split("table:")[1].split(",")[0].trim();
+                }
+                if (parameters.contains("category:")) {
+                    category = parameters.split("category:")[1].split(",")[0].trim();
+                }
+                if (parameters.contains("userId:")) {
+                    String userIdStr = parameters.split("userId:")[1].split(",")[0].trim();
+                    try {
+                        userId = Long.parseLong(userIdStr);
+                    } catch (NumberFormatException e) {
+                        Log.w(TAG, "无效的用户ID: " + userIdStr);
+                    }
                 }
             }
 
+            StringBuilder result = new StringBuilder();
+            result.append("数据库操作结果:\n");
+            
             // 执行数据库操作
             if (operation.equals("count")) {
                 if (table.equals("questions")) {
                     int count = databaseManager.getQuestionCount().get(10, TimeUnit.SECONDS);
-                    return "数据库操作结果:\n题目总数: " + count;
-                } else if (table.equals("quizzes")) {
-                    // 暂时返回模拟结果，因为没有直接的方法
-                    return "数据库操作结果:\n已完成测验数: 0";
+                    result.append("题目总数: " + count);
+                    return result.toString();
+                } else if (table.equals("scores") || table.equals("quizzes")) {
+                    List<ScoreHistory> scores;
+                    if (userId != null) {
+                        scores = databaseManager.getScoreHistory(userId).get(10, TimeUnit.SECONDS);
+                    } else if (category != null) {
+                        scores = databaseManager.getScoreHistoryByCategory(category).get(10, TimeUnit.SECONDS);
+                    } else {
+                        scores = databaseManager.getScoreHistoryByCategory("all").get(10, TimeUnit.SECONDS);
+                    }
+                    result.append("测验记录数: " + scores.size());
+                    if (!scores.isEmpty()) {
+                        float totalScore = 0;
+                        for (ScoreHistory score : scores) {
+                            totalScore += score.getScore();
+                        }
+                        result.append("\n平均得分: " + String.format("%.2f", totalScore / scores.size()));
+                    }
+                    return result.toString();
+                } else if (table.equals("categories")) {
+                    List<String> categories = databaseManager.getAllCategories().get(10, TimeUnit.SECONDS);
+                    result.append("分类数: " + categories.size());
+                    if (!categories.isEmpty()) {
+                        result.append("\n分类列表: " + String.join(", ", categories));
+                    }
+                    return result.toString();
+                } else if (table.equals("types")) {
+                    List<String> types = databaseManager.getAllQuestionTypes().get(10, TimeUnit.SECONDS);
+                    result.append("题目类型数: " + types.size());
+                    if (!types.isEmpty()) {
+                        result.append("\n类型列表: " + String.join(", ", types));
+                    }
+                    return result.toString();
                 }
+            } else if (operation.equals("statistics")) {
+                DatabaseManager.QuestionStatistics stats = databaseManager.getQuestionStatistics().get(10, TimeUnit.SECONDS);
+                result.append("总题目数: " + stats.totalQuestions + "\n");
+                result.append("简单题: " + stats.easyQuestions + "\n");
+                result.append("中等题: " + stats.mediumQuestions + "\n");
+                result.append("困难题: " + stats.hardQuestions + "\n");
+                result.append("无难度题: " + stats.noDifficultyQuestions + "\n");
+                result.append("分类数: " + stats.categories + "\n");
+                result.append("类型数: " + stats.questionTypes);
+                return result.toString();
+            } else if (operation.equals("version")) {
+                int version = databaseManager.getDatabaseVersion();
+                result.append("数据库版本: " + version);
+                return result.toString();
+            } else if (operation.equals("size")) {
+                long size = databaseManager.getDatabaseSize();
+                result.append("数据库大小: " + String.format("%.2f KB", size / 1024.0));
+                return result.toString();
             }
 
-            return "数据库操作功能开发中，操作: " + operation + "，表: " + table;
+            return "数据库操作失败，操作: " + operation + "，表: " + table;
         } catch (Exception e) {
             return "数据库操作时出错: " + e.getMessage();
         }

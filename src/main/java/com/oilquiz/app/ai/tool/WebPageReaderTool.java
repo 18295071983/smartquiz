@@ -390,7 +390,7 @@ public class WebPageReaderTool implements AITool {
         
         Matcher matcher = URL_PATTERN.matcher(html);
         while (matcher.find()) {
-            String url = matcher.group(1);
+            String url = matcher.group();
             if (url.length() > 256) continue;
             if (seenUrls.contains(url)) continue;
             

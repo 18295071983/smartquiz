@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿#include <jni.h>
+﻿﻿﻿#include <jni.h>
 #include <string>
 #include <memory>
 #include <android/log.h>
