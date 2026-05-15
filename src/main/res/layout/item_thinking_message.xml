@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <TextView
+        android:id="@+id/thinking_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🧠 思考过程"
+        android:textSize="12sp"
+        android:textColor="@color/thinking_label"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/message_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/thinking_message_background"
+        android:padding="12dp"
+        android:textColor="@color/thinking_text"
+        android:textSize="14sp"
+        android:textIsSelectable="true" />
+
+    <ProgressBar
+        android:id="@+id/thinking_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="0" />
+
+</LinearLayout>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/white"
+    tools:context=".ModelComparisonActivity">
+
+    <!-- 顶部工具栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/purple_700"
+        app:title="模型比较"
+        app:titleTextColor="@color/white" />
+
+    <!-- 模型选择器 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp" />
+
+    <!-- 模型A选择器 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/gray_100">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型A:"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="16dp" />
+
+        <Spinner
+            android:id="@+id/model_a_selector"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/rounded_spinner" />
+    </LinearLayout>
+
+    <!-- 模型B选择器 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/white">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型B:"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="16dp" />
+
+        <Spinner
+            android:id="@+id/model_b_selector"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/rounded_spinner" />
+    </LinearLayout>
+
+    <!-- 性能对比图表 -->
+    <WebView
+        android:id="@+id/performance_web_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp" />
+
+    <!-- 底部按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/gray_100">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/run_test_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="运行性能测试"
+            android:backgroundTint="@color/teal_600"
+            android:textColor="@color/white" />
+    </LinearLayout>
+
+</LinearLayout>

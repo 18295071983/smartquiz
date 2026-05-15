@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/rounded_card"
+    android:elevation="4dp"
+    android:padding="20dp"
+    android:layout_marginBottom="16dp">
+
+    <!-- 文件名 -->
+    <TextView
+        android:id="@+id/textViewFileName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="quiz_backup_20231001_120000.json"
+        android:textSize="16sp"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="12dp" />
+
+    <!-- 文件信息 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+        <TextView
+            android:id="@+id/textViewFileSize"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="10.5 KB"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginRight="24dp" />
+        <TextView
+            android:id="@+id/textViewDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="2023-10-01 12:00:00"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary" />
+    </LinearLayout>
+
+    <!-- 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+        <Button
+            android:id="@+id/buttonRestore"
+            android:layout_width="96dp"
+            android:layout_height="40dp"
+            android:text="恢复"
+            android:textSize="14sp"
+            android:background="@drawable/rounded_corners_teal"
+            android:textColor="@color/white"
+            android:layout_marginRight="8dp"
+            android:stateListAnimator="@null"
+            android:elevation="2dp"
+            android:fontFamily="sans-serif-medium" />
+        <Button
+            android:id="@+id/buttonDelete"
+            android:layout_width="96dp"
+            android:layout_height="40dp"
+            android:text="删除"
+            android:textSize="14sp"
+            android:background="@drawable/rounded_corners_gray"
+            android:textColor="@color/white"
+            android:stateListAnimator="@null"
+            android:elevation="2dp"
+            android:fontFamily="sans-serif-medium" />
+    </LinearLayout>
+
+</LinearLayout>

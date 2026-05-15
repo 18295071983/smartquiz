@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="colorBackground" format="color"/>
+    <attr name="colorOnBackground" format="color"/>
+    <declare-styleable name="WeatherBannerView">
+        <attr name="autoLoad" format="boolean"/>
+        <attr name="defaultCity" format="string"/>
+    </declare-styleable>
+</resources>

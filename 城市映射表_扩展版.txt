@@ -1,0 +1,171 @@
+# 天气工具城市映射表 - 扩展版
+# 格式: 中文城市名 = 英文城市名
+# 可以直接复制到 AIWeatherManager.java 的 CITY_NAME_MAP 中
+
+# 主要城市
+北京 = Beijing
+上海 = Shanghai
+广州 = Guangzhou
+深圳 = Shenzhen
+杭州 = Hangzhou
+南京 = Nanjing
+成都 = Chengdu
+重庆 = Chongqing
+武汉 = Wuhan
+西安 = Xi'an
+天津 = Tianjin
+苏州 = Suzhou
+青岛 = Qingdao
+大连 = Dalian
+厦门 = Xiamen
+
+# 省会及其他城市
+长沙 = Changsha
+郑州 = Zhengzhou
+济南 = Jinan
+合肥 = Hefei
+福州 = Fuzhou
+南昌 = Nanchang
+贵阳 = Guiyang
+昆明 = Kunming
+南宁 = Nanning
+海口 = Haikou
+兰州 = Lanzhou
+西宁 = Xining
+银川 = Yinchuan
+呼和浩特 = Hohhot
+乌鲁木齐 = Urumqi
+拉萨 = Lhasa
+哈尔滨 = Harbin
+长春 = Changchun
+沈阳 = Shenyang
+石家庄 = Shijiazhuang
+太原 = Taiyuan
+无锡 = Wuxi
+宁波 = Ningbo
+温州 = Wenzhou
+佛山 = Foshan
+东莞 = Dongguan
+常州 = Changzhou
+烟台 = Yantai
+潍坊 = Weifang
+绍兴 = Shaoxing
+台州 = Taizhou
+徐州 = Xuzhou
+嘉兴 = Jiaxing
+金华 = Jinhua
+镇江 = Zhenjiang
+威海 = Weihai
+湖州 = Huzhou
+九江 = Jiujiang
+芜湖 = Wuhu
+连云港 = Lianyungang
+赣州 = Ganzhou
+衡阳 = Hengyang
+岳阳 = Yueyang
+益阳 = Yiyang
+常德 = Changde
+柳州 = Liuzhou
+桂林 = Guilin
+北海 = Beihai
+漳州 = Zhangzhou
+泉州 = Quanzhou
+南通 = Nantong
+盐城 = Yancheng
+淮安 = Huai'an
+宿迁 = Suqian
+茂名 = Maoming
+湛江 = Zhanjiang
+肇庆 = Zhaoqing
+揭阳 = Jieyang
+梅州 = Meizhou
+河源 = Heyuan
+清远 = Qingyuan
+云浮 = Yunfu
+防城港 = Fangchenggang
+钦州 = Qinzhou
+贵港 = Guigang
+玉林 = Yulin
+百色 = Baise
+河池 = Hechi
+来宾 = Laibin
+崇左 = Chongzuo
+三亚 = Sanya
+三沙 = Sansha
+
+# 特别行政区和台湾
+台北 = Taipei
+香港 = Hong Kong
+澳门 = Macau
+
+# 亚洲主要城市
+东京 = Tokyo
+首尔 = Seoul
+新加坡 = Singapore
+曼谷 = Bangkok
+吉隆坡 = Kuala Lumpur
+雅加达 = Jakarta
+马尼拉 = Manila
+河内 = Hanoi
+胡志明市 = Ho Chi Minh City
+新德里 = New Delhi
+孟买 = Mumbai
+加尔各答 = Kolkata
+迪拜 = Dubai
+多哈 = Doha
+利雅得 = Riyadh
+伊斯坦布尔 = Istanbul
+
+# 欧洲主要城市
+伦敦 = London
+巴黎 = Paris
+柏林 = Berlin
+罗马 = Rome
+马德里 = Madrid
+莫斯科 = Moscow
+阿姆斯特丹 = Amsterdam
+布鲁塞尔 = Brussels
+维也纳 = Vienna
+雅典 = Athens
+斯德哥尔摩 = Stockholm
+哥本哈根 = Copenhagen
+奥斯陆 = Oslo
+赫尔辛基 = Helsinki
+华沙 = Warsaw
+布拉格 = Prague
+
+# 北美洲主要城市
+纽约 = New York
+洛杉矶 = Los Angeles
+芝加哥 = Chicago
+休斯顿 = Houston
+费城 = Philadelphia
+旧金山 = San Francisco
+西雅图 = Seattle
+波士顿 = Boston
+华盛顿 = Washington
+多伦多 = Toronto
+温哥华 = Vancouver
+墨西哥城 = Mexico City
+
+# 南美洲主要城市
+圣保罗 = Sao Paulo
+里约热内卢 = Rio de Janeiro
+布宜诺斯艾利斯 = Buenos Aires
+利马 = Lima
+圣地亚哥 = Santiago
+
+# 大洋洲主要城市
+悉尼 = Sydney
+墨尔本 = Melbourne
+布里斯班 = Brisbane
+珀斯 = Perth
+奥克兰 = Auckland
+
+# 非洲主要城市
+开罗 = Cairo
+开普敦 = Cape Town
+约翰内斯堡 = Johannesburg
+拉各斯 = Lagos
+
+# 总计: 150+个城市

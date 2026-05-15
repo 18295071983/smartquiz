@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:gravity="center">
+
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/progress_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:indicatorColor="@color/primary" />
+
+    <TextView
+        android:id="@+id/progress_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textColor="@color/on_surface"
+        android:layout_marginBottom="16dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/finish_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="完成"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"
+        app:backgroundTint="@color/primary"
+        app:cornerRadius="12dp"
+        android:textAllCaps="false" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/view_file_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="查看文件"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"
+        app:backgroundTint="@color/secondary"
+        app:cornerRadius="12dp"
+        android:textAllCaps="false" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/share_file_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="分享文件"
+        android:visibility="gone"
+        app:backgroundTint="@color/primary"
+        app:cornerRadius="12dp"
+        android:textAllCaps="false" />
+
+</LinearLayout>

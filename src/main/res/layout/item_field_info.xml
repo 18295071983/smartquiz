@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/item_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvFieldName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="字段名"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="删除"
+            app:backgroundTint="@color/error"
+            android:textColor="@android:color/white"
+            app:cornerRadius="8dp"
+            android:textAllCaps="false"
+            xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvFieldType"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="类型: TEXT"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="4dp"/>
+
+    <TextView
+        android:id="@+id/tvFieldConstraints"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="NOT NULL DEFAULT ''"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="4dp"/>
+
+</LinearLayout>

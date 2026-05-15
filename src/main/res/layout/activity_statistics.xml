@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="统计"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:id="@+id/tv_total_questions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="总题目数: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_correct_answers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="正确答案: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_wrong_answers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="错误答案: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_accuracy_rate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="正确率: 0%"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_highest_score"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="最高分: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_average_score"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="平均分: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_total_study_time"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="总学习时间: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_total_wrong_questions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="总错题数: 0"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_total_notes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="总笔记数: 0"
+                android:textSize="16sp" />
+
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/lv_recent_scores"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
+
+</ScrollView>

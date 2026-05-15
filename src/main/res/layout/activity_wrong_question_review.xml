@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface"
+    tools:context=".WrongQuestionReviewActivity">
+
+    <!-- 顶部状态栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary"
+        app:title="错题复习"
+        app:titleTextColor="?attr/colorOnPrimary" />
+
+    <!-- 主要内容区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 进度 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:id="@+id/textViewProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1/10"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- 题目内容 -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scrollbars="vertical"
+            android:fadeScrollbars="false">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- 题目文本 -->
+                <TextView
+                    android:id="@+id/textViewQuestion"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="题目内容"
+                    android:textSize="19sp"
+                    android:lineSpacingExtra="6dp"
+                    android:fontFamily="sans-serif"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="20dp" />
+
+                <!-- 选项 -->
+                <RadioGroup
+                    android:id="@+id/radioGroupOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/radioButtonA"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="选项A"
+                        android:textSize="16sp"
+                        android:paddingVertical="14dp"
+                        android:paddingHorizontal="16dp"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:layout_marginBottom="10dp"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnSurface"
+                        android:elevation="1dp"
+                        android:translationZ="1dp" />
+
+                    <RadioButton
+                        android:id="@+id/radioButtonB"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="选项B"
+                        android:textSize="16sp"
+                        android:paddingVertical="14dp"
+                        android:paddingHorizontal="16dp"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:layout_marginBottom="10dp"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnSurface"
+                        android:elevation="1dp"
+                        android:translationZ="1dp" />
+
+                    <RadioButton
+                        android:id="@+id/radioButtonC"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="选项C"
+                        android:textSize="16sp"
+                        android:paddingVertical="14dp"
+                        android:paddingHorizontal="16dp"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:layout_marginBottom="10dp"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnSurface"
+                        android:elevation="1dp"
+                        android:translationZ="1dp" />
+
+                    <RadioButton
+                        android:id="@+id/radioButtonD"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="选项D"
+                        android:textSize="16sp"
+                        android:paddingVertical="14dp"
+                        android:paddingHorizontal="16dp"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnSurface"
+                        android:elevation="1dp"
+                        android:translationZ="1dp" />
+                </RadioGroup>
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- 操作按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp">
+
+            <Button
+                android:id="@+id/buttonPrevious"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="上一题"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnPrimary"
+                android:background="?attr/colorPrimary"
+                android:layout_marginEnd="8dp"
+                android:elevation="2dp"
+                android:translationZ="2dp" />
+
+            <Button
+                android:id="@+id/buttonCheckAnswer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="检查答案"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnPrimary"
+                android:background="?attr/colorPrimary"
+                android:layout_marginEnd="8dp"
+                android:elevation="2dp"
+                android:translationZ="2dp" />
+
+            <Button
+                android:id="@+id/buttonNext"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="下一题"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnPrimary"
+                android:background="?attr/colorPrimary"
+                android:elevation="2dp"
+                android:translationZ="2dp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,108 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="user-section">
+                <h2>用户管理</h2>
+                
+                <div class="user-profile">
+                    <div class="profile-avatar">
+                        <div id="avatar-container">
+                            <i class="fas fa-user-circle"></i>
+                        </div>
+                        <input type="file" id="avatar-upload" accept="image/*">
+                        <button id="change-avatar-btn" class="btn-secondary">更换头像</button>
+                    </div>
+                    
+                    <div class="profile-info">
+                        <div class="form-group">
+                            <label for="username">用户�?/label>
+                            <input type="text" id="username" placeholder="请输入用户名">
+                        </div>
+                        <div class="form-group">
+                            <label for="email">邮箱</label>
+                            <input type="email" id="email" placeholder="请输入邮�?>
+                        </div>
+                        <div class="form-group">
+                            <label for="phone">手机�?/label>
+                            <input type="tel" id="phone" placeholder="请输入手机号">
+                        </div>
+                        <div class="form-group">
+                            <label for="bio">个人简�?/label>
+                            <textarea id="bio" placeholder="请输入个人简�?></textarea>
+                        </div>
+                        <button id="save-profile-btn" class="btn-primary">保存个人信息</button>
+                    </div>
+                </div>
+                
+                <div class="user-settings">
+                    <h3>账户设置</h3>
+                    
+                    <div class="settings-card">
+                        <h4>密码管理</h4>
+                        <div class="form-group">
+                            <label for="old-password">旧密�?/label>
+                            <input type="password" id="old-password" placeholder="请输入旧密码">
+                        </div>
+                        <div class="form-group">
+                            <label for="new-password">新密�?/label>
+                            <input type="password" id="new-password" placeholder="请输入新密码">
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm-password">确认新密�?/label>
+                            <input type="password" id="confirm-password" placeholder="请确认新密码">
+                        </div>
+                        <button id="change-password-btn" class="btn-primary">修改密码</button>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h4>通知设置</h4>
+                        <label>
+                            <input type="checkbox" id="notification-email">
+                            邮件通知
+                        </label>
+                        <label>
+                            <input type="checkbox" id="notification-app">
+                            应用通知
+                        </label>
+                        <label>
+                            <input type="checkbox" id="notification-reminder">
+                            学习提醒
+                        </label>
+                        <button id="save-notification-btn" class="btn-primary">保存通知设置</button>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h4>账户安全</h4>
+                        <p>最后登录时间：<span id="last-login">2026-03-15 12:34:56</span></p>
+                        <p>登录设备�?span id="login-device">Windows 10, Chrome</span></p>
+                        <button id="logout-btn" class="btn-secondary">退出登�?/button>
+                        <button id="delete-account-btn" class="btn-danger">删除账户</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

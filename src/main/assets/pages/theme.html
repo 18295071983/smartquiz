@@ -1,0 +1,151 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主题设置 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="theme-section">
+                <h2>主题设置</h2>
+                
+                <div class="theme-options">
+                    <div class="theme-card active" data-theme="light">
+                        <div class="theme-preview light-theme">
+                            <div class="preview-header"></div>
+                            <div class="preview-body">
+                                <div class="preview-card"></div>
+                                <div class="preview-card"></div>
+                            </div>
+                        </div>
+                        <h3>浅色主题</h3>
+                        <p>默认主题，清爽明�?/p>
+                    </div>
+                    
+                    <div class="theme-card" data-theme="dark">
+                        <div class="theme-preview dark-theme">
+                            <div class="preview-header"></div>
+                            <div class="preview-body">
+                                <div class="preview-card"></div>
+                                <div class="preview-card"></div>
+                            </div>
+                        </div>
+                        <h3>深色主题</h3>
+                        <p>护眼模式，适合夜间使用</p>
+                    </div>
+                    
+                    <div class="theme-card" data-theme="blue">
+                        <div class="theme-preview blue-theme">
+                            <div class="preview-header"></div>
+                            <div class="preview-body">
+                                <div class="preview-card"></div>
+                                <div class="preview-card"></div>
+                            </div>
+                        </div>
+                        <h3>蓝色主题</h3>
+                        <p>专业风格，蓝色调</p>
+                    </div>
+                    
+                    <div class="theme-card" data-theme="green">
+                        <div class="theme-preview green-theme">
+                            <div class="preview-header"></div>
+                            <div class="preview-body">
+                                <div class="preview-card"></div>
+                                <div class="preview-card"></div>
+                            </div>
+                        </div>
+                        <h3>绿色主题</h3>
+                        <p>自然风格，绿色调</p>
+                    </div>
+                </div>
+                
+                <div class="theme-settings">
+                    <h3>外观设置</h3>
+                    
+                    <div class="settings-card">
+                        <h4>字体设置</h4>
+                        <div class="form-group">
+                            <label for="font-family">字体</label>
+                            <select id="font-family">
+                                <option value="system">系统默认</option>
+                                <option value="sans-serif">无衬线字�?/option>
+                                <option value="serif">衬线字体</option>
+                                <option value="monospace">等宽字体</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="font-size">字体大小</label>
+                            <input type="range" id="font-size" min="12" max="20" value="16">
+                            <span id="font-size-value">16px</span>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h4>界面设置</h4>
+                        <label>
+                            <input type="checkbox" id="enable-animations">
+                            启用动画效果
+                        </label>
+                        <label>
+                            <input type="checkbox" id="enable-shadows">
+                            启用阴影效果
+                        </label>
+                        <label>
+                            <input type="checkbox" id="enable-rounded-corners">
+                            启用圆角效果
+                        </label>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h4>主题模式</h4>
+                        <label>
+                            <input type="radio" name="theme-mode" value="manual" checked>
+                            手动选择
+                        </label>
+                        <label>
+                            <input type="radio" name="theme-mode" value="auto">
+                            跟随系统
+                        </label>
+                        <label>
+                            <input type="radio" name="theme-mode" value="schedule">
+                            定时切换
+                        </label>
+                        <div class="schedule-settings" style="display: none;">
+                            <div class="form-group">
+                                <label for="light-time">浅色模式时间</label>
+                                <input type="time" id="light-time" value="06:00">
+                            </div>
+                            <div class="form-group">
+                                <label for="dark-time">深色模式时间</label>
+                                <input type="time" id="dark-time" value="18:00">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="theme-actions">
+                    <button id="save-theme-btn" class="btn-primary">保存主题设置</button>
+                    <button id="reset-theme-btn" class="btn-secondary">恢复默认</button>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+/* 中文字体图标 - 使用 CSS :before 伪元素实现 */
+/* 无需加载任何字体文件，纯 CSS 渲染 */
+
+[class^="icon-"],
+[class*=" icon-"] {
+    display: inline-block;
+    width: 1.5em;
+    height: 1.5em;
+    line-height: 1.5em;
+    text-align: center;
+    font-size: 24px;
+    vertical-align: middle;
+}
+
+/* 导航与界面 */
+.icon-home:before { content: '🏠'; }           /* 首页 */
+.icon-menu:before { content: '☰'; }            /* 菜单 */
+.icon-back:before { content: '←'; }            /* 返回 */
+.icon-close:before { content: '✕'; }           /* 关闭 */
+.icon-settings:before { content: '⚙'; }        /* 设置 */
+.icon-search:before { content: '🔍'; }          /* 搜索 */
+.icon-user:before { content: '👤'; }           /* 用户 */
+.icon-users:before { content: '👥'; }           /* 用户组 */
+
+/* 操作按钮 */
+.icon-add:before { content: '➕'; }            /* 添加 */
+.icon-edit:before { content: '✏'; }            /* 编辑 */
+.icon-delete:before { content: '🗑'; }          /* 删除 */
+.icon-save:before { content: '💾'; }           /* 保存 */
+.icon-copy:before { content: '📋'; }           /* 复制 */
+.icon-share:before { content: '📤'; }          /* 分享 */
+.icon-download:before { content: '⬇'; }        /* 下载 */
+.icon-upload:before { content: '⬆'; }          /* 上传 */
+.icon-refresh:before { content: '🔄'; }       /* 刷新 */
+.icon-check:before { content: '✓'; }           /* 确认 */
+.icon-clear:before { content: '✗'; }           /* 清除 */
+
+/* 文件相关 */
+.icon-file:before { content: '📄'; }          /* 文件 */
+.icon-folder:before { content: '📁'; }         /* 文件夹 */
+.icon-image:before { content: '🖼'; }         /* 图片 */
+.icon-audio:before { content: '🎵'; }          /* 音频 */
+.icon-video:before { content: '🎬'; }          /* 视频 */
+.icon-document:before { content: '📃'; }       /* 文档 */
+.icon-zip:before { content: '📦'; }           /* 压缩包 */
+
+/* AI 与智能 */
+.icon-ai:before { content: '🤖'; }             /* AI */
+.icon-chat:before { content: '💬'; }           /* 聊天 */
+.icon-brain:before { content: '🧠'; }          /* 脑力/智能 */
+.icon-lightbulb:before { content: '💡'; }     /* 想法/提示 */
+.icon-star:before { content: '⭐'; }            /* 收藏/重要 */
+.icon-sparkles:before { content: '✨'; }       /* 精华/特色 */
+
+/* 学习相关 */
+.icon-book:before { content: '📚'; }          /* 书籍/题库 */
+.icon-question:before { content: '❓'; }        /* 题目 */
+.icon-quiz:before { content: '📝'; }           /* 答题 */
+.icon-note:before { content: '📓'; }           /* 笔记 */
+.icon-study:before { content: '📖'; }          /* 学习 */
+.icon-practice:before { content: '✍'; }        /* 练习 */
+.icon-test:before { content: '📋'; }           /* 测试 */
+.icon-exam:before { content: '📑'; }           /* 考试 */
+
+/* 数据与统计 */
+.icon-database:before { content: '🗄'; }       /* 数据库 */
+.icon-chart:before { content: '📊'; }          /* 图表 */
+.icon-statistics:before { content: '📈'; }     /* 统计 */
+.icon-list:before { content: '📜'; }           /* 列表 */
+.icon-grid:before { content: '⊞'; }           /* 网格 */
+.icon-filter:before { content: '🔽'; }         /* 筛选 */
+
+/* 状态与反馈 */
+.icon-success:before { content: '✅'; }        /* 成功 */
+.icon-error:before { content: '❌'; }          /* 错误 */
+.icon-warning:before { content: '⚠'; }         /* 警告 */
+.icon-info:before { content: 'ℹ'; }            /* 信息 */
+.icon-loading:before { content: '⏳'; }         /* 加载中 */
+.icon-sync:before { content: '🔗'; }           /* 同步 */
+
+/* 时间与日历 */
+.icon-time:before { content: '⏰'; }           /* 时间 */
+.icon-calendar:before { content: '📅'; }       /* 日历 */
+.icon-clock:before { content: '🕐'; }          /* 时钟 */
+.icon-history:before { content: '📜'; }         /* 历史 */
+
+/* 天气与自然 */
+.icon-weather:before { content: '🌤'; }        /* 天气 */
+.icon-sun:before { content: '☀️'; }           /* 太阳 */
+.icon-cloud:before { content: '☁'; }           /* 多云 */
+.icon-rain:before { content: '🌧'; }           /* 下雨 */
+.icon-snow:before { content: '❄'; }           /* 下雪 */
+
+/* 工具与功能 */
+.icon-tool:before { content: '🔧'; }           /* 工具 */
+.icon-keyboard:before { content: '⌨'; }       /* 键盘 */
+.icon-scanner:before { content: '📷'; }        /* 扫描 */
+.icon-translate:before { content: '🌐'; }      /* 翻译 */
+.icon-calculator:before { content: '🧮'; }     /* 计算 */
+
+/* 安全与隐私 */
+.icon-lock:before { content: '🔒'; }           /* 锁定 */
+.icon-unlock:before { content: '🔓'; }         /* 解锁 */
+.icon-eye:before { content: '👁'; }            /* 查看 */
+.icon-eye-off:before { content: '🙈'; }        /* 隐藏 */
+.icon-shield:before { content: '🛡'; }         /* 保护 */
+
+/* 网络与连接 */
+.icon-wifi:before { content: '📶'; }           /* WiFi */
+.icon-signal:before { content: '📡'; }         /* 信号 */
+.icon-cloud-sync:before { content: '☁'; }     /* 云同步 */
+.icon-link:before { content: '🔗'; }           /* 链接 */
+
+/* 媒体控制 */
+.icon-play:before { content: '▶'; }            /* 播放 */
+.icon-pause:before { content: '⏸'; }          /* 暂停 */
+.icon-stop:before { content: '⏹'; }           /* 停止 */
+.icon-prev:before { content: '⏮'; }           /* 上一首 */
+.icon-next:before { content: '⏭'; }           /* 下一首 */
+.icon-volume:before { content: '🔊'; }        /* 音量 */
+.icon-mute:before { content: '🔇'; }          /* 静音 */
+
+/* 颜色主题 */
+.icon-theme:before { content: '🎨'; }          /* 主题 */
+.icon-palette:before { content: '🎨'; }       /* 调色板 */
+.icon-sun2:before { content: '☀'; }           /* 日间模式 */
+.icon-moon:before { content: '🌙'; }           /* 夜间模式 */
+
+/* 备份与恢复 */
+.icon-backup:before { content: '💼'; }         /* 备份 */
+.icon-restore:before { content: '♻'; }        /* 恢复 */
+.icon-merge:before { content: '⤵'; }         /* 合并 */
+.icon-split:before { content: '⤴'; }          /* 拆分 */
+
+/* 设备相关 */
+.icon-phone:before { content: '📱'; }          /* 手机 */
+.icon-tablet:before { content: '📲'; }         /* 平板 */
+.icon-computer:before { content: '💻'; }       /* 电脑 */
+.icon-server:before { content: '🖥'; }         /* 服务器 */
+
+/* 常用符号 */
+.icon-plus:before { content: '＋'; }            /* 加号 */
+.icon-minus:before { content: '－'; }           /* 减号 */
+.icon-multiply:before { content: '×'; }        /* 乘号 */
+.icon-divide:before { content: '÷'; }          /* 除号 */
+.icon-equal:before { content: '＝'; }           /* 等号 */
+.icon-arrow-up:before { content: '↑'; }        /* 向上 */
+.icon-arrow-down:before { content: '↓'; }      /* 向下 */
+.icon-arrow-left:before { content: '←'; }      /* 向左 */
+.icon-arrow-right:before { content: '→'; }     /* 向右 */
+
+/* 位置相关 */
+.icon-location:before { content: '📍'; }        /* 位置 */
+.icon-map:before { content: '🗺'; }            /* 地图 */
+.icon-compass:before { content: '🧭'; }        /* 指南针 */
+
+/* 金钱相关 */
+.icon-money:before { content: '💰'; }         /* 钱 */
+.icon-card:before { content: '💳'; }           /* 卡 */
+.icon-wallet:before { content: '👛'; }         /* 钱包 */
+
+/* 通信 */
+.icon-mail:before { content: '📧'; }           /* 邮件 */
+.icon-message:before { content: '💬'; }        /* 消息 */
+.icon-phone2:before { content: '📞'; }         /* 电话 */
+.icon-bell:before { content: '🔔'; }           /* 通知 */
+
+/* 箭头与导航 */
+.icon-chevron-up:before { content: '⌃'; }     /* 向上 */
+.icon-chevron-down:before { content: '⌄'; }   /* 向下 */
+.icon-chevron-left:before { content: '‹'; }   /* 向左 */
+.icon-chevron-right:before { content: '›'; }  /* 向右 */
+.icon-caret-up:before { content: 'ᐱ'; }       /* 上 */
+.icon-caret-down:before { content: 'ᐯ'; }     /* 下 */
+.icon-caret-left:before { content: 'ᐸ'; }     /* 左 */
+.icon-caret-right:before { content: 'ᐳ'; }   /* 右 */
+
+/* 功能分类图标 - 使用中文单字 */
+.icon-fun-database:before { content: '库'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }      /* 题库 */
+.icon-fun-quiz:before { content: '答'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }               /* 答题 */
+.icon-fun-ai:before { content: '智'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }                 /* AI */
+.icon-fun-translate:before { content: '译'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }           /* 翻译 */
+.icon-fun-note:before { content: '记'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }               /* 笔记 */
+.icon-fun-ocr:before { content: '扫'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }                 /* OCR扫描 */
+.icon-fun-wrong:before { content: '错'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; color: #EF4444; } /* 错题 */
+.icon-fun-favorite:before { content: '藏'; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 20px; font-weight: bold; }           /* 收藏 */
+
+/* 尺寸变体 */
+.icon-18 { font-size: 18px !important; }
+.icon-24 { font-size: 24px !important; }
+.icon-36 { font-size: 36px !important; }
+.icon-48 { font-size: 48px !important; }
+
+/* 颜色变体 */
+.icon-primary { color: #3B82F6; }
+.icon-secondary { color: #8B5CF6; }
+.icon-success { color: #10B981; }
+.icon-warning { color: #F59E0B; }
+.icon-error { color: #EF4444; }
+.icon-muted { color: #9CA3AF; }

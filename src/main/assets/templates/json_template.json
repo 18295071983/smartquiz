@@ -1,0 +1,42 @@
+{
+  "name": "JSON模板",
+  "description": "JSON格式导出模板，适合程序处理",
+  "format": "JSON",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "questionType",
+    "difficulty",
+    "category"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型",
+    "difficulty": "难度",
+    "category": "分类"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "prettyPrint": true,
+    "indentSize": 2
+  },
+  "template": "{
+  \"exportInfo\": {
+    \"exportTime\": \"{{exportTime}}\",
+    \"questionCount\": {{questionCount}}
+  },
+  \"questions\": [{{questions}}]
+}"
+}

@@ -1,0 +1,47 @@
+# Git Attributes - 确保正确的文件处理和编码
+
+# 强制所有文本文件使用 UTF-8 编码
+*.java text eol=lf encoding=utf-8
+*.xml text eol=lf encoding=utf-8
+*.gradle text eol=lf encoding=utf-8
+*.kt text eol=lf encoding=utf-8
+*.properties text eol=lf encoding=utf-8
+*.json text eol=lf encoding=utf-8
+*.md text eol=lf encoding=utf-8
+*.txt text eol=lf encoding=utf-8
+*.py text eol=lf encoding=utf-8
+*.sh text eol=lf encoding=utf-8
+*.bat text eol=crlf encoding=utf-8
+*.html text eol=lf encoding=utf-8
+*.css text eol=lf encoding=utf-8
+*.js text eol=lf encoding=utf-8
+*.yml text eol=lf encoding=utf-8
+*.yaml text eol=lf encoding=utf-8
+
+# 二进制文件
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.tflite binary
+*.gguf binary
+*.so binary
+*.dll binary
+*.exe binary
+*.jar binary
+*.aar binary
+*.keystore binary
+*.jks binary
+
+# 压缩包
+*.zip binary
+*.tar.gz binary
+*.rar binary
+*.7z binary
+
+# 字体文件
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

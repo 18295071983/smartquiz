@@ -1,0 +1,2880 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartQuiz - 主界面</title>
+    <link rel="stylesheet" href="css/font-awesome.min.css">
+    <style>
+        /* 字体引入 */
+        @font-face {
+            font-family: 'D2Coding';
+            src: url('fonts/D2Coding-Ver1.3.2-20180524.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        
+        @font-face {
+            font-family: 'D2Coding';
+            src: url('fonts/D2CodingBold-Ver1.3.2-20180524.ttf') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+        
+        /* 全局样式 */
+        :root {
+            --primary: #667eea;
+            --primary-dark: #764ba2;
+            --secondary: #4caf50;
+            --accent: #ff9800;
+            --error: #f44336;
+            --warning: #ffc107;
+            --info: #2196f3;
+            --bg-primary: #f5f7fa;
+            --bg-card: #ffffff;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --text-muted: #999999;
+            --border-light: #e0e0e0;
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.16);
+            --transition: all 0.3s ease;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'D2Coding', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        /* 容器 */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* 头部 */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: var(--radius-lg);
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        /* 导航栏 */
+        .navbar {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .nav-tab {
+            padding: 10px 20px;
+            border: none;
+            border-radius: var(--radius-md);
+            background: transparent;
+            cursor: pointer;
+            transition: var(--transition);
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        
+        .nav-tab.active {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        
+        .nav-tab:hover:not(.active) {
+            background: var(--border-light);
+        }
+        
+        /* 内容区域 */
+        .content-area {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            min-height: 600px;
+        }
+        
+        /* 页面 */
+        .page {
+            display: none;
+        }
+        
+        .page.active {
+            display: block;
+        }
+        
+        /* 控制面板 */
+        .controls {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .control-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        .control-group select,
+        .control-group input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            transition: var(--transition);
+        }
+        
+        .control-group select:focus,
+        .control-group input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        /* 按钮样式 */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 80px;
+            justify-content: center;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-secondary {
+            background: var(--border-light);
+            color: var(--text-primary);
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+            transform: translateY(-2px);
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
+        
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+        
+        /* 导航按钮 */
+        .navigation {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 20px;
+            border-top: 2px solid var(--border-light);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .nav-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            background: var(--bg-card);
+            cursor: pointer;
+            transition: var(--transition);
+            min-width: 100px;
+            text-align: center;
+        }
+        
+        .nav-btn:hover:not(:disabled) {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .question-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        /* 题目详情 */
+        .question-detail {
+            flex: 1;
+            min-width: 400px;
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .detail-header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid var(--border-light);
+        }
+        
+        .detail-header h2 {
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+        
+        .detail-meta {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .detail-meta span {
+            font-size: 0.9rem;
+            padding: 6px 12px;
+            border-radius: 16px;
+            background: var(--border-light);
+            color: var(--text-secondary);
+        }
+        
+        .question-content {
+            margin-bottom: 24px;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: var(--text-primary);
+        }
+        
+        /* 选项 */
+        .options {
+            margin-bottom: 24px;
+        }
+        
+        .option {
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            margin-bottom: 12px;
+            border: 1px solid var(--border-light);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .option:hover {
+            border-color: var(--primary);
+            background-color: rgba(102, 126, 234, 0.05);
+        }
+        
+        .option.selected {
+            border-color: var(--primary);
+            background-color: rgba(102, 126, 234, 0.1);
+        }
+        
+        /* 答案解析 */
+        .explanation {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: var(--radius-md);
+            margin-bottom: 24px;
+        }
+        
+        .explanation h4 {
+            font-size: 1.1rem;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+        
+        .explanation p {
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+        
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        
+        .empty-state h3 {
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .loading p {
+            color: var(--text-secondary);
+            margin-top: 12px;
+        }
+        
+        /* 题目统计 */
+        .question-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .stat-box {
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .stat-box .number {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .stat-box .label {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+        
+        .stat-box.easy .number { color: var(--secondary); }
+        .stat-box.medium .number { color: var(--warning); }
+        .stat-box.hard .number { color: var(--error); }
+        .stat-box.total .number { color: var(--primary); }
+        
+        /* 题目操作 */
+        .question-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .action-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            cursor: pointer;
+            transition: var(--transition);
+            border: 2px solid var(--border-light);
+        }
+        
+        .action-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .action-card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+            font-size: 1.25rem;
+        }
+        
+        .action-card-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .action-card-desc {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+        
+        /* 搜索栏 */
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .search-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            outline: none;
+            transition: var(--transition);
+        }
+        
+        .search-input:focus {
+            border-color: var(--primary);
+        }
+        
+        .search-btn {
+            padding: 12px 24px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .search-btn:hover {
+            background: var(--primary-dark);
+        }
+        
+        /* 筛选标签 */
+        .filter-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .filter-tag {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .filter-tag:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        
+        .filter-tag.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        /* 列表容器 */
+        .list-container {
+            margin-bottom: 24px;
+        }
+        
+        .list-item {
+            display: flex;
+            align-items: center;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            border: 1px solid var(--border-light);
+        }
+        
+        .list-item:hover {
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+        
+        .list-item-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 16px;
+            font-size: 1.25rem;
+        }
+        
+        .list-item-content {
+            flex: 1;
+        }
+        
+        .list-item-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .list-item-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        
+        .list-item-arrow {
+            color: var(--text-muted);
+            font-size: 1.25rem;
+        }
+        
+        /* 测验介绍 */
+        .quiz-intro {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            color: white;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        
+        .quiz-intro-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 2rem;
+        }
+        
+        .quiz-intro h2 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+        
+        .quiz-intro p {
+            opacity: 0.9;
+            font-size: 0.9375rem;
+        }
+        
+        /* 测验选项 */
+        .quiz-options {
+            display: grid;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .quiz-option-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            cursor: pointer;
+            border: 2px solid var(--border-light);
+            transition: var(--transition);
+        }
+        
+        .quiz-option-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .quiz-option-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .quiz-option-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        
+        .quiz-option-title {
+            flex: 1;
+        }
+        
+        .quiz-option-title h4 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .quiz-option-title p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        
+        .quiz-option-arrow {
+            color: var(--text-muted);
+            font-size: 1.25rem;
+        }
+        
+        /* 难度选择 */
+        .difficulty-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .difficulty-btn {
+            padding: 16px;
+            background: var(--bg-card);
+            border: 2px solid var(--border-light);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            text-align: center;
+            transition: var(--transition);
+        }
+        
+        .difficulty-btn:hover {
+            border-color: var(--primary);
+        }
+        
+        .difficulty-btn.active {
+            border-color: var(--primary);
+            background: color-mix(in srgb, var(--primary) 8%, white);
+        }
+        
+        .difficulty-btn .icon {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+        
+        .difficulty-btn .label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .difficulty-btn.easy .icon { color: var(--secondary); }
+        .difficulty-btn.medium .icon { color: var(--warning); }
+        .difficulty-btn.hard .icon { color: var(--error); }
+        
+        /* 题目数量 */
+        .question-count {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        
+        .count-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .count-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 8px;
+            border-radius: 4px;
+            background: var(--border-light);
+            outline: none;
+        }
+        
+        .count-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .count-display {
+            min-width: 60px;
+            text-align: center;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        /* 开始按钮 */
+        .start-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, var(--secondary), #059669);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 1.125rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            box-shadow: var(--shadow-md);
+            transition: var(--transition);
+        }
+        
+        .start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .start-btn:active {
+            transform: translateY(0);
+        }
+        
+        /* 快速测验 */
+        .quick-quiz {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .quick-quiz-btn {
+            padding: 16px;
+            background: var(--bg-card);
+            border: 2px solid var(--border-light);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            text-align: center;
+            transition: var(--transition);
+        }
+        
+        .quick-quiz-btn:hover {
+            border-color: var(--accent);
+        }
+        
+        .quick-quiz-btn .number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+        
+        .quick-quiz-btn .label {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+        
+        /* AI聊天样式 */
+        .chat-message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .chat-message.user {
+            flex-direction: row-reverse;
+        }
+        
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .chat-avatar.ai {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+        
+        .chat-avatar.user {
+            background: color-mix(in srgb, var(--secondary) 10%, white);
+            color: var(--secondary);
+        }
+        
+        .chat-content {
+            flex: 1;
+            max-width: 80%;
+        }
+        
+        .chat-message.user .chat-content {
+            text-align: right;
+        }
+        
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        
+        .chat-message.user .chat-header {
+            flex-direction: row-reverse;
+        }
+        
+        .chat-name {
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+        }
+        
+        .chat-time {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        
+        .chat-text {
+            background: var(--bg-card);
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            line-height: 1.5;
+        }
+        
+        .chat-message.user .chat-text {
+            background: color-mix(in srgb, var(--secondary) 10%, white);
+        }
+        
+        .chat-message.ai .chat-text {
+            background: color-mix(in srgb, var(--primary) 10%, white);
+        }
+        
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+        
+        .typing-indicator span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .typing-indicator span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0);
+            } 40% {
+                transform: scale(1);
+            }
+        }
+        
+        /* 深色模式 */
+        .dark-mode {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-card: #333333;
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --primary: #4CAF50;
+            --primary-dark: #388E3C;
+            --secondary: #2196F3;
+            --secondary-dark: #1976D2;
+            --accent: #FF9800;
+            --accent-dark: #F57C00;
+            --error: #F44336;
+            --error-dark: #D32F2F;
+            --success: #4CAF50;
+            --success-dark: #388E3C;
+            --warning: #FFC107;
+            --warning-dark: #F57F17;
+            --info: #2196F3;
+            --info-dark: #1976D2;
+            --border-light: #444444;
+            --border: #555555;
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 12px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .control-row {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .control-group {
+                min-width: 100%;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                justify-content: center;
+                width: 100%;
+            }
+            
+            .content-area {
+                flex-direction: column;
+            }
+            
+            .question-detail {
+                min-width: 100%;
+            }
+            
+            .navigation {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .nav-btn {
+                width: 100%;
+                margin: 0;
+            }
+            
+            .question-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .question-actions {
+                grid-template-columns: 1fr;
+            }
+            
+            .difficulty-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .quick-quiz {
+                grid-template-columns: 1fr;
+            }
+            
+            .chat-content {
+                max-width: 90%;
+            }
+            
+            .chat-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+            
+            .chat-message.user .chat-header {
+                align-items: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SmartQuiz</h1>
+            <p>智能题库管理与测验系统</p>
+        </div>
+        
+        <div class="navbar">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-page="home">首页</button>
+                <button class="nav-tab" data-page="question-renderer">题目渲染</button>
+                <button class="nav-tab" data-page="question-manager">题目管理</button>
+                <button class="nav-tab" data-page="start-quiz">开始测验</button>
+                <button class="nav-tab" data-page="ai-assistant">AI助手</button>
+                <button class="nav-tab" data-page="logs">日志</button>
+                <button class="nav-tab" data-page="settings">设置</button>
+            </div>
+        </div>
+        
+        <div class="content-area">
+            <!-- 首页 -->
+            <div class="page active" id="home">
+                <h2>欢迎使用 SmartQuiz</h2>
+                <p>选择左侧导航栏的功能开始使用</p>
+                
+                <div style="margin-top: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                    <div class="action-card" onclick="switchPage('question-renderer')">
+                        <div class="action-card-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <div class="action-card-title">题目渲染</div>
+                        <div class="action-card-desc">查看和浏览题目</div>
+                    </div>
+                    <div class="action-card" onclick="switchPage('question-manager')">
+                        <div class="action-card-icon" style="background: color-mix(in srgb, var(--secondary) 10%, white); color: var(--secondary);">
+                            <i class="fas fa-list"></i>
+                        </div>
+                        <div class="action-card-title">题目管理</div>
+                        <div class="action-card-desc">管理题库和题目</div>
+                    </div>
+                    <div class="action-card" onclick="switchPage('start-quiz')">
+                        <div class="action-card-icon" style="background: color-mix(in srgb, var(--accent) 10%, white); color: var(--accent);">
+                            <i class="fas fa-play-circle"></i>
+                        </div>
+                        <div class="action-card-title">开始测验</div>
+                        <div class="action-card-desc">选择测验设置</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 题目渲染器 -->
+            <div class="page" id="question-renderer">
+                <h2>题目渲染器</h2>
+                <div class="controls">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label for="question-type">题目类型</label>
+                            <select id="question-type" onchange="loadQuestions()">
+                                <option value="all">全部类型</option>
+                                <option value="single">单选题</option>
+                                <option value="multiple">多选题</option>
+                                <option value="judgment">判断题</option>
+                                <option value="fill">填空题</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="question-detail" id="question-detail">
+                    <div class="empty-state">
+                        <i class="fas fa-question-circle"></i>
+                        <h3>请加载题目</h3>
+                        <p>系统将自动加载题目数据</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 题目管理 -->
+            <div class="page" id="question-manager">
+                <h2>题目管理</h2>
+                
+                <section>
+                    <h3>题目统计</h3>
+                    <div class="question-stats">
+                        <div class="stat-box total">
+                            <div class="number" id="totalCount">0</div>
+                            <div class="label">总题目</div>
+                        </div>
+                        <div class="stat-box easy">
+                            <div class="number" id="easyCount">0</div>
+                            <div class="label">简单</div>
+                        </div>
+                        <div class="stat-box medium">
+                            <div class="number" id="mediumCount">0</div>
+                            <div class="label">中等</div>
+                        </div>
+                        <div class="stat-box hard">
+                            <div class="number" id="hardCount">0</div>
+                            <div class="label">困难</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>快捷操作</h3>
+                    <div class="question-actions">
+                        <div class="action-card" onclick="openNative('openQuestionManager')">
+                            <div class="action-card-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                                <i class="fas fa-list"></i>
+                            </div>
+                            <div class="action-card-title">题目列表</div>
+                            <div class="action-card-desc">查看和管理所有题目</div>
+                        </div>
+                        <div class="action-card" onclick="openNative('openQuestionBank')">
+                            <div class="action-card-icon" style="background: color-mix(in srgb, var(--secondary) 10%, white); color: var(--secondary);">
+                                <i class="fas fa-layer-group"></i>
+                            </div>
+                            <div class="action-card-title">题库管理</div>
+                            <div class="action-card-desc">管理题库分类</div>
+                        </div>
+                        <div class="action-card" onclick="openNative('openImport')">
+                            <div class="action-card-icon" style="background: color-mix(in srgb, var(--accent) 10%, white); color: var(--accent);">
+                                <i class="fas fa-file-import"></i>
+                            </div>
+                            <div class="action-card-title">导入题目</div>
+                            <div class="action-card-desc">批量导入新题目</div>
+                        </div>
+                        <div class="action-card" onclick="openNative('openQuestionEdit')">
+                            <div class="action-card-icon" style="background: color-mix(in srgb, var(--warning) 10%, white); color: var(--warning);">
+                                <i class="fas fa-plus-circle"></i>
+                            </div>
+                            <div class="action-card-title">添加题目</div>
+                            <div class="action-card-desc">手动添加新题目</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>搜索与筛选</h3>
+                    <div class="search-bar">
+                        <input type="text" class="search-input" placeholder="搜索题目...">
+                        <button class="search-btn" onclick="showToast('搜索功能开发中')">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <div class="filter-tags">
+                        <span class="filter-tag active">全部</span>
+                        <span class="filter-tag">单选题</span>
+                        <span class="filter-tag">多选题</span>
+                        <span class="filter-tag">判断题</span>
+                        <span class="filter-tag">简答题</span>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>更多操作</h3>
+                    <div class="list-container">
+                        <div class="list-item" onclick="openNative('openExport')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--secondary) 10%, white); color: var(--secondary);">
+                                <i class="fas fa-file-export"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">导出题目</div>
+                                <div class="list-item-subtitle">导出题目数据</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openBackup')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--accent) 10%, white); color: var(--accent);">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">数据备份</div>
+                                <div class="list-item-subtitle">备份题库数据</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openQuestionBrowse')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                                <i class="fas fa-eye"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">浏览题目</div>
+                                <div class="list-item-subtitle">快速浏览所有题目</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            
+            <!-- 开始测验 -->
+            <div class="page" id="start-quiz">
+                <div class="quiz-intro">
+                    <div class="quiz-intro-icon">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <h2>准备好测试了吗？</h2>
+                    <p>选择难度和题目数量，开始您的答题之旅</p>
+                </div>
+                
+                <section>
+                    <h3>快速测验</h3>
+                    <div class="quick-quiz">
+                        <div class="quick-quiz-btn" onclick="startQuickQuiz(10)">
+                            <div class="number">10</div>
+                            <div class="label">题快速测试</div>
+                        </div>
+                        <div class="quick-quiz-btn" onclick="startQuickQuiz(20)">
+                            <div class="number">20</div>
+                            <div class="label">题标准测试</div>
+                        </div>
+                        <div class="quick-quiz-btn" onclick="startQuickQuiz(50)">
+                            <div class="number">50</div>
+                            <div class="label">题深度测试</div>
+                        </div>
+                        <div class="quick-quiz-btn" onclick="startQuickQuiz(100)">
+                            <div class="number">100</div>
+                            <div class="label">题挑战模式</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>选择难度</h3>
+                    <div class="difficulty-grid">
+                        <div class="difficulty-btn easy active" data-difficulty="easy" onclick="selectDifficulty(this)">
+                            <div class="icon"><i class="fas fa-leaf"></i></div>
+                            <div class="label">简单</div>
+                        </div>
+                        <div class="difficulty-btn medium" data-difficulty="medium" onclick="selectDifficulty(this)">
+                            <div class="icon"><i class="fas fa-fire"></i></div>
+                            <div class="label">中等</div>
+                        </div>
+                        <div class="difficulty-btn hard" data-difficulty="hard" onclick="selectDifficulty(this)">
+                            <div class="icon"><i class="fas fa-bolt"></i></div>
+                            <div class="label">困难</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>题目数量</h3>
+                    <div class="question-count">
+                        <div class="count-slider-container">
+                            <input type="range" class="count-slider" id="questionCountSlider" min="5" max="100" value="20" oninput="updateCount(this.value)">
+                            <div class="count-display" id="questionCountValue">20</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>测验模式</h3>
+                    <div class="quiz-options">
+                        <div class="quiz-option-card" onclick="openNative('openStartQuiz')">
+                            <div class="quiz-option-header">
+                                <div class="quiz-option-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                                    <i class="fas fa-pencil-alt"></i>
+                                </div>
+                                <div class="quiz-option-title">
+                                    <h4>标准模式</h4>
+                                    <p>答题后显示对错和解析</p>
+                                </div>
+                                <div class="quiz-option-arrow"><i class="fas fa-chevron-right"></i></div>
+                            </div>
+                        </div>
+                        <div class="quiz-option-card" onclick="openNative('openStartQuiz')">
+                            <div class="quiz-option-header">
+                                <div class="quiz-option-icon" style="background: color-mix(in srgb, var(--accent) 10%, white); color: var(--accent);">
+                                    <i class="fas fa-book"></i>
+                                </div>
+                                <div class="quiz-option-title">
+                                    <h4>背诵模式</h4>
+                                    <p>先思考后再查看答案</p>
+                                </div>
+                                <div class="quiz-option-arrow"><i class="fas fa-chevron-right"></i></div>
+                            </div>
+                        </div>
+                        <div class="quiz-option-card" onclick="openNative('openStartQuiz')">
+                            <div class="quiz-option-header">
+                                <div class="quiz-option-icon" style="background: color-mix(in srgb, var(--warning) 10%, white); color: var(--warning);">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="quiz-option-title">
+                                    <h4>计时模式</h4>
+                                    <p>限时答题挑战速度</p>
+                                </div>
+                                <div class="quiz-option-arrow"><i class="fas fa-chevron-right"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <button class="start-btn" onclick="startQuiz()">
+                    <i class="fas fa-play-circle"></i>
+                    开始答题
+                </button>
+            </div>
+            
+            <!-- AI助手 -->
+            <div class="page" id="ai-assistant">
+                <h2>AI助手</h2>
+                
+                <!-- 模型状态卡片 -->
+                <div class="controls" id="model-status-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0;">模型状态</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary btn-sm" onclick="openModelConfig()">
+                                <i class="fas fa-cog"></i> 配置
+                            </button>
+                            <button class="btn btn-secondary btn-sm" onclick="refreshModelStatus()">
+                                <i class="fas fa-sync"></i> 刷新
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="question-stats" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="stat-box">
+                            <div class="number" id="model-status-text">未加载</div>
+                            <div class="label">模型状态</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="number" id="model-size-text">--</div>
+                            <div class="label">模型大小</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="number" id="model-params-text">--</div>
+                            <div class="label">参数量</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="number" id="model-context-text">--</div>
+                            <div class="label">上下文大小</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
+                        <button class="btn btn-primary" onclick="loadModel()" id="load-model-btn">
+                            <i class="fas fa-database"></i> 加载模型
+                        </button>
+                        <button class="btn btn-danger" onclick="unloadModel()" id="unload-model-btn" disabled>
+                            <i class="fas fa-eject"></i> 卸载模型
+                        </button>
+                        <div style="flex: 1;"></div>
+                        <span style="color: var(--text-muted); font-size: 0.875rem;">
+                            <i class="fas fa-info-circle"></i> 首次使用需要加载本地模型
+                        </span>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="chat-tab" onclick="switchAiTab('chat')">
+                        <i class="fas fa-comments"></i> 聊天模式
+                    </button>
+                    <button class="btn btn-secondary" id="agent-tab" onclick="switchAiTab('agent')">
+                        <i class="fas fa-robot"></i> Agent模式
+                    </button>
+                    <div style="flex: 1;"></div>
+                    <button class="btn btn-outline" onclick="toggleTheme()">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <button class="btn btn-outline" onclick="exportChat()">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+                
+                <!-- 聊天模式 -->
+                <div id="chat-mode" style="display: flex; flex-direction: column; height: 70vh; gap: 16px;">
+                    <!-- 聊天区域 -->
+                    <div style="flex: 1; background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); overflow-y: auto; display: flex; flex-direction: column; gap: 16px;" id="chat-container">
+                        <div class="chat-message ai">
+                            <div class="chat-avatar ai"><i class="fas fa-robot"></i></div>
+                            <div class="chat-content">
+                                <div class="chat-header">
+                                    <span class="chat-name">AI助手</span>
+                                    <span class="chat-time" id="ai-time">现在</span>
+                                </div>
+                                <div class="chat-text">你好！我是SmartQuiz的AI助手。请先加载本地模型，然后就可以开始聊天了！</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 输入区域 -->
+                    <div style="background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; gap: 12px; align-items: flex-end;">
+                            <textarea type="text" id="ai-input" placeholder="输入你的问题..." style="flex: 1; padding: 12px 16px; border: 2px solid var(--border-light); border-radius: var(--radius-md); font-size: 1rem; outline: none; transition: var(--transition); resize: vertical; min-height: 60px; max-height: 150px; overflow-y: auto; font-family: inherit;"></textarea>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <button class="btn btn-primary" onclick="sendMessage()" id="send-btn" title="发送">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                                <button class="btn btn-secondary" onclick="clearChat()" id="clear-btn" title="清空">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div style="margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary btn-sm" onclick="sendQuickMessage('如何使用SmartQuiz？')">如何使用SmartQuiz？</button>
+                            <button class="btn btn-secondary btn-sm" onclick="sendQuickMessage('创建一个新题目')">创建一个新题目</button>
+                            <button class="btn btn-secondary btn-sm" onclick="sendQuickMessage('如何导入题目？')">如何导入题目？</button>
+                            <button class="btn btn-secondary btn-sm" onclick="sendQuickMessage('解释一下计算机网络')">解释计算机网络</button>
+                            <button class="btn btn-secondary btn-sm" onclick="sendQuickMessage('生成一个Python代码示例')">生成Python代码</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Agent模式 -->
+                <div id="agent-mode" style="display: none; flex-direction: column; height: 80vh; gap: 16px;">
+                    <!-- 任务输入区域 -->
+                    <div style="background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3>AI Agent</h3>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-outline btn-sm" onclick="loadTemplate('question')" title="题目模板">
+                                    <i class="fas fa-question-circle"></i>
+                                </button>
+                                <button class="btn btn-outline btn-sm" onclick="loadTemplate('analysis')" title="分析模板">
+                                    <i class="fas fa-chart-bar"></i>
+                                </button>
+                                <button class="btn btn-outline btn-sm" onclick="loadTemplate('code')" title="代码模板">
+                                    <i class="fas fa-code"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <p style="color: var(--text-muted); margin-bottom: 16px;">输入任务描述，AI会分析并生成执行计划</p>
+                        <textarea id="agent-input" placeholder="输入任务描述，例如：'创建10个关于计算机网络的单选题'或'分析数据库中题目的分布情况'..." style="width: 100%; padding: 16px; border: 2px solid var(--border-light); border-radius: var(--radius-md); font-size: 1rem; outline: none; transition: var(--transition); resize: vertical; min-height: 120px; max-height: 200px; font-family: inherit;"></textarea>
+                        <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="clearAgentTask()">
+                                <i class="fas fa-eraser"></i> 清除
+                            </button>
+                            <button class="btn btn-primary" onclick="executeAgentTask()">
+                                <i class="fas fa-play"></i> 执行任务
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 执行结果区域 -->
+                    <div style="flex: 1; background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); overflow-y: auto;" id="agent-result">
+                        <div style="text-align: center; color: var(--text-muted); padding: 60px 0;">
+                            <div style="width: 80px; height: 80px; background: color-mix(in srgb, var(--primary) 10%, white); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
+                                <i class="fas fa-robot" style="font-size: 3rem; color: var(--primary);"></i>
+                            </div>
+                            <h4>AI Agent</h4>
+                            <p style="margin-top: 12px;">输入任务描述并点击执行按钮</p>
+                            <p style="font-size: 0.875rem; margin-top: 8px; max-width: 400px; margin-left: auto; margin-right: auto;">AI Agent将分析任务并生成详细的执行计划</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 日志 -->
+            <div class="page" id="logs">
+                <h2>日志</h2>
+                
+                <section>
+                    <h3>应用日志</h3>
+                    <div style="background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h4>系统日志</h4>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary btn-sm" onclick="loadLogs()">
+                                    <i class="fas fa-sync"></i> 刷新
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="clearLogs()">
+                                    <i class="fas fa-trash"></i> 清空
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="exportLogs()">
+                                    <i class="fas fa-download"></i> 导出
+                                </button>
+                            </div>
+                        </div>
+                        <div style="background: #f5f5f5; border: 1px solid #ddd; border-radius: var(--radius-md); padding: 16px; height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.875rem; line-height: 1.4; white-space: pre-wrap;" id="log-content">
+                            <!-- 日志内容将在这里显示 -->
+                            加载日志中...
+                        </div>
+                    </div>
+                </section>
+                
+                <section style="margin-top: 24px;">
+                    <h3>AI日志</h3>
+                    <div style="background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h4>AI助手日志</h4>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary btn-sm" onclick="loadAILogs()">
+                                    <i class="fas fa-sync"></i> 刷新
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="clearAILogs()">
+                                    <i class="fas fa-trash"></i> 清空
+                                </button>
+                            </div>
+                        </div>
+                        <div style="background: #f5f5f5; border: 1px solid #ddd; border-radius: var(--radius-md); padding: 16px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.875rem; line-height: 1.4; white-space: pre-wrap;" id="ai-log-content">
+                            <!-- AI日志内容将在这里显示 -->
+                            加载AI日志中...
+                        </div>
+                    </div>
+                </section>
+            </div>
+            
+            <!-- 设置 -->
+            <div class="page" id="settings">
+                <h2>设置</h2>
+                
+                <section>
+                    <h3>应用设置</h3>
+                    <div class="list-container">
+                        <div class="list-item" onclick="openNative('openThemeSettings')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                                <i class="fas fa-palette"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">主题设置</div>
+                                <div class="list-item-subtitle">更改应用主题和颜色</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openLanguage')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--secondary) 10%, white); color: var(--secondary);">
+                                <i class="fas fa-language"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">语言设置</div>
+                                <div class="list-item-subtitle">更改应用语言</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openUser')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--accent) 10%, white); color: var(--accent);">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">用户设置</div>
+                                <div class="list-item-subtitle">管理用户信息</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>数据管理</h3>
+                    <div class="list-container">
+                        <div class="list-item" onclick="openNative('openBackup')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--info) 10%, white); color: var(--info);">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">数据备份</div>
+                                <div class="list-item-subtitle">备份题库数据</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openExport')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--warning) 10%, white); color: var(--warning);">
+                                <i class="fas fa-file-export"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">数据导出</div>
+                                <div class="list-item-subtitle">导出题目数据</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openImport')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--secondary) 10%, white); color: var(--secondary);">
+                                <i class="fas fa-file-import"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">数据导入</div>
+                                <div class="list-item-subtitle">导入题目数据</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>关于</h3>
+                    <div class="list-container">
+                        <div class="list-item" onclick="openNative('openAbout')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--primary) 10%, white); color: var(--primary);">
+                                <i class="fas fa-info-circle"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">关于应用</div>
+                                <div class="list-item-subtitle">版本信息和开发者</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                        <div class="list-item" onclick="openNative('openLogs')">
+                            <div class="list-item-icon" style="background: color-mix(in srgb, var(--error) 10%, white); color: var(--error);">
+                                <i class="fas fa-file-alt"></i>
+                            </div>
+                            <div class="list-item-content">
+                                <div class="list-item-title">日志管理</div>
+                                <div class="list-item-subtitle">查看应用日志</div>
+                            </div>
+                            <div class="list-item-arrow"><i class="fas fa-chevron-right"></i></div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h3>应用信息</h3>
+                    <div class="stat-box" style="margin-top: 20px;">
+                        <div class="number" id="appVersion">--</div>
+                        <div class="label">应用版本</div>
+                    </div>
+                    <div class="stat-box" style="margin-top: 10px;">
+                        <div class="number" id="webViewVersion">--</div>
+                        <div class="label">WebView版本</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 页面切换
+        function switchPage(pageId) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // 显示选中的页面
+            document.getElementById(pageId).classList.add('active');
+            
+            // 更新导航标签
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.page === pageId) {
+                    tab.classList.add('active');
+                }
+            });
+        }
+        
+        // 导航标签点击事件
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                switchPage(this.dataset.page);
+            });
+        });
+        
+        // 题目渲染器相关
+        let currentQuestions = [];
+        let currentQuestionIndex = 0;
+        
+        // 页面加载完成后初始化
+        window.onload = function() {
+            // 加载题目管理页面的统计数据
+            loadStats();
+            // 检查数据是否已加载
+            checkAndLoadQuestions();
+            // 加载应用版本信息
+            loadAppInfo();
+        };
+        
+        // 检查数据是否已加载，如果没有则等待
+        function checkAndLoadQuestions() {
+            if (typeof Android !== 'undefined' && Android.isQuestionsDataLoaded) {
+                if (Android.isQuestionsDataLoaded()) {
+                    // 数据已加载，直接加载题目
+                    loadQuestions();
+                } else {
+                    // 数据未加载，显示等待状态
+                    document.getElementById('question-detail').innerHTML = '<div class="loading"><p>正在加载题目数据...</p></div>';
+                    // 3秒后重试
+                    setTimeout(checkAndLoadQuestions, 3000);
+                }
+            } else {
+                // 不在WebView中或没有isQuestionsDataLoaded方法，直接加载
+                loadQuestions();
+            }
+        }
+        
+        // 数据加载完成后的回调函数（由Android调用）
+        function onQuestionsDataLoaded() {
+            console.log('题目数据已加载完成');
+            // 加载题目类型和分类数据
+            populateQuestionTypes();
+            populateCategories();
+            // 加载题目
+            loadQuestions();
+        }
+        
+        // 从Android应用获取题目数据
+        function loadQuestionsFromApp() {
+            return new Promise((resolve, reject) => {
+                // 检查是否在WebView中
+                if (typeof Android !== 'undefined' && Android.getQuestions) {
+                    try {
+                        // 调用Android方法获取题目数据
+                        const questionsJson = Android.getQuestions();
+                        try {
+                            const parsedQuestions = JSON.parse(questionsJson);
+                            resolve(parsedQuestions);
+                        } catch (error) {
+                            console.error('解析题目数据失败:', error);
+                            reject(error);
+                        }
+                    } catch (error) {
+                        console.error('调用Android方法失败:', error);
+                        reject(error);
+                    }
+                } else {
+                    // 如果不在WebView中，使用模拟数据
+                    console.log('不在WebView中，使用模拟数据');
+                    resolve(getMockQuestions());
+                }
+            });
+        }
+        
+        // 从Android应用获取题目类型数据
+        function loadQuestionTypes() {
+            return new Promise((resolve, reject) => {
+                // 检查是否在WebView中
+                if (typeof Android !== 'undefined' && Android.getQuestionTypes) {
+                    try {
+                        // 调用Android方法获取题目类型数据
+                        const typesJson = Android.getQuestionTypes();
+                        try {
+                            const parsedTypes = JSON.parse(typesJson);
+                            resolve(parsedTypes);
+                        } catch (error) {
+                            console.error('解析题目类型数据失败:', error);
+                            reject(error);
+                        }
+                    } catch (error) {
+                        console.error('调用Android方法失败:', error);
+                        reject(error);
+                    }
+                } else {
+                    // 如果不在WebView中，使用默认类型
+                    console.log('不在WebView中，使用默认题目类型');
+                    resolve(['single', 'multiple', 'judgment', 'fill']);
+                }
+            });
+        }
+        
+        // 从Android应用获取分类数据
+        function loadCategories() {
+            return new Promise((resolve, reject) => {
+                // 检查是否在WebView中
+                if (typeof Android !== 'undefined' && Android.getCategories) {
+                    try {
+                        // 调用Android方法获取分类数据
+                        const categoriesJson = Android.getCategories();
+                        try {
+                            const parsedCategories = JSON.parse(categoriesJson);
+                            resolve(parsedCategories);
+                        } catch (error) {
+                            console.error('解析分类数据失败:', error);
+                            reject(error);
+                        }
+                    } catch (error) {
+                        console.error('调用Android方法失败:', error);
+                        reject(error);
+                    }
+                } else {
+                    // 如果不在WebView中，使用默认分类
+                    console.log('不在WebView中，使用默认分类');
+                    resolve([]);
+                }
+            });
+        }
+        
+        // 填充题目类型下拉选项
+        async function populateQuestionTypes() {
+            try {
+                const types = await loadQuestionTypes();
+                const questionTypeSelect = document.getElementById('question-type');
+                
+                // 清空现有选项，保留"全部类型"
+                questionTypeSelect.innerHTML = '<option value="all">全部类型</option>';
+                
+                // 添加从数据库获取的题目类型
+                types.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type;
+                    option.textContent = getTypeName(type);
+                    questionTypeSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('填充题目类型失败:', error);
+            }
+        }
+        
+        // 填充分类下拉选项（如果需要）
+        async function populateCategories() {
+            try {
+                const categories = await loadCategories();
+                // 这里可以添加分类下拉选项的逻辑
+                console.log('分类数据:', categories);
+            } catch (error) {
+                console.error('填充分类失败:', error);
+            }
+        }
+        
+        // 加载题目
+        async function loadQuestions() {
+            const questionType = document.getElementById('question-type').value;
+            
+            // 显示加载状态
+            document.getElementById('question-detail').innerHTML = '<div class="loading"><p>加载中...</p></div>';
+            
+            try {
+                // 从应用获取题目数据
+                const allQuestions = await loadQuestionsFromApp();
+                
+                // 筛选题目
+                currentQuestions = allQuestions.filter(q => {
+                    // 处理题目类型筛选
+                    const typeMatch = (questionType === 'all' || q.questionType === questionType);
+                    return typeMatch;
+                });
+                
+                // 按ID排序题目
+                currentQuestions.sort((a, b) => a.id - b.id);
+                
+                // 如果有题目，显示第一个
+                if (currentQuestions.length > 0) {
+                    currentQuestionIndex = 0;
+                    const question = currentQuestions[0];
+                    updateQuestionDetail(question);
+                } else {
+                    document.getElementById('question-detail').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-search"></i>
+                            <h3>没有找到题目</h3>
+                            <p>请调整筛选条件后重试</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('加载题目失败:', error);
+                document.getElementById('question-detail').innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3>加载失败</h3>
+                        <p>无法加载题目数据，请重试</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // 更新题目详情
+        function updateQuestionDetail(question) {
+            const questionDetail = document.getElementById('question-detail');
+            
+            let optionsHtml = '';
+            // 处理选项数据
+            const options = [];
+            if (question.optionA) options.push({id: 'A', text: question.optionA});
+            if (question.optionB) options.push({id: 'B', text: question.optionB});
+            if (question.optionC) options.push({id: 'C', text: question.optionC});
+            if (question.optionD) options.push({id: 'D', text: question.optionD});
+            
+            if (options.length > 0) {
+                optionsHtml = `
+                    <div class="options">
+                        ${options.map(option => `
+                            <div class="option" onclick="selectOption('${option.id}')">
+                                <strong>${option.id}.</strong> ${option.text}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            let answerHtml = '';
+            if (question.questionType === 'fill') {
+                answerHtml = `
+                    <div class="control-group">
+                        <label for="user-answer">你的答案</label>
+                        <input type="text" id="user-answer" placeholder="请输入答案">
+                    </div>
+                `;
+            }
+            
+            // 导航按钮
+            const currentIndex = currentQuestions.findIndex(q => q.id === question.id);
+            const hasPrev = currentIndex > 0;
+            const hasNext = currentIndex < currentQuestions.length - 1;
+            
+            questionDetail.innerHTML = `
+                <div class="detail-header">
+                    <h2>${question.id}. ${question.questionText}</h2>
+                    <div class="detail-meta">
+                        <span>${getTypeName(question.questionType)}</span>
+                        <span>${getDifficultyName(question.difficulty)}</span>
+                    </div>
+                </div>
+                
+                <div class="question-content">
+                    <p>${question.questionText}</p>
+                </div>
+                
+                ${optionsHtml}
+                ${answerHtml}
+                
+                <div class="explanation">
+                    <h4>答案解析</h4>
+                    <p><strong>正确答案：</strong>${formatAnswer(question.correctAnswer)}</p>
+                    <p><strong>解析：</strong>${question.explanation || '暂无解析'}</p>
+                </div>
+                
+                <div class="navigation">
+                    <button class="nav-btn" onclick="navigateQuestion(-1)" ${!hasPrev ? 'disabled' : ''}>
+                        ← 上一题
+                    </button>
+                    <span>第 ${currentIndex + 1} / ${currentQuestions.length} 题</span>
+                    <button class="nav-btn" onclick="navigateQuestion(1)" ${!hasNext ? 'disabled' : ''}>
+                        下一题 →
+                    </button>
+                </div>
+            `;
+            
+            // 添加滑动事件监听器
+            addSwipeEventListener(questionDetail);
+        }
+        
+        // 导航题目
+        function navigateQuestion(direction) {
+            const currentIndex = currentQuestions.findIndex(q => q.id === currentQuestions[currentQuestionIndex].id);
+            const newIndex = currentIndex + direction;
+            if (newIndex >= 0 && newIndex < currentQuestions.length) {
+                currentQuestionIndex = newIndex;
+                const question = currentQuestions[newIndex];
+                updateQuestionDetail(question);
+            }
+        }
+        
+        // 添加滑动事件监听器
+        function addSwipeEventListener(element) {
+            let startX = 0;
+            let startY = 0;
+            
+            element.addEventListener('touchstart', function(e) {
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+            });
+            
+            element.addEventListener('touchend', function(e) {
+                const endX = e.changedTouches[0].clientX;
+                const endY = e.changedTouches[0].clientY;
+                
+                const diffX = endX - startX;
+                const diffY = endY - startY;
+                
+                // 检查是否是水平滑动
+                if (Math.abs(diffX) > Math.abs(diffY)) {
+                    // 左右滑动
+                    if (Math.abs(diffX) > 50) { // 最小滑动距离
+                        if (diffX > 0) {
+                            // 向右滑动，上一题
+                            navigateQuestion(-1);
+                        } else {
+                            // 向左滑动，下一题
+                            navigateQuestion(1);
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 选择选项
+        function selectOption(optionId) {
+            const options = document.querySelectorAll('.option');
+            options.forEach(option => {
+                option.classList.remove('selected');
+            });
+            
+            const selectedOption = Array.from(options).find(option => 
+                option.textContent.trim().startsWith(optionId + '.')
+            );
+            if (selectedOption) {
+                selectedOption.classList.add('selected');
+            }
+        }
+        
+        // 辅助函数：获取题目类型名称
+        function getTypeName(type) {
+            const typeMap = {
+                'single': '单选题',
+                'multiple': '多选题',
+                'judgment': '判断题',
+                'fill': '填空题'
+            };
+            return typeMap[type] || type;
+        }
+        
+        // 辅助函数：获取难度名称
+        function getDifficultyName(difficulty) {
+            // 处理int类型的difficulty值
+            if (typeof difficulty === 'number') {
+                const difficultyMap = {
+                    0: '简单',
+                    1: '中等',
+                    2: '困难'
+                };
+                return difficultyMap[difficulty] || difficulty;
+            }
+            // 处理字符串类型的difficulty值
+            const difficultyMap = {
+                'easy': '简单',
+                'medium': '中等',
+                'hard': '困难'
+            };
+            return difficultyMap[difficulty] || difficulty;
+        }
+        
+        // 辅助函数：格式化答案
+        function formatAnswer(answer) {
+            if (Array.isArray(answer)) {
+                return answer.join(', ');
+            } else if (answer === 'true') {
+                return '正确';
+            } else if (answer === 'false') {
+                return '错误';
+            }
+            return answer;
+        }
+        
+        // 模拟题目数据（当不在WebView中时使用）
+        function getMockQuestions() {
+            return [
+                {
+                    id: 1,
+                    questionType: 'single',
+                    difficulty: 0,
+                    questionText: '计算机网络中，HTTP协议默认使用的端口是？',
+                    optionA: '80',
+                    optionB: '443',
+                    optionC: '21',
+                    optionD: '23',
+                    correctAnswer: 'A',
+                    explanation: 'HTTP协议默认使用80端口，HTTPS使用443端口，FTP使用21端口，Telnet使用23端口。'
+                },
+                {
+                    id: 2,
+                    questionType: 'multiple',
+                    difficulty: 1,
+                    questionText: '下列属于前端开发技术的是？',
+                    optionA: 'HTML',
+                    optionB: 'CSS',
+                    optionC: 'JavaScript',
+                    optionD: 'Python',
+                    correctAnswer: 'A,B,C',
+                    explanation: 'HTML、CSS和JavaScript是前端开发的核心技术，Python主要用于后端开发。'
+                },
+                {
+                    id: 3,
+                    questionType: 'judgment',
+                    difficulty: 0,
+                    questionText: 'JavaScript是一种编译型语言',
+                    correctAnswer: 'false',
+                    explanation: 'JavaScript是一种解释型语言，代码在运行时被解释执行，而不是预先编译。'
+                },
+                {
+                    id: 4,
+                    questionType: 'fill',
+                    difficulty: 2,
+                    questionText: 'CSS中用于设置元素浮动的属性',
+                    correctAnswer: 'float',
+                    explanation: 'CSS的float属性用于设置元素的浮动方式，可选值包括left、right和none。'
+                }
+            ];
+        }
+        
+        // 题目管理相关
+        function loadStats() {
+            if (window.Android && typeof window.Android.getQuestionCount === 'function') {
+                const total = window.Android.getQuestionCount();
+                animateNumber('totalCount', total);
+                animateNumber('easyCount', Math.floor(total * 0.4));
+                animateNumber('mediumCount', Math.floor(total * 0.35));
+                animateNumber('hardCount', Math.floor(total * 0.25));
+            } else {
+                animateNumber('totalCount', 156);
+                animateNumber('easyCount', 62);
+                animateNumber('mediumCount', 55);
+                animateNumber('hardCount', 39);
+            }
+        }
+        
+        // 加载应用版本信息
+        function loadAppInfo() {
+            if (window.Android && typeof window.Android.getAppVersion === 'function') {
+                const appVersion = window.Android.getAppVersion();
+                document.getElementById('appVersion').textContent = appVersion || '--';
+            } else {
+                document.getElementById('appVersion').textContent = '1.0.0';
+            }
+            
+            if (window.Android && typeof window.Android.getWebViewVersion === 'function') {
+                const webViewVersion = window.Android.getWebViewVersion();
+                document.getElementById('webViewVersion').textContent = webViewVersion || '--';
+            } else {
+                document.getElementById('webViewVersion').textContent = 'Unknown';
+            }
+        }
+        
+        function animateNumber(elementId, target) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                let current = 0;
+                const step = target / 30;
+                const timer = setInterval(() => {
+                    current += step;
+                    if (current >= target) {
+                        el.textContent = target;
+                        clearInterval(timer);
+                    } else {
+                        el.textContent = Math.floor(current);
+                    }
+                }, 30);
+            }
+        }
+        
+        // 开始测验相关
+        let selectedDifficulty = 'easy';
+        let questionCount = 20;
+        
+        function selectDifficulty(element) {
+            document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            element.classList.add('active');
+            selectedDifficulty = element.dataset.difficulty;
+        }
+        
+        function updateCount(value) {
+            questionCount = parseInt(value);
+            document.getElementById('questionCountValue').textContent = value;
+        }
+        
+        function startQuickQuiz(count) {
+            questionCount = count;
+            document.getElementById('questionCountSlider').value = count;
+            document.getElementById('questionCountValue').textContent = count;
+            showToast('已选择 ' + count + ' 题');
+        }
+        
+        function startQuiz() {
+            showToast('正在启动测验...');
+            setTimeout(() => {
+                openNative('openStartQuiz');
+            }, 500);
+        }
+        
+        // 通用函数
+        function openNative(action) {
+            if (typeof Android !== 'undefined' && Android[action]) {
+                try {
+                    Android[action]();
+                } catch (error) {
+                    console.error('调用Android方法失败:', error);
+                    showToast('功能暂不可用');
+                }
+            } else {
+                showToast('功能暂不可用');
+            }
+        }
+        
+        function showToast(message) {
+            if (typeof Android !== 'undefined' && Android.showToast) {
+                try {
+                    Android.showToast(message);
+                } catch (error) {
+                    console.error('调用Android方法失败:', error);
+                    // 降级方案：使用浏览器的alert
+                    alert(message);
+                }
+            } else {
+                // 降级方案：使用浏览器的alert
+                alert(message);
+            }
+        }
+        
+        // AI助手相关
+        let isAIInitialized = false;
+        let isAITyping = false;
+        let isModelLoaded = false;
+        
+        // AI模型状态
+        let modelState = {
+            loaded: false,
+            size: '--',
+            params: '--',
+            context: '--'
+        };
+        
+        // 加载模型
+        function loadModel() {
+            console.log('开始加载模型...');
+            showToast('正在加载模型，请稍候...');
+            
+            if (typeof Android === 'undefined') {
+                console.log('Android对象不可用');
+                showToast('Android接口不可用');
+                return;
+            }
+            
+            if (!Android.loadModel) {
+                console.log('loadModel接口不可用');
+                showToast('模型加载接口不可用');
+                return;
+            }
+            
+            try {
+                // 禁用加载按钮，显示加载状态
+                const loadBtn = document.getElementById('load-model-btn');
+                const unloadBtn = document.getElementById('unload-model-btn');
+                loadBtn.disabled = true;
+                loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载中...';
+                
+                // 调用Android加载模型
+                const success = Android.loadModel();
+                
+                if (success) {
+                    console.log('模型加载成功');
+                    isModelLoaded = true;
+                    isAIInitialized = true;
+                    
+                    // 更新UI状态
+                    updateModelStatus(true);
+                    loadBtn.disabled = true;
+                    loadBtn.innerHTML = '<i class="fas fa-check"></i> 已加载';
+                    unloadBtn.disabled = false;
+                    
+                    showToast('模型加载成功！');
+                } else {
+                    console.error('模型加载失败');
+                    loadBtn.disabled = false;
+                    loadBtn.innerHTML = '<i class="fas fa-database"></i> 加载模型';
+                    showToast('模型加载失败，请检查模型文件');
+                }
+            } catch (error) {
+                console.error('加载模型出错:', error);
+                const loadBtn = document.getElementById('load-model-btn');
+                loadBtn.disabled = false;
+                loadBtn.innerHTML = '<i class="fas fa-database"></i> 加载模型';
+                showToast('加载模型出错: ' + error.message);
+            }
+        }
+        
+        // 卸载模型
+        function unloadModel() {
+            console.log('开始卸载模型...');
+            
+            if (typeof Android === 'undefined' || !Android.unloadModel) {
+                showToast('卸载接口不可用');
+                return;
+            }
+            
+            try {
+                const success = Android.unloadModel();
+                
+                if (success) {
+                    console.log('模型卸载成功');
+                    isModelLoaded = false;
+                    isAIInitialized = false;
+                    
+                    // 更新UI状态
+                    updateModelStatus(false);
+                    const loadBtn = document.getElementById('load-model-btn');
+                    const unloadBtn = document.getElementById('unload-model-btn');
+                    loadBtn.disabled = false;
+                    loadBtn.innerHTML = '<i class="fas fa-database"></i> 加载模型';
+                    unloadBtn.disabled = true;
+                    
+                    showToast('模型已卸载');
+                } else {
+                    showToast('模型卸载失败');
+                }
+            } catch (error) {
+                console.error('卸载模型出错:', error);
+                showToast('卸载模型出错: ' + error.message);
+            }
+        }
+        
+        // 刷新模型状态
+        function refreshModelStatus() {
+            console.log('刷新模型状态...');
+            
+            if (typeof Android === 'undefined' || !Android.getModelStatus) {
+                return;
+            }
+            
+            try {
+                const statusJson = Android.getModelStatus();
+                if (statusJson) {
+                    const status = JSON.parse(statusJson);
+                    modelState = status;
+                    updateModelStatusDisplay(status);
+                }
+            } catch (error) {
+                console.error('获取模型状态失败:', error);
+            }
+        }
+        
+        // 更新模型状态UI
+        function updateModelStatus(loaded) {
+            const statusText = document.getElementById('model-status-text');
+            const sizeText = document.getElementById('model-size-text');
+            const paramsText = document.getElementById('model-params-text');
+            const contextText = document.getElementById('model-context-text');
+            
+            if (loaded) {
+                statusText.textContent = '已加载';
+                statusText.style.color = 'var(--secondary)';
+                sizeText.textContent = modelState.size || '--';
+                paramsText.textContent = modelState.params || '--';
+                contextText.textContent = modelState.context || '--';
+            } else {
+                statusText.textContent = '未加载';
+                statusText.style.color = 'var(--text-muted)';
+                sizeText.textContent = '--';
+                paramsText.textContent = '--';
+                contextText.textContent = '--';
+            }
+        }
+        
+        // 更新模型状态显示
+        function updateModelStatusDisplay(status) {
+            if (status.loaded) {
+                updateModelStatus(true);
+            }
+        }
+        
+        // 打开模型配置
+        function openModelConfig() {
+            if (typeof Android !== 'undefined' && Android.openModelConfig) {
+                Android.openModelConfig();
+            } else {
+                showToast('模型配置功能开发中');
+            }
+        }
+        
+        // 初始化AI
+        function initAI() {
+            console.log('开始初始化AI...');
+            
+            if (typeof Android === 'undefined') {
+                console.log('Android对象不可用，可能不在WebView中');
+                isAIInitialized = false;
+                return;
+            }
+            
+            if (!Android.initAI) {
+                console.log('AI接口不可用，Android.initAI未定义');
+                isAIInitialized = false;
+                return;
+            }
+            
+            try {
+                console.log('调用Android.initAI()...');
+                const success = Android.initAI();
+                isAIInitialized = success;
+                
+                if (success) {
+                    console.log('AI初始化成功');
+                    showToast('AI助手已就绪');
+                } else {
+                    console.error('AI初始化失败，返回false');
+                    showToast('AI助手初始化失败，请检查模型文件');
+                }
+            } catch (error) {
+                console.error('初始化AI失败:', error);
+                isAIInitialized = false;
+                showToast('AI助手初始化出错: ' + error.message);
+            }
+        }
+        
+        // 显示提示信息
+        function showToast(message) {
+            // 创建提示元素
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-size: 14px;
+                z-index: 9999;
+                max-width: 80%;
+                text-align: center;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            // 3秒后自动移除
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 3000);
+        }
+        
+        // 发送消息
+        function sendMessage() {
+            const input = document.getElementById('ai-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // 检查模型是否已加载
+            if (!isModelLoaded) {
+                showToast('请先加载本地模型');
+                return;
+            }
+            
+            // 添加用户消息到聊天界面
+            addUserMessage(message);
+            
+            // 清空输入框
+            input.value = '';
+            
+            // 重置当前AI消息元素
+            resetCurrentAIMessage();
+            
+            // 显示AI正在输入
+            showAITyping();
+            
+            // 检查AI是否初始化
+            if (!isAIInitialized) {
+                initAI();
+            }
+            
+            // 发送消息到AI
+            if (typeof Android !== 'undefined' && Android.chatStream) {
+                try {
+                    // 使用流式聊天
+                    Android.chatStream(message, 'aiCallback');
+                } catch (error) {
+                    console.error('发送消息失败:', error);
+                    hideAITyping();
+                    addAIMessage('AI处理失败，请重试');
+                }
+            } else {
+                // 降级方案：使用模拟回复
+                hideAITyping();
+                setTimeout(() => {
+                    addAIMessage('这是一条模拟回复，实际应用中会调用AI模型。');
+                }, 1000);
+            }
+        }
+        
+        // 快速发送消息
+        function sendQuickMessage(message) {
+            const input = document.getElementById('ai-input');
+            input.value = message;
+            sendMessage();
+        }
+        
+        // 清除聊天
+        function clearChat() {
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.innerHTML = `
+                <div class="chat-message ai">
+                    <div class="chat-avatar ai"><i class="fas fa-robot"></i></div>
+                    <div class="chat-content">
+                        <div class="chat-header">
+                            <span class="chat-name">AI助手</span>
+                            <span class="chat-time">${getCurrentTime()}</span>
+                        </div>
+                        <div class="chat-text">你好！我是SmartQuiz的AI助手，有什么可以帮助你的吗？</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 添加用户消息
+        function addUserMessage(message) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'chat-message user';
+            messageElement.innerHTML = `
+                <div class="chat-avatar user"><i class="fas fa-user"></i></div>
+                <div class="chat-content">
+                    <div class="chat-header">
+                        <span class="chat-name">你</span>
+                        <span class="chat-time">${getCurrentTime()}</span>
+                    </div>
+                    <div class="chat-text">${message}</div>
+                </div>
+            `;
+            chatContainer.appendChild(messageElement);
+            scrollToBottom();
+        }
+        
+        // 添加AI消息
+        function addAIMessage(message) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'chat-message ai';
+            messageElement.innerHTML = `
+                <div class="chat-avatar ai"><i class="fas fa-robot"></i></div>
+                <div class="chat-content">
+                    <div class="chat-header">
+                        <span class="chat-name">AI助手</span>
+                        <span class="chat-time">${getCurrentTime()}</span>
+                    </div>
+                    <div class="chat-text">${message}</div>
+                </div>
+            `;
+            chatContainer.appendChild(messageElement);
+            scrollToBottom();
+        }
+        
+        // 显示AI正在输入
+        function showAITyping() {
+            const chatContainer = document.getElementById('chat-container');
+            const typingElement = document.createElement('div');
+            typingElement.className = 'chat-message ai';
+            typingElement.id = 'ai-typing';
+            typingElement.innerHTML = `
+                <div class="chat-avatar ai"><i class="fas fa-robot"></i></div>
+                <div class="chat-content">
+                    <div class="chat-header">
+                        <span class="chat-name">AI助手</span>
+                        <span class="chat-time">${getCurrentTime()}</span>
+                    </div>
+                    <div class="chat-text">
+                        <div class="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatContainer.appendChild(typingElement);
+            scrollToBottom();
+            isAITyping = true;
+        }
+        
+        // 隐藏AI正在输入
+        function hideAITyping() {
+            const typingElement = document.getElementById('ai-typing');
+            if (typingElement) {
+                typingElement.remove();
+            }
+            isAITyping = false;
+        }
+        
+        // AI回调函数（用于流式聊天）
+        let currentAIMessageElement = null;
+        
+        function aiCallback(token) {
+            console.log('收到AI token:', token);
+            
+            if (isAITyping) {
+                hideAITyping();
+            }
+            
+            // 检查是否是错误消息
+            if (token.startsWith('AI处理失败:') || token.startsWith('AI初始化失败:')) {
+                addAIMessage(token);
+                currentAIMessageElement = null;
+                return;
+            }
+            
+            // 如果有当前的AI消息元素，继续追加内容
+            if (currentAIMessageElement) {
+                const chatText = currentAIMessageElement.querySelector('.chat-text');
+                chatText.textContent += token;
+            } else {
+                // 创建新的AI消息
+                addAIMessage(token);
+                // 获取最后一条AI消息作为当前消息元素
+                const chatContainer = document.getElementById('chat-container');
+                const aiMessages = chatContainer.querySelectorAll('.chat-message.ai');
+                currentAIMessageElement = aiMessages[aiMessages.length - 1];
+            }
+            
+            scrollToBottom();
+        }
+        
+        // 重置当前AI消息元素（在发送新消息时调用）
+        function resetCurrentAIMessage() {
+            currentAIMessageElement = null;
+        }
+        
+        // 滚动到底部
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // 获取当前时间
+        function getCurrentTime() {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+        
+        // 监听输入框回车事件
+        document.getElementById('ai-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 切换AI模式标签
+        function switchAiTab(tab) {
+            const chatMode = document.getElementById('chat-mode');
+            const agentMode = document.getElementById('agent-mode');
+            const chatTab = document.getElementById('chat-tab');
+            const agentTab = document.getElementById('agent-tab');
+            
+            if (tab === 'chat') {
+                chatMode.style.display = 'flex';
+                agentMode.style.display = 'none';
+                chatTab.className = 'btn btn-primary';
+                agentTab.className = 'btn btn-secondary';
+            } else if (tab === 'agent') {
+                chatMode.style.display = 'none';
+                agentMode.style.display = 'flex';
+                chatTab.className = 'btn btn-secondary';
+                agentTab.className = 'btn btn-primary';
+            }
+        }
+        
+        // 执行Agent任务
+        function executeAgentTask() {
+            const input = document.getElementById('agent-input');
+            const task = input.value.trim();
+            
+            if (!task) {
+                showToast('请输入任务描述');
+                return;
+            }
+            
+            const resultContainer = document.getElementById('agent-result');
+            resultContainer.innerHTML = `
+                <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+                    <div class="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <p style="margin-top: 16px;">AI正在分析任务...</p>
+                </div>
+            `;
+            
+            // 检查AI是否初始化
+            if (!isAIInitialized) {
+                initAI();
+            }
+            
+            // 执行任务
+            if (typeof Android !== 'undefined' && Android.executeTask) {
+                try {
+                    const result = Android.executeTask(task);
+                    displayAgentResult(result);
+                } catch (error) {
+                    console.error('执行任务失败:', error);
+                    resultContainer.innerHTML = `
+                        <div style="text-align: center; color: var(--error); padding: 40px 0;">
+                            <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 16px;"></i>
+                            <p>执行任务失败：${error.message}</p>
+                        </div>
+                    `;
+                }
+            } else {
+                // 降级方案：使用模拟回复
+                setTimeout(() => {
+                    const mockResult = `任务：${task}\n\n执行计划：\n任务分析：\n用户要求执行一个任务，需要AI分析并生成执行计划。\n\n执行步骤：\n1. 分析任务需求\n2. 确定执行策略\n3. 生成详细计划\n4. 执行并验证结果\n\n工具使用：\n1. 聊天工具：分析任务需求\n2. 数据库工具：可能需要查询或修改数据\n3. 内容生成工具：可能需要生成题目或其他内容\n\n预期结果：\n任务完成，用户得到满意的结果。\n\n[提示] 此功能正在开发中，当前仅生成执行计划。`;
+                    displayAgentResult(mockResult);
+                }, 1000);
+            }
+        }
+        
+        // 显示Agent执行结果
+        function displayAgentResult(result) {
+            const resultContainer = document.getElementById('agent-result');
+            resultContainer.innerHTML = `
+                <div style="white-space: pre-wrap; line-height: 1.6;">
+                    ${result.replace(/\n/g, '<br>')}
+                </div>
+            `;
+        }
+        
+        // 清除Agent任务
+        function clearAgentTask() {
+            document.getElementById('agent-input').value = '';
+            document.getElementById('agent-result').innerHTML = `
+                <div style="text-align: center; color: var(--text-muted); padding: 60px 0;">
+                    <div style="width: 80px; height: 80px; background: color-mix(in srgb, var(--primary) 10%, white); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
+                        <i class="fas fa-robot" style="font-size: 3rem; color: var(--primary);"></i>
+                    </div>
+                    <h4>AI Agent</h4>
+                    <p style="margin-top: 12px;">输入任务描述并点击执行按钮</p>
+                    <p style="font-size: 0.875rem; margin-top: 8px; max-width: 400px; margin-left: auto; margin-right: auto;">AI Agent将分析任务并生成详细的执行计划</p>
+                </div>
+            `;
+        }
+        
+        // 主题切换
+        function toggleTheme() {
+            document.body.classList.toggle('dark-mode');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            localStorage.setItem('darkMode', isDarkMode);
+            
+            // 更新图标
+            const themeBtn = document.querySelector('button[onclick="toggleTheme()"]');
+            if (isDarkMode) {
+                themeBtn.innerHTML = '<i class="fas fa-sun"></i>';
+            } else {
+                themeBtn.innerHTML = '<i class="fas fa-moon"></i>';
+            }
+        }
+        
+        // 导出聊天
+        function exportChat() {
+            const chatContainer = document.getElementById('chat-container');
+            const chatMessages = chatContainer.innerHTML;
+            
+            // 创建导出内容
+            const exportContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>SmartQuiz AI聊天记录</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+                        .chat-message { display: flex; gap: 12px; margin-bottom: 16px; }
+                        .chat-message.user { flex-direction: row-reverse; }
+                        .chat-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+                        .chat-avatar.ai { background: linear-gradient(135deg, #4CAF50, #45a049); color: white; }
+                        .chat-avatar.user { background: #f0f0f0; color: #333; }
+                        .chat-content { flex: 1; max-width: 80%; }
+                        .chat-message.user .chat-content { text-align: right; }
+                        .chat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+                        .chat-message.user .chat-header { flex-direction: row-reverse; }
+                        .chat-name { font-weight: 600; font-size: 0.875rem; }
+                        .chat-time { font-size: 0.75rem; color: #999; }
+                        .chat-text { background: #f9f9f9; padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); line-height: 1.5; }
+                        .chat-message.user .chat-text { background: #e3f2fd; }
+                        .chat-message.ai .chat-text { background: #e8f5e8; }
+                    </style>
+                </head>
+                <body>
+                    <h1>SmartQuiz AI聊天记录</h1>
+                    <p>导出时间: ${new Date().toLocaleString()}</p>
+                    <div id="chat-container">
+                        ${chatMessages}
+                    </div>
+                </body>
+                </html>
+            `;
+            
+            // 创建下载链接
+            const blob = new Blob([exportContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `smartquiz_chat_${new Date().toISOString().slice(0,10)}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // 加载模板
+        function loadTemplate(type) {
+            const input = document.getElementById('agent-input');
+            let template = '';
+            
+            switch (type) {
+                case 'question':
+                    template = '创建10个关于[主题]的[题目类型]题目，要求：\n1. 内容准确\n2. 难度适中\n3. 选项合理\n4. 解析详细\n\n格式：\n题目：\n选项：\n正确答案：\n解析：';
+                    break;
+                case 'analysis':
+                    template = '分析数据库中题目的分布情况，包括：\n1. 各题型的数量分布\n2. 各难度级别的分布\n3. 各分类的分布\n4. 生成可视化图表数据';
+                    break;
+                case 'code':
+                    template = '生成一个[功能]的[语言]代码，要求：\n1. 语法正确\n2. 功能完整\n3. 注释清晰\n4. 符合最佳实践';
+                    break;
+            }
+            
+            input.value = template;
+        }
+        
+        // 页面加载完成后初始化AI
+        window.onload = function() {
+            console.log('页面加载完成，开始初始化...');
+            
+            try {
+                // 加载主题设置
+                const isDarkMode = localStorage.getItem('darkMode') === 'true';
+                if (isDarkMode) {
+                    document.body.classList.add('dark-mode');
+                    const themeBtn = document.querySelector('button[onclick="toggleTheme()"]');
+                    if (themeBtn) {
+                        themeBtn.innerHTML = '<i class="fas fa-sun"></i>';
+                    }
+                }
+                
+                // 加载题目管理页面的统计数据
+                console.log('加载统计数据...');
+                loadStats();
+                
+                // 检查数据是否已加载
+                console.log('检查题目数据...');
+                checkAndLoadQuestions();
+                
+                // 加载应用版本信息
+                console.log('加载应用信息...');
+                loadAppInfo();
+                
+                // 初始化AI（延迟3秒，避免与页面加载竞争资源）
+                console.log('准备初始化AI...');
+                setTimeout(function() {
+                    try {
+                        initAI();
+                    } catch (error) {
+                        console.error('初始化AI失败:', error);
+                    }
+                }, 3000);
+                
+                console.log('初始化完成');
+            } catch (error) {
+                console.error('页面初始化失败:', error);
+            }
+        };
+    </script>
+</body>
+</html>

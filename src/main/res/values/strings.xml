@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用基本信息 -->
+    <string name="app_name">答题宝</string>
+    
+    <!-- 主页面 -->
+    <string name="welcome_back">欢迎回来！</string>
+    <string name="start_learning_today">开始今天的学习吧</string>
+    <string name="question_bank_info">题库信息</string>
+    <string name="status">状态</string>
+    <string name="core_features">核心功能</string>
+    <string name="smart_features">智能功能</string>
+    <string name="more_features">更多功能</string>
+    <string name="question_management">题目管理</string>
+    <string name="study_plan">学习计划</string>
+    <string name="wrong_question_collection">错题集</string>
+    <string name="question_generation">题目生成</string>
+    <string name="text_recognition">文字识别</string>
+    <string name="model_import">模型导入</string>
+    <string name="ai_service_status">AI服务状态</string>
+    <string name="learning_notes">学习笔记</string>
+    <string name="learning_history">学习历史</string>
+    <string name="ai_config">AI配置</string>
+    <string name="frontend_render">天气详情</string>
+    <string name="data_backup">数据备份</string>
+    <string name="import_export">导入导出</string>
+    <string name="about_app">关于应用</string>
+    <string name="system_logs">系统日志</string>
+    <string name="native_detection">原生检测</string>
+    <string name="compose_example">Compose示例</string>
+    <string name="pure_compose">纯Compose</string>
+    <string name="hybrid_usage">混合使用</string>
+    
+    <!-- 导航菜单 -->
+    <string name="nav_home">首页</string>
+    <string name="nav_quiz">答题</string>
+    <string name="nav_bank">题库</string>
+    <string name="nav_stats">统计</string>
+    <string name="nav_profile">个人</string>
+    
+    <!-- 登录注册 -->
+    <string name="login_title">登录</string>
+    <string name="register_title">注册</string>
+    <string name="email_hint">请输入邮箱</string>
+    <string name="password_hint">请输入密码</string>
+    <string name="confirm_password_hint">请确认密码</string>
+    <string name="login_button">登录</string>
+    <string name="register_button">注册</string>
+    <string name="forgot_password">忘记密码？</string>
+    <string name="no_account">还没有账号？</string>
+    <string name="has_account">已有账号？</string>
+    
+    <!-- 答题相关 -->
+    <string name="start_quiz">开始答题</string>
+    <string name="next_question">下一题</string>
+    <string name="previous_question">上一题</string>
+    <string name="submit_answer">提交答案</string>
+    <string name="quiz_complete">答题完成</string>
+    <string name="correct_answer">正确答案</string>
+    <string name="your_answer">你的答案</string>
+    <string name="explanation">解析</string>
+    <string name="score">得分</string>
+    <string name="time_used">用时</string>
+    <string name="accuracy">正确率</string>
+    
+    <!-- 题库相关 -->
+    <string name="question_bank">题库</string>
+    <string name="add_question">添加题目</string>
+    <string name="edit_question">编辑题目</string>
+    <string name="delete_question">删除题目</string>
+    <string name="question_details">题目详情</string>
+    <string name="question_category">题目分类</string>
+    <string name="question_difficulty">题目难度</string>
+    <string name="easy">简单</string>
+    <string name="medium">中等</string>
+    <string name="hard">困难</string>
+    
+    <!-- 统计相关 -->
+    <string name="score_statistics">成绩统计</string>
+    <string name="history_scores">历史成绩</string>
+    <string name="weekly_report">周报告</string>
+    <string name="monthly_report">月报告</string>
+    <string name="total_questions">总题目数</string>
+    <string name="total_correct">总正确数</string>
+    <string name="total_wrong">总错误数</string>
+    
+    <!-- 学习进度 -->
+    <string name="study_progress">学习进度</string>
+    <string name="overall_progress">总体进度</string>
+    <string name="today_progress">今日进度</string>
+    <string name="week_progress">本周进度</string>
+    <string name="month_progress">本月进度</string>
+    <string name="add_plan">添加计划</string>
+    <string name="refresh_data">刷新数据</string>
+    <string name="study_plans">学习计划</string>
+    <string name="plan_title">计划标题</string>
+    <string name="plan_description">计划描述</string>
+    <string name="target_count">目标题数</string>
+    <string name="plan_category">计划分类</string>
+    <string name="plan_difficulty">计划难度</string>
+    <string name="mark_complete">标记完成</string>
+    <string name="edit_plan">编辑计划</string>
+    <string name="delete_plan">删除计划</string>
+    
+    <!-- 错题本 -->
+    <string name="wrong_questions">错题本</string>
+    <string name="review_wrong_questions">复习错题</string>
+    <string name="wrong_question_details">错题详情</string>
+    <string name="mastery_level">掌握程度</string>
+    <string name="review_count">复习次数</string>
+    <string name="mark_mastered">标记掌握</string>
+    <string name="remove_from_wrong_questions">从错题本移除</string>
+    
+    <!-- 文件渲染 -->
+    <string name="file_render">文件预览</string>
+    <string name="loading_file">加载文件中...</string>
+    <string name="file_not_exists">文件不存在</string>
+    <string name="file_too_large">文件过大</string>
+    <string name="memory_insufficient">内存不足</string>
+    <string name="load_failed">加载失败</string>
+    <string name="share_file">分享文件</string>
+    <string name="close">关闭</string>
+    <string name="settings">设置</string>
+    <string name="switch_engine">切换渲染引擎</string>
+    <string name="adjust_font_size">调整字体大小</string>
+    <string name="clear_cache">清除缓存</string>
+    <string name="file_info">文件信息</string>
+    <string name="small">小</string>
+    <string name="medium_font">中</string>
+    <string name="large">大</string>
+    <string name="extra_large">超大</string>
+    
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="language">语言</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="notifications">通知</string>
+    <string name="privacy">隐私</string>
+    <string name="about">关于</string>
+    <string name="clear_data">清除数据</string>
+    <string name="logout">退出登录</string>
+    <string name="chinese">中文</string>
+    <string name="english">English</string>
+    
+    <!-- 离线功能 -->
+    <string name="offline_mode">离线模式</string>
+    <string name="offline_enabled">已启用离线模式</string>
+    <string name="offline_disabled">已禁用离线模式</string>
+    <string name="last_sync">最后同步</string>
+    <string name="sync_now">立即同步</string>
+    
+    <!-- 通用按钮 -->
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确认</string>
+    <string name="ok">确定</string>
+    <string name="back">返回</string>
+    <string name="retry">重试</string>
+    <string name="delete">删除</string>
+    <string name="edit">编辑</string>
+    <string name="add">添加</string>
+    
+    <!-- 提示信息 -->
+    <string name="success">成功</string>
+    <string name="error">错误</string>
+    <string name="warning">警告</string>
+    <string name="info">信息</string>
+    <string name="loading">加载中...</string>
+    <string name="no_data">暂无数据</string>
+    <string name="network_error">网络错误</string>
+    <string name="offline_message">当前处于离线模式，部分功能可能不可用</string>
+    <string name="cache_cleared">缓存已清除</string>
+    <string name="font_size_set">字体大小已设置</string>
+    <string name="engine_switched">渲染引擎已切换</string>
+    <string name="plan_added">计划添加成功</string>
+    <string name="plan_updated">计划更新成功</string>
+    <string name="plan_deleted">计划删除成功</string>
+    <string name="plan_completed">计划已标记为完成</string>
+    <string name="question_added">题目添加成功</string>
+    <string name="question_updated">题目更新成功</string>
+    <string name="question_deleted">题目删除成功</string>
+    <string name="login_success">登录成功</string>
+    <string name="register_success">注册成功</string>
+    <string name="login_failed">登录失败</string>
+    <string name="register_failed">注册失败</string>
+    <string name="email_exists">邮箱已存在</string>
+    <string name="invalid_email">邮箱格式无效</string>
+    <string name="password_too_short">密码太短</string>
+    <string name="passwords_not_match">密码不匹配</string>
+    
+    <!-- 反馈相关 -->
+    <string name="feedback_title">用户反馈</string>
+    <string name="feedback_type">反馈类型</string>
+    <string name="select_feedback_type">请选择反馈类型</string>
+    <string name="feedback_content">反馈内容</string>
+    <string name="feedback_content_hint">请详细描述您的问题或建议...</string>
+    <string name="contact_info">联系方式</string>
+    <string name="contact_info_hint">请留下您的邮箱或手机号，以便我们回复您</string>
+    <string name="submit_feedback">提交反馈</string>
+    <string name="feedback_content_empty">请输入反馈内容</string>
+    <string name="feedback_submitted">反馈提交成功，感谢您的支持！</string>
+    <string name="feedback_note">我们会认真对待每一条反馈，不断改进应用体验</string>
+    <string name="menu_feedback">反馈建议</string>
+    
+    <!-- AI相关 -->
+    <string name="ai_analyzer">AI分析器</string>
+    <string name="ai_assistant">AI助手</string>
+    <string name="ai_chat">AI聊天</string>
+    <string name="ai_settings">AI设置</string>
+    <string name="generate_answer">生成答案</string>
+    
+    <!-- 按钮相关 -->
+    <string name="button_back">返回</string>
+    <string name="button_cancel">取消</string>
+    <string name="button_confirm">确认</string>
+    <string name="button_delete">删除</string>
+    <string name="button_edit">编辑</string>
+    <string name="button_export">导出</string>
+    <string name="button_finish">完成</string>
+    <string name="button_import">导入</string>
+    <string name="button_next">下一个</string>
+    <string name="button_no">否</string>
+    <string name="button_ok">确定</string>
+    <string name="button_pause">暂停</string>
+    <string name="button_prev">上一个</string>
+    <string name="button_resume">继续</string>
+    <string name="button_retry">重试</string>
+    <string name="button_save">保存</string>
+    <string name="button_share">分享</string>
+    <string name="button_start">开始</string>
+    <string name="button_stop">停止</string>
+    <string name="button_yes">是</string>
+    
+    <!-- 确认相关 -->
+    <string name="confirm_clear">确认清除</string>
+    <string name="confirm_delete">确认删除</string>
+    <string name="confirm_exit">确认退出</string>
+    <string name="confirm_logout">确认登出</string>
+    
+    <!-- 统计相关 -->
+    <string name="answered_questions">已答题数</string>
+    <string name="correct_answers">正确答案</string>
+    <string name="study_statistics">学习统计</string>
+    <string name="study_time">学习时间</string>
+    <string name="wrong_answers">错误答案</string>
+    
+    <!-- 错误信息 -->
+    <string name="canceled">已取消</string>
+    <string name="error_empty_field">字段不能为空</string>
+    <string name="error_invalid_email">邮箱格式无效</string>
+    <string name="error_login">登录失败</string>
+    <string name="error_network">网络错误</string>
+    <string name="error_password_mismatch">密码不匹配</string>
+    <string name="error_register">注册失败</string>
+    <string name="failed">失败</string>
+    <string name="processing">处理中...</string>
+    
+    <!-- 成功信息 -->
+    <string name="success_delete">删除成功</string>
+    <string name="success_login">登录成功</string>
+    <string name="success_register">注册成功</string>
+    <string name="success_save">保存成功</string>
+    
+    <!-- 设置相关 -->
+    <string name="language_settings">语言设置</string>
+    <string name="notification_settings">通知设置</string>
+    <string name="theme_settings">主题设置</string>
+    <string name="version">版本</string>
+    <string name="app_version">1.0.0</string>
+    <string name="app_build">1</string>
+    <string name="ai_assistance">AI助手</string>
+    <string name="reset_password_email_sent">重置密码邮件已发送</string>
+    <string name="email_required">请输入邮箱地址</string>
+    <string name="password_required">请输入密码</string>
+    <string name="minutes">分钟</string>
+    <string name="seconds">秒</string>
+    <string name="ai_assistance_title">AI助手</string>
+
+    <!-- LogViewerActivity -->
+    <string name="ai_service_log">AI 服务日志</string>
+    <string name="log_viewer_started">日志查看器已启动</string>
+    <string name="log_viewer_initialized">日志查看器初始化完成，准备接收日志</string>
+    <string name="waiting_for_logs">等待接收日志…</string>
+    <string name="system_ready">系统已准备就绪，等待AI服务日志</string>
+    <string name="initialization_failed">初始化失败</string>
+    <string name="user_input">用户输入</string>
+    <string name="user_submitted_message">用户提交了新消息</string>
+    <string name="sending_to_ai_service">发送消息到AI服务</string>
+    <string name="message_sent_to_ai">消息已发送到AI处理服务，等待处理结果</string>
+    <string name="logs_cleared">日志已清空</string>
+    <string name="all_logs_cleared">所有日志已清空，等待接收新日志</string>
+    <string name="log_exported">日志已导出</string>
+    <string name="log_export_path">日志已导出到</string>
+    <string name="log_export_failed">导出日志失败</string>
+    <string name="loading_history_logs">加载历史日志</string>
+    <string name="history_log_truncated">历史日志已截断</string>
+    <string name="history_log_ended">=== 历史日志结束 ===</string>
+    <string name="history_log_load_failed">加载历史日志失败</string>
+    <string name="history_log_load_error">加载历史日志时发生错误</string>
+    <string name="historical_logs">=== 历史日志 ===</string>
+    <string name="lines_truncated">行，已截断显示最近</string>
+    <string name="history_log_start">=== 历史日志开始 ===</string>
+    <string name="log_details">详细信息</string>
+    <string name="no_details">无详细信息</string>
+    <string name="time">时间</string>
+    <string name="level">级别</string>
+    <string name="type">类型</string>
+    <string name="message">消息</string>
+    <string name="details">详细信息</string>
+    <string name="ai_service_log_title">AI服务日志</string>
+    <string name="file_selected">附件已选择</string>
+    <string name="file_selected_name">已选择文件</string>
+
+    <!-- AIChatActivity -->
+    <string name="model_not_selected">未选择模型</string>
+    <string name="ai_service_not_initialized">AI服务未初始化</string>
+    <string name="unknown_model">未知模型</string>
+    <string name="thinking">思考中</string>
+    <string name="generating_answer">正在生成回答，请稍候…</string>
+    <string name="executing_tool">执行工具中</string>
+    <string name="processing_request">正在处理请求，请稍候…</string>
+    <string name="entertaining">娱乐中</string>
+    <string name="preparing_entertainment">正在准备娱乐内容，请稍候…</string>
+    <string name="view_initialization_failed">界面初始化失败</string>
+    <string name="ai_service_initialization_failed">AI服务初始化失败</string>
+    <string name="token_receiver_initialization_failed">Token接收器初始化失败</string>
+    <string name="data_initialization_failed">数据初始化失败</string>
+    <string name="ai_chat_welcome">欢迎使用AI对话功能！请输入您的问题，我会尽力回答。</string>
+    <string name="ai_chat_help_functions">我还可以帮您：</string>
+    <string name="ai_chat_help_generate_question">生成题目 (输入: 生成题目 主题: 石油工程, 数量: 5)</string>
+    <string name="ai_chat_help_analyze_question">分析题目 (输入: 分析题目 题目: 石油的主要成分是什么?)</string>
+    <string name="ai_chat_help_translate">翻译文本 (输入: 翻译 文本: Hello, 目标语言: 中文)</string>
+    <string name="ai_chat_help_joke">讲笑话 (输入: 讲笑话 主题: 石油工程)</string>
+    <string name="ai_chat_help_riddle">猜谜语 (输入: 猜谜语)</string>
+    <string name="ai_chat_help_poem">写诗 (输入: 写诗 主题: 石油)</string>
+    <string name="ai_chat_help_story">讲故事 (输入: 讲故事 主题: 石油工人)</string>
+    <string name="ai_chat_help_quiz">知识问答 (输入: 知识问答 主题: 石油)</string>
+    <string name="ai_chat_help_quote">名言警句 (输入: 名言 主题: 学习)</string>
+    <string name="ai_chat_help_game">游戏 (输入: 游戏 类型: 猜数字)</string>
+    <string name="ai_chat_help_more">输入 \'帮助\' 查看更多功能。</string>
+    <string name="input_message_empty">输入 \'帮助\' 查看更多功能。
+
+我还可以帮您：
+1. 生成题目 (输入: 生成题目 主题: 石油工程, 数量: 5)
+2. 分析题目 (输入: 分析题目 题目: 石油的主要成分是什么?)
+3. 翻译文本 (输入: 翻译 文本: Hello, 目标语言: 中文)
+4. 讲笑话 (输入: 讲笑话 主题: 石油工程)
+5. 猜谜语 (输入: 猜谜语)
+6. 写诗 (输入: 写诗 主题: 石油)
+7. 讲故事 (输入: 讲故事 主题: 石油工人)
+8. 知识问答 (输入: 知识问答 主题: 石油)
+9. 名言警句 (输入: 名言 主题: 学习)
+10. 游戏 (输入: 游戏 类型: 猜数字)
+
+输入 \'帮助\' 查看更多功能。</string>
+
+    <!-- MainActivity -->
+    <string name="ai_running">AI运行中</string>
+    <string name="ai_not_initialized">AI未初始化</string>
+    <string name="select_operation">选择操作</string>
+    <string name="environment_info_copied">环境信息已复制</string>
+    <string name="native_environment_detection">原生环境检测</string>
+    <string name="test_result">测试结果</string>
+    <string name="processing_file_failed">处理文件失败</string>
+
+    <!-- WebViewActivity -->
+    <string name="preparing_to_load">准备加载…</string>
+    <string name="add_file">📁 添加文件</string>
+    <string name="loading_progress">加载中… %1$d%%</string>
+    <string name="loading_failed">加载失败</string>
+    <string name="prompt">提示</string>
+    <string name="file_open_failed">文件打开失败</string>
+    <string name="select_preview_method">选择预览方式</string>
+    <string name="default_tab">默认标签</string>
+    <string name="new_tab">新标签</string>
+    <string name="close_button">×</string>
+    <string name="cannot_close_default_tab">默认标签不能关闭</string>
+    <string name="at_least_one_tab_required">至少需要保留一个标签</string>
+
+    <!-- TemplateSelectionActivity -->
+    <string name="please_select_content_template">请选择内容模板</string>
+    <string name="content_template">类型: 内容模板</string>
+    <string name="content_template_desc">内容模板用于生成特定格式的学习材料</string>
+    <string name="none">无</string>
+    <string name="please_select_export_template">请选择导出模板</string>
+    <string name="format">格式</string>
+    <string name="export_template_desc">导出模板用于定义导出文件的格式和布局</string>
+    <string name="please_select_template">请选择一个模板</string>
+    <string name="please_select_content_template_required">请选择一个内容模板</string>
+
+    <!-- FieldConfigActivity -->
+    <string name="content_template_label">内容模板</string>
+    <string name="template">模板</string>
+
+    <!-- ExportProgressActivity -->
+    <string name="start_export">开始导出…</string>
+    <string name="exporting">导出中…</string>
+    <string name="exporting_progress">导出中… %1$d%%</string>
+    <string name="export_complete">导出完成！文件已保存到</string>
+    <string name="export_failed">导出失败</string>
+    <string name="no_app_to_open_file">没有找到可以打开此文件的应用</string>
+    <string name="cannot_open_file">无法打开文件</string>
+    <string name="no_app_to_share_file">没有找到可以分享此文件的应用</string>
+    <string name="cannot_share_file">无法分享文件</string>
+
+    <!-- ModelAdapter -->
+    <string name="model_path">模型路径</string>
+    <string name="unknown">未知</string>
+    <string name="currently_in_use">当前使用</string>
+    <string name="click_to_switch">点击切换</string>
+
+    <!-- HistoryAdapter -->
+    <string name="practice_mode">练习模式</string>
+    <string name="exam_mode">考试模式</string>
+    <string name="review_mode">复习模式</string>
+    <string name="challenge_mode">挑战模式</string>
+    <string name="memorize_mode">背诵模式</string>
+    <string name="unknown_mode">未知模式</string>
+
+    <!-- WrongQuestionActivity -->
+    <string name="load_wrong_questions_failed">加载错题失败</string>
+    <string name="total_wrong_questions">共 %1$d 道错题</string>
+    <string name="no_wrong_questions_to_review">没有错题需要复习</string>
+    <string name="clear_wrong_questions">清空错题</string>
+    <string name="clear_success">清空成功</string>
+    <string name="clear_failed">清空失败</string>
+    <string name="delete_wrong_question">删除错题</string>
+    <string name="delete_success">删除成功</string>
+    <string name="delete_failed">删除失败</string>
+
+    <!-- WebViewFilePreviewActivity -->
+    <string name="file_loaded_successfully">文件加载成功</string>
+    <string name="executing_auto_mapping">正在执行自动映射…</string>
+    <string name="clear_mappings">清除映射</string>
+    <string name="all_mappings_cleared">已清除所有映射</string>
+    <string name="mapping_config_incomplete">映射配置不完整</string>
+    <string name="confirm_mapping_config">确认映射配置</string>
+    <string name="import_settings">⚙️ 导入设置</string>
+    <string name="settings_saved">✅ 设置已保存</string>
+    <string name="added">✅ 已添加</string>
+    <string name="max_options_reached">❌ 已达到最大选项数量</string>
+
+    <!-- 权限相关 -->
+    <string name="permission_request_title">权限请求</string>
+    <string name="permission_request_message">应用需要获取以下权限以提供完整功能：\n\n%s\n\n请点击确定以授权。</string>
+    <string name="permission_required">需要权限</string>
+    <string name="permission_denied">权限被拒绝</string>
+    
+    <!-- Common -->
+</resources>

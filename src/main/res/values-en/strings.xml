@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App basic information -->
+    <string name="app_name">QuizMaster</string>
+    <string name="app_version">1.0.0</string>
+    <string name="app_build">1</string>
+
+    <!-- Main page -->
+    <string name="welcome_back">Welcome back!</string>
+    <string name="start_learning_today">Start learning today</string>
+    <string name="question_bank_info">Question Bank Info</string>
+    <string name="status">Status</string>
+    <string name="core_features">Core Features</string>
+    <string name="smart_features">Smart Features</string>
+    <string name="more_features">More Features</string>
+    <string name="question_management">Question Management</string>
+    <string name="study_plan">Study Plan</string>
+    <string name="wrong_question_collection">Wrong Question Collection</string>
+    <string name="question_generation">Question Generation</string>
+    <string name="text_recognition">Text Recognition</string>
+    <string name="model_import">Model Import</string>
+    <string name="ai_service_status">AI Service Status</string>
+    <string name="learning_notes">Learning Notes</string>
+    <string name="learning_history">Learning History</string>
+    <string name="ai_config">AI Configuration</string>
+    <string name="frontend_render">Weather Details</string>
+    <string name="data_backup">Data Backup</string>
+    <string name="import_export">Import/Export</string>
+    <string name="about_app">About App</string>
+    <string name="system_logs">System Logs</string>
+    <string name="native_detection">Native Detection</string>
+    <string name="compose_example">Compose Example</string>
+    <string name="pure_compose">Pure Compose</string>
+    <string name="hybrid_usage">Hybrid Usage</string>
+
+    <!-- Navigation menu -->
+    <string name="nav_home">Home</string>
+    <string name="nav_quiz">Quiz</string>
+    <string name="nav_bank">Bank</string>
+    <string name="nav_stats">Stats</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Login/Register -->
+    <string name="login_title">Login</string>
+    <string name="register_title">Register</string>
+    <string name="email_hint">Please enter email</string>
+    <string name="password_hint">Please enter password</string>
+    <string name="confirm_password_hint">Please confirm password</string>
+    <string name="login_button">Login</string>
+    <string name="register_button">Register</string>
+    <string name="forgot_password">Forgot password?</string>
+    <string name="no_account">No account yet?</string>
+    <string name="has_account">Already have an account?</string>
+    <string name="email_required">Email is required</string>
+    <string name="password_required">Password is required</string>
+    <string name="email_exists">Email already exists</string>
+    <string name="invalid_email">Invalid email format</string>
+    <string name="password_too_short">Password too short</string>
+    <string name="passwords_not_match">Passwords do not match</string>
+    <string name="login_failed">Login failed</string>
+    <string name="register_failed">Registration failed</string>
+    <string name="login_success">Login successful</string>
+    <string name="register_success">Registration successful</string>
+    <string name="reset_password_email_sent">Reset password email has been sent</string>
+
+    <!-- Quiz related -->
+    <string name="start_quiz">Start Quiz</string>
+    <string name="next_question">Next Question</string>
+    <string name="previous_question">Previous Question</string>
+    <string name="submit_answer">Submit Answer</string>
+    <string name="quiz_complete">Quiz Complete</string>
+    <string name="correct_answer">Correct Answer</string>
+    <string name="your_answer">Your Answer</string>
+    <string name="explanation">Explanation</string>
+    <string name="score">Score</string>
+    <string name="time_used">Time Used</string>
+    <string name="accuracy">Accuracy</string>
+
+    <!-- Question bank related -->
+    <string name="question_bank">Question Bank</string>
+    <string name="add_question">Add Question</string>
+    <string name="edit_question">Edit Question</string>
+    <string name="delete_question">Delete Question</string>
+    <string name="question_details">Question Details</string>
+    <string name="question_category">Question Category</string>
+    <string name="question_difficulty">Question Difficulty</string>
+    <string name="easy">Easy</string>
+    <string name="medium">Medium</string>
+    <string name="hard">Hard</string>
+    <string name="question_added">Question added successfully</string>
+    <string name="question_updated">Question updated successfully</string>
+    <string name="question_deleted">Question deleted successfully</string>
+
+    <!-- Statistics related -->
+    <string name="score_statistics">Score Statistics</string>
+    <string name="history_scores">History Scores</string>
+    <string name="weekly_report">Weekly Report</string>
+    <string name="monthly_report">Monthly Report</string>
+    <string name="total_questions">Total Questions</string>
+    <string name="total_correct">Total Correct</string>
+    <string name="total_wrong">Total Wrong</string>
+    <string name="study_statistics">Study Statistics</string>
+    <string name="answered_questions">Answered Questions</string>
+    <string name="correct_answers">Correct Answers</string>
+    <string name="wrong_answers">Wrong Answers</string>
+    <string name="study_time">Study Time</string>
+
+    <!-- Study progress -->
+    <string name="study_progress">Study Progress</string>
+    <string name="overall_progress">Overall Progress</string>
+    <string name="today_progress">Today\'s Progress</string>
+    <string name="week_progress">This Week\'s Progress</string>
+    <string name="month_progress">This Month\'s Progress</string>
+    <string name="add_plan">Add Plan</string>
+    <string name="refresh_data">Refresh Data</string>
+    <string name="study_plans">Study Plans</string>
+    <string name="plan_title">Plan Title</string>
+    <string name="plan_description">Plan Description</string>
+    <string name="target_count">Target Count</string>
+    <string name="plan_category">Plan Category</string>
+    <string name="plan_difficulty">Plan Difficulty</string>
+    <string name="mark_complete">Mark Complete</string>
+    <string name="edit_plan">Edit Plan</string>
+    <string name="delete_plan">Delete Plan</string>
+    <string name="plan_added">Plan added successfully</string>
+    <string name="plan_updated">Plan updated successfully</string>
+    <string name="plan_deleted">Plan deleted successfully</string>
+    <string name="plan_completed">Plan marked as completed</string>
+
+    <!-- Wrong questions -->
+    <string name="wrong_questions">Wrong Questions</string>
+    <string name="review_wrong_questions">Review Wrong Questions</string>
+    <string name="wrong_question_details">Wrong Question Details</string>
+    <string name="mastery_level">Mastery Level</string>
+    <string name="review_count">Review Count</string>
+    <string name="mark_mastered">Mark Mastered</string>
+    <string name="remove_from_wrong_questions">Remove from Wrong Questions</string>
+
+    <!-- File render -->
+    <string name="file_render">File Preview</string>
+    <string name="loading_file">Loading file...</string>
+    <string name="file_not_exists">File does not exist</string>
+    <string name="file_too_large">File is too large</string>
+    <string name="memory_insufficient">Insufficient memory</string>
+    <string name="load_failed">Load failed</string>
+    <string name="share_file">Share File</string>
+    <string name="close">Close</string>
+    <string name="switch_engine">Switch Render Engine</string>
+    <string name="adjust_font_size">Adjust Font Size</string>
+    <string name="clear_cache">Clear Cache</string>
+    <string name="file_info">File Information</string>
+    <string name="small">Small</string>
+    <string name="medium_font">Medium</string>
+    <string name="large">Large</string>
+    <string name="extra_large">Extra Large</string>
+    <string name="cache_cleared">Cache cleared</string>
+    <string name="font_size_set">Font size set</string>
+    <string name="engine_switched">Render engine switched</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings">Settings</string>
+    <string name="language">Language</string>
+    <string name="dark_mode">Dark Mode</string>
+    <string name="notifications">Notifications</string>
+    <string name="privacy">Privacy</string>
+    <string name="about">About</string>
+    <string name="clear_data">Clear Data</string>
+    <string name="logout">Logout</string>
+    <string name="chinese">Chinese</string>
+    <string name="english">English</string>
+    <string name="language_settings">Language Settings</string>
+    <string name="theme_settings">Theme Settings</string>
+    <string name="notification_settings">Notification Settings</string>
+    <string name="version">Version</string>
+
+    <!-- Offline features -->
+    <string name="offline_mode">Offline Mode</string>
+    <string name="offline_enabled">Offline mode enabled</string>
+    <string name="offline_disabled">Offline mode disabled</string>
+    <string name="last_sync">Last Sync</string>
+    <string name="sync_now">Sync Now</string>
+    <string name="offline_message">You are in offline mode, some features may be unavailable</string>
+
+    <!-- Common buttons -->
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    <string name="ok">OK</string>
+    <string name="back">Back</string>
+    <string name="retry">Retry</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="add">Add</string>
+
+    <!-- Prompt messages -->
+    <string name="success">Success</string>
+    <string name="error">Error</string>
+    <string name="warning">Warning</string>
+    <string name="info">Information</string>
+    <string name="loading">Loading...</string>
+    <string name="no_data">No data available</string>
+    <string name="network_error">Network error</string>
+    <string name="success_delete">Deleted successfully</string>
+    <string name="success_login">Login successful</string>
+    <string name="success_register">Registration successful</string>
+    <string name="success_save">Saved successfully</string>
+    <string name="failed">Failed</string>
+    <string name="processing">Processing...</string>
+    <string name="canceled">Canceled</string>
+
+    <!-- Feedback related -->
+    <string name="feedback_title">User Feedback</string>
+    <string name="feedback_type">Feedback Type</string>
+    <string name="select_feedback_type">Please select feedback type</string>
+    <string name="feedback_content">Feedback Content</string>
+    <string name="feedback_content_hint">Please describe your question or suggestion in detail...</string>
+    <string name="contact_info">Contact Information</string>
+    <string name="contact_info_hint">Please leave your email or phone number so we can respond to you</string>
+    <string name="submit_feedback">Submit Feedback</string>
+    <string name="feedback_content_empty">Please enter feedback content</string>
+    <string name="feedback_submitted">Feedback submitted successfully, thank you for your support!</string>
+    <string name="feedback_note">We take every feedback seriously and continuously improve the app experience</string>
+    <string name="menu_feedback">Feedback</string>
+
+    <!-- AI related -->
+    <string name="ai_analyzer">AI Analyzer</string>
+    <string name="ai_assistant">AI Assistant</string>
+    <string name="ai_chat">AI Chat</string>
+    <string name="ai_settings">AI Settings</string>
+    <string name="generate_answer">Generate Answer</string>
+    <string name="ai_assistance">AI Assistance</string>
+    <string name="ai_assistance_title">AI Assistant</string>
+
+    <!-- Buttons related -->
+    <string name="button_back">Back</string>
+    <string name="button_cancel">Cancel</string>
+    <string name="button_confirm">Confirm</string>
+    <string name="button_delete">Delete</string>
+    <string name="button_edit">Edit</string>
+    <string name="button_export">Export</string>
+    <string name="button_finish">Finish</string>
+    <string name="button_import">Import</string>
+    <string name="button_next">Next</string>
+    <string name="button_no">No</string>
+    <string name="button_ok">OK</string>
+    <string name="button_pause">Pause</string>
+    <string name="button_prev">Previous</string>
+    <string name="button_resume">Resume</string>
+    <string name="button_retry">Retry</string>
+    <string name="button_save">Save</string>
+    <string name="button_share">Share</string>
+    <string name="button_start">Start</string>
+    <string name="button_stop">Stop</string>
+    <string name="button_yes">Yes</string>
+
+    <!-- Confirmation related -->
+    <string name="confirm_clear">Confirm Clear</string>
+    <string name="confirm_delete">Confirm Delete</string>
+    <string name="confirm_exit">Confirm Exit</string>
+    <string name="confirm_logout">Confirm Logout</string>
+
+    <!-- Error messages -->
+    <string name="error_empty_field">Field cannot be empty</string>
+    <string name="error_invalid_email">Invalid email format</string>
+    <string name="error_login">Login failed</string>
+    <string name="error_network">Network error</string>
+    <string name="error_password_mismatch">Passwords do not match</string>
+    <string name="error_register">Registration failed</string>
+
+    <!-- Time units -->
+    <string name="minutes">Minutes</string>
+    <string name="seconds">Seconds</string>
+
+    <!-- LogViewerActivity -->
+    <string name="ai_service_log">AI Service Log</string>
+    <string name="log_viewer_started">Log Viewer Started</string>
+    <string name="log_viewer_initialized">Log viewer initialized, ready to receive logs</string>
+    <string name="waiting_for_logs">Waiting for logs…</string>
+    <string name="system_ready">System ready, waiting for AI service logs</string>
+    <string name="initialization_failed">Initialization Failed</string>
+    <string name="user_input">User Input</string>
+    <string name="user_submitted_message">User submitted a new message</string>
+    <string name="sending_to_ai_service">Sending message to AI service</string>
+    <string name="message_sent_to_ai">Message sent to AI processing service, waiting for result</string>
+    <string name="logs_cleared">Logs Cleared</string>
+    <string name="all_logs_cleared">All logs cleared, waiting for new logs</string>
+    <string name="log_exported">Log Exported</string>
+    <string name="log_export_path">Log exported to</string>
+    <string name="log_export_failed">Failed to export log</string>
+    <string name="loading_history_logs">Loading historical logs</string>
+    <string name="history_log_truncated">Historical logs truncated</string>
+    <string name="history_log_ended">=== History Log End ===</string>
+    <string name="history_log_load_failed">Failed to load historical logs</string>
+    <string name="history_log_load_error">Error loading historical logs</string>
+    <string name="historical_logs">=== Historical Logs ===</string>
+    <string name="lines_truncated">lines, truncated to show last</string>
+    <string name="history_log_start">=== History Log Start ===</string>
+    <string name="log_details">Details</string>
+    <string name="no_details">No details available</string>
+    <string name="time">Time</string>
+    <string name="level">Level</string>
+    <string name="type">Type</string>
+    <string name="message">Message</string>
+    <string name="details">Details</string>
+    <string name="ai_service_log_title">AI Service Log</string>
+    <string name="file_selected">Attachment Selected</string>
+    <string name="file_selected_name">File selected</string>
+
+    <!-- AIChatActivity -->
+    <string name="model_not_selected">Model Not Selected</string>
+    <string name="ai_service_not_initialized">AI Service Not Initialized</string>
+    <string name="unknown_model">Unknown Model</string>
+    <string name="thinking">Thinking</string>
+    <string name="generating_answer">Generating answer, please wait…</string>
+    <string name="executing_tool">Executing Tool</string>
+    <string name="processing_request">Processing request, please wait…</string>
+    <string name="entertaining">Entertaining</string>
+    <string name="preparing_entertainment">Preparing entertainment content, please wait…</string>
+    <string name="view_initialization_failed">View Initialization Failed</string>
+    <string name="ai_service_initialization_failed">AI Service Initialization Failed</string>
+    <string name="token_receiver_initialization_failed">Token Receiver Initialization Failed</string>
+    <string name="data_initialization_failed">Data Initialization Failed</string>
+    <string name="ai_chat_welcome">Welcome to AI Chat! Please enter your question and I will try to answer.</string>
+    <string name="ai_chat_help_functions">I can also help you:</string>
+    <string name="ai_chat_help_generate_question">Generate Questions (Input: Generate Questions Topic: Petroleum Engineering, Count: 5)</string>
+    <string name="ai_chat_help_analyze_question">Analyze Questions (Input: Analyze Question Question: What is the main component of petroleum?)</string>
+    <string name="ai_chat_help_translate">Translate Text (Input: Translate Text: Hello, Target Language: Chinese)</string>
+    <string name="ai_chat_help_joke">Tell Jokes (Input: Tell Jokes Topic: Petroleum Engineering)</string>
+    <string name="ai_chat_help_riddle">Guess Riddles (Input: Guess Riddles)</string>
+    <string name="ai_chat_help_poem">Write Poems (Input: Write Poems Topic: Petroleum)</string>
+    <string name="ai_chat_help_story">Tell Stories (Input: Tell Stories Topic: Petroleum Workers)</string>
+    <string name="ai_chat_help_quiz">Knowledge Quiz (Input: Knowledge Quiz Topic: Petroleum)</string>
+    <string name="ai_chat_help_quote">Famous Quotes (Input: Quotes Topic: Learning)</string>
+    <string name="ai_chat_help_game">Games (Input: Games Type: Number Guessing)</string>
+    <string name="ai_chat_help_more">Enter \'Help\' to see more functions.</string>
+    <string name="input_message_empty">Enter \'Help\' to see more functions.
+
+I can also help you:
+1. Generate Questions (Input: Generate Questions Topic: Petroleum Engineering, Count: 5)
+2. Analyze Questions (Input: Analyze Question Question: What is the main component of petroleum?)
+3. Translate Text (Input: Translate Text: Hello, Target Language: Chinese)
+4. Tell Jokes (Input: Tell Jokes Topic: Petroleum Engineering)
+5. Guess Riddles (Input: Guess Riddles)
+6. Write Poems (Input: Write Poems Topic: Petroleum)
+7. Tell Stories (Input: Tell Stories Topic: Petroleum Workers)
+8. Knowledge Quiz (Input: Knowledge Quiz Topic: Petroleum)
+9. Famous Quotes (Input: Quotes Topic: Learning)
+10. Games (Input: Games Type: Number Guessing)
+
+Enter \'Help\' to see more functions.</string>
+
+    <!-- MainActivity -->
+    <string name="ai_running">AI Running</string>
+    <string name="ai_not_initialized">AI Not Initialized</string>
+    <string name="select_operation">Select Operation</string>
+    <string name="environment_info_copied">Environment info copied</string>
+    <string name="native_environment_detection">Native Environment Detection</string>
+    <string name="test_result">Test Result</string>
+    <string name="processing_file_failed">Failed to process file</string>
+
+    <!-- WebViewActivity -->
+    <string name="preparing_to_load">Preparing to load…</string>
+    <string name="add_file">📁 Add File</string>
+    <string name="loading_progress">Loading… %1$d%%</string>
+    <string name="loading_failed">Loading Failed</string>
+    <string name="prompt">Prompt</string>
+    <string name="file_open_failed">File Open Failed</string>
+    <string name="select_preview_method">Select Preview Method</string>
+    <string name="default_tab">Default Tab</string>
+    <string name="new_tab">New Tab</string>
+    <string name="close_button">×</string>
+    <string name="cannot_close_default_tab">Cannot close default tab</string>
+    <string name="at_least_one_tab_required">At least one tab must remain</string>
+
+    <!-- TemplateSelectionActivity -->
+    <string name="please_select_content_template">Please select content template</string>
+    <string name="content_template">Type: Content Template</string>
+    <string name="content_template_desc">Content templates are used to generate formatted learning materials</string>
+    <string name="none">None</string>
+    <string name="please_select_export_template">Please select export template</string>
+    <string name="format">Format</string>
+    <string name="export_template_desc">Export templates are used to define the format and layout of exported files</string>
+    <string name="please_select_template">Please select a template</string>
+    <string name="please_select_content_template_required">Please select a content template</string>
+
+    <!-- FieldConfigActivity -->
+    <string name="content_template_label">Content Template</string>
+    <string name="template">Template</string>
+
+    <!-- ExportProgressActivity -->
+    <string name="start_export">Starting export…</string>
+    <string name="exporting">Exporting…</string>
+    <string name="exporting_progress">Exporting… %1$d%%</string>
+    <string name="export_complete">Export complete! File saved to</string>
+    <string name="export_failed">Export failed</string>
+    <string name="no_app_to_open_file">No app found to open this file</string>
+    <string name="cannot_open_file">Cannot open file</string>
+    <string name="no_app_to_share_file">No app found to share this file</string>
+    <string name="cannot_share_file">Cannot share file</string>
+
+    <!-- ModelAdapter -->
+    <string name="model_path">Model Path</string>
+    <string name="unknown">Unknown</string>
+    <string name="currently_in_use">Currently In Use</string>
+    <string name="click_to_switch">Click to Switch</string>
+
+    <!-- HistoryAdapter -->
+    <string name="practice_mode">Practice Mode</string>
+    <string name="exam_mode">Exam Mode</string>
+    <string name="review_mode">Review Mode</string>
+    <string name="challenge_mode">Challenge Mode</string>
+    <string name="memorize_mode">Memorize Mode</string>
+    <string name="unknown_mode">Unknown Mode</string>
+
+    <!-- WrongQuestionActivity -->
+    <string name="load_wrong_questions_failed">Failed to load wrong questions</string>
+    <string name="total_wrong_questions">%1$d wrong questions in total</string>
+    <string name="no_wrong_questions_to_review">No wrong questions to review</string>
+    <string name="clear_wrong_questions">Clear Wrong Questions</string>
+    <string name="clear_success">Cleared Successfully</string>
+    <string name="clear_failed">Clear Failed</string>
+    <string name="delete_wrong_question">Delete Wrong Question</string>
+    <string name="delete_success">Deleted Successfully</string>
+    <string name="delete_failed">Delete Failed</string>
+
+    <!-- WebViewFilePreviewActivity -->
+    <string name="file_loaded_successfully">File loaded successfully</string>
+    <string name="executing_auto_mapping">Executing auto mapping…</string>
+    <string name="clear_mappings">Clear Mappings</string>
+    <string name="all_mappings_cleared">All mappings cleared</string>
+    <string name="mapping_config_incomplete">Mapping configuration incomplete</string>
+    <string name="confirm_mapping_config">Confirm Mapping Configuration</string>
+    <string name="import_settings">⚙️ Import Settings</string>
+    <string name="settings_saved">✅ Settings Saved</string>
+    <string name="added">✅ Added</string>
+    <string name="max_options_reached">❌ Maximum number of options reached</string>
+
+    <!-- Common -->
+</resources>

@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 基本权限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- TBS SDK 所需权限 -->
+    <!-- INTERNET: 文档能力使用前的授权鉴权功能（必选） -->
+    <!-- ACCESS_NETWORK_STATE: 网络状态检查（必选） -->
+    <!-- 存储权限: 文件存储在App私有目录下时无需申请（可选） -->
+    <!-- 剪贴板权限: 用户主动操作文档内容复制粘贴时需要（可选） -->
+
+    <!-- 存储权限 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+
+    <!-- 相机权限 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- 录音权限 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 定位权限 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- 后台权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- 电池优化豁免 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- 安装未知来源应用权限 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- 系统通知权限 (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".SmartQuizApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.OilQuizApp"
+        android:largeHeap="true"
+        tools:targetApi="31">
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <activity
+            android:name=".ui.activity.LoginActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.RegisterActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ForgotPasswordActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.activity.UserActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuestionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuizActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.StartQuizActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.StudyPlanActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.WrongQuestionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.NoteActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.OCRActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ExportActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.BackupActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ThemeActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ThemeColorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.DeviceInfoActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.StatisticsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.LanguageActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuestionBankActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuestionDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuestionEditActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.TemplateManagerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.EditTemplateActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.FilePreviewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.FileRenderActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ImportActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ImportGuideActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ImportResultActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.MappingEditorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.DatabaseDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.FieldManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.TestActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.HistoryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.LogsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.QuestionTypeMapperActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.WebViewFilePreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+        <activity
+            android:name=".ui.activity.SimpleFilePreviewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.SmartMappingActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.DataIssueFixActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ApiConfigActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.DatabaseManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.ToolboxActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.export.TemplateSelectionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.export.FieldConfigActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.export.ExportProgressActivity"
+            android:exported="false" />
+        <activity
+            android:name=".WebViewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <activity
+            android:name=".ui.activity.TBSFilePreviewActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <!-- Pdfium PDF 预览 Activity - 免费开源方案 -->
+        <activity
+            android:name=".ui.activity.PdfiumPreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <!-- LibreOfficeKit 文档预览 Activity -->
+        <activity
+            android:name=".ui.activity.LibreOfficeKitPreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <!-- OnlyOffice 文档预览 Activity -->
+        <activity
+            android:name=".ui.activity.OnlyOfficePreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <activity
+            android:name=".ui.activity.AboutActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
+            android:name=".ui.activity.ModelImportActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.AICenterActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.QuestionGenerateActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.QuestionAnalyzeActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.LearningAssistantActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.TranslateActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.ModelSelectorActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.AIServiceStatusActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.AIChatActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.LogViewerActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.AgentChatActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.TokenizerDemoActivity"
+            android:exported="false" />
+
+
+        <activity
+            android:name=".ai.model.ModelSelectionActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ai.model.ModelComparisonActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.ThemeSwitcherActivity"
+            android:exported="false"
+            android:label="色系切换"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
+            android:name=".ui.activity.SpeechRecognizerExampleActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.EnvironmentCheckActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
+            android:name=".ui.activity.WeatherDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <!-- FileProvider配置 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.oilquiz.app.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- AI Processing Service -->
+        <service
+            android:name=".ai.service.AIProcessingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+
+</manifest>

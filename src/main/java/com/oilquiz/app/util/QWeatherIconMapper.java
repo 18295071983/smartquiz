@@ -1,0 +1,203 @@
+package com.oilquiz.app.util;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class QWeatherIconMapper {
+    private static final Map<String, String> ICON_MAP = new HashMap<>();
+
+    static {
+        ICON_MAP.put("100", "sunny");
+        ICON_MAP.put("101", "cloudy");
+        ICON_MAP.put("102", "few_clouds");
+        ICON_MAP.put("103", "partly_cloudy");
+        ICON_MAP.put("104", "overcast");
+        ICON_MAP.put("200", "sunny_cloudy");
+        ICON_MAP.put("201", "cloudy_day");
+        ICON_MAP.put("202", "cloudy_night");
+        ICON_MAP.put("203", "overcast_day");
+        ICON_MAP.put("204", "overcast_night");
+        ICON_MAP.put("205", "rain_showers");
+        ICON_MAP.put("206", "heavy_rain_showers");
+        ICON_MAP.put("207", "thunder_showers");
+        ICON_MAP.put("208", "heavy_thunder_showers");
+        ICON_MAP.put("209", "sleet_showers");
+        ICON_MAP.put("210", "heavy_sleet_showers");
+        ICON_MAP.put("211", "snow_showers");
+        ICON_MAP.put("212", "heavy_snow_showers");
+        ICON_MAP.put("213", "mixed_rain_snow");
+        ICON_MAP.put("300", "shower_rain");
+        ICON_MAP.put("301", "heavy_shower_rain");
+        ICON_MAP.put("302", "thunder_shower");
+        ICON_MAP.put("303", "heavy_thunder");
+        ICON_MAP.put("304", "hail");
+        ICON_MAP.put("305", "light_rain");
+        ICON_MAP.put("306", "moderate_rain");
+        ICON_MAP.put("307", "heavy_rain");
+        ICON_MAP.put("308", "extreme_rain");
+        ICON_MAP.put("309", "drizzle");
+        ICON_MAP.put("310", "storm");
+        ICON_MAP.put("311", "heavy_storm");
+        ICON_MAP.put("312", "severe_storm");
+        ICON_MAP.put("313", "rain_and_snow");
+        ICON_MAP.put("314", "heavy_rain_and_snow");
+        ICON_MAP.put("315", "sleet");
+        ICON_MAP.put("316", "heavy_sleet");
+        ICON_MAP.put("317", "freezing_rain");
+        ICON_MAP.put("318", "heavy_freezing_rain");
+        ICON_MAP.put("399", "unknown_rain");
+        ICON_MAP.put("400", "snow");
+        ICON_MAP.put("401", "heavy_snow");
+        ICON_MAP.put("402", "snowstorm");
+        ICON_MAP.put("403", "light_snow");
+        ICON_MAP.put("404", "moderate_snow");
+        ICON_MAP.put("405", "wet_snow");
+        ICON_MAP.put("406", "slush");
+        ICON_MAP.put("407", "snow_grains");
+        ICON_MAP.put("408", "ice_crystals");
+        ICON_MAP.put("409", "ice_pellets");
+        ICON_MAP.put("410", "heavy_ice_pellets");
+        ICON_MAP.put("499", "unknown_snow");
+        ICON_MAP.put("500", "fog");
+        ICON_MAP.put("501", "haze");
+        ICON_MAP.put("502", "smoke");
+        ICON_MAP.put("503", "dust");
+        ICON_MAP.put("504", "sand");
+        ICON_MAP.put("507", "mist");
+        ICON_MAP.put("508", "foggy");
+        ICON_MAP.put("509", "freezing_fog");
+        ICON_MAP.put("510", "drifting_fog");
+        ICON_MAP.put("511", "thick_fog");
+        ICON_MAP.put("512", "shallow_fog");
+        ICON_MAP.put("513", "partial_fog");
+        ICON_MAP.put("514", "patches_of_fog");
+        ICON_MAP.put("515", "fog_in_vicinity");
+        ICON_MAP.put("600", "hot");
+        ICON_MAP.put("601", "cold");
+        ICON_MAP.put("602", "windy");
+        ICON_MAP.put("603", "calm");
+        ICON_MAP.put("604", "light_breeze");
+        ICON_MAP.put("605", "moderate_breeze");
+        ICON_MAP.put("606", "fresh_breeze");
+        ICON_MAP.put("607", "strong_breeze");
+        ICON_MAP.put("608", "near_gale");
+        ICON_MAP.put("609", "gale");
+        ICON_MAP.put("610", "strong_gale");
+        ICON_MAP.put("611", "storm_wind");
+        ICON_MAP.put("612", "violent_storm");
+        ICON_MAP.put("613", "hurricane");
+        ICON_MAP.put("614", "tornado");
+        ICON_MAP.put("615", "dust_devil");
+        ICON_MAP.put("616", "waterspout");
+        ICON_MAP.put("617", "squalls");
+        ICON_MAP.put("618", "funnel_cloud");
+        ICON_MAP.put("800", "clear_sky");
+        ICON_MAP.put("801", "few_clouds_day");
+        ICON_MAP.put("802", "scattered_clouds");
+        ICON_MAP.put("803", "broken_clouds");
+        ICON_MAP.put("804", "overcast_clouds");
+        ICON_MAP.put("900", "unknown");
+        ICON_MAP.put("901", "extreme_weather");
+        ICON_MAP.put("999", "unknown_weather");
+    }
+
+    public static String getIconName(String weatherCode) {
+        String icon = ICON_MAP.get(weatherCode);
+        return icon != null ? icon : "unknown";
+    }
+
+    public static String getEmojiIcon(String weatherCode) {
+        switch (weatherCode) {
+            case "100":
+            case "800":
+                return "☀️";
+            case "101":
+            case "801":
+                return "⛅";
+            case "102":
+            case "103":
+            case "802":
+            case "803":
+                return "☁️";
+            case "104":
+            case "804":
+                return "🌑";
+            case "200":
+            case "201":
+                return "🌤️";
+            case "202":
+            case "203":
+            case "204":
+                return "☁️";
+            case "205":
+            case "206":
+            case "300":
+            case "301":
+            case "305":
+            case "306":
+            case "307":
+            case "308":
+            case "309":
+                return "🌧️";
+            case "207":
+            case "208":
+            case "302":
+            case "303":
+            case "310":
+            case "311":
+            case "312":
+                return "⛈️";
+            case "209":
+            case "210":
+            case "315":
+            case "316":
+            case "317":
+            case "318":
+                return "🌨️";
+            case "211":
+            case "212":
+            case "213":
+            case "313":
+            case "314":
+            case "400":
+            case "401":
+            case "402":
+            case "403":
+            case "404":
+            case "405":
+            case "406":
+            case "407":
+            case "408":
+            case "409":
+            case "410":
+            case "499":
+                return "❄️";
+            case "500":
+            case "501":
+            case "502":
+            case "503":
+            case "504":
+            case "507":
+            case "508":
+            case "509":
+            case "510":
+            case "511":
+            case "512":
+            case "513":
+            case "514":
+            case "515":
+                return "🌫️";
+            case "602":
+            case "611":
+            case "612":
+            case "613":
+                return "💨";
+            case "600":
+                return "🔥";
+            case "601":
+                return "🥶";
+            default:
+                return "🌤️";
+        }
+    }
+}

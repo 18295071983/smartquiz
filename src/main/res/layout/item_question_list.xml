@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/surface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/questionNumberTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1."
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/on_surface"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
+            android:id="@+id/questionTypeTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="单选题"
+            android:textSize="14sp"
+            android:background="@color/primary_container"
+            android:textColor="@color/on_primary_container"
+            android:padding="4dp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/questionTextTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="题目内容"
+        android:textSize="16sp"
+        android:textColor="@color/on_surface"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/categoryTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="分类: 默认"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginEnd="16dp" />
+
+        <TextView
+            android:id="@+id/difficultyTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="难度: 中等"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/optionATextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="A. 选项A"
+        android:textSize="14sp"
+        android:textColor="@color/on_surface"
+        android:visibility="gone"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/optionBTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="B. 选项B"
+        android:textSize="14sp"
+        android:textColor="@color/on_surface"
+        android:visibility="gone"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/optionCTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="C. 选项C"
+        android:textSize="14sp"
+        android:textColor="@color/on_surface"
+        android:visibility="gone"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/optionDTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="D. 选项D"
+        android:textSize="14sp"
+        android:textColor="@color/on_surface"
+        android:visibility="gone"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/answerTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="答案: A"
+        android:textSize="14sp"
+        android:textColor="@color/primary"
+        android:visibility="gone"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_favorite"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="收藏"
+            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginEnd="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_delete"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="删除"
+            app:backgroundTint="@color/error"
+            android:textColor="@color/on_error"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/surface">
+
+    <TextView
+        android:id="@+id/questionTextTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="题目内容"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="@color/on_surface"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvOptionsPreview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="选项预览"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary" />
+
+</LinearLayout>

@@ -1,0 +1,174 @@
+# ============ Gradle ============
+.gradle/
+**/build/
+gradle/wrapper/gradle-8.*/
+
+# ============ IDE ============
+.idea/
+*.iml
+.trae/
+.vscode/
+
+# ============ Android ============
+*.apk
+*.aab
+*.jks
+*.keystore
+debug.keystore
+smartquiz.keystore
+local.properties
+apk_extracted/
+exports/
+sign/
+apktool.bat
+apktool.jar
+apktool_new.jar
+source.properties
+
+# ============ CMake/Native ============
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+.ninja_deps
+.ninja_log
+build.ninja
+build-llama/
+CMakeFiles/
+CMakeConfigureLog.yaml
+CMakeOutput.log
+libllama.a
+ninja.exe
+ninja-win.zip
+
+# ============ C++ build artifacts ============
+src/main/cpp/build-local/
+src/main/cpp/build-native/
+src/main/cpp/build-android/
+src/main/cpp/build/
+src/main/cpp/build_agent_check/
+src/main/cpp/ninja_log.txt
+src/main/cpp/cmake_log.txt
+src/main/cpp/CMakeLists.txt.local
+src/main/cpp/Makefile
+src/main/cpp/vulkan_temp
+
+# ============ Build logs ============
+build*.txt
+build*.log
+release_build*.txt
+release_build*.log
+full_release_build.txt
+build_output.txt
+build_output/
+compile_err.txt
+compile_errors.txt
+build_err.txt
+build_fix.txt
+build_fix2.txt
+build_result*.txt
+build_check.txt
+build_clean.txt
+build_clean2.txt
+build_mode.txt
+build_race.txt
+build_think.txt
+build_thread.txt
+build_verify.txt
+build_log.txt
+source.properties
+
+# ============ Temporary/Scripts ============
+batch_fix_all_java.py
+batch_fix_v3.py
+batch_fix_v4.py
+batch_fix_v5.py
+emergency_fix.py
+fix_all_final.py
+fix_chinese_encoding.py
+fix_patterns.json
+fix_task_decomposer.py
+fix_task_decomposer_safe.py
+fix_thinking.py
+ultimate_fix.py
+ultimate_fix_v2.py
+ultimate_fix_v3.py
+ultimate_fix_v4.py
+ultimate_fix_v5.py
+ultimate_fix_v6.py
+ultimate_fix_v6_json.py
+write_prompt.py
+restore_from_backup.py
+move_activities.ps1
+check_bom.ps1
+check_vulkan.py
+fix_cpp.py
+use_chat_template.py
+
+# ============ Binary/Tools ============
+mingw-w64.7z
+android-ndk.zip
+android-ndk/
+cmake-installer.msi
+*.7z
+*.msi
+
+# ============ Temp data ============
+apk_list.txt
+apk_path.txt
+activity_top.txt
+device_info.txt
+ai_package_temp/
+temp/
+src.zip
+
+# ============ C++ SDK/Third-party headers ============
+src/main/cpp/opencl/
+src/main/cpp/vulkan/
+src/main/cpp/opencl-sdk/
+src/main/cpp/llama.cpp/
+src/main/cpp/include/
+src/main/cpp/cmake/
+
+# ============ Native libs (JNI) ============
+src/main/jniLibs/
+
+# ============ PNG icons (auto-generated) ============
+icons/
+
+# ============ Skills ============
+skills/
+
+# ============ Reference docs package ============
+android_ai_multimodel_complete_package/
+
+# ============ Misc ============
+*.DS_Store
+*.swp
+*.swo
+*~
+apk_extracted/
+
+# ============ MLKit models ============
+src/main/assets/mlkit-google-ocr-models/
+
+# ============ APK in assets ============
+src/main/assets/apk/
+
+# ============ Webkit assets ============
+src/main/assets/webkit/
+
+# ============ Backups ============
+src_backup_*/
+
+# ============ Temp in cpp ============
+src/main/cpp/*.py
+src/main/cpp/vulkan_temp
+src/main/cpp/vulkan_gpu.cpp
+
+# ============ Root level debug files ============
+test_crash.bat
+test_crash.ps1
+proguard-rules-release.pro
+
+# ============ Fonts (large files) ============
+src/main/assets/fonts/

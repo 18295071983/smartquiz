@@ -1,0 +1,24 @@
+{
+  "name": "小抄",
+  "description": "考试小抄模板，适合快速复习",
+  "format": "HTML",
+  "fields": [
+    "questionText",
+    "correctAnswer",
+    "explanation",
+    "questionType"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "groupByCategory": false,
+    "includeCategories": false
+  },
+  "template": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>考试小抄</title>\n<style>\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\nbody {\n  font-family: 'Microsoft YaHei', Arial, sans-serif;\n  line-height: 1.4;\n  color: #333;\n  background-color: #fff;\n  padding: 15px;\n  font-size: 14px;\n}\n.container {\n  max-width: 800px;\n  margin: 0 auto;\n}\nh1 {\n  color: #2c3e50;\n  margin-bottom: 20px;\n  text-align: center;\n  font-size: 18px;\n  border-bottom: 1px solid #e0e0e0;\n  padding-bottom: 10px;\n}\n.info {\n  font-size: 12px;\n  color: #666;\n  margin-bottom: 20px;\n  text-align: right;\n}\n.question {\n  margin-bottom: 15px;\n  padding: 10px;\n  border: 1px solid #e0e0e0;\n  border-radius: 4px;\n  background-color: #fafafa;\n}\n.question-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: 5px;\n}\n.question-type {\n  font-size: 12px;\n  color: #999;\n  background-color: #f0f0f0;\n  padding: 2px 6px;\n  border-radius: 10px;\n}\n.question-text {\n  font-size: 14px;\n  margin-bottom: 8px;\n  font-weight: 500;\n}\n.correct-answer {\n  font-size: 13px;\n  color: #27ae60;\n  font-weight: 600;\n  margin-bottom: 5px;\n}\n.explanation {\n  font-size: 12px;\n  color: #7f8c8d;\n  margin-top: 5px;\n  padding-top: 5px;\n  border-top: 1px dashed #e0e0e0;\n}\n.footer {\n  margin-top: 20px;\n  padding-top: 10px;\n  border-top: 1px solid #e0e0e0;\n  text-align: center;\n  font-size: 12px;\n  color: #999;\n}\n</style>\n</head>\n<body>\n<div class=\"container\">\n<h1>考试小抄</h1>\n<div class=\"info\">\n<p>导出时间: {{exportTime}}</p>\n<p>题目数量: {{questionCount}}</p>\n</div>\n{{questions}}\n<div class=\"footer\">\n<p>小抄导出完成</p>\n</div>\n</div>\n</body>\n</html>"
+}

@@ -1,0 +1,355 @@
+{
+  "name": "简约清新",
+  "description": "简约清新风格，适合学习和阅读",
+  "format": "HTML",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "analysis",
+    "hint",
+    "questionType",
+    "difficulty",
+    "category",
+    "subCategory",
+    "knowledgePoint",
+    "tags",
+    "source",
+    "points",
+    "timeLimit",
+    "author"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "analysis": "详细解析",
+    "hint": "提示",
+    "questionType": "题型",
+    "difficulty": "难度",
+    "category": "分类",
+    "subCategory": "子分类",
+    "knowledgePoint": "知识点",
+    "tags": "标签",
+    "source": "来源",
+    "points": "分值",
+    "timeLimit": "时限(秒)",
+    "author": "作者"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "groupByCategory": true,
+    "includeCategories": true
+  },
+  "questionTemplate": "<div class=\"question-card\">\n  <div class=\"question-header\">\n    <h3 class=\"question-number\">第 {{questionNumber}} 题</h3>\n    <div class=\"question-meta\">\n      {{#if questionType}}<span class=\"question-type\">{{questionType}}</span>{{/if}}\n      {{#if difficulty}}<span class=\"difficulty\">难度 {{difficulty}}</span>{{/if}}\n    </div>\n  </div>\n  <div class=\"question-content\">\n    <p class=\"question-text\">{{questionText}}</p>\n    {{#if options}}\n    <div class=\"options\">\n      {{options}}\n    </div>\n    {{/if}}\n  </div>\n  <div class=\"question-actions\">\n    <button class=\"action-btn answer-btn\">显示答案</button>\n    <button class=\"action-btn explanation-btn\">显示解析</button>\n  </div>\n  <div class=\"answer-section\">\n    <div class=\"correct-answer\">\n      <strong>正确答案：</strong>{{correctAnswer}}\n    </div>\n    {{#if explanation}}\n    <div class=\"explanation\">\n      <h4>解析</h4>\n      <p>{{explanation}}</p>\n    </div>\n    {{/if}}\n    {{#if analysis}}\n    <div class=\"analysis\">\n      <h4>详细解析</h4>\n      <p>{{analysis}}</p>\n    </div>\n    {{/if}}\n    {{#if hint}}\n    <div class=\"hint\">\n      <h4>提示</h4>\n      <p>{{hint}}</p>\n    </div>\n    {{/if}}\n  </div>\n  <div class=\"question-footer\">\n    {{#if category}}<span class=\"tag\">{{category}}</span>{{/if}}\n    {{#if knowledgePoint}}<span class=\"tag\">{{knowledgePoint}}</span>{{/if}}\n    {{#if tags}}<span class=\"tag\">{{tags}}</span>{{/if}}\n  </div>\n</div>",
+  "template": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>简约清新风格</title>\n<style>\n:root {\n  --primary-color: #4CAF50;\n  --secondary-color: #81C784;\n  --accent-color: #FFB74D;\n  --background-color: #FFFFFF;\n  --card-color: #F8F9FA;\n  --text-color: #333333;\n  --text-secondary: #666666;\n  --border-color: #E0E0E0;\n  --success-color: #4CAF50;\n  --warning-color: #FF9800;\n  --error-color: #F44336;\n  --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);\n  --border-radius: 12px;\n  --transition: all 0.3s ease;\n}\n\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;\n  line-height: 1.6;\n  color: var(--text-color);\n  background: var(--background-color);\n  background-image: \n    radial-gradient(circle at 20% 80%, rgba(76, 175, 80, 0.05) 0%, transparent 50%),\n    radial-gradient(circle at 80% 20%, rgba(129, 199, 132, 0.05) 0%, transparent 50%);\n  min-height: 100vh;\n  padding: 20px;\n}\n\n.container {\n  max-width: 900px;\n  margin: 0 auto;\n  padding: 40px;\n  background: var(--background-color);\n  border-radius: var(--border-radius);\n  box-shadow: var(--shadow);\n  border: 1px solid var(--border-color);\n}
+\n.header {
+  text-align: center;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+\n.header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--primary-color);
+  position: relative;
+  display: inline-block;
+}
+\n.header h1::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 10%;
+  width: 80%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+  border-radius: 1.5px;
+}
+\n.header-info {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 15px;
+}
+\n.category-section {
+  margin-bottom: 40px;
+  position: relative;
+}
+\n.category-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--primary-color);
+  padding-left: 15px;
+  border-left: 4px solid var(--primary-color);
+}
+\n.question-card {
+  background: var(--card-color);
+  border-radius: var(--border-radius);
+  padding: 25px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-color);
+  transition: var(--transition);
+  position: relative;
+}
+\n.question-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color);
+}
+\n.question-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--border-color);
+}
+\n.question-number {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary-color);
+  margin: 0;
+}
+\n.question-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+\n.question-type {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--primary-color);
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+\n.difficulty {
+  background: rgba(255, 152, 0, 0.1);
+  color: var(--warning-color);
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+\n.question-content {
+  margin-bottom: 20px;
+}
+\n.question-text {
+  font-size: 16px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  color: var(--text-color);
+  font-weight: 500;
+}
+\n.options {
+  margin: 20px 0;
+  padding-left: 20px;
+}
+\n.option-item {
+  list-style: none;
+  margin: 10px 0;
+  padding: 12px 16px;
+  background: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-color);
+  transition: var(--transition);
+  cursor: pointer;
+  position: relative;
+  padding-left: 30px;
+}
+\n.option-item::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 16px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--primary-color);
+  border-radius: 2px;
+  transition: var(--transition);
+}
+\n.option-item:hover {
+  background: rgba(76, 175, 80, 0.05);
+  border-color: var(--primary-color);
+  transform: translateX(5px);
+}
+\n.option-item:hover::before {
+  background: var(--primary-color);
+}
+\n.question-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+\n.action-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  background: var(--primary-color);
+  color: white;
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+}
+\n.action-btn:hover {
+  background: var(--secondary-color);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(76, 175, 80, 0.4);
+}
+\n.explanation-btn {
+  background: var(--accent-color);
+  box-shadow: 0 2px 4px rgba(255, 183, 77, 0.3);
+}
+\n.explanation-btn:hover {
+  background: #FFA726;
+  box-shadow: 0 4px 8px rgba(255, 183, 77, 0.4);
+}
+\n.answer-section {
+  background: rgba(76, 175, 80, 0.05);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+\n.answer-section.visible {
+  display: block;
+}
+\n.correct-answer {
+  margin-bottom: 15px;
+  padding: 12px;
+  background: rgba(76, 175, 80, 0.1);
+  border-radius: 6px;
+  border-left: 4px solid var(--success-color);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--success-color);
+}
+\n.explanation, .analysis, .hint {
+  margin-top: 15px;
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--background-color);
+  animation: slideIn 0.3s ease;
+}
+\n.explanation h4, .analysis h4, .hint h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-color);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+}
+\n.explanation p, .analysis p, .hint p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+\n.question-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 15px;
+}
+\n.tag {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--primary-color);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  transition: var(--transition);
+}
+\n.tag:hover {
+  background: var(--primary-color);
+  color: white;
+  transform: translateY(-1px);
+}
+\n.footer {
+  text-align: center;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+\n@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+\n@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+\n@media (max-width: 768px) {
+  .container {
+    padding: 20px;
+  }
+  
+  .header h1 {
+    font-size: 24px;
+  }
+  
+  .question-card {
+    padding: 20px;
+  }
+  
+  .question-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .question-actions {
+    flex-direction: column;
+  }
+  
+  .action-btn {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .options {
+    padding-left: 0;
+  }
+  
+  .option-item {
+    padding-left: 30px;
+  }
+}
+</style>\n<script>\ndocument.addEventListener('DOMContentLoaded', function() {\n  // 显示/隐藏答案\n  document.querySelectorAll('.answer-btn').forEach(button => {\n    button.addEventListener('click', function() {\n      const questionCard = this.closest('.question-card');\n      const answerSection = questionCard.querySelector('.answer-section');\n      const isVisible = answerSection.classList.contains('visible');\n      \n      answerSection.classList.toggle('visible');\n      this.textContent = isVisible ? '显示答案' : '隐藏答案';\n      this.classList.toggle('active', !isVisible);\n    });\n  });\n  \n  // 显示/隐藏解析\n  document.querySelectorAll('.explanation-btn').forEach(button => {\n    button.addEventListener('click', function() {\n      const questionCard = this.closest('.question-card');\n      const explanation = questionCard.querySelector('.explanation');\n      const analysis = questionCard.querySelector('.analysis');\n      const hint = questionCard.querySelector('.hint');\n      \n      if (explanation) explanation.style.display = explanation.style.display === 'none' ? 'block' : 'none';\n      if (analysis) analysis.style.display = analysis.style.display === 'none' ? 'block' : 'none';\n      if (hint) hint.style.display = hint.style.display === 'none' ? 'block' : 'none';\n      \n      this.textContent = this.textContent === '显示解析' ? '隐藏解析' : '显示解析';\n      this.classList.toggle('active');\n    });\n  });\n  \n  // 为选项添加点击效果\n  document.querySelectorAll('.option-item').forEach(option => {\n    option.addEventListener('click', function() {\n      // 移除其他选项的选中状态\n      this.parentElement.querySelectorAll('.option-item').forEach(item => {\n        item.classList.remove('selected');\n      });\n      // 添加当前选项的选中状态\n      this.classList.add('selected');\n    });\n  });\n});\n</script>\n</head>\n<body>\n<div class=\"container\">\n<div class=\"header\">\n<h1>简约清新风格</h1>\n<div class=\"header-info\">\n<p>导出时间: {{exportTime}}</p>\n<p>题目数量: {{questionCount}}</p>\n</div>\n</div>\n{{questions}}\n<div class=\"footer\">\n<p>© 2026 简约清新风格导出</p>\n</div>\n</div>\n</body>\n</html>"

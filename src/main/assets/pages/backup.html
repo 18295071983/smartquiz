@@ -1,0 +1,113 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据备份 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="backup-section">
+                <h2>数据备份</h2>
+                
+                <div class="backup-actions">
+                    <button id="backup-now-btn" class="btn-primary">
+                        <i class="fas fa-save"></i> 立即备份
+                    </button>
+                    <button id="restore-btn" class="btn-secondary">
+                        <i class="fas fa-upload"></i> 恢复数据
+                    </button>
+                    <div class="auto-backup">
+                        <label>
+                            <input type="checkbox" id="auto-backup-toggle">
+                            自动备份
+                        </label>
+                        <select id="backup-frequency">
+                            <option value="daily">每天</option>
+                            <option value="weekly">每周</option>
+                            <option value="monthly">每月</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="backup-info">
+                    <div class="info-card">
+                        <h3>备份状�?/h3>
+                        <p id="last-backup">上次备份：暂�?/p>
+                        <p id="backup-size">备份大小�? MB</p>
+                        <p id="backup-count">备份数量�?</p>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h3>备份内容</h3>
+                        <label>
+                            <input type="checkbox" id="backup-questions" checked>
+                            题目数据
+                        </label>
+                        <label>
+                            <input type="checkbox" id="backup-wrong" checked>
+                            错题数据
+                        </label>
+                        <label>
+                            <input type="checkbox" id="backup-study" checked>
+                            学习计划
+                        </label>
+                        <label>
+                            <input type="checkbox" id="backup-notes" checked>
+                            学习笔记
+                        </label>
+                        <label>
+                            <input type="checkbox" id="backup-settings" checked>
+                            设置数据
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="backup-history">
+                    <h3>备份历史</h3>
+                    <div id="backup-history-list" class="history-list">
+                        <!-- 备份历史将通过JavaScript动态添�?-->
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <!-- 恢复数据模态框 -->
+    <div id="restore-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>恢复数据</h3>
+                <button id="close-restore-modal" class="close-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>请选择备份文件进行恢复�?/p>
+                <input type="file" id="backup-file" accept=".json">
+                <p class="warning">注意：恢复数据将覆盖当前数据，请谨慎操作�?/p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirm-restore-btn" class="btn-primary">恢复</button>
+                <button id="cancel-restore-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

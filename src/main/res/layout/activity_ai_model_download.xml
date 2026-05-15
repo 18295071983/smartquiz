@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".AIModelDownloadActivity">
+
+    <!-- 顶部导航栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/purple_700"
+        app:title="AI模型下载"
+        app:titleTextColor="@color/white">
+
+        <androidx.appcompat.widget.Toolbar.LayoutParams
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center" />
+
+    </androidx.appcompat.widget.Toolbar>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+    <!-- HTTP下载部分 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="HTTP下载"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@android:color/background_light"
+        android:padding="16dp"
+        android:elevation="2dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模型URL:"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/editTextModelUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入模型下载URL"
+            android:inputType="textUri"
+            android:background="@drawable/edittext_background"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模型文件名:"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/editTextModelName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入模型文件名"
+            android:background="@drawable/edittext_background"/>
+
+        <Button
+            android:id="@+id/buttonDownloadHttp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="HTTP下载"
+            android:backgroundTint="@android:color/holo_blue_dark"
+            android:textColor="@android:color/white"
+            android:layout_marginTop="16dp"/>
+    </LinearLayout>
+
+    <!-- Git拉取部分 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Git拉取"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@android:color/background_light"
+        android:padding="16dp"
+        android:elevation="2dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Git仓库URL:"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/editTextGitUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入Git仓库URL (例如: https://github.com/username/repo.git)"
+            android:inputType="textUri"
+            android:background="@drawable/edittext_background"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Git分支:"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/editTextGitBranch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入Git分支名称"
+            android:background="@drawable/edittext_background"/>
+
+        <Button
+            android:id="@+id/buttonDownloadGit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Git拉取"
+            android:backgroundTint="@android:color/holo_blue_dark"
+            android:textColor="@android:color/white"
+            android:layout_marginTop="16dp"/>
+    </LinearLayout>
+
+    <!-- 下载状态 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@android:color/background_light"
+        android:padding="16dp"
+        android:elevation="2dp">
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progress="0"
+            android:max="100"
+            android:indeterminate="false"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/textViewStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="准备就绪"
+            android:gravity="center"
+            android:textSize="16sp"/>
+    </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>

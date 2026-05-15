@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".ai.QuestionBankAnalyzerActivity">
+
+    <!-- 顶部导航栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/purple_700"
+        app:title="AI题库解析"
+        app:titleTextColor="@color/white">
+
+        <androidx.appcompat.widget.Toolbar.LayoutParams
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center" />
+
+    </androidx.appcompat.widget.Toolbar>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+    <!-- 模型下载状态 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_corners_gray_light"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/tv_download_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="准备下载模型..."
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp"/>
+
+        <ProgressBar
+            android:id="@+id/progress_download"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progress="0"
+            android:max="100"
+            style="@android:style/Widget.ProgressBar.Horizontal"/>
+    </LinearLayout>
+
+    <!-- 文件选择 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_corners_gray_light"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/tv_file_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="请选择要解析的题库文件"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btn_select_file"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择题库文件"
+            android:backgroundTint="@color/teal_500"
+            android:textColor="@color/white"
+            android:enabled="false"/>
+    </LinearLayout>
+
+    <!-- 解析结果 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_corners_gray_light"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="解析结果"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <ScrollView
+            android:id="@+id/scroll_view_result"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/tv_analysis_result"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="解析结果将显示在这里..."
+                android:textSize="14sp"
+                android:lineSpacingExtra="4dp"/>
+        </ScrollView>
+    </LinearLayout>
+
+    <!-- 导出按钮 -->
+    <Button
+        android:id="@+id/btn_export_result"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="导出解析结果"
+        android:backgroundTint="@color/purple_500"
+        android:textColor="@color/white"
+        android:enabled="false"/>
+
+    </LinearLayout>
+</LinearLayout>

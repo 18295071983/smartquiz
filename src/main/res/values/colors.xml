@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#8B5CF6</color>
+    <color name="colorPrimaryDark">#7C3AED</color>
+    <color name="colorAccent">#06B6D4</color>
+    <color name="primary_color">@color/primary</color>
+
+    <color name="background">#F8FAFC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#F1F5F9</color>
+
+    <color name="primary">#8B5CF6</color>
+    <color name="primary_dark">#7C3AED</color>
+    <color name="primary_light">#A78BFA</color>
+    <color name="primary_container">#EDE9FE</color>
+
+    <color name="secondary">#06B6D4</color>
+    <color name="secondary_container">#CFFAFE</color>
+
+    <color name="tertiary">#F59E0B</color>
+    <color name="tertiary_container">#FEF3C7</color>
+
+    <color name="error">#EF4444</color>
+    <color name="error_container">#FEF2F2</color>
+    <color name="success">#10B981</color>
+    <color name="success_light">#6EE7B7</color>
+    <color name="success_container">#ECFDF5</color>
+
+    <color name="warning">#F59E0B</color>
+    <color name="warning_light">#FCD34D</color>
+
+    <color name="text_primary">#1E293B</color>
+    <color name="text_secondary">#64748B</color>
+    <color name="text_tertiary">#94A3B8</color>
+    <color name="text_disabled">#94A3B8</color>
+    <color name="text_hint">#94A3B8</color>
+
+    <color name="card_background">#FFFFFF</color>
+    <color name="background_gray">#F8FAFC</color>
+    <color name="transparent">#00000000</color>
+    <color name="outline">#E2E8F0</color>
+    <color name="divider">#E2E8F0</color>
+    <color name="primary_alpha_20">#338B5CF6</color>
+    <color name="primary_alpha_50">#808B5CF6</color>
+
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="gray_50">#F8FAFC</color>
+    <color name="gray_100">#F1F5F9</color>
+    <color name="gray_200">#E2E8F0</color>
+    <color name="gray_300">#CBD5E1</color>
+    <color name="gray_400">#94A3B8</color>
+    <color name="gray_500">#64748B</color>
+    <color name="gray_600">#475569</color>
+    <color name="gray_700">#334155</color>
+    <color name="gray_800">#1E293B</color>
+    <color name="gray_900">#0F172A</color>
+    <color name="gray">#94A3B8</color>
+    <color name="gray_ultra_light">#F8FAFC</color>
+    <color name="purple_700">#7C3AED</color>
+    <color name="purple_500">#8B5CF6</color>
+    <color name="purple_600">#7C3AED</color>
+    <color name="teal_200">#5EEAD4</color>
+    <color name="teal_500">#14B8A6</color>
+    <color name="teal_600">#0D9488</color>
+    <color name="teal_700">#0F766E</color>
+
+    <color name="gray_light">#E2E8F0</color>
+    <color name="background_color">#F8FAFC</color>
+    <color name="error_color">#EF4444</color>
+    <color name="info_color">#8B5CF6</color>
+    <color name="warning_color">#F59E0B</color>
+
+    <color name="green_50">#ECFDF5</color>
+    <color name="green_100">#D1FAE5</color>
+    <color name="green_300">#6EE7B7</color>
+    <color name="green_500">#10B981</color>
+    <color name="green_600">#059669</color>
+    <color name="green_700">#047857</color>
+
+    <color name="red_50">#FEF2F2</color>
+    <color name="red_100">#FEE2E2</color>
+    <color name="red_200">#FECACA</color>
+    <color name="red_300">#FCA5A5</color>
+    <color name="red_500">#EF4444</color>
+    <color name="red_600">#DC2626</color>
+    <color name="red_700">#B91C1C</color>
+
+    <color name="blue_100">#BBDEFB</color>
+    <color name="blue_300">#64B5F6</color>
+    <color name="blue_500">#3B82F6</color>
+    <color name="blue_600">#2563EB</color>
+    <color name="blue_700">#1D4ED8</color>
+
+    <color name="violet_50">#F5F3FF</color>
+    <color name="violet_100">#EDE9FE</color>
+    <color name="violet_200">#DDD6FE</color>
+    <color name="violet_300">#C4B5FD</color>
+    <color name="violet_400">#A78BFA</color>
+    <color name="violet_500">#8B5CF6</color>
+    <color name="violet_600">#7C3AED</color>
+    <color name="violet_700">#6D28D9</color>
+    <color name="violet_800">#5B21B6</color>
+    <color name="violet_900">#4C1D95</color>
+
+    <color name="orange_50">#FFF7ED</color>
+    <color name="orange_100">#FFEDD5</color>
+    <color name="orange_200">#FED7AA</color>
+    <color name="orange_300">#FDBA74</color>
+    <color name="orange_400">#FB923C</color>
+    <color name="orange_500">#F97316</color>
+    <color name="orange_600">#EA580C</color>
+    <color name="orange_700">#C2410C</color>
+
+    <color name="yellow_100">#FEF9C3</color>
+    <color name="yellow_300">#FDE047</color>
+    <color name="yellow_500">#EAB308</color>
+    <color name="yellow_600">#CA8A04</color>
+    <color name="yellow_700">#A16207</color>
+
+    <color name="purple_100">#EDE9FE</color>
+    <color name="purple_200">#DDD6FE</color>
+    <color name="purple_300">#C4B5FD</color>
+    <color name="purple_400">#A78BFA</color>
+    <color name="pink_600">#EC4899</color>
+
+    <color name="teal_50">#F0FDFA</color>
+    <color name="teal_100">#CCFBF1</color>
+
+    <color name="background_dark_theme">#121212</color>
+    <color name="surface_dark_theme">#1E1E1E</color>
+    <color name="text_primary_dark_theme">#FFFFFF</color>
+    <color name="text_secondary_dark_theme">#B0B0B0</color>
+
+    <color name="log_info">#10B981</color>
+    <color name="log_warn">#F59E0B</color>
+    <color name="log_error">#EF4444</color>
+    <color name="log_success">#10B981</color>
+    <color name="log_model">#8B5CF6</color>
+
+    <color name="on_primary">#FFFFFF</color>
+    <color name="on_secondary">#FFFFFF</color>
+    <color name="on_error">#FFFFFF</color>
+    <color name="on_background">#1E293B</color>
+    <color name="on_surface">#1E293B</color>
+    <color name="on_surface_variant">#64748B</color>
+    <color name="on_warning">#FFFFFF</color>
+    <color name="on_primary_container">#5B21B6</color>
+    <color name="on_secondary_container">#155E75</color>
+    <color name="on_tertiary">#FFFFFF</color>
+    <color name="on_tertiary_container">#92400E</color>
+    <color name="text_light">#FFFFFF</color>
+    <color name="error_light">#FECACA</color>
+    <color name="success_color">@color/success</color>
+
+    <color name="theme_blue">#3B82F6</color>
+    <color name="theme_green">#10B981</color>
+    <color name="theme_purple">#8B5CF6</color>
+    <color name="theme_orange">#F97316</color>
+    <color name="theme_pink">#EC4899</color>
+    <color name="theme_teal">#14B8A6</color>
+    <color name="theme_indigo">#6366F1</color>
+
+    <color name="mode_selected_background">#EDE9FE</color>
+    <color name="mode_selected_border">#8B5CF6</color>
+    <color name="mode_unselected_background">#F8FAFC</color>
+    <color name="mode_unselected_border">#E2E8F0</color>
+
+    <color name="thinking_background">#EDE9FE</color>
+    <color name="thinking_text">#6D28D9</color>
+    <color name="thinking_label">#7C3AED</color>
+    <color name="task_background">#ECFDF5</color>
+    <color name="task_text">#065F46</color>
+    <color name="task_label">#047857</color>
+
+    <color name="tool_call_background">#E0F2FE</color>
+    <color name="tool_call_text">#0C4A6E</color>
+    <color name="tool_call_label">#0369A1</color>
+    <color name="tool_call_result_background">#F1F5F9</color>
+    <color name="agent_step_background">#FFF7ED</color>
+    <color name="agent_step_text">#9A3412</color>
+    <color name="agent_step_label">#C2410C</color>
+    <color name="agent_thinking_background">#FDF2F8</color>
+    <color name="agent_action_background">#ECFDF5</color>
+    <color name="agent_observation_background">#EDE9FE</color>
+    <color name="agent_reflection_background">#F0F9FF</color>
+    <color name="error_message_background">#FEF2F2</color>
+    <color name="error_message_text">#B91C1C</color>
+    <color name="tool_message_background">#E0F2FE</color>
+    <color name="summary_message_background">#ECFDF5</color>
+
+    <color name="weather_banner_bg_start">#7C3AED</color>
+    <color name="weather_banner_bg_end">#A78BFA</color>
+    <color name="weather_banner_text">#FFFFFF</color>
+    <color name="weather_banner_text_secondary">#E2E8F0</color>
+</resources>

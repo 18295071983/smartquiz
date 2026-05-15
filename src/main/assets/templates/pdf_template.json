@@ -1,0 +1,35 @@
+{
+  "name": "PDF模板",
+  "description": "PDF格式导出模板，适合打印和分享",
+  "format": "PDF",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "questionType",
+    "difficulty"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型",
+    "difficulty": "难度"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "pageSize": "A4",
+    "font": "simkai.ttf",
+    "fontSize": 12
+  },
+  "template": "{{title}}\n{{info}}\n{{questions}}\n{{footer}}"
+}

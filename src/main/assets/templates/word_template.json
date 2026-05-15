@@ -1,0 +1,37 @@
+{
+  "name": "Word模板",
+  "description": "Word格式导出模板，适合文档编辑",
+  "format": "WORD",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "questionType",
+    "difficulty",
+    "category"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型",
+    "difficulty": "难度",
+    "category": "分类"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "documentTitle": "题目导出",
+    "documentAuthor": "OilQuiz",
+    "documentSubject": "题目导出"
+  },
+  "template": "{{title}}\n{{info}}\n{{questions}}\n{{footer}}"
+}

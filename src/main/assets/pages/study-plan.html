@@ -1,0 +1,128 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学习计划 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>学习计划</h1>
+            </div>
+        </header>
+        
+        <main>
+            <div class="action-bar">
+                <button class="btn-primary">
+                    <i class="fas fa-plus"></i> 添加计划
+                </button>
+                <button class="btn-secondary">
+                    <i class="fas fa-calendar"></i> 日历视图
+                </button>
+            </div>
+            
+            <div class="plan-list">
+                <div class="plan-item active">
+                    <div class="plan-header">
+                        <h3>每日英语学习</h3>
+                        <span class="plan-status active">进行�?/span>
+                    </div>
+                    <div class="plan-content">
+                        <div class="plan-meta">
+                            <div class="meta-item">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>2026-03-15 �?2026-04-15</span>
+                            </div>
+                            <div class="meta-item">
+                                <i class="fas fa-clock"></i>
+                                <span>每天 30 分钟</span>
+                            </div>
+                        </div>
+                        <div class="plan-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 45%;"></div>
+                            </div>
+                            <p>完成进度�?5%</p>
+                        </div>
+                        <div class="plan-actions">
+                            <button class="action-btn edit"><i class="fas fa-edit"></i> 编辑</button>
+                            <button class="action-btn delete"><i class="fas fa-trash"></i> 删除</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="plan-item">
+                    <div class="plan-header">
+                        <h3>数学基础强化</h3>
+                        <span class="plan-status completed">已完�?/span>
+                    </div>
+                    <div class="plan-content">
+                        <div class="plan-meta">
+                            <div class="meta-item">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>2026-02-01 �?2026-03-10</span>
+                            </div>
+                            <div class="meta-item">
+                                <i class="fas fa-clock"></i>
+                                <span>每天 1 小时</span>
+                            </div>
+                        </div>
+                        <div class="plan-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 100%;"></div>
+                            </div>
+                            <p>完成进度�?00%</p>
+                        </div>
+                        <div class="plan-actions">
+                            <button class="action-btn view"><i class="fas fa-eye"></i> 查看</button>
+                            <button class="action-btn delete"><i class="fas fa-trash"></i> 删除</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="plan-item">
+                    <div class="plan-header">
+                        <h3>编程技能提�?/h3>
+                        <span class="plan-status upcoming">未开�?/span>
+                    </div>
+                    <div class="plan-content">
+                        <div class="plan-meta">
+                            <div class="meta-item">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>2026-04-20 �?2026-06-20</span>
+                            </div>
+                            <div class="meta-item">
+                                <i class="fas fa-clock"></i>
+                                <span>每天 2 小时</span>
+                            </div>
+                        </div>
+                        <div class="plan-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <p>完成进度�?%</p>
+                        </div>
+                        <div class="plan-actions">
+                            <button class="action-btn edit"><i class="fas fa-edit"></i> 编辑</button>
+                            <button class="action-btn delete"><i class="fas fa-trash"></i> 删除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

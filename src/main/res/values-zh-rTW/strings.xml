@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">答題寶</string>
+    <string name="theme_settings">主題設定</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="light_mode">淺色模式</string>
+    <string name="system_default">系統預設</string>
+    <string name="save_settings">儲存設定</string>
+    <string name="theme_mode">主題模式</string>
+    <string name="theme_color">主題顏色</string>
+    <string name="personalize_your_app">個人化你的應用</string>
+    <string name="choose_your_theme">選擇你喜歡的主題和顏色</string>
+    <string name="light_mode_desc">明亮清晰的介面</string>
+    <string name="dark_mode_desc">護眼節能的介面</string>
+    <string name="system_mode_desc">與系統主題保持一致</string>
+    <string name="blue">藍色</string>
+    <string name="green">綠色</string>
+    <string name="purple">紫色</string>
+    <string name="orange">橙色</string>
+    <string name="pink">粉色</string>
+    <string name="teal">青色</string>
+    <string name="indigo">靛藍</string>
+    <string name="theme_applied">主題已套用，重啟應用生效</string>
+    <string name="color_selected">已選擇%1$s主題</string>
+</resources>

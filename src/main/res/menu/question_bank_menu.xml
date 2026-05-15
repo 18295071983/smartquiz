@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_add_question"
+        android:title="添加题目"
+        android:icon="@android:drawable/ic_input_add"
+        app:showAsAction="ifRoom"/>
+    <item
+        android:id="@+id/action_import_questions"
+        android:title="导入题目"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_export_questions"
+        android:title="导出题目"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_batch_delete"
+        android:title="批量删除"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_batch_favorite"
+        android:title="批量收藏"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_generate_template"
+        android:title="生成模板"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_refresh"
+        android:title="刷新"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/action_clear_all"
+        android:title="清空全部"
+        app:showAsAction="never"/>
+</menu>

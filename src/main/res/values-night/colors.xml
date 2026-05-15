@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    
+    <!-- 主色调 - 暗色模式 -->
+    <color name="primary">#818CF8</color>
+    <color name="primary_dark">#6366F1</color>
+    <color name="primary_light">#A5B4FC</color>
+    <color name="primary_container">#3730A3</color>
+    <color name="on_primary">#1E1B4B</color>
+    <color name="on_primary_container">#E0E7FF</color>
+    
+    <!-- 辅助色调 - 暗色模式 -->
+    <color name="secondary">#A78BFA</color>
+    <color name="secondary_dark">#8B5CF6</color>
+    <color name="secondary_light">#C4B5FD</color>
+    <color name="secondary_container">#5B21B6</color>
+    <color name="on_secondary">#2E1065</color>
+    <color name="on_secondary_container">#EDE9FE</color>
+    
+    <!-- 第三色调 - 暗色模式 -->
+    <color name="tertiary">#FBBF24</color>
+    <color name="tertiary_dark">#F59E0B</color>
+    <color name="tertiary_light">#FCD34D</color>
+    <color name="tertiary_container">#78350F</color>
+    <color name="on_tertiary">#451A03</color>
+    <color name="on_tertiary_container">#FEF3C7</color>
+    
+    <!-- 错误色 - 暗色模式 -->
+    <color name="error">#F87171</color>
+    <color name="error_dark">#EF4444</color>
+    <color name="error_light">#FCA5A5</color>
+    <color name="error_container">#7F1D1D</color>
+    <color name="on_error">#450A0A</color>
+    <color name="on_error_container">#FEE2E2</color>
+    
+    <!-- 成功色 - 暗色模式 -->
+    <color name="success">#6EE7B7</color>
+    <color name="success_dark">#10B981</color>
+    <color name="success_light">#A7F3D0</color>
+    <color name="success_container">#064E3B</color>
+    <color name="on_success">#022C22</color>
+    <color name="on_success_container">#D1FAE5</color>
+    
+    <!-- 警告色 - 暗色模式 -->
+    <color name="warning">#FBBF24</color>
+    <color name="warning_dark">#F59E0B</color>
+    <color name="warning_light">#FDE68A</color>
+    <color name="warning_container">#78350F</color>
+    <color name="on_warning">#451A03</color>
+    <color name="on_warning_container">#FEF3C7</color>
+    
+    <!-- 中性色 - 暗色模式 -->
+    <color name="surface">#1F2937</color>
+    <color name="surface_dark">#111827</color>
+    <color name="surface_light">#1F2937</color>
+    <color name="surface_variant">#374151</color>
+    <color name="on_surface">#F9FAFB</color>
+    <color name="on_surface_variant">#D1D5DB</color>
+    
+    <color name="background">#111827</color>
+    <color name="on_background">#F9FAFB</color>
+    
+    <color name="outline">#4B5563</color>
+    <color name="outline_variant">#374151</color>
+    
+    <!-- 文本颜色 - 暗色模式 -->
+    <color name="text_primary">#F9FAFB</color>
+    <color name="text_secondary">#D1D5DB</color>
+    <color name="text_tertiary">#9CA3AF</color>
+    <color name="text_disabled">#6B7280</color>
+    <color name="text_light">#111827</color>
+    
+    <!-- 阴影和分割线 - 暗色模式 -->
+    <color name="divider">#374151</color>
+    <color name="shadow">#000000</color>
+    
+    <!-- 暗色主题颜色 -->
+    <color name="primary_dark_theme">#818CF8</color>
+    <color name="secondary_dark_theme">#A78BFA</color>
+    <color name="tertiary_dark_theme">#FBBF24</color>
+    <color name="error_dark_theme">#F87171</color>
+    <color name="surface_dark_theme">#1F2937</color>
+    <color name="background_dark_theme">#111827</color>
+    <color name="text_primary_dark_theme">#F9FAFB</color>
+    <color name="text_secondary_dark_theme">#9CA3AF</color>
+    
+    <!-- 渐变颜色 - 暗色模式 -->
+    <color name="gradient_start">#818CF8</color>
+    <color name="gradient_center">#A78BFA</color>
+    <color name="gradient_end">#F472B6</color>
+    
+    <!-- 透明度变体 - 暗色模式 -->
+    <color name="primary_alpha_10">#1A818CF8</color>
+    <color name="primary_alpha_20">#33818CF8</color>
+    <color name="primary_alpha_50">#80818CF8</color>
+    <color name="primary_alpha_80">#CC818CF8</color>
+    
+    <color name="surface_alpha_90">#E61F2937</color>
+    <color name="surface_alpha_95">#F21F2937</color>
+    
+    <!-- Material Design 暗色模式 -->
+    <color name="purple_50">#1E0033</color>
+    <color name="purple_100">#2D004D</color>
+    <color name="purple_200">#3B0066</color>
+    <color name="purple_300">#4A0080</color>
+    <color name="purple_500">#A78BFA</color>
+    <color name="purple_600">#9575CD</color>
+    <color name="purple_700">#B39DDB</color>
+    
+    <color name="teal_50">#002626</color>
+    <color name="teal_100">#003333</color>
+    <color name="teal_200">#004D4D</color>
+    <color name="teal_500">#6EE7B7</color>
+    <color name="teal_600">#4DB6AC</color>
+    <color name="teal_700">#80CBC4</color>
+    
+    <!-- 基础颜色 - 暗色模式 -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="gray">#9CA3AF</color>
+    
+    <!-- 灰色系 - 暗色模式 -->
+    <color name="gray_50">#1E1E1E</color>
+    <color name="gray_100">#2C2C2C</color>
+    <color name="gray_200">#3A3A3A</color>
+    <color name="gray_300">#484848</color>
+    <color name="gray_400">#616161</color>
+    <color name="gray_500">#9CA3AF</color>
+    <color name="gray_600">#BDBDBD</color>
+    <color name="gray_700">#E0E0E0</color>
+    <color name="gray_800">#F5F5F5</color>
+    <color name="gray_900">#FAFAFA</color>
+    <color name="gray_light">#2C2C2C</color>
+    <color name="gray_ultra_light">#1E1E1E</color>
+    <color name="gray_dark">#E0E0E0</color>
+    
+    <!-- 蓝色系 - 暗色模式 -->
+    <color name="blue">#60A5FA</color>
+    <color name="blue_500">#60A5FA</color>
+    <color name="blue_600">#64B5F6</color>
+    <color name="blue_700">#90CAF9</color>
+    
+    <!-- 红色系 - 暗色模式 -->
+    <color name="red">#F87171</color>
+    <color name="red_100">#420000</color>
+    <color name="red_300">#610000</color>
+    <color name="red_500">#F87171</color>
+    <color name="red_600">#EF9A9A</color>
+    <color name="red_700">#FFCDD2</color>
+    
+    <!-- 绿色系 - 暗色模式 -->
+    <color name="green">#6EE7B7</color>
+    <color name="green_50">#002E00</color>
+    <color name="green_100">#004200</color>
+    <color name="green_300">#005600</color>
+    <color name="green_500">#6EE7B7</color>
+    <color name="green_600">#A5D6A7</color>
+    <color name="green_700">#C8E6C9</color>
+    
+    <!-- 黄色系 - 暗色模式 -->
+    <color name="yellow">#FBBF24</color>
+    <color name="yellow_300">#FFCA28</color>
+    <color name="yellow_500">#FFD54F</color>
+    <color name="yellow_600">#FFE082</color>
+    
+    <!-- 橙色系 - 暗色模式 -->
+    <color name="orange_100">#4E2700</color>
+    <color name="orange_300">#6D3B00</color>
+    <color name="orange_500">#FB923C</color>
+    <color name="orange_600">#FFB74D</color>
+    
+    <!-- 粉色系 - 暗色模式 -->
+    <color name="pink_50">#4A1942</color>
+    <color name="pink_100">#5C2255</color>
+    <color name="pink_200">#6B2B66</color>
+    <color name="pink_300">#7C347A</color>
+    <color name="pink_400">#EC4899</color>
+    <color name="pink_500">#F472B6</color>
+    <color name="pink_600">#F48FB1</color>
+    <color name="pink_700">#FBCFE8</color>
+    
+    <!-- Indigo系 - 暗色模式 -->
+    <color name="indigo_50">#312E81</color>
+    <color name="indigo_100">#3730A3</color>
+    <color name="indigo_200">#4338CA</color>
+    <color name="indigo_300">#6366F1</color>
+    <color name="indigo_400">#818CF8</color>
+    <color name="indigo_500">#A5B4FC</color>
+    <color name="indigo_600">#C7D2FE</color>
+    <color name="indigo_700">#E0E7FF</color>
+    
+    <!-- Cyan系 - 暗色模式 -->
+    <color name="cyan_50">#164E63</color>
+    <color name="cyan_100">#155E75</color>
+    <color name="cyan_200">#0E7490</color>
+    <color name="cyan_300">#22D3EE</color>
+    <color name="cyan_400">#67E8F9</color>
+    <color name="cyan_500">#A5F3FC</color>
+    <color name="cyan_600">#CFFAFE</color>
+    <color name="cyan_700">#ECFEFF</color>
+    
+    <!-- 应用特定颜色 - 暗色模式 -->
+    <color name="background_color">#111827</color>
+    <color name="background_gray">#1F2937</color>
+    <color name="card_background">#1F2937</color>
+    <color name="text_hint">#6B7280</color>
+    <color name="divider_color">#374151</color>
+    <color name="success_color">#6EE7B7</color>
+    <color name="info_color">#60A5FA</color>
+    <color name="error_color">#F87171</color>
+    <color name="warning_color">#FBBF24</color>
+    
+    <color name="colorEasy">#6EE7B7</color>
+    <color name="colorMedium">#FBBF24</color>
+    <color name="colorHard">#F87171</color>
+    <color name="colorCorrect">#6EE7B7</color>
+    
+    <color name="theme_blue">#60A5FA</color>
+    <color name="theme_green">#6EE7B7</color>
+    <color name="theme_purple">#A78BFA</color>
+    <color name="theme_orange">#FB923C</color>
+    <color name="theme_pink">#F472B6</color>
+    <color name="theme_teal">#22D3EE</color>
+    <color name="theme_indigo">#818CF8</color>
+    
+    <color name="difficulty_easy_bg">#064E3B</color>
+    <color name="difficulty_easy">#6EE7B7</color>
+    <color name="difficulty_medium_bg">#78350F</color>
+    <color name="difficulty_medium">#FBBF24</color>
+    <color name="difficulty_hard_bg">#7F1D1D</color>
+    <color name="difficulty_hard">#F87171</color>
+    
+    <color name="textSecondary">#D1D5DB</color>
+    <color name="transparent">#00000000</color>
+    
+    <!-- 别名 - 暗色模式 -->
+    <color name="primary_color">@color/primary</color>
+    <color name="colorPrimary">@color/primary</color>
+    <color name="colorAccent">@color/secondary</color>
+    <color name="colorCorrectLight">@color/success_container</color>
+    <color name="mode_selected_background">#3730A3</color>
+    <color name="mode_selected_border">#818CF8</color>
+    <color name="mode_unselected_background">#374151</color>
+    <color name="mode_unselected_border">#4B5563</color>
+
+    <color name="thinking_background">#3B0066</color>
+    <color name="thinking_text">#CE93D8</color>
+    <color name="thinking_label">#BA68C8</color>
+    <color name="task_background">#004200</color>
+    <color name="task_text">#A5D6A7</color>
+    <color name="task_label">#66BB6A</color>
+
+    <color name="aiPrimary">@color/primary</color>
+
+    <!-- 日志区域背景 - 暗色模式 -->
+    <color name="log_background">#000000</color>
+    <color name="log_text">#F9FAFB</color>
+    <color name="log_info">#6EE7B7</color>
+    <color name="log_warn">#FBBF24</color>
+    <color name="log_error">#F87171</color>
+
+</resources>

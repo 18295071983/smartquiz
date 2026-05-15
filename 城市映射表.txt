@@ -1,0 +1,49 @@
+# 天气工具城市映射表
+# 格式: 中文城市名 = 英文城市名
+
+# 主要城市
+北京 = Beijing
+上海 = Shanghai
+广州 = Guangzhou
+深圳 = Shenzhen
+杭州 = Hangzhou
+南京 = Nanjing
+成都 = Chengdu
+重庆 = Chongqing
+武汉 = Wuhan
+西安 = Xi'an
+天津 = Tianjin
+苏州 = Suzhou
+青岛 = Qingdao
+大连 = Dalian
+厦门 = Xiamen
+
+# 省会及其他城市
+长沙 = Changsha
+郑州 = Zhengzhou
+济南 = Jinan
+合肥 = Hefei
+福州 = Fuzhou
+南昌 = Nanchang
+贵阳 = Guiyang
+昆明 = Kunming
+南宁 = Nanning
+海口 = Haikou
+兰州 = Lanzhou
+西宁 = Xining
+银川 = Yinchuan
+呼和浩特 = Hohhot
+乌鲁木齐 = Urumqi
+拉萨 = Lhasa
+哈尔滨 = Harbin
+长春 = Changchun
+沈阳 = Shenyang
+石家庄 = Shijiazhuang
+太原 = Taiyuan
+
+# 特别行政区和台湾
+台北 = Taipei
+香港 = Hong Kong
+澳门 = Macau
+
+# 总计: 39个城市

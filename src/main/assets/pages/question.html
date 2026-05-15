@@ -1,0 +1,129 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>题目管理 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>题目管理</h1>
+            </div>
+        </header>
+        
+        <main>
+            <div class="action-bar">
+                <button class="btn-primary">
+                    <i class="fas fa-plus"></i> 添加题目
+                </button>
+                <button class="btn-secondary">
+                    <i class="fas fa-upload"></i> 批量导入
+                </button>
+            </div>
+            
+            <div class="search-bar">
+                <input type="text" placeholder="搜索题目...">
+                <button class="search-button">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+            
+            <div class="filter-bar">
+                <select>
+                    <option>全部类型</option>
+                    <option>选择�?/option>
+                    <option>判断�?/option>
+                    <option>填空�?/option>
+                    <option>简答题</option>
+                </select>
+                <select>
+                    <option>全部难度</option>
+                    <option>简�?/option>
+                    <option>中等</option>
+                    <option>困难</option>
+                </select>
+            </div>
+            
+            <div class="question-list">
+                <div class="question-item">
+                    <div class="question-header">
+                        <span class="question-type">选择�?/span>
+                        <span class="question-difficulty easy">简�?/span>
+                    </div>
+                    <div class="question-content">
+                        <p>HTML中，以下哪个标签用于创建超链接？</p>
+                        <ul class="options">
+                            <li>A. &lt;link&gt;</li>
+                            <li>B. &lt;a&gt;</li>
+                            <li>C. &lt;href&gt;</li>
+                            <li>D. &lt;url&gt;</li>
+                        </ul>
+                        <div class="question-footer">
+                            <span class="answer">正确答案：B</span>
+                            <div class="question-actions">
+                                <button class="action-btn edit"><i class="fas fa-edit"></i></button>
+                                <button class="action-btn delete"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="question-item">
+                    <div class="question-header">
+                        <span class="question-type">判断�?/span>
+                        <span class="question-difficulty medium">中等</span>
+                    </div>
+                    <div class="question-content">
+                        <p>CSS中的flexbox布局可以实现响应式设计�?/p>
+                        <div class="question-footer">
+                            <span class="answer">正确答案：√</span>
+                            <div class="question-actions">
+                                <button class="action-btn edit"><i class="fas fa-edit"></i></button>
+                                <button class="action-btn delete"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="question-item">
+                    <div class="question-header">
+                        <span class="question-type">填空�?/span>
+                        <span class="question-difficulty hard">困难</span>
+                    </div>
+                    <div class="question-content">
+                        <p>JavaScript中，______方法用于向数组末尾添加元素�?/p>
+                        <div class="question-footer">
+                            <span class="answer">正确答案：push</span>
+                            <div class="question-actions">
+                                <button class="action-btn edit"><i class="fas fa-edit"></i></button>
+                                <button class="action-btn delete"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pagination">
+                <button class="page-btn disabled">上一�?/button>
+                <button class="page-btn active">1</button>
+                <button class="page-btn">2</button>
+                <button class="page-btn">3</button>
+                <button class="page-btn">下一�?/button>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>
