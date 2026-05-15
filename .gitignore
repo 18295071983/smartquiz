@@ -8,6 +8,7 @@ gradle/wrapper/gradle-8.*/
 *.iml
 .trae/
 .vscode/
+Android/
 
 # ============ Android ============
 *.apk
