@@ -1,0 +1,3061 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "bin/libggml-opencl.so"
+		}
+	],
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"ggml_add_backend_library",
+			"install",
+			"target_link_options",
+			"target_link_libraries",
+			"add_compile_options",
+			"target_compile_definitions",
+			"add_compile_definitions",
+			"target_include_directories",
+			"target_sources",
+			"ggml_opencl_add_kernel"
+		],
+		"files" : 
+		[
+			"llama.cpp/ggml/src/CMakeLists.txt",
+			"llama.cpp/ggml/src/ggml-opencl/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 8,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 260,
+				"parent" : 1
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 262,
+				"parent" : 1
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 16,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 265,
+				"parent" : 1
+			},
+			{
+				"command" : 4,
+				"file" : 1,
+				"line" : 15,
+				"parent" : 0
+			},
+			{
+				"file" : 0
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 49,
+				"parent" : 7
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 269,
+				"parent" : 1
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 270,
+				"parent" : 1
+			},
+			{
+				"command" : 7,
+				"file" : 1,
+				"line" : 35,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 1,
+				"line" : 26,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 1,
+				"line" : 27,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 1,
+				"line" : 31,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 4,
+				"parent" : 7
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 154,
+				"parent" : 7
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 148,
+				"parent" : 7
+			},
+			{
+				"command" : 8,
+				"file" : 0,
+				"line" : 266,
+				"parent" : 1
+			},
+			{
+				"command" : 8,
+				"file" : 1,
+				"line" : 11,
+				"parent" : 0
+			},
+			{
+				"command" : 8,
+				"file" : 1,
+				"line" : 40,
+				"parent" : 0
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 21
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 23
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 25
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 27
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 29
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 31
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 33
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 35
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 37
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 39
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 41
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 43
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 45
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 47
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 49
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 51
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 53
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 55
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 57
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 59
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 61
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 63
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 65
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 67
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 69
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 71
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 73
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 75
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 77
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 79
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 81
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 83
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 85
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 87
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 89
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 91
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 93
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 95
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 97
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 99
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 101
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 103
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 105
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 107
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 109
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 111
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 113
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 115
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 117
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 119
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 121
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 123
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 125
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 127
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 129
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 131
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 133
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 135
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 137
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 139
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 141
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 143
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 145
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 147
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 149
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 151
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 153
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 155
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 157
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 159
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 161
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 163
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 165
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 167
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 169
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 171
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 173
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 175
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 177
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 179
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 181
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 183
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 185
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 187
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 189
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 191
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 193
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 195
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 197
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 199
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 201
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 203
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 205
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 207
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 209
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 211
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 213
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 215
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 217
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 219
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 221
+			},
+			{
+				"command" : 10,
+				"file" : 1,
+				"line" : 171,
+				"parent" : 0
+			},
+			{
+				"command" : 9,
+				"file" : 1,
+				"line" : 58,
+				"parent" : 223
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -fno-limit-debug-info  -fPIC"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wmissing-declarations"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wmissing-noreturn"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wall"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wextra"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wpedantic"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wcast-qual"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wno-unused-function"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wunreachable-code-break"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wunreachable-code-return"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wmissing-prototypes"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "-Wextra-semi"
+				},
+				{
+					"fragment" : "-std=c++17"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 9,
+					"define" : "GGML_BACKEND_BUILD"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "GGML_BACKEND_SHARED"
+				},
+				{
+					"backtrace" : 11,
+					"define" : "GGML_OPENCL_EMBED_KERNELS"
+				},
+				{
+					"backtrace" : 12,
+					"define" : "GGML_OPENCL_SOA_Q"
+				},
+				{
+					"backtrace" : 13,
+					"define" : "GGML_OPENCL_TARGET_VERSION=300"
+				},
+				{
+					"backtrace" : 14,
+					"define" : "GGML_OPENCL_USE_ADRENO_KERNELS"
+				},
+				{
+					"backtrace" : 15,
+					"define" : "GGML_SCHED_MAX_COPIES=4"
+				},
+				{
+					"backtrace" : 5,
+					"define" : "GGML_SHARED"
+				},
+				{
+					"backtrace" : 16,
+					"define" : "_GNU_SOURCE"
+				},
+				{
+					"backtrace" : 17,
+					"define" : "_XOPEN_SOURCE=600"
+				},
+				{
+					"define" : "ggml_opencl_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 18,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/ggml/src/ggml-opencl/.."
+				},
+				{
+					"backtrace" : 19,
+					"path" : "D:/quzp/app/src/main/cpp/opencl/headers"
+				},
+				{
+					"backtrace" : 20,
+					"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/ggml/src/../include"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					2
+				],
+				"standard" : "17"
+			},
+			"sourceIndexes" : 
+			[
+				0
+			],
+			"sysroot" : 
+			{
+				"path" : "D:/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 5,
+			"id" : "ggml-base::@23533c6d68a59d54598d"
+		}
+	],
+	"id" : "ggml-opencl::@d0a696fbe392a8afb3a6",
+	"install" : 
+	{
+		"destinations" : 
+		[
+			{
+				"backtrace" : 3,
+				"path" : "lib"
+			},
+			{
+				"backtrace" : 3,
+				"path" : "lib"
+			}
+		],
+		"prefix" : 
+		{
+			"path" : "C:/Program Files (x86)/llama-jni"
+		}
+	},
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-Wl,--build-id=sha1 -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "-Xlinker",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "--no-as-needed",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 5,
+				"fragment" : "bin\\libggml-base.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "D:\\quzp\\app\\src\\main\\cpp\\opencl\\build\\OpenCL-ICD-Loader\\build_android\\libOpenCL.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "D:\\Android\\Sdk\\ndk\\26.1.10909125\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\aarch64-linux-android\\31\\liblog.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-latomic -lm",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX",
+		"sysroot" : 
+		{
+			"path" : "D:/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+		}
+	},
+	"name" : "ggml-opencl",
+	"nameOnDisk" : "libggml-opencl.so",
+	"paths" : 
+	{
+		"build" : "build-llama/ggml/src/ggml-opencl",
+		"source" : "llama.cpp/ggml/src/ggml-opencl"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		},
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+				28,
+				29,
+				30,
+				31,
+				32,
+				33,
+				34,
+				35,
+				36,
+				37,
+				38,
+				39,
+				40,
+				41,
+				42,
+				43,
+				44,
+				45,
+				46,
+				47,
+				48,
+				49,
+				50,
+				51,
+				52,
+				53,
+				54,
+				55,
+				56,
+				57,
+				58,
+				59,
+				60,
+				61,
+				62,
+				63,
+				64,
+				65,
+				66,
+				67,
+				68,
+				69,
+				70,
+				71,
+				72,
+				73,
+				74,
+				75,
+				76,
+				77,
+				78,
+				79,
+				80,
+				81,
+				82,
+				83,
+				84,
+				85,
+				86,
+				87,
+				88,
+				89,
+				90,
+				91,
+				92,
+				93,
+				94,
+				95,
+				96,
+				97,
+				98,
+				99,
+				100,
+				101,
+				102,
+				103
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				104,
+				105,
+				106,
+				107,
+				108,
+				109,
+				110,
+				111,
+				112,
+				113,
+				114,
+				115,
+				116,
+				117,
+				118,
+				119,
+				120,
+				121,
+				122,
+				123,
+				124,
+				125,
+				126,
+				127,
+				128,
+				129,
+				130,
+				131,
+				132,
+				133,
+				134,
+				135,
+				136,
+				137,
+				138,
+				139,
+				140,
+				141,
+				142,
+				143,
+				144,
+				145,
+				146,
+				147,
+				148,
+				149,
+				150,
+				151,
+				152,
+				153,
+				154,
+				155,
+				156,
+				157,
+				158,
+				159,
+				160,
+				161,
+				162,
+				163,
+				164,
+				165,
+				166,
+				167,
+				168,
+				169,
+				170,
+				171,
+				172,
+				173,
+				174,
+				175,
+				176,
+				177,
+				178,
+				179,
+				180,
+				181,
+				182,
+				183,
+				184,
+				185,
+				186,
+				187,
+				188,
+				189,
+				190,
+				191,
+				192,
+				193,
+				194,
+				195,
+				196,
+				197,
+				198,
+				199,
+				200,
+				201,
+				202,
+				203,
+				204,
+				205
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "llama.cpp/ggml/src/ggml-opencl/ggml-opencl.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"path" : "llama.cpp/ggml/include/ggml-opencl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 22,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/add.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 24,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/add_id.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 26,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/argsort.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 28,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tri.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 30,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/fill.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 32,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/clamp.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 34,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cpy.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 36,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cvt.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 38,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/diag_mask_inf.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 40,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/diag.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 42,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/div.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 44,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gelu.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 46,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_general.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 48,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 50,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/get_rows.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 52,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/glu.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 54,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/group_norm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 56,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/solve_tri.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 58,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/im2col_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 60,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/im2col_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 62,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mean.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 64,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mat_Ab_Bi_8x4.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 66,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 68,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32_1row.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 70,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32_l4.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 72,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 74,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f32_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 76,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 78,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_v.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 80,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_8x_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 82,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_1d_8x_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 84,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_1d_16x_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 86,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_1_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 88,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_1_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 90,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 92,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_k_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 94,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q6_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 96,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q6_k_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 98,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q8_0_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 100,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q8_0_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 102,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_mxfp4_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 104,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_mxfp4_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 106,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q4_0_f32_8x_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 108,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q8_0_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 110,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q8_0_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 112,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_mxfp4_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 114,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_mxfp4_f32_flat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 116,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_moe_mxfp4_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 118,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_moe_mxfp4_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 120,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f32_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 122,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f16_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 124,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_0_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 126,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_1_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 128,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q8_0_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 130,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_k_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 132,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q6_k_f32_l4_lm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 134,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q8_0_f32_8x4.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 136,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q4_1_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 138,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q4_1_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 140,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_general_q8_0_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 142,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q4_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 144,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q4_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 146,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q6_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 148,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q6_k_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 150,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 152,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/neg.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 154,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/norm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 156,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/relu.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 158,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/l2_norm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 160,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/rms_norm.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 162,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/rope.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 164,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/scale.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 166,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/set_rows.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 168,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sigmoid.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 170,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/silu.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 172,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_4_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 174,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_4_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 176,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 178,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 180,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sqr.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 182,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sqrt.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 184,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/ssm_conv.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 186,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sub.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 188,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sum_rows.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 190,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cumsum.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 192,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/transpose.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 194,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/concat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 196,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tsembd.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 198,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/upscale.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 200,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tanh.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 202,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/exp.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 204,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/expm1.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 206,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softplus.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 208,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/pad.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 210,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/repeat.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 212,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mat_f16_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 214,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f16_f32_kq_kqv.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 216,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/conv2d.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 218,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/conv2d_f16_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 220,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f32_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 222,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f16.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 224,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f32.cl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/add.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/add_id.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/argsort.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tri.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/fill.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/clamp.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cpy.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cvt.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/diag_mask_inf.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/diag.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/div.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gelu.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_general.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/get_rows.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/glu.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/group_norm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/solve_tri.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/im2col_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/im2col_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mean.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mat_Ab_Bi_8x4.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32_1row.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32_l4.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f16_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_f32_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_v.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_8x_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_1d_8x_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_0_f32_1d_16x_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_1_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_1_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q4_k_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q6_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q6_k_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q8_0_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_q8_0_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_mxfp4_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_mxfp4_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q4_0_f32_8x_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q8_0_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_q8_0_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_mxfp4_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mv_id_mxfp4_f32_flat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_moe_mxfp4_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_moe_mxfp4_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f32_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f16_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_0_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_1_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q8_0_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q4_k_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q6_k_f32_l4_lm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_q8_0_f32_8x4.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q4_1_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q4_1_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_general_q8_0_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q4_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q4_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemv_noshuffle_q6_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/gemm_noshuffle_q6_k_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/neg.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/norm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/relu.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/l2_norm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/rms_norm.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/rope.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/scale.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/set_rows.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sigmoid.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/silu.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_4_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_4_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softmax_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sqr.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sqrt.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/ssm_conv.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sub.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/sum_rows.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/cumsum.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/transpose.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/concat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tsembd.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/upscale.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/tanh.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/exp.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/expm1.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/softplus.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/pad.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/repeat.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mat_f16_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/mul_mm_f16_f32_kq_kqv.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/conv2d.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/conv2d_f16_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f32_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f16.cl.h.rule",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a/build-llama/ggml/src/ggml-opencl/autogenerated/flash_attn_f32.cl.h.rule",
+			"sourceGroupIndex" : 2
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

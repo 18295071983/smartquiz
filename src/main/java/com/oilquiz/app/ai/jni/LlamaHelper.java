@@ -57,11 +57,6 @@ public class LlamaHelper {
 
     static {
         try {
-            System.loadLibrary("OpenCL");
-        } catch (UnsatisfiedLinkError e) {
-            Log.w(TAG, "libOpenCL.so not preloaded, will try during llama-jni load");
-        }
-        try {
             System.loadLibrary(LIBRARY_NAME);
             libraryLoaded = true;
             AILogger.i(TAG, "Successfully loaded llama-jni library");
@@ -531,7 +526,7 @@ public class LlamaHelper {
     private static native int nativeCountTokens(String text);
 
     // ========== Native Chat Context API ==========
-    private static long chatContextHandle = 0;
+    private static volatile long chatContextHandle = 0;
     private static int contextTotalSize = 0;
     private static int contextUsedTokens = 0;
 
@@ -583,12 +578,15 @@ public class LlamaHelper {
         try { nativeChatClear(chatContextHandle); } catch (UnsatisfiedLinkError e) {}
     }
 
-    public static void chatDestroy() {
+    public static synchronized void chatDestroy() {
         if (!libraryLoaded || chatContextHandle == 0) return;
+        long handle = chatContextHandle;
+        chatContextHandle = 0;
         try {
-            nativeChatDestroy(chatContextHandle);
-            chatContextHandle = 0;
-        } catch (UnsatisfiedLinkError e) {}
+            nativeChatDestroy(handle);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "chatDestroy failed: " + e.getMessage());
+        }
     }
 
     public static String chatGetInfo() {

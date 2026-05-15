@@ -58,6 +58,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private LinearLayout forecastContainer;
     private LinearLayout airContainer;
     private LinearLayout alertsContainer;
+    private LinearLayout indicesContainer;
     private GridView indicesGrid;
 
     private WeatherChartView weatherChart;
@@ -101,6 +102,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         forecastContainer = findViewById(R.id.forecast_container);
         airContainer = findViewById(R.id.air_container);
         alertsContainer = findViewById(R.id.alerts_container);
+        indicesContainer = findViewById(R.id.indices_container);
         indicesGrid = findViewById(R.id.grid_indices);
 
         weatherChart = findViewById(R.id.weather_chart);
@@ -145,13 +147,18 @@ public class WeatherDetailActivity extends AppCompatActivity {
         }
     }
 
+    private String todayHighTemp = "--";
+    private String todayLowTemp = "--";
+    private String todayDayWeather = "";
+    private String todayNightWeather = "";
+
     private void loadAllWeatherData() {
         loadCurrentWeather();
         loadHourlyForecast();
         loadDailyForecast();
         loadAlerts();
         loadIndices();
-        if (airContainer != null) airContainer.setVisibility(View.GONE);
+        loadAirQuality();
     }
 
     private String httpGet(String urlString) throws Exception {
@@ -238,9 +245,19 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     tvCurrentDesc.setText(weather);
                     tvHumidity.setText("湿度 " + humidity + "%");
                     tvWind.setText("风速 " + windSpeed + " km/h");
-                    tvFeelsLike.setText("体感温度 " + feelsLike + "°C");
                     tvVisibility.setText("能见度 " + vis + " km");
                     tvPressure.setText("气压 " + pressure + " hPa");
+
+                    StringBuilder feelsLikeText = new StringBuilder("体感温度 " + feelsLike + "°C");
+                    if (!todayLowTemp.equals("--") && !todayHighTemp.equals("--")) {
+                        feelsLikeText.append("   ").append(todayLowTemp).append("°C ~ ").append(todayHighTemp).append("°C");
+                        if (!todayDayWeather.isEmpty()) {
+                            String weatherChange = todayDayWeather.equals(todayNightWeather) ? 
+                                todayDayWeather : todayDayWeather + "转" + todayNightWeather;
+                            feelsLikeText.append("   ").append(weatherChange);
+                        }
+                    }
+                    tvFeelsLike.setText(feelsLikeText.toString());
 
                     if (!icon.isEmpty()) {
                         String emoji = QWeatherIconMapper.getEmojiIcon(icon);
@@ -336,6 +353,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 List<String> highTemps = new ArrayList<>();
                 List<String> lowTemps = new ArrayList<>();
                 List<String> iconDays = new ArrayList<>();
+                List<String> textNights = new ArrayList<>();
 
                 for (int i = 0; i < dailyArray.size(); i++) {
                     JsonObject d = dailyArray.get(i).getAsJsonObject();
@@ -344,9 +362,19 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     highTemps.add(d.get("tempMax").getAsString());
                     lowTemps.add(d.get("tempMin").getAsString());
                     iconDays.add(d.has("iconDay") ? d.get("iconDay").getAsString() : "");
+                    textNights.add(d.has("textNight") ? d.get("textNight").getAsString() : d.get("textDay").getAsString());
+                }
+
+                if (dailyArray.size() > 0) {
+                    JsonObject firstDay = dailyArray.get(0).getAsJsonObject();
+                    todayHighTemp = firstDay.get("tempMax").getAsString();
+                    todayLowTemp = firstDay.get("tempMin").getAsString();
+                    todayDayWeather = firstDay.get("textDay").getAsString();
+                    todayNightWeather = firstDay.has("textNight") ? firstDay.get("textNight").getAsString() : todayDayWeather;
                 }
 
                 runOnUiThread(() -> {
+                    updateTopInfoWithDailyData();
                     forecastContainer.removeAllViews();
                     for (int i = 0; i < dates.size(); i++) {
                         addForecastItem(dates.get(i), descs.get(i), highTemps.get(i), lowTemps.get(i), iconDays.get(i));
@@ -356,6 +384,27 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 Log.e(TAG, "Error loading daily forecast", e);
             }
         });
+    }
+
+    private void updateTopInfoWithDailyData() {
+        String tempRange = todayLowTemp + "°C ~ " + todayHighTemp + "°C";
+        String weatherChange;
+        if (todayDayWeather.equals(todayNightWeather)) {
+            weatherChange = todayDayWeather;
+        } else {
+            weatherChange = todayDayWeather + "转" + todayNightWeather;
+        }
+
+        if (tvFeelsLike != null) {
+            String currentText = tvFeelsLike.getText().toString();
+            if (currentText.contains("体感温度")) {
+                if (!currentText.contains("°C ~")) {
+                    tvFeelsLike.setText(currentText + "   " + tempRange + "   " + weatherChange);
+                }
+            } else {
+                tvFeelsLike.setText("体感温度 --°C   " + tempRange + "   " + weatherChange);
+            }
+        }
     }
 
     private void addForecastItem(String date, String desc, String high, String low, String iconDay) {
@@ -494,8 +543,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> {
                     if (indexList.isEmpty()) {
+                        if (indicesContainer != null) indicesContainer.setVisibility(View.GONE);
                         indicesGrid.setVisibility(View.GONE);
                     } else {
+                        if (indicesContainer != null) indicesContainer.setVisibility(View.VISIBLE);
+                        indicesGrid.setVisibility(View.VISIBLE);
                         indicesGrid.setAdapter(new IndicesAdapter(indexList));
                     }
                 });

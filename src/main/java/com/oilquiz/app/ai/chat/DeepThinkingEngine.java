@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat;
 
 import android.content.Context;
+import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -51,7 +52,9 @@ public class DeepThinkingEngine {
             try {
                 meta.put("question_length", question.length());
                 meta.put("question_preview", truncate(question, 50));
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in startThinking", e);
+            }
             
             logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.THINKING,
                        com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
@@ -82,7 +85,9 @@ public class DeepThinkingEngine {
             try {
                 meta.put("problem_length", problem.length());
                 meta.put("complexity_indicators", countComplexityIndicators(problem));
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in analyzeProblemDecomposition", e);
+            }
             
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
@@ -123,7 +128,9 @@ public class DeepThinkingEngine {
             try {
                 meta.put("topic", topic);
                 meta.put("knowledge_domains", identifyDomains(topic));
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in gatherKnowledge", e);
+            }
             
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
@@ -163,7 +170,9 @@ public class DeepThinkingEngine {
             try {
                 meta.put("hypotheses_count", hypotheses.size());
                 meta.put("evaluation_method", "multi_criteria_analysis");
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in evaluateHypotheses", e);
+            }
             
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
@@ -193,7 +202,9 @@ public class DeepThinkingEngine {
                     hypMeta.put("hypothesis_index", i + 1);
                     hypMeta.put("confidence", confidence);
                     hypMeta.put("feasibility", confidence > 0.6 ? "high" : confidence > 0.3 ? "medium" : "low");
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in evaluateHypotheses hypMeta", e);
+            }
                 
                 String level = confidence > 0.7 ? "✅" : confidence > 0.4 ? "⚠️" : "❌";
                 logger2.log(confidence > 0.6 ? 
@@ -219,8 +230,10 @@ public class DeepThinkingEngine {
                 meta.put("reasoning_depth", reasoningDepth + 1);
                 meta.put("reasoning_type", identifyReasoningType(premise));
                 meta.put("premise_length", premise.length());
-            } catch (Exception e) {}
-            
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in logicalReasoning", e);
+            }
+
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
                 TAG,
@@ -278,8 +291,10 @@ public class DeepThinkingEngine {
                 meta.put("solution_length", solution.length());
                 meta.put("verification_checks", 4);
                 meta.put("current_confidence", confidenceScore);
-            } catch (Exception e) {}
-            
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in verifySolution", e);
+            }
+
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
                 TAG,
@@ -323,8 +338,10 @@ public class DeepThinkingEngine {
                 meta.put("final_confidence", confidenceScore);
                 meta.put("elapsed_time_ms", elapsed);
                 meta.put("answer_length", answer != null ? answer.length() : 0);
-            } catch (Exception e) {}
-            
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in synthesizeAnswer meta", e);
+            }
+
             currentStepEntry = logger2.startStep(
                 com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
                 TAG,
@@ -358,8 +375,10 @@ public class DeepThinkingEngine {
                 summaryMeta.put("total_thinking_time", elapsed);
                 summaryMeta.put("steps_completed", thinkingChain.size());
                 summaryMeta.put("final_confidence", confidenceScore);
-            } catch (Exception e) {}
-            
+            } catch (Exception e) {
+                Log.e(TAG, "DeepThinking error in synthesizeAnswer summaryMeta", e);
+            }
+
             logger2.log(confidenceScore > 0.8 ? 
                        com.oilquiz.app.util.AILogger2.LogLevel.SUCCESS :
                        com.oilquiz.app.util.AILogger2.LogLevel.INFO,

@@ -353,6 +353,7 @@ public class WeatherBannerView extends LinearLayout {
         if (weatherForecast != null && info.forecast != null && !info.forecast.isEmpty()) {
             weatherForecast.setText(info.forecast);
             weatherForecast.setVisibility(View.VISIBLE);
+            weatherForecast.setSelected(true);
         }
 
         loadForecastForBanner();
@@ -383,6 +384,7 @@ public class WeatherBannerView extends LinearLayout {
                             if (weatherForecast != null) {
                                 weatherForecast.setText(forecastInfo.forecast);
                                 weatherForecast.setVisibility(View.VISIBLE);
+                                weatherForecast.setSelected(true);
                             }
                         }
                     });
@@ -400,43 +402,88 @@ public class WeatherBannerView extends LinearLayout {
             StringBuilder forecastSummary = new StringBuilder();
             String highTemp = null;
             String lowTemp = null;
+            String dayText = null;
+            String nightText = null;
 
+            java.util.List<String> dailyForecasts = new java.util.ArrayList<>();
             String[] lines = forecastText.split("\n");
+            
+            String currentDate = null;
+            String currentHigh = null;
+            String currentLow = null;
+            String currentDayWeather = null;
+            String currentNightWeather = null;
+
             for (String line : lines) {
                 line = line.trim();
+                
+                if (line.startsWith("日期:")) {
+                    if (currentDate != null) {
+                        if (currentHigh != null && currentLow != null) {
+                            String weatherDesc = currentDayWeather != null ? currentDayWeather : (currentNightWeather != null ? currentNightWeather : "");
+                            dailyForecasts.add(currentHigh + "°/" + currentLow + "°" + (weatherDesc.isEmpty() ? "" : " " + weatherDesc));
+                            if (highTemp == null) highTemp = currentHigh;
+                            if (lowTemp == null) lowTemp = currentLow;
+                        }
+                    }
+                    currentDate = line.substring(3).trim();
+                    currentHigh = null;
+                    currentLow = null;
+                    currentDayWeather = null;
+                    currentNightWeather = null;
+                }
                 if (line.startsWith("最高温度:") || line.startsWith("最高温:")) {
                     String val = line.substring(line.indexOf(":") + 1).trim();
+                    if (val.endsWith("°C") || val.endsWith("°")) {
+                        val = val.replace("°C", "").replace("°", "");
+                    }
+                    currentHigh = val;
                     if (highTemp == null) highTemp = val;
                 }
                 if (line.startsWith("最低温度:") || line.startsWith("最低温:")) {
                     String val = line.substring(line.indexOf(":") + 1).trim();
+                    if (val.endsWith("°C") || val.endsWith("°")) {
+                        val = val.replace("°C", "").replace("°", "");
+                    }
+                    currentLow = val;
                     if (lowTemp == null) lowTemp = val;
                 }
-                if (line.startsWith("日期:")) {
-                    String date = line.substring(3).trim();
-                    forecastSummary.append(date).append(" ");
-                }
                 if (line.startsWith("白天天气:")) {
-                    forecastSummary.append(line.substring(5).trim()).append(" ");
+                    currentDayWeather = line.substring(5).trim();
+                    if (dayText == null) dayText = currentDayWeather;
                 }
-                if (line.startsWith("最高温:") || line.startsWith("最高温度:")) {
-                    forecastSummary.append("↑").append(line.substring(line.indexOf(":") + 1).trim()).append("°C ");
+                if (line.startsWith("夜间天气:")) {
+                    currentNightWeather = line.substring(5).trim();
+                    if (nightText == null) nightText = currentNightWeather;
                 }
-                if (line.startsWith("最低温:") || line.startsWith("最低温度:")) {
-                    forecastSummary.append("↓").append(line.substring(line.indexOf(":") + 1).trim()).append("°C");
+            }
+
+            if (currentDate != null) {
+                if (currentHigh != null && currentLow != null) {
+                    String weatherDesc = currentDayWeather != null ? currentDayWeather : (currentNightWeather != null ? currentNightWeather : "");
+                    dailyForecasts.add(currentHigh + "°/" + currentLow + "°" + (weatherDesc.isEmpty() ? "" : " " + weatherDesc));
                 }
             }
 
             if (highTemp != null && lowTemp != null) {
-                info.tempRange = "↓" + lowTemp + "°C ↑" + highTemp + "°C";
+                info.tempRange = lowTemp + "° ~ " + highTemp + "°";
             } else if (highTemp != null) {
-                info.tempRange = "↑" + highTemp + "°C";
+                info.tempRange = "最高 " + highTemp + "°";
             } else if (lowTemp != null) {
-                info.tempRange = "↓" + lowTemp + "°C";
+                info.tempRange = "最低 " + lowTemp + "°";
             }
 
-            if (forecastSummary.length() > 0) {
+            if (!dailyForecasts.isEmpty()) {
+                for (int i = 0; i < Math.min(3, dailyForecasts.size()); i++) {
+                    if (i > 0) forecastSummary.append("   ");
+                    String[] dayNames = {"今天", "明天", "后天"};
+                    String prefix = i < dayNames.length ? dayNames[i] + " " : "";
+                    forecastSummary.append(prefix).append(dailyForecasts.get(i));
+                }
                 info.forecast = forecastSummary.toString();
+            } else if (dayText != null && nightText != null) {
+                String weatherChange = dayText.equals(nightText) ? dayText : dayText + "转" + nightText;
+                info.forecast = weatherChange;
             }
         } catch (Exception ignored) {
         }

@@ -1,0 +1,237 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						5
+					]
+				},
+				{
+					"build" : "build-llama",
+					"childIndexes" : 
+					[
+						2,
+						6
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-build-llama-Debug-1d38b5a8ee828a09143c.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "llama.cpp"
+				},
+				{
+					"build" : "build-llama/ggml",
+					"childIndexes" : 
+					[
+						3
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-build-llama.ggml-Debug-4a3004ef45901857d114.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 2,
+					"source" : "llama.cpp/ggml"
+				},
+				{
+					"build" : "build-llama/ggml/src",
+					"childIndexes" : 
+					[
+						4,
+						5
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-build-llama.ggml.src-Debug-1dd3fb060ed87612b827.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 2,
+					"projectIndex" : 2,
+					"source" : "llama.cpp/ggml/src",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				},
+				{
+					"build" : "build-llama/ggml/src/ggml-cpu",
+					"jsonFile" : "directory-build-llama.ggml.src.ggml-cpu-Debug-13cc8bbd2473788a6277.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 3,
+					"projectIndex" : 2,
+					"source" : "llama.cpp/ggml/src/ggml-cpu"
+				},
+				{
+					"build" : "build-llama/ggml/src/ggml-opencl",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-build-llama.ggml.src.ggml-opencl-Debug-891d4a28cd08d3661dd4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 3,
+					"projectIndex" : 2,
+					"source" : "llama.cpp/ggml/src/ggml-opencl",
+					"targetIndexes" : 
+					[
+						3
+					]
+				},
+				{
+					"build" : "build-llama/src",
+					"jsonFile" : "directory-build-llama.src-Debug-447db849dd3856ebe6f0.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.14"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 1,
+					"source" : "llama.cpp/src",
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "llama-jni",
+					"targetIndexes" : 
+					[
+						5
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						2
+					],
+					"directoryIndexes" : 
+					[
+						1,
+						6
+					],
+					"name" : "llama.cpp",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						2,
+						3,
+						4,
+						5
+					],
+					"name" : "ggml",
+					"parentIndex" : 1,
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 3,
+					"id" : "ggml::@23533c6d68a59d54598d",
+					"jsonFile" : "target-ggml-Debug-98dd0fbd6a9ea4b259e4.json",
+					"name" : "ggml",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ggml-base::@23533c6d68a59d54598d",
+					"jsonFile" : "target-ggml-base-Debug-20e8c6c3bd28ca9233ae.json",
+					"name" : "ggml-base",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ggml-cpu::@23533c6d68a59d54598d",
+					"jsonFile" : "target-ggml-cpu-Debug-e3a015e7cc4165b175e0.json",
+					"name" : "ggml-cpu",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "ggml-opencl::@d0a696fbe392a8afb3a6",
+					"jsonFile" : "target-ggml-opencl-Debug-e2bf42a2526bb4a2dbbe.json",
+					"name" : "ggml-opencl",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "llama::@b791850eb95f38641ccb",
+					"jsonFile" : "target-llama-Debug-bb8d660e12d1ee4b1aba.json",
+					"name" : "llama",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "llama-jni::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-llama-jni-Debug-1cb3c31c0fa57be71193.json",
+					"name" : "llama-jni",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "D:/quzp/app/.cxx/Debug/176yi226/arm64-v8a",
+		"source" : "D:/quzp/app/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

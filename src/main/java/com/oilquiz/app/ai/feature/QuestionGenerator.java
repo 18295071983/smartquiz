@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 题目生成器 - AI驱动的题目批量生成
@@ -61,9 +63,9 @@ public class QuestionGenerator {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 1000);
-            String response = future.get();
+            String response = future.get(30, TimeUnit.SECONDS);
             questions = parseGeneratedQuestions(response);
-        } catch (InterruptedException | ExecutionException e) {
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error generating questions: " + e.getMessage(), e);
         }
         

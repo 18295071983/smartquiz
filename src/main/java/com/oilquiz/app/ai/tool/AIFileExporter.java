@@ -12,6 +12,8 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class AIFileExporter {
 
@@ -34,7 +36,7 @@ public class AIFileExporter {
             }
 
             // 获取所有题目
-            List<Question> questions = databaseManager.getAllQuestions().get();
+            List<Question> questions = databaseManager.getAllQuestions().get(10, TimeUnit.SECONDS);
             if (questions.isEmpty()) {
                 return "没有题目可以导出";
             }

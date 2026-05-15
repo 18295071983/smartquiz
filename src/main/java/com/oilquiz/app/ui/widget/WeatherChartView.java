@@ -109,14 +109,46 @@ public class WeatherChartView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        if (temperatures.isEmpty()) return;
+        if (temperatures.isEmpty()) {
+            drawNoDataMessage(canvas);
+            return;
+        }
 
         float startX = padding;
         float startY = padding;
 
         drawGrid(canvas, startX, startY);
-        drawCurve(canvas, startX, startY);
+        
+        if (temperatures.size() >= 2) {
+            drawCurve(canvas, startX, startY);
+        } else {
+            drawSinglePoint(canvas, startX, startY);
+        }
+        
         drawTouchIndicator(canvas, startX, startY);
+    }
+
+    private void drawNoDataMessage(Canvas canvas) {
+        String message = "暂无数据";
+        float textWidth = textPaint.measureText(message);
+        float x = (getWidth() - textWidth) / 2;
+        float y = getHeight() / 2;
+        textPaint.setColor(0xFF999999);
+        canvas.drawText(message, x, y, textPaint);
+        textPaint.setColor(Color.BLACK);
+    }
+
+    private void drawSinglePoint(Canvas canvas, float startX, float startY) {
+        if (temperatures.size() < 1) return;
+        
+        float x = startX + chartWidth / 2;
+        float y = getYForTemp(temperatures.get(0), startY);
+        
+        canvas.drawCircle(x, y, pointRadius, pointPaint);
+        
+        String tempText = temperatures.get(0) + "°C";
+        float textWidth = textPaint.measureText(tempText);
+        canvas.drawText(tempText, x - textWidth / 2, y - pointRadius - 8, textPaint);
     }
 
     private void drawGrid(Canvas canvas, float startX, float startY) {

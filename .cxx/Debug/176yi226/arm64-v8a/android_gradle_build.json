@@ -1,0 +1,108 @@
+{
+  "buildFiles": [
+    "D:\\quzp\\app\\src\\main\\cpp\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\cmake\\build-info.cmake",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\cmake\\common.cmake",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\cmake\\license.cmake",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\cmake\\llama-config.cmake.in",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\cmake\\common.cmake",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\cmake\\ggml-config.cmake.in",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\src\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\src\\ggml-cpu\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\ggml\\src\\ggml-opencl\\CMakeLists.txt",
+    "D:\\quzp\\app\\src\\main\\cpp\\llama.cpp\\src\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "D:\\quzp\\app\\ninja.exe",
+      "-C",
+      "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "D:\\quzp\\app\\ninja.exe",
+    "-C",
+    "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "ggml::@23533c6d68a59d54598d": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "ggml",
+      "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml.so",
+      "runtimeFiles": [
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-cpu.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-opencl.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so"
+      ]
+    },
+    "ggml-base::@23533c6d68a59d54598d": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "ggml-base",
+      "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so",
+      "runtimeFiles": []
+    },
+    "ggml-cpu::@23533c6d68a59d54598d": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "ggml-cpu",
+      "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-cpu.so",
+      "runtimeFiles": [
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so",
+        "D:\\Android\\Sdk\\ndk\\26.1.10909125\\toolchains\\llvm\\prebuilt\\windows-x86_64\\lib\\clang\\17\\lib\\linux\\aarch64\\libomp.so"
+      ]
+    },
+    "ggml-opencl::@d0a696fbe392a8afb3a6": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "ggml-opencl",
+      "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-opencl.so",
+      "runtimeFiles": [
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so",
+        "D:\\quzp\\app\\src\\main\\cpp\\opencl\\build\\OpenCL-ICD-Loader\\build_android\\libOpenCL.so"
+      ]
+    },
+    "llama::@b791850eb95f38641ccb": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "llama",
+      "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libllama.so",
+      "runtimeFiles": [
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-cpu.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-opencl.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so"
+      ]
+    },
+    "llama-jni::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "llama-jni",
+      "output": "D:\\quzp\\app\\src\\main\\jniLibs\\arm64-v8a\\libllama-jni.so",
+      "runtimeFiles": [
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libllama.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-cpu.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-opencl.so",
+        "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so"
+      ]
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "D:\\Android\\Sdk\\ndk\\26.1.10909125\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe",
+      "cppCompilerExecutable": "D:\\Android\\Sdk\\ndk\\26.1.10909125\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe"
+    }
+  },
+  "cFileExtensions": [
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class AIToolsManager {
 
@@ -269,7 +271,7 @@ public class AIToolsManager {
             }
 
             // 从数据库获取统计信息
-            int totalQuestions = databaseManager.getQuestionCount().get();
+            int totalQuestions = databaseManager.getQuestionCount().get(10, TimeUnit.SECONDS);
                 int completedQuizzes = 0; // 暂时返回0，因为没有直接的方法
                 double averageScore = 0.0; // 暂时返回0，因为需要用户ID
 
@@ -298,7 +300,7 @@ public class AIToolsManager {
             }
 
             // 从数据库搜索题目
-            List<Question> questions = databaseManager.searchQuestions(keyword).get();
+            List<Question> questions = databaseManager.searchQuestions(keyword).get(10, TimeUnit.SECONDS);
             if (questions.isEmpty()) {
                 return "未找到相关题目";
             }
@@ -335,7 +337,7 @@ public class AIToolsManager {
             
             if (parameters == null || parameters.isEmpty()) {
                 // 默认查询北京天气
-                String result = weatherManager.getWeather("北京").get();
+                String result = weatherManager.getWeather("北京").get(15, TimeUnit.SECONDS);
                 return result;
             }
             
@@ -351,7 +353,7 @@ public class AIToolsManager {
                     try {
                         double lat = Double.parseDouble(parts[1]);
                         double lon = Double.parseDouble(parts[2]);
-                        String result = weatherManager.getOneCallWeather(lat, lon, null, "metric", "zh_cn").get();
+                        String result = weatherManager.getOneCallWeather(lat, lon, null, "metric", "zh_cn").get(15, TimeUnit.SECONDS);
                         return result;
                     } catch (NumberFormatException e) {
                         return "经纬度格式错误，请提供有效的数字";
@@ -369,7 +371,7 @@ public class AIToolsManager {
                         double lat = Double.parseDouble(parts[1]);
                         double lon = Double.parseDouble(parts[2]);
                         long timestamp = Long.parseLong(parts[3]);
-                        String result = weatherManager.getTimestampWeather(lat, lon, timestamp, "metric", "zh_cn").get();
+                        String result = weatherManager.getTimestampWeather(lat, lon, timestamp, "metric", "zh_cn").get(15, TimeUnit.SECONDS);
                         return result;
                     } catch (NumberFormatException e) {
                         return "参数格式错误，请提供有效的数字";
@@ -388,7 +390,7 @@ public class AIToolsManager {
                         double lon = Double.parseDouble(parts[2]);
                         long startDate = Long.parseLong(parts[3]);
                         long endDate = Long.parseLong(parts[4]);
-                        String result = weatherManager.getDailyAggregationWeather(lat, lon, startDate, endDate, "metric", "zh_cn").get();
+                        String result = weatherManager.getDailyAggregationWeather(lat, lon, startDate, endDate, "metric", "zh_cn").get(15, TimeUnit.SECONDS);
                         return result;
                     } catch (NumberFormatException e) {
                         return "参数格式错误，请提供有效的数字";
@@ -405,7 +407,7 @@ public class AIToolsManager {
                     try {
                         double lat = Double.parseDouble(parts[1]);
                         double lon = Double.parseDouble(parts[2]);
-                        String result = weatherManager.getWeatherOverview(lat, lon, "metric", "zh_cn").get();
+                        String result = weatherManager.getWeatherOverview(lat, lon, "metric", "zh_cn").get(15, TimeUnit.SECONDS);
                         return result;
                     } catch (NumberFormatException e) {
                         return "经纬度格式错误，请提供有效的数字";
@@ -423,7 +425,7 @@ public class AIToolsManager {
                 city = parameters.trim();
             }
             
-            String result = weatherManager.getWeather(city).get();
+            String result = weatherManager.getWeather(city).get(15, TimeUnit.SECONDS);
             return result;
         } catch (Exception e) {
             return "获取天气时出错: " + e.getMessage();
@@ -497,7 +499,7 @@ public class AIToolsManager {
             // 执行数据库操作
             if (operation.equals("count")) {
                 if (table.equals("questions")) {
-                    int count = databaseManager.getQuestionCount().get();
+                    int count = databaseManager.getQuestionCount().get(10, TimeUnit.SECONDS);
                     return "数据库操作结果:\n题目总数: " + count;
                 } else if (table.equals("quizzes")) {
                     // 暂时返回模拟结果，因为没有直接的方法

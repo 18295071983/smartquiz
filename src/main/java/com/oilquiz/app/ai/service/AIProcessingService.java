@@ -18,6 +18,8 @@ import com.oilquiz.app.ai.util.PromptBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * AI处理服务 - 异步AI任务处理器
@@ -83,6 +85,12 @@ public class AIProcessingService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     private AIService aiService;
+
+    private final ExecutorService workExecutor = Executors.newFixedThreadPool(3, r -> {
+        Thread t = new Thread(r, "AIProcess-Worker");
+        t.setDaemon(true);
+        return t;
+    });
 
     private void sendLogBroadcast(String level, String message) {
         Intent logIntent = new Intent(ACTION_AI_LOG_UPDATE);
@@ -215,7 +223,7 @@ public class AIProcessingService extends Service {
             sendLogBroadcast(LOG_LEVEL_INFO, msg);
 
             // 在新线程中处理任务
-            new Thread(() -> processAITask(taskType, prompt, maxTokens, historyUser, historyAssistant, systemPrompt, thinkingInstruction, modeId)).start();
+            workExecutor.execute(() -> processAITask(taskType, prompt, maxTokens, historyUser, historyAssistant, systemPrompt, thinkingInstruction, modeId));
             
             msg = "processAITask started in new thread";
             Log.i(TAG, msg);

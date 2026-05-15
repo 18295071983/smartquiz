@@ -8,6 +8,7 @@ import com.oilquiz.app.util.AILogger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class ServiceRouter {
     private static final String TAG = "ServiceRouter";
@@ -26,7 +27,7 @@ public class ServiceRouter {
         try {
             String city = extractCity(message);
             CompletableFuture<String> future = toolsManager.executeTool("get_weather", "city: " + city);
-            String result = future.get();
+            String result = future.get(30, TimeUnit.SECONDS);
             return new AIAgentEngine.AgentResult(result, true);
         } catch (Exception e) {
             AILogger.e(TAG, "Weather task failed: " + e.getMessage());
@@ -38,7 +39,7 @@ public class ServiceRouter {
         try {
             String keyword = extractKeyword(message);
             CompletableFuture<String> future = toolsManager.executeTool("search_questions", "keyword: " + keyword);
-            String result = future.get();
+            String result = future.get(30, TimeUnit.SECONDS);
             return new AIAgentEngine.AgentResult(result, true);
         } catch (Exception e) {
             AILogger.e(TAG, "Search task failed: " + e.getMessage());

@@ -21,6 +21,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
+/**
+ * @deprecated Use {@link AILogger} for basic file logging. 
+ * Visual/structured logging functionality will be migrated to AILogger.
+ */
+@Deprecated
 public class AILogger2 {
     private static final String TAG = "AILogger2";
     private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());

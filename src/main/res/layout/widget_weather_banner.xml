@@ -54,15 +54,26 @@
             android:textSize="12sp"
             android:textColor="#E0E0E0" />
 
-        <TextView
-            android:id="@+id/weather_forecast"
-            android:layout_width="wrap_content"
+        <HorizontalScrollView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="11sp"
-            android:textColor="#CCCCCC"
-            android:maxLines="1"
-            android:ellipsize="end" />
+            android:scrollbars="none"
+            android:fillViewport="true">
+
+            <TextView
+                android:id="@+id/weather_forecast"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="11sp"
+                android:textColor="#CCCCCC"
+                android:singleLine="true"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:ellipsize="marquee"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:clickable="true" />
+        </HorizontalScrollView>
 
         <LinearLayout
             android:layout_width="match_parent"

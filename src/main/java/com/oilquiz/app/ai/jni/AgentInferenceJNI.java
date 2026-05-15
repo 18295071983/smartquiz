@@ -1,7 +1,7 @@
 package com.oilquiz.app.ai.jni;
 
 public class AgentInferenceJNI {
-    private long nativeHandle = 0;
+    private volatile long nativeHandle = 0;
 
     static {
         try {

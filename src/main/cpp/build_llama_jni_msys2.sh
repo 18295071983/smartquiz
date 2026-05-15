@@ -31,21 +31,11 @@ GLSLC="$NDK_DIR/shader-tools/windows-x86_64/glslc.exe"
 # 将glslc所在目录添加到PATH（CMake查找glslc需要）
 export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
-# OpenCL ICD Loader路径（优先使用已编译的）
-OPENCL_ICD_DIR="$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build_android"
-OPENCL_LIB_PATHS=(
-    "$OPENCL_ICD_DIR/libOpenCL.so"
-    "$SCRIPT_DIR/opencl/build/lib/libOpenCL.so"
-    "$SCRIPT_DIR/opencl/build/OpenCL-ICD-Loader/build/libOpenCL.so"
-    "$NDK_DIR/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so"
-)
+# OpenCL: 在Android上不使用ICD Loader，直接使用设备厂商的驱动
+# 厂商驱动位于 /vendor/lib64/libOpenCL.so，运行时动态加载
 OPENCL_LIB=""
-for path in "${OPENCL_LIB_PATHS[@]}"; do
-    if [ -f "$path" ]; then
-        OPENCL_LIB="$path"
-        break
-    fi
-done
+OPENCL_LIB_PATHS=()
+OPENCL_ENABLED=1
 
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
@@ -60,26 +50,12 @@ if [ ! -f "$NINJA" ]; then
     exit 1
 fi
 
-if [ ! -f "$GLSLC" ]; then
-    log_warn "glslc not found at: $GLSLC"
-    log_warn "Vulkan后端需要glslc编译器，Vulkan支持将被禁用"
-    VULKAN_ENABLED=0
-else
-    log_info "使用glslc: $GLSLC"
-    VULKAN_ENABLED=1
-fi
+# 禁用Vulkan（Adreno 750对Vulkan计算支持有限，使用OpenCL代替）
+VULKAN_ENABLED=0
+log_info "Vulkan已禁用（使用OpenCL代替）"
 
-# 检查OpenCL ICD Loader（仅ARM64需要）
-OPENCL_ENABLED=0
-if [ -n "$OPENCL_LIB" ]; then
-    log_info "使用OpenCL ICD Loader: $OPENCL_LIB"
-    OPENCL_ENABLED=1
-else
-    log_warn "OpenCL ICD Loader (libOpenCL.so) 未找到"
-    log_warn "请先运行: $SCRIPT_DIR/opencl/build_icd_loader.sh"
-    log_warn "ARM64构建将禁用OpenCL支持"
-    OPENCL_ENABLED=0
-fi
+# OpenCL: 使用设备厂商驱动，运行时动态加载
+log_info "OpenCL已启用（使用设备厂商驱动，运行时动态加载）"
 
 log_info "使用CMake: $CMAKE"
 log_info "使用Ninja: $NINJA"
@@ -137,11 +113,10 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DGGML_RPC=OFF \
     -DGGML_OPENCL_EMBED_KERNELS=ON \
     -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
-    -DGGLSLC_EXECUTABLE="$GLSLC" \
     -DOpenCL_INCLUDE_DIRS="$SCRIPT_DIR/opencl/headers" \
-    -DOpenCL_LIBRARIES="$OPENCL_LIB" \
     -DOpenCL_FOUND=$OPENCL_ENABLED \
     -DOpenCL_VERSION_STRING="3.0" \
+    -DOpenCL_LIBRARIES="" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"
     exit 1
@@ -181,15 +156,7 @@ if [ $ARM64_LIB_FOUND -eq 0 ]; then
     exit 1
 fi
 
-# 复制libOpenCL.so到ARM64目录（使用之前检测到的路径）
-if [ -n "$OPENCL_LIB" ] && [ -f "$OPENCL_LIB" ]; then
-    cp "$OPENCL_LIB" "$JNI_LIBS_DIR/arm64-v8a/"
-    log_info "libOpenCL.so已复制到: $JNI_LIBS_DIR/arm64-v8a/libOpenCL.so"
-else
-    if [ $OPENCL_ENABLED -eq 1 ]; then
-        log_warn "未找到libOpenCL.so，OpenCL GPU加速将不可用"
-    fi
-fi
+# 注意：不再复制libOpenCL.so，运行时动态加载设备厂商驱动
 
 # ============================================
 # 编译x86_64架构
@@ -210,10 +177,9 @@ cd "$X64_BUILD_DIR" || exit 1
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
     -DGGML_OPENCL=OFF \
-    -DGGML_VULKAN=$VULKAN_ENABLED \
+    -DGGML_VULKAN=OFF \
     -DGGML_CUDA=OFF \
     -DGGML_RPC=OFF \
-    -DGGLSLC_EXECUTABLE="$GLSLC" \
     -GNinja || {
     log_error "x86_64 CMake配置失败"
     exit 1

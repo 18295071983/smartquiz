@@ -138,9 +138,9 @@ public class AgentService {
     }
 
     private void registerDefaultTools() {
-        registerToolSchema("get_weather", "查询天气", "city(城市,必填), unit(温度单位,可选)");
-        registerToolSchema("weather", "查询天气", "city(城市,必填), unit(温度单位,可选)");
-        registerToolSchema("weather_query", "查询天气", "city(城市,必填), unit(温度单位,可选)");
+        registerToolSchema("get_weather", "查询天气", "action(操作类型,必填: weather_current/weather_forecast/weather_hourly/weather_air/weather_alerts/weather_indices/weather_all), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("weather", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("weather_query", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("network_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
         registerToolSchema("web_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
@@ -165,8 +165,10 @@ public class AgentService {
         registerToolSchema("permission_manager", "权限管理", "action(权限操作,必填), permission(权限名,可选)");
 
         registerToolParamSchema("get_weather",
-            new ToolParamSchema("city", "string", "城市名称", true, "北京"),
-            new ToolParamSchema("unit", "string", "温度单位", false, "metric"));
+            new ToolParamSchema("action", "string", "操作类型：weather_current(当前天气), weather_forecast(未来预报), weather_hourly(24小时预报), weather_air(空气质量), weather_alerts(天气预警), weather_indices(生活指数), weather_all(全部信息)", true, "weather_all"),
+            new ToolParamSchema("city", "string", "城市名称", false, "北京"),
+            new ToolParamSchema("lat", "number", "纬度", false, 0),
+            new ToolParamSchema("lon", "number", "经度", false, 0));
 
         registerToolParamSchema("network_search",
             new ToolParamSchema("query", "string", "搜索关键词", true, null),
@@ -351,7 +353,9 @@ public class AgentService {
 
         AILogger.i(TAG, "Resolved tool: " + call.name + " -> " + realToolName);
 
-        ToolResult result = executeWithRetry(realToolName, call.name, params, MAX_RETRY_COUNT);
+        Map<String, Object> transformedParams = transformToolParams(call.name, realToolName, params);
+
+        ToolResult result = executeWithRetry(realToolName, call.name, transformedParams, MAX_RETRY_COUNT);
 
         long elapsed = System.currentTimeMillis() - startTime;
         AILogger.i(TAG, "Tool " + call.name + " completed in " + elapsed + "ms, success=" + result.success);
@@ -456,6 +460,24 @@ public class AgentService {
             return alias;
         }
         return resolved;
+    }
+
+    private Map<String, Object> transformToolParams(String originalName, String realName, Map<String, Object> params) {
+        Map<String, Object> transformed = new HashMap<>(params);
+        
+        if ("app_toolkit".equals(realName)) {
+            boolean isWeatherTool = "get_weather".equals(originalName) || 
+                                   "weather".equals(originalName) || 
+                                   "weather_query".equals(originalName);
+            
+            if (isWeatherTool) {
+                if (!transformed.containsKey("action") || transformed.get("action") == null) {
+                    transformed.put("action", "weather_all");
+                }
+            }
+        }
+        
+        return transformed;
     }
 
     public Map<String, Object> parseArguments(String argsJson) {

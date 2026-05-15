@@ -1,0 +1,11 @@
+﻿gradle.bat :  
+所在位置 行:1 字符: 192
++ ... Set-Location "d:\quzp\app" ; & $gradlePath assembleDebug 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ERROR: JAVA_HOME is set to an invalid directory: C:\Program Files\Java\jdk-17 
+ 
+Please set the JAVA_HOME variable in your environment to match the 
+location of your Java installation. 

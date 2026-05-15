@@ -75,7 +75,7 @@ public class UnifiedAgentEngine {
         this.agentService = agentService;
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
         this.intentRecognizer.setAgentService(agentService);
-        this.executor = Executors.newFixedThreadPool(2, r -> {
+        this.executor = Executors.newFixedThreadPool(4, r -> {
             Thread t = new Thread(r, "UnifiedAgent-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
             t.setDaemon(true);
@@ -549,6 +549,14 @@ public class UnifiedAgentEngine {
                 executor.execute(() -> {
                     if (isCancelled.get()) { finishGeneration(); return; }
                     AgentService.ToolResult result = agentService.executeTool(call);
+                    if (result == null) {
+                        AILogger.e(TAG, "executeTool returned null for: " + call.name);
+                        activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
+                        accumulated.append("步骤").append(index + 1).append("工具").append(call.name).append(": 失败\n");
+                        resetBuffers();
+                        executePlanStep(steps, nextIndex, maxTokens, original, accumulated);
+                        return;
+                    }
                     activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, result); });
                     accumulated.append("步骤").append(index + 1).append("工具").append(call.name).append(": ")
                         .append(result.success ? result.result.substring(0, Math.min(300, result.result.length())) : "失败").append("\n");
@@ -592,6 +600,17 @@ public class UnifiedAgentEngine {
                 executor.execute(() -> {
                     if (isCancelled.get()) { finishGeneration(); return; }
                     AgentService.ToolResult result = agentService.executeTool(call);
+                    if (result == null) {
+                        AILogger.e(TAG, "executeTool returned null for: " + call.name);
+                        activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
+                        if (isCancelled.get()) { finishGeneration(); return; }
+                        conversationContext.add("工具结果: 执行失败");
+                        maybeSummarizeContext();
+                        String nextPrompt = "[继续] 工具调用失败，请尝试其他方式完成。";
+                        resetBuffers();
+                        executeDirect(nextPrompt, maxTokens, false);
+                        return;
+                    }
                     activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, result); });
                     if (isCancelled.get()) { finishGeneration(); return; }
                     conversationContext.add("工具结果: " + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH));

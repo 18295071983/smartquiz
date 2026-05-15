@@ -11,6 +11,8 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class AIFileParser {
 
@@ -178,7 +180,7 @@ public class AIFileParser {
     private int importQuestionsToDatabase(List<Question> questions) {
         int count = 0;
         try {
-            boolean success = databaseManager.addQuestions(questions).get();
+            boolean success = databaseManager.addQuestions(questions).get(10, TimeUnit.SECONDS);
             if (success) {
                 count = questions.size();
             }

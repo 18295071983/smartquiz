@@ -42,7 +42,7 @@ public class AppToolkitAITool implements AITool {
     
     @Override
     public String getDescription() {
-        return "应用工具集合，提供OCR文字识别、图片处理、文件解析、网页解析等功能";
+        return "应用工具集合，提供天气查询、OCR文字识别、图片处理、文件解析、网页解析等功能";
     }
     
     @Override
@@ -54,6 +54,22 @@ public class AppToolkitAITool implements AITool {
             }
             
             switch (action) {
+                // 天气功能
+                case "weather_current":
+                    return getCurrentWeather(parameters);
+                case "weather_forecast":
+                    return getWeatherForecast(parameters);
+                case "weather_hourly":
+                    return getWeatherHourly(parameters);
+                case "weather_air":
+                    return getWeatherAirQuality(parameters);
+                case "weather_alerts":
+                    return getWeatherAlerts(parameters);
+                case "weather_indices":
+                    return getWeatherIndices(parameters);
+                case "weather_all":
+                    return getAllWeatherInfo(parameters);
+                    
                 // OCR功能
                 case "ocr_recognize":
                     return ocrRecognize(parameters);
@@ -954,11 +970,21 @@ public class AppToolkitAITool implements AITool {
         resultMap.put("description", getDescription());
         
         Map<String, String> categories = new HashMap<>();
+        categories.put("weather", "天气查询");
         categories.put("ocr", "OCR文字识别");
         categories.put("image", "图片处理");
         categories.put("file", "文件解析");
         categories.put("web", "网页解析");
         resultMap.put("categories", categories);
+        
+        Map<String, String> weatherActions = new HashMap<>();
+        weatherActions.put("weather_current", "获取当前天气");
+        weatherActions.put("weather_forecast", "获取未来天气预报");
+        weatherActions.put("weather_hourly", "获取24小时逐时预报");
+        weatherActions.put("weather_air", "获取空气质量");
+        weatherActions.put("weather_alerts", "获取天气预警");
+        weatherActions.put("weather_indices", "获取生活指数");
+        weatherActions.put("weather_all", "获取全部天气信息");
         
         Map<String, String> ocrActions = new HashMap<>();
         ocrActions.put("ocr_recognize", "识别图片文字");
@@ -989,6 +1015,7 @@ public class AppToolkitAITool implements AITool {
         webActions.put("web_get_text", "获取网页正文");
         
         Map<String, Map<String, String>> actions = new HashMap<>();
+        actions.put("weather", weatherActions);
         actions.put("ocr", ocrActions);
         actions.put("image", imageActions);
         actions.put("file", fileActions);
@@ -1046,6 +1073,11 @@ public class AppToolkitAITool implements AITool {
         // 通用参数
         descriptions.put("action", "操作类型（必填）");
         
+        // 天气参数
+        descriptions.put("city", "城市名称或城市ID（天气查询时使用，不传则使用定位）");
+        descriptions.put("lat", "纬度（坐标查询天气时使用）");
+        descriptions.put("lon", "经度（坐标查询天气时使用）");
+        
         // OCR参数
         descriptions.put("image_path", "图片文件路径（用于OCR和图片操作）");
         descriptions.put("language", "OCR语言: auto, chinese, english, japanese, korean");
@@ -1076,5 +1108,148 @@ public class AppToolkitAITool implements AITool {
         descriptions.put("source_type", "源类型: string, file");
         
         return descriptions;
+    }
+    
+    // ==================== 天气功能 ====================
+    
+    private AIToolResult getCurrentWeather(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("current", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting current weather", e);
+            return new AIToolResult("获取当前天气失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getWeatherForecast(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("forecast", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting weather forecast", e);
+            return new AIToolResult("获取天气预报失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getWeatherHourly(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("hourly", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting hourly weather", e);
+            return new AIToolResult("获取逐时预报失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getWeatherAirQuality(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("air", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting air quality", e);
+            return new AIToolResult("获取空气质量失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getWeatherAlerts(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("alerts", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting weather alerts", e);
+            return new AIToolResult("获取天气预警失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getWeatherIndices(Map<String, Object> parameters) {
+        try {
+            String result = callWeatherApi("indices", parameters);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting weather indices", e);
+            return new AIToolResult("获取生活指数失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult getAllWeatherInfo(Map<String, Object> parameters) {
+        try {
+            String current = callWeatherApi("current", parameters);
+            String forecast = callWeatherApi("forecast", parameters);
+            String hourly = callWeatherApi("hourly", parameters);
+            String air = callWeatherApi("air", parameters);
+            String indices = callWeatherApi("indices", parameters);
+            String alerts = callWeatherApi("alerts", parameters);
+            
+            StringBuilder result = new StringBuilder();
+            result.append("【当前天气】\n").append(current).append("\n\n");
+            result.append("【天气预报】\n").append(forecast).append("\n\n");
+            result.append("【逐时预报】\n").append(hourly).append("\n\n");
+            result.append("【空气质量】\n").append(air).append("\n\n");
+            result.append("【生活指数】\n").append(indices).append("\n\n");
+            if (alerts != null && !alerts.isEmpty() && !alerts.contains("暂无")) {
+                result.append("【天气预警】\n").append(alerts);
+            }
+            
+            return new AIToolResult(result.toString(), parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting all weather info", e);
+            return new AIToolResult("获取天气信息失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private String callWeatherApi(String type, Map<String, Object> parameters) {
+        com.oilquiz.app.weather.WeatherService weatherService = new com.oilquiz.app.weather.WeatherService();
+        String city = (String) parameters.get("city");
+        Double latObj = (Double) parameters.get("lat");
+        Double lonObj = (Double) parameters.get("lon");
+        
+        double lat = latObj != null ? latObj : 0.0;
+        double lon = lonObj != null ? lonObj : 0.0;
+        
+        try {
+            switch (type) {
+                case "current":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getNowWeatherByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getNowWeather(city != null ? city : "北京").get();
+                    }
+                case "forecast":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getForecastByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getForecast(city != null ? city : "北京").get();
+                    }
+                case "hourly":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getHourlyByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getHourly(city != null ? city : "北京").get();
+                    }
+                case "air":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getAirQualityByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getAirQuality(city != null ? city : "北京").get();
+                    }
+                case "alerts":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getWeatherAlertsByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getWeatherAlerts(city != null ? city : "北京").get();
+                    }
+                case "indices":
+                    if (lat != 0 && lon != 0) {
+                        return weatherService.getLivingIndicesByLocation(lat, lon).get();
+                    } else {
+                        return weatherService.getLivingIndices(city != null ? city : "北京").get();
+                    }
+                default:
+                    return "未知的天气查询类型";
+            }
+        } catch (Exception e) {
+            return "查询失败: " + e.getMessage();
+        }
     }
 }

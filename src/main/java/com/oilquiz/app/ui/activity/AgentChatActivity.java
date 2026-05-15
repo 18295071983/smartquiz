@@ -171,11 +171,20 @@ public class AgentChatActivity extends BaseActivity implements AgentChatHandler.
 
     private void sendAgentMessage(String message) {
         if (!aiService.isInitialized()) {
-            if (!aiService.initializeSafe()) {
-                addSystemMessage("AI服务初始化失败，请先选择模型");
-                return;
-            }
+            addSystemMessage("正在初始化AI服务...");
+            aiService.initializeAsync(success -> runOnUiThread(() -> {
+                if (success) {
+                    sendAgentMessageInternal(message);
+                } else {
+                    addSystemMessage("AI服务初始化失败，请先选择模型");
+                }
+            }));
+            return;
         }
+        sendAgentMessageInternal(message);
+    }
+
+    private void sendAgentMessageInternal(String message) {
 
         thinkingIndicator.setVisibility(View.VISIBLE);
 

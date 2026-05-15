@@ -42,7 +42,11 @@ public class GpuAdaptiveTuner {
         this.listener = listener;
     }
 
-    public void startTuning(GpuConfig initialConfig) {
+    public synchronized void startTuning(GpuConfig initialConfig) {
+        if (tuningExecutor != null && !tuningExecutor.isShutdown()) {
+            return;
+        }
+
         if (isTuning.get()) {
             Log.w(TAG, "Tuning already running");
             return;

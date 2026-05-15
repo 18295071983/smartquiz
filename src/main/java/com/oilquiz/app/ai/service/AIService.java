@@ -354,6 +354,42 @@ public class AIService {
     }
 
     /**
+     * 初始化结果回调
+     */
+    public interface InitializeCallback {
+        void onResult(boolean success);
+    }
+
+    /**
+     * 异步初始化AI服务，结果通过回调返回（主线程安全）
+     */
+    public void initializeAsync(InitializeCallback callback) {
+        if (currentModelName == null) {
+            AILogger.w(TAG, "initializeAsync: no model selected");
+            if (callback != null) callback.onResult(false);
+            return;
+        }
+        modelInitSerialExecutor.execute(() -> {
+            boolean success = initialize();
+            if (callback != null) {
+                callback.onResult(success);
+            }
+        });
+    }
+
+    /**
+     * 异步初始化指定模型，结果通过回调返回（主线程安全）
+     */
+    public void initializeAsync(String modelName, InitializeCallback callback) {
+        modelInitSerialExecutor.execute(() -> {
+            boolean success = initialize(modelName);
+            if (callback != null) {
+                callback.onResult(success);
+            }
+        });
+    }
+
+    /**
      * 初始化AI服务（须在后台线程调用；会阻塞直至加载完成）
      */
     public boolean initialize() {
@@ -377,7 +413,9 @@ public class AIService {
 
     /**
      * 若当前在主线程则转到后台线程执行 {@link #initialize()}，避免阻塞 UI。
+     * @deprecated 使用 {@link #initializeAsync(InitializeCallback)} 替代，避免主线程阻塞
      */
+    @Deprecated
     public boolean initializeSafe() {
         if (Looper.getMainLooper().isCurrentThread()) {
             if (currentModelName == null) {

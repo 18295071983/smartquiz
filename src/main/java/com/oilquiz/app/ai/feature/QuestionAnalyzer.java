@@ -8,6 +8,8 @@ import com.oilquiz.app.model.Question;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 题目分析器 - AI驱动的题目解析和解答
@@ -64,8 +66,8 @@ public class QuestionAnalyzer {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error analyzing question: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }
@@ -104,8 +106,8 @@ public class QuestionAnalyzer {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 600);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error getting learning suggestions: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }

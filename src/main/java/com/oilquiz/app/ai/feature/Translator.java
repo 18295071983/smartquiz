@@ -7,6 +7,8 @@ import com.oilquiz.app.ai.service.AIService;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 翻译器 - AI驱动的多语言翻译
@@ -57,8 +59,8 @@ public class Translator {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 600);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error translating text: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }
@@ -90,8 +92,8 @@ public class Translator {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error translating question: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }
@@ -115,8 +117,8 @@ public class Translator {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 200);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error detecting language: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }

@@ -1,0 +1,291 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "D:/quzp/app/src/main/jniLibs/arm64-v8a/libllama-jni.so"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"include_directories"
+		],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 53,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 63,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 44,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -fno-limit-debug-info  -fPIC"
+				},
+				{
+					"fragment" : "-std=c++17"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 2,
+					"define" : "GGML_BACKEND_SHARED"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "GGML_SHARED"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "GGML_USE_CPU"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "GGML_USE_OPENCL"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "LLAMA_SHARED"
+				},
+				{
+					"define" : "llama_jni_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/opencl/headers"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/common"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/include"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/ggml/include"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/quzp/app/src/main/cpp/../java/com/oilquiz/app/ai/jni"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/src/../include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/quzp/app/src/main/cpp/llama.cpp/ggml/src/../include"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					1
+				],
+				"standard" : "17"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4
+			],
+			"sysroot" : 
+			{
+				"path" : "D:/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "ggml::@23533c6d68a59d54598d"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "ggml-cpu::@23533c6d68a59d54598d"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "ggml-base::@23533c6d68a59d54598d"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "llama::@b791850eb95f38641ccb"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "ggml-opencl::@d0a696fbe392a8afb3a6"
+		}
+	],
+	"id" : "llama-jni::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-Wl,--build-id=sha1 -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "bin\\libllama.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-llog",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-landroid",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-lz",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-lm",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-latomic",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-ldl",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "bin\\libggml.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "bin\\libggml-cpu.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "bin\\libggml-opencl.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "bin\\libggml-base.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-latomic -lm",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX",
+		"sysroot" : 
+		{
+			"path" : "D:/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+		}
+	},
+	"name" : "llama-jni",
+	"nameOnDisk" : "libllama-jni.so",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "native-lib.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "vulkan_gpu.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "agent_inference.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "agent_inference_jni.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "agent_inference_optimizations.cpp",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

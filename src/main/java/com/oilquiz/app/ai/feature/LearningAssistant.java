@@ -7,6 +7,8 @@ import com.oilquiz.app.ai.service.AIService;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 学习助手 - AI驱动的个性化学习规划
@@ -55,8 +57,8 @@ public class LearningAssistant {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 1000);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error generating study plan: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }
@@ -85,8 +87,8 @@ public class LearningAssistant {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error explaining concept: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }
@@ -116,8 +118,8 @@ public class LearningAssistant {
         
         try {
             Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get();
-        } catch (InterruptedException | ExecutionException e) {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Error getting exam tips: " + e.getMessage(), e);
             return "Error: " + e.getMessage();
         }

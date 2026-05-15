@@ -1,4 +1,4 @@
-#include <jni.h>
+﻿﻿﻿﻿﻿#include <jni.h>
 #include <string>
 #include <memory>
 #include <android/log.h>
@@ -81,11 +81,11 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 #ifdef GGML_USE_OPENCL
     void * ocl = nullptr;
     const char* openclPaths[] = {
-        "libOpenCL.so",
         "/vendor/lib64/libOpenCL.so",
         "/vendor/lib/libOpenCL.so",
         "/system/lib64/libOpenCL.so",
-        "/system/lib/libOpenCL.so"
+        "/system/lib/libOpenCL.so",
+        "libOpenCL.so"
     };
     for (const char* path : openclPaths) {
         ocl = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
@@ -282,11 +282,11 @@ public:
 #ifdef GGML_USE_OPENCL
         LOGI("OpenCL backend compiled in, testing OpenCL availability...");
         const char* openclPaths[] = {
-            "libOpenCL.so",
             "/vendor/lib64/libOpenCL.so",
             "/vendor/lib/libOpenCL.so",
             "/system/lib64/libOpenCL.so",
-            "/system/lib/libOpenCL.so"
+            "/system/lib/libOpenCL.so",
+            "libOpenCL.so"
         };
         void* ocl_handle = nullptr;
         for (const char* path : openclPaths) {
@@ -1609,6 +1609,12 @@ public:
 
     std::vector<Turn>& getTurns() { return turns; }
 
+    int getContextSize() const { return n_ctx; }
+
+    int getContextUsedTokens() const { return total_tokens_in_kv; }
+
+    int getContextRemainingTokens() const { return n_ctx > 0 ? n_ctx - total_tokens_in_kv : 0; }
+
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
         LOGI("updatePrompts called");
 
@@ -2628,6 +2634,42 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetTotalDeviceMemory(
         }
         fclose(fp);
         return (jlong)(memTotal * 1024);
+    }
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextSize(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->getContextSize();
+    }
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextUsedTokens(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->getContextUsedTokens();
+    }
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextRemainingTokens(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->getContextRemainingTokens();
     }
     return 0;
 }

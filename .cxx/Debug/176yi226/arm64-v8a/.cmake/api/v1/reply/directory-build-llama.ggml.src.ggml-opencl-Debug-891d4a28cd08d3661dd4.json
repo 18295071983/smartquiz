@@ -1,0 +1,53 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install",
+			"ggml_add_backend_library"
+		],
+		"files" : 
+		[
+			"llama.cpp/ggml/src/CMakeLists.txt",
+			"llama.cpp/ggml/src/ggml-opencl/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 8,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 262,
+				"parent" : 1
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 2,
+			"component" : "Unspecified",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"bin/libggml-opencl.so"
+			],
+			"targetId" : "ggml-opencl::@d0a696fbe392a8afb3a6",
+			"targetIndex" : 3,
+			"type" : "target"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "build-llama/ggml/src/ggml-opencl",
+		"source" : "llama.cpp/ggml/src/ggml-opencl"
+	}
+}
