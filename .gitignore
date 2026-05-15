@@ -183,8 +183,9 @@ gradle/wrapper/gradle-*.zip
 
 # ============ Temp/Export ============
 subapp/
-导出子应用_*/
+导出子应用_*
 src/main/cpp/native-lib-clean.cpp
+答题宝Anki记忆.html
 
 # ============ Fonts (large files) ============
 src/main/assets/fonts/
