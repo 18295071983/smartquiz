@@ -56,10 +56,8 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
     private Button btnClose;
     private Button btnEdit;
 
-    // OnlyOffice Document Server 配置
-    // 可以使用官方测试服务器或自建服务器
-    private static final String DOCUMENT_SERVER_URL = "https://documentserver.onlyoffice.eu/";
-    private static final String EDITOR_JAVASCRIPT_URL = "https://documentserver.onlyoffice.eu/web-apps/apps/api/documents/api.js";
+    private String documentServerUrl;
+    private String editorJavascriptUrl;
 
     public static void start(Context context, String filePath) {
         Intent intent = new Intent(context, OnlyOfficePreviewActivity.class);
@@ -74,6 +72,15 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
 
     @Override
     protected void initView() {
+        com.oilquiz.app.ai.util.APIKeyManager apiKeyManager = com.oilquiz.app.ai.util.APIKeyManager.getInstance(this);
+        documentServerUrl = apiKeyManager.getAPIHost(
+                com.oilquiz.app.ai.util.APIKeyManager.Service.ONLYOFFICE,
+                com.oilquiz.app.ai.util.APIKeyManager.DefaultHost.ONLYOFFICE);
+        if (!documentServerUrl.endsWith("/")) {
+            documentServerUrl = documentServerUrl + "/";
+        }
+        editorJavascriptUrl = documentServerUrl + "web-apps/apps/api/documents/api.js";
+
         LinearLayout rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setLayoutParams(new ViewGroup.LayoutParams(
@@ -250,7 +257,7 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
 
         // 生成 OnlyOffice 预览页面
         String previewHtml = generateOnlyOfficePreviewHtml();
-        webView.loadDataWithBaseURL(DOCUMENT_SERVER_URL, previewHtml, "text/html", "UTF-8", null);
+        webView.loadDataWithBaseURL(documentServerUrl, previewHtml, "text/html", "UTF-8", null);
 
         AppLogger.d(TAG, "OnlyOffice 预览启动成功");
     }
@@ -279,7 +286,7 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
                 "<meta charset='utf-8'>" +
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>" +
                 "<title>OnlyOffice Preview - " + fileName + "</title>" +
-                "<script type='text/javascript' src='" + EDITOR_JAVASCRIPT_URL + "'></script>" +
+                "<script type='text/javascript' src='" + editorJavascriptUrl + "'></script>" +
                 "<style>" +
                 "body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background: #333; color: #fff; }" +
                 ".container { max-width: 1200px; margin: 0 auto; }" +
@@ -315,7 +322,7 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
                 "<li><strong>离线模式：</strong>请使用应用内置的 TBS 或 Pdfium 预览</li>" +
                 "<li><strong>自建服务器：</strong>部署 OnlyOffice Document Server 并配置 URL</li>" +
                 "</ul>" +
-                "<p>当前配置: " + DOCUMENT_SERVER_URL + "</p>" +
+                "<p>当前配置: " + documentServerUrl + "</p>" +
                 "<a class='btn' href='javascript:openInOnlyOffice()'>在 OnlyOffice 编辑器中打开</a>" +
                 "</div>" +
                 "</div>" +
@@ -325,7 +332,7 @@ public class OnlyOfficePreviewActivity extends com.oilquiz.app.ui.base.BaseActiv
                 "var fileName = '" + fileName + "';" +
                 "var fileType = '" + fileExtension + "';" +
                 "var documentType = '" + documentType + "';" +
-                "var documentServerUrl = '" + DOCUMENT_SERVER_URL + "';" +
+                "var documentServerUrl = '" + documentServerUrl + "';" +
 
                 "function openInOnlyOffice() {" +
                 "    if (docEditor) {" +

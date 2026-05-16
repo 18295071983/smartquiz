@@ -232,11 +232,15 @@ public class LocationTool implements AITool {
             com.oilquiz.app.ai.util.APIKeyManager apiKeyManager = com.oilquiz.app.ai.util.APIKeyManager.getInstance(context);
             String apiKey = apiKeyManager.getAPIKey(com.oilquiz.app.ai.util.APIKeyManager.Service.HEFENG_WEATHER);
             if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = "be2af1f8490344feb8a7125ab46608dd";
+                return null;
             }
 
+            String apiHost = apiKeyManager.getAPIHost(
+                    com.oilquiz.app.ai.util.APIKeyManager.Service.HEFENG_WEATHER,
+                    com.oilquiz.app.ai.util.APIKeyManager.DefaultHost.HEFENG_WEATHER);
+
             String location = String.format(java.util.Locale.US, "%.2f,%.2f", longitude, latitude);
-            String urlString = "https://m278m2y7ak.re.qweatherapi.com/v2/city/lookup?location=" + location;
+            String urlString = apiHost + "/v2/city/lookup?location=" + location;
             java.net.URL url = new java.net.URL(urlString);
             java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");

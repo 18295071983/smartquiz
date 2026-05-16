@@ -33,30 +33,29 @@ public class AIWeatherManager implements AITool {
     private static final String ONE_CALL_DAILY_AGGREGATION_URL = "https://api.openweathermap.org/data/3.0/onecall/day_summary";
     private static final String ONE_CALL_OVERVIEW_URL = "https://api.openweathermap.org/data/3.0/onecall/overview";
     
-    // 和风天气 API URLs
-    private static final String HEFENG_API_HOST = "https://m278m2y7ak.re.qweatherapi.com";
-    private static final String HEFENG_GEO_HOST = "https://m278m2y7ak.re.qweatherapi.com";
-    private static final String HEFENG_WEATHER_URL = HEFENG_API_HOST + "/v7/weather/now";
-    private static final String HEFENG_FORECAST_URL = HEFENG_API_HOST + "/v7/weather/7d";
-    private static final String HEFENG_HOURLY_URL = HEFENG_API_HOST + "/v7/weather/hourly";
-    private static final String HEFENG_AIR_URL = HEFENG_API_HOST + "/v7/air/now";
-    private static final String HEFENG_ALERT_URL = HEFENG_API_HOST + "/v7/warning/now";
-    private static final String HEFENG_INDICES_URL = HEFENG_API_HOST + "/v7/indices/1d";
-    private static final String HEFENG_GEOCODE_URL = HEFENG_GEO_HOST + "/v2/city/lookup";
-
     private final Context context;
     private final Gson gson;
     private WeatherProvider currentProvider = WeatherProvider.HEFENG;
+    private String hefengApiHost;
+    private String hefengGeoHost;
 
     public AIWeatherManager(Context context) {
         this.context = context;
         this.gson = new Gson();
+        initHefengHosts();
     }
 
     public AIWeatherManager(Context context, WeatherProvider provider) {
         this.context = context;
         this.gson = new Gson();
         this.currentProvider = provider;
+        initHefengHosts();
+    }
+
+    private void initHefengHosts() {
+        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+        hefengApiHost = apiKeyManager.getAPIHost(APIKeyManager.Service.HEFENG_WEATHER, APIKeyManager.DefaultHost.HEFENG_WEATHER);
+        hefengGeoHost = hefengApiHost;
     }
 
     public void setWeatherProvider(WeatherProvider provider) {
@@ -193,7 +192,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_WEATHER_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/weather/now?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengWeatherResponse(response);
             } catch (Exception e) {
@@ -211,7 +210,7 @@ public class AIWeatherManager implements AITool {
                 String cityName = getHefengCityNameByLocation(lat, lon, apiKey);
 
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_WEATHER_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/weather/now?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengWeatherResponse(response, cityName);
             } catch (Exception e) {
@@ -250,14 +249,14 @@ public class AIWeatherManager implements AITool {
     // 获取和风天气城市ID
     private String getHefengLocationId(String city, String apiKey) throws Exception {
         String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
-        String urlString = HEFENG_GEOCODE_URL + "?location=" + encodedCity;
+        String urlString = hefengGeoHost + "/v2/city/lookup?location=" + encodedCity;
         return getHefengLocationFromGeoAPI(urlString, true, apiKey);
     }
 
     private String getHefengCityNameByLocation(double lat, double lon, String apiKey) {
         try {
             String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-            String urlString = HEFENG_GEOCODE_URL + "?location=" + location;
+            String urlString = hefengGeoHost + "/v2/city/lookup?location=" + location;
             String response = httpGet(urlString, apiKey);
 
             JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
@@ -356,7 +355,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_FORECAST_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/weather/7d?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengForecastResponse(response);
             } catch (Exception e) {
@@ -415,7 +414,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_HOURLY_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/weather/hourly?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengHourlyResponse(response);
             } catch (Exception e) {
@@ -469,7 +468,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_AIR_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/air/now?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengAirQualityResponse(response);
             } catch (Exception e) {
@@ -529,7 +528,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_ALERT_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/warning/now?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengAlertsResponse(response);
             } catch (Exception e) {
@@ -593,7 +592,7 @@ public class AIWeatherManager implements AITool {
                     return "无法获取城市 " + city + " 的位置ID";
                 }
 
-                String urlString = HEFENG_INDICES_URL + "?location=" + locationId;
+                String urlString = hefengApiHost + "/v7/indices/1d?location=" + locationId;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengIndicesResponse(response);
             } catch (Exception e) {
@@ -638,7 +637,7 @@ public class AIWeatherManager implements AITool {
             try {
                 String apiKey = getHefengApiKey();
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_FORECAST_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/weather/7d?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengForecastResponse(response);
             } catch (Exception e) {
@@ -653,7 +652,7 @@ public class AIWeatherManager implements AITool {
             try {
                 String apiKey = getHefengApiKey();
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_HOURLY_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/weather/hourly?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengHourlyResponse(response);
             } catch (Exception e) {
@@ -668,7 +667,7 @@ public class AIWeatherManager implements AITool {
             try {
                 String apiKey = getHefengApiKey();
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_AIR_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/air/now?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengAirQualityResponse(response);
             } catch (Exception e) {
@@ -683,7 +682,7 @@ public class AIWeatherManager implements AITool {
             try {
                 String apiKey = getHefengApiKey();
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_ALERT_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/warning/now?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengAlertsResponse(response);
             } catch (Exception e) {
@@ -698,7 +697,7 @@ public class AIWeatherManager implements AITool {
             try {
                 String apiKey = getHefengApiKey();
                 String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
-                String urlString = HEFENG_INDICES_URL + "?location=" + location;
+                String urlString = hefengApiHost + "/v7/indices/1d?location=" + location;
                 String response = httpGet(urlString, apiKey);
                 return parseHefengIndicesResponse(response);
             } catch (Exception e) {

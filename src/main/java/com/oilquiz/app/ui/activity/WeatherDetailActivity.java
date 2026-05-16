@@ -32,14 +32,13 @@ import java.util.concurrent.CompletableFuture;
 public class WeatherDetailActivity extends AppCompatActivity {
 
     private static final String TAG = "WeatherDetail";
-    private static final String API_HOST = "https://m278m2y7ak.re.qweatherapi.com";
-    private static final String DEFAULT_API_KEY = "be2af1f8490344feb8a7125ab46608dd";
 
     private String city;
     private double lat = 0;
     private double lon = 0;
     private boolean hasLocation = false;
     private String apiKey;
+    private String apiHost;
     private String fxLink;
 
     private TextView tvCity;
@@ -76,12 +75,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
             city = "北京";
         }
 
-        apiKey = DEFAULT_API_KEY;
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(this);
-        String savedKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-        if (savedKey != null && !savedKey.isEmpty()) {
-            apiKey = savedKey;
-        }
+        apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
+        apiHost = apiKeyManager.getAPIHost(APIKeyManager.Service.HEFENG_WEATHER, APIKeyManager.DefaultHost.HEFENG_WEATHER);
 
         initViews();
         loadAllWeatherData();
@@ -203,7 +199,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/weather/now?location=" + location;
+                String url = apiHost + "/v7/weather/now?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 
@@ -275,7 +271,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/weather/hourly?location=" + location;
+                String url = apiHost + "/v7/weather/hourly?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 
@@ -337,7 +333,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/weather/7d?location=" + location;
+                String url = apiHost + "/v7/weather/7d?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 
@@ -430,7 +426,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/air/now?location=" + location;
+                String url = apiHost + "/v7/air/now?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 
@@ -475,7 +471,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/warning/now?location=" + location;
+                String url = apiHost + "/v7/warning/now?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 
@@ -519,7 +515,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         CompletableFuture.runAsync(() -> {
             try {
                 String location = getLocationParam();
-                String url = API_HOST + "/v7/indices/1d?location=" + location;
+                String url = apiHost + "/v7/indices/1d?location=" + location;
                 String response = httpGet(url);
                 JsonObject json = gson.fromJson(response, JsonObject.class);
 

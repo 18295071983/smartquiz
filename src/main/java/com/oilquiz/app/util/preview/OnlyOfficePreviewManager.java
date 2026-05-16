@@ -24,9 +24,7 @@ public class OnlyOfficePreviewManager {
     private static final String TAG = "OnlyOfficePreviewManager";
     private static OnlyOfficePreviewManager instance;
 
-    // OnlyOffice Document Server 配置
-    // 可以使用 OnlyOffice 官方测试服务器或自建服务器
-    private static final String DEFAULT_DOCUMENT_SERVER_URL = "https://documentserver.onlyoffice.eu/";
+    private String documentServerUrl;
 
     private Context context;
     private ExecutorService executorService;
@@ -34,11 +32,17 @@ public class OnlyOfficePreviewManager {
 
     // SDK 实例
     private Object onlyOfficeSdk = null;
-    private String documentServerUrl = DEFAULT_DOCUMENT_SERVER_URL;
 
     private OnlyOfficePreviewManager(Context context) {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
+        com.oilquiz.app.ai.util.APIKeyManager apiKeyManager = com.oilquiz.app.ai.util.APIKeyManager.getInstance(context);
+        documentServerUrl = apiKeyManager.getAPIHost(
+                com.oilquiz.app.ai.util.APIKeyManager.Service.ONLYOFFICE,
+                com.oilquiz.app.ai.util.APIKeyManager.DefaultHost.ONLYOFFICE);
+        if (!documentServerUrl.endsWith("/")) {
+            documentServerUrl = documentServerUrl + "/";
+        }
     }
 
     public static synchronized OnlyOfficePreviewManager getInstance(Context context) {
