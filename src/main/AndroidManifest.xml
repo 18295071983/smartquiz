@@ -54,6 +54,20 @@
         android:largeHeap="true"
         tools:targetApi="31">
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <receiver
+            android:name=".infra.DebugKeyReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="com.oilquiz.app.DEBUG_INJECT_KEY" />
+                <action android:name="com.oilquiz.app.DEBUG_INJECT_HOST" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".infra.DebugKeyInjectActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:ignore="ExportedActivity" />
         <activity
             android:name=".ui.activity.LoginActivity"
             android:exported="false" />

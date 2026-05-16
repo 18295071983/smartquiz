@@ -806,7 +806,7 @@ public class AIService {
                     AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                     
                     final long startTime = System.currentTimeMillis();
-                    final long timeoutMs = 60000;
+                    final long timeoutMs = 600000;
                     final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
                     
                     ScheduledFuture<?> watchdogFuture = watchdogScheduler.schedule(() -> {
@@ -868,7 +868,7 @@ public class AIService {
                     AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                     
                     final long startTime = System.currentTimeMillis();
-                    final long timeoutMs = 60000;
+                    final long timeoutMs = 600000;
                     final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
                     
                     ScheduledFuture<?> watchdogFuture2 = watchdogScheduler.schedule(() -> {

@@ -273,8 +273,6 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void initData() {
         try {
-            chatHistory = new ArrayList<>();
-
             aiService = AIService.getInstance(this);
             if (aiService == null) {
                 showToast("AI服务初始化失败");
@@ -595,7 +593,9 @@ public class AIChatActivity extends BaseActivity {
             addSystemMessage(errorMsg);
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0) {
-                    chatHistory.set(currentStreamingMessageIndex, ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0));
+                    ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                    msg.content = currentStreamingContent.toString();
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                 } else {
                     chatHistory.remove(currentStreamingMessageIndex);
@@ -674,7 +674,9 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 endGeneration();
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0 && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
-                    chatHistory.set(currentStreamingMessageIndex, ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0));
+                    ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                    msg.content = currentStreamingContent.toString();
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                     addSystemMessage("生成中断，已保存部分内容");
                 } else if (currentStreamingMessageIndex >= 0) {
@@ -695,9 +697,8 @@ public class AIChatActivity extends BaseActivity {
         if (token.equals("[THINK_END]")) {
             isInThinking = false;
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
-                ChatMessage msg = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
+                ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
                 msg.thinkingContent = currentThinkingContent != null ? currentThinkingContent.toString() : "";
-                chatHistory.set(currentStreamingMessageIndex, msg);
                 if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
             }
             return;
@@ -764,9 +765,10 @@ public class AIChatActivity extends BaseActivity {
             agentToolLoopCount = 0;
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
                 String content = currentStreamingContent != null ? currentStreamingContent.toString() : fullText;
-                ChatMessage finalMsg = ChatMessage.createAIMessage(currentStreamingMessageId, content, System.currentTimeMillis(), null, 0, 0);
+                ChatMessage finalMsg = chatHistory.get(currentStreamingMessageIndex);
+                finalMsg.content = content;
+                finalMsg.status = ChatMessage.MessageStatus.COMPLETED;
                 if (currentThinkingContent != null && currentThinkingContent.length() > 0) finalMsg.thinkingContent = currentThinkingContent.toString();
-                chatHistory.set(currentStreamingMessageIndex, finalMsg);
                 if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                 saveHistoryAsync();
 
@@ -790,9 +792,10 @@ public class AIChatActivity extends BaseActivity {
         if (currentStreamingContent != null) {
             currentStreamingContent.append("\n🔧 调用: " + toolName + " ...");
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
-                ChatMessage toolMsg = ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0);
+                ChatMessage toolMsg = chatHistory.get(currentStreamingMessageIndex);
+                toolMsg.content = currentStreamingContent.toString();
+                toolMsg.status = ChatMessage.MessageStatus.GENERATING;
                 if (currentThinkingContent != null && currentThinkingContent.length() > 0) toolMsg.thinkingContent = currentThinkingContent.toString();
-                chatHistory.set(currentStreamingMessageIndex, toolMsg);
                 if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
             }
             scrollToBottom();
@@ -917,10 +920,10 @@ public class AIChatActivity extends BaseActivity {
     private void safeUpdateMessage() {
         try {
             if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size() || currentStreamingContent == null) return;
-            ChatMessage msg = ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0);
-            if (currentThinkingContent != null && currentThinkingContent.length() > 0) msg.thinkingContent = currentThinkingContent.toString();
+            ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+            msg.content = currentStreamingContent.toString();
             msg.status = ChatMessage.MessageStatus.GENERATING;
-            chatHistory.set(currentStreamingMessageIndex, msg);
+            if (currentThinkingContent != null && currentThinkingContent.length() > 0) msg.thinkingContent = currentThinkingContent.toString();
             if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);
         } catch (IndexOutOfBoundsException e) { currentStreamingMessageIndex = -1; }
     }
@@ -1043,15 +1046,23 @@ public class AIChatActivity extends BaseActivity {
     private void regenerateLastMessage() {
         if (isGenerating) { showToast("正在生成中"); return; }
         String lastUserMsg = null;
+        int lastUserIdx = -1;
         int lastAiIdx = -1;
         for (int i = chatHistory.size() - 1; i >= 0; i--) {
             ChatMessage msg = chatHistory.get(i);
             if (msg.type == ChatMessage.MessageType.AI && lastAiIdx < 0) lastAiIdx = i;
-            else if (msg.type == ChatMessage.MessageType.USER) { lastUserMsg = msg.content; break; }
+            else if (msg.type == ChatMessage.MessageType.USER) { lastUserMsg = msg.content; lastUserIdx = i; break; }
         }
         if (lastUserMsg == null || lastAiIdx < 0) { showToast("没有可重新生成的消息"); return; }
-        chatHistory.remove(lastAiIdx);
-        if (chatAdapter != null) chatAdapter.notifyItemRemoved(lastAiIdx);
+        int removeStart = lastUserIdx + 1;
+        int originalSize = chatHistory.size();
+        int systemMsgCount = 0;
+        for (int i = removeStart; i < originalSize; i++) {
+            if (chatHistory.get(i).type == ChatMessage.MessageType.SYSTEM) systemMsgCount++;
+        }
+        chatHistory.subList(removeStart, chatHistory.size()).removeIf(m -> m.type != ChatMessage.MessageType.SYSTEM);
+        int actualRemoved = originalSize - chatHistory.size();
+        if (chatAdapter != null && actualRemoved > 0) chatAdapter.notifyItemRangeRemoved(removeStart, actualRemoved);
         if (aiService != null) aiService.chatClear();
         processChatMessage(lastUserMsg);
     }
@@ -1400,7 +1411,9 @@ public class AIChatActivity extends BaseActivity {
         }
         private void updateReceiverUI() {
             if (currentStreamingMessageIndex < 0 || chatHistory == null || currentStreamingContent == null || currentStreamingMessageIndex >= chatHistory.size()) return;
-            chatHistory.set(currentStreamingMessageIndex, ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0));
+            ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+            msg.content = currentStreamingContent.toString();
+            msg.status = ChatMessage.MessageStatus.GENERATING;
             if (chatAdapter != null) chatAdapter.updateAIMessageContent(currentStreamingMessageIndex, currentStreamingContent.toString());
             scrollToBottom();
             tokenCountSinceLastUpdate = 0; lastUpdateTime = System.currentTimeMillis(); isUpdateScheduled = false;
@@ -1416,14 +1429,18 @@ public class AIChatActivity extends BaseActivity {
             endGeneration();
             uiHandler.removeCallbacksAndMessages(null);
             if (error != null) {
-                if (currentStreamingContent != null && currentStreamingContent.length() > 0 && currentStreamingMessageIndex >= 0) {
-                    chatHistory.set(currentStreamingMessageIndex, ChatMessage.createAIMessage(currentStreamingMessageId, currentStreamingContent.toString(), System.currentTimeMillis(), null, 0, 0));
+                if (currentStreamingContent != null && currentStreamingContent.length() > 0 && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
+                    ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                    msg.content = currentStreamingContent.toString();
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                     saveHistoryAsync(); addSystemMessage("生成中断: " + error);
-                } else { if (currentStreamingMessageIndex >= 0) { chatHistory.remove(currentStreamingMessageIndex); chatAdapter.notifyItemRemoved(currentStreamingMessageIndex); } addSystemMessage(error); }
+                } else { if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) { chatHistory.remove(currentStreamingMessageIndex); chatAdapter.notifyItemRemoved(currentStreamingMessageIndex); } addSystemMessage(error); }
             } else if (result != null) {
-                if (currentStreamingContent != null && currentStreamingMessageIndex >= 0) {
-                    chatHistory.set(currentStreamingMessageIndex, ChatMessage.createAIMessage(currentStreamingMessageId, result, System.currentTimeMillis(), null, 0, 0));
+                if (currentStreamingContent != null && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
+                    ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                    msg.content = result;
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                     saveHistoryAsync();
                 } else addAIMessage(result);
