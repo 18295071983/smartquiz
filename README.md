@@ -2,6 +2,7 @@
 
 > 集成本地大语言模型推理与 Agent 智能代理的 Android 综合学习平台
 
+[![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen)](CHANGELOG.md)
 [![Android](https://img.shields.io/badge/Android-12%2B-brightgreen)](https://developer.android.com)
 [![Java](https://img.shields.io/badge/Java-17-orange)](https://openjdk.org/projects/jdk/17/)
 [![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
