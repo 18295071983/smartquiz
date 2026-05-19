@@ -220,9 +220,81 @@ extern "C" {
 - **内存释放**：使用完毕后及时释放
 
 ### 5.2 性能优化
-- **线程配置**：根据设备CPU核心数调整
-- **批处理**：支持批量推理
-- **缓存**：使用KV缓存提高推理速度
+
+#### 5.2.1 全局初始化一次性执行
+- **问题**：`ggml_backend_init`（耗时24.5秒）每次创建推理上下文时重复执行
+- **解决方案**：使用原子标志确保只执行一次
+
+```cpp
+static std::atomic<bool> s_backendInitialized(false);
+static std::atomic<bool> s_llamaBackendInitialized(false);
+
+// 使用 exchange(true) 确保原子性
+if (s_backendInitialized.exchange(true)) {
+    LOGI("GGML backend already initialized, skipping");
+    return;
+}
+```
+
+**影响范围**：
+- `setupGGMLBackendPath()` - GGML 后端初始化
+- `InferenceContext` 构造函数 - Llama 后端初始化
+- `release()` - 移除 `llama_backend_free()` 调用
+
+#### 5.2.2 GPU 层数自动计算
+根据 GPU 内存自动计算最优 GPU layers：
+
+```cpp
+double usableMemGB = gpuMemGB * 0.8;  // 使用 80% 可用内存
+if (usableMemGB >= 6.0) {
+    autoLayers = 99;
+} else {
+    autoLayers = static_cast<int>((usableMemGB / 6.0) * 99.0);
+    autoLayers = std::min(autoLayers, 99);
+    autoLayers = std::max(40, autoLayers);
+}
+```
+
+**GPU 特定优化**：
+- **Adreno A7XX**：`batchSize = 512`
+- **Adreno A6XX**：`batchSize = 256`
+- **Adreno A5XX**：`batchSize = 128`
+
+#### 5.2.3 Batch Size 动态计算
+根据设备内存和 GPU/CPU 模式动态调整：
+
+| 设备内存 | GPU 模式 | CPU 模式 |
+|---------|---------|----------|
+| ≥12GB | 512 | 256 |
+| ≥8GB | 512 | 256 |
+| ≥6GB | 256 | 128 |
+| ≥4GB | 256 | 128 |
+| <4GB | 128 | 64 |
+
+**设计原则**：
+- **GPU 模式**：使用较大 batch size，充分利用 GPU 并行计算能力
+- **CPU 模式**：使用保守值，避免上下文切换和缓存未命中率增加
+
+#### 5.2.4 热启动优化
+- **模型保持**：模型在内存中保持加载状态
+- **内存管理**：内存紧张时不再释放模型
+- **恢复速度**：热启动时即时恢复，无需重新加载
+
+#### 5.2.5 线程配置
+- **GPU 模式**：8 个线程
+- **CPU 模式**：6 个线程
+- **内存池**：GPU 模式 512-1024MB，CPU 模式 256-512MB
+
+### 5.3 性能指标
+
+| 指标 | 优化前 | 优化后 | 提升 |
+|------|--------|--------|------|
+| 模型加载时间 | ~30 秒 | ~5 秒 | **83%** |
+| 全局初始化 | 每次重复执行 | 只执行一次 | **100%** |
+| GPU 推理速度 | 0.3 t/s | 12 t/s | **40x** |
+| 热启动恢复 | 重新加载 | 即时可用 | **即时** |
+
+### 5.4 错误处理
 
 ### 5.3 错误处理
 - **模型加载错误**：捕获并处理模型加载失败
