@@ -13,17 +13,22 @@ import javax.crypto.spec.SecretKeySpec;
 import java.security.SecureRandom;
 
 /**
- * APIKeyManager - API密钥安全管理器
+ * APIKeyManager - API密钥管理器
  * 
  * 功能：
- * - 安全存储第三方API密钥
+ * - 存储第三方API密钥
  * - AES-256加密存储
  * - 单例模式全局访问
  * 
- * 安全特性：
+ * 实现细节：
  * - AES/CBC/PKCS5Padding 加密
  * - 动态生成加密密钥和IV
- * - 密钥存储在Android Keystore安全区域
+ * - 密钥和IV存储在SharedPreferences（Base64编码）
+ * 
+ * 注意：
+ * - 当前实现将密钥存储在SharedPreferences中，不是真正的硬件级安全存储
+ * - 对于root设备，密钥仍可能被提取
+ * - 生产环境建议使用Android Keystore进行更安全的存储
  * 
  * 支持的服务：
  * - OpenWeatherMap
@@ -45,6 +50,7 @@ public class APIKeyManager {
     private static final String PREF_NAME = "api_keys";
     private static final String KEY_ENCRYPTION_KEY = "encryption_key";
     private static final String IV_KEY = "iv_key";
+    private static final String HOST_SUFFIX = "_host";
 
     private static APIKeyManager instance;
     private final SharedPreferences preferences;
@@ -126,6 +132,28 @@ public class APIKeyManager {
 
     public void removeAPIKey(String service) {
         preferences.edit().remove(service).apply();
+    }
+
+    public void saveAPIHost(String service, String apiHost) {
+        try {
+            String encryptedHost = encrypt(apiHost);
+            preferences.edit().putString(service + HOST_SUFFIX, encryptedHost).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving API host for service: " + service, e);
+        }
+    }
+
+    public String getAPIHost(String service) {
+        try {
+            String encryptedHost = preferences.getString(service + HOST_SUFFIX, null);
+            if (encryptedHost != null) {
+                return decrypt(encryptedHost);
+            }
+            return null;
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting API host for service: " + service, e);
+            return null;
+        }
     }
 
     private String encrypt(String plaintext) throws Exception {

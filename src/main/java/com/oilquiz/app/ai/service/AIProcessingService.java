@@ -14,6 +14,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
+import com.oilquiz.app.ai.jni.LlamaHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -358,34 +359,45 @@ public class AIProcessingService extends Service {
                 sendLogBroadcast(LOG_LEVEL_INFO, msg);
             }
 
-            msg = "Calling aiService.generateStream() for streaming...";
+            msg = "Using chat context for streaming...";
             Log.i(TAG, msg);
             AILogger.i(TAG, msg);
             sendLogBroadcast(LOG_LEVEL_INFO, msg);
 
             long startTime = System.currentTimeMillis();
             
-            // 使用流式生成
-            String generateMsg = "Calling aiService.generateStream...";
+            String globalPrompt = "";
+            String normalPrompt = "";
+            String sysPrompt = systemPrompt != null ? systemPrompt : "";
+            
+            if (!aiService.isChatContextActive()) {
+                String contextMsg = "Creating chat context...";
+                Log.i(TAG, contextMsg);
+                AILogger.i(TAG, contextMsg);
+                sendLogBroadcast(LOG_LEVEL_INFO, contextMsg);
+                
+                boolean contextCreated = aiService.initChatContext(globalPrompt, sysPrompt, normalPrompt);
+                if (!contextCreated) {
+                    String errorMsg = "Failed to create chat context";
+                    Log.e(TAG, errorMsg);
+                    AILogger.e(TAG, errorMsg);
+                    sendLogBroadcast(LOG_LEVEL_ERROR, errorMsg);
+                    sendTaskCompletedBroadcast(taskType, null, "创建聊天上下文失败");
+                    return;
+                }
+                
+                contextMsg = "Chat context created successfully";
+                Log.i(TAG, contextMsg);
+                AILogger.i(TAG, contextMsg);
+                sendLogBroadcast(LOG_LEVEL_INFO, contextMsg);
+            }
+
+            String generateMsg = "Calling aiService.chatSend...";
             Log.i(TAG, generateMsg);
             AILogger.i(TAG, generateMsg);
             sendLogBroadcast(LOG_LEVEL_INFO, generateMsg);
-            
-            List<PromptBuilder.Message> history = PromptBuilder.createHistoryFromAlternating(
-                    historyUser != null ? historyUser : new ArrayList<>(), 
-                    historyAssistant != null ? historyAssistant : new ArrayList<>());
 
-            PromptBuilder.PromptRequest promptRequest = new PromptBuilder.PromptRequest()
-                .history(history)
-                .query(prompt);
-            if (systemPrompt != null && !systemPrompt.isEmpty()) {
-                promptRequest.system(systemPrompt);
-            }
-            if (thinkingInstruction != null && !thinkingInstruction.isEmpty()) {
-                promptRequest.thinking(thinkingInstruction);
-            }
-
-            aiService.generateStream(prompt, history, maxTokens, promptRequest, new AIService.GenerateStreamCallback() {
+            aiService.chatSend(prompt, maxTokens, false, new LlamaHelper.TokenCallback() {
                 private StringBuilder fullResult = new StringBuilder();
                 private int tokenLogCounter = 0;
 
@@ -393,54 +405,38 @@ public class AIProcessingService extends Service {
                 public void onToken(String token) {
                     fullResult.append(token);
                     sendTokenBroadcast(token);
-                    // 避免每个 token 都打日志/广播拖垮主线程与 LogViewer
                     if ((++tokenLogCounter & 0x3f) == 0) {
                         Log.d(TAG, "onToken stream progress, chars=" + fullResult.length());
                     }
                 }
                 
                 @Override
-                public void onSuccess(String fullText) {
+                public void onComplete(String fullText) {
+                    String result = fullText != null ? fullText : fullResult.toString();
                     long elapsed = System.currentTimeMillis() - startTime;
 
-                    String localMsg = "onSuccess called! Elapsed: " + elapsed + "ms";
+                    String localMsg = "onComplete called! Elapsed: " + elapsed + "ms";
                     Log.i(TAG, localMsg);
                     AILogger.i(TAG, localMsg);
                     sendLogBroadcast(LOG_LEVEL_INFO, localMsg);
 
-                    localMsg = "Result length: " + (fullText != null ? fullText.length() : 0);
+                    localMsg = "Result length: " + result.length();
                     Log.i(TAG, localMsg);
                     AILogger.i(TAG, localMsg);
                     sendLogBroadcast(LOG_LEVEL_INFO, localMsg);
 
-                    localMsg = "Result preview: " + (fullText != null && fullText.length() > 100 ? fullText.substring(0, 100) + "..." : fullText);
-                    Log.i(TAG, localMsg);
-                    AILogger.i(TAG, localMsg);
-                    sendLogBroadcast(LOG_LEVEL_INFO, localMsg);
-
-                    sendTaskCompletedBroadcast(taskType, fullText, null);
-                    localMsg = "Broadcast sent successfully";
-                    Log.i(TAG, localMsg);
-                    AILogger.i(TAG, localMsg);
-                    sendLogBroadcast(LOG_LEVEL_INFO, localMsg);
+                    sendTaskCompletedBroadcast(taskType, result, null);
                 }
                 
                 @Override
-                public void onError(Exception error) {
+                public void onError(String error) {
                     long elapsed = System.currentTimeMillis() - startTime;
-                    String localMsg = "onError called! Error after " + elapsed + "ms: " + error.getMessage();
+                    String localMsg = "onError called! Error after " + elapsed + "ms: " + error;
                     Log.e(TAG, localMsg);
                     AILogger.e(TAG, localMsg);
                     sendLogBroadcast(LOG_LEVEL_ERROR, localMsg);
                     
-                    if (error.getCause() != null) {
-                        String causeMsg = "Cause: " + error.getCause().getMessage();
-                        Log.e(TAG, causeMsg);
-                        AILogger.e(TAG, causeMsg);
-                        sendLogBroadcast(LOG_LEVEL_ERROR, causeMsg);
-                    }
-                    
-                    sendTaskCompletedBroadcast(taskType, null, "生成失败: " + error.getMessage());
+                    sendTaskCompletedBroadcast(taskType, null, "生成失败: " + error);
                 }
             });
             

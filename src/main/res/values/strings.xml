@@ -3,6 +3,10 @@
     <!-- 应用基本信息 -->
     <string name="app_name">答题宝</string>
     
+    <!-- 权限标签 -->
+    <string name="permission_debug_inject_label">Debug API Key Injection</string>
+    <string name="permission_debug_inject_desc">Allows injecting API keys for debugging purposes</string>
+    
     <!-- 主页面 -->
     <string name="welcome_back">欢迎回来！</string>
     <string name="start_learning_today">开始今天的学习吧</string>
@@ -446,5 +450,26 @@
     <string name="permission_required">需要权限</string>
     <string name="permission_denied">权限被拒绝</string>
     
+    <!-- Theme related -->
+    <string name="light_mode">浅色模式</string>
+    <string name="system_default">系统默认</string>
+    <string name="save_settings">保存设置</string>
+    <string name="theme_mode">主题模式</string>
+    <string name="theme_color">主题颜色</string>
+    <string name="personalize_your_app">个性化你的应用</string>
+    <string name="choose_your_theme">选择你喜欢的主题和颜色</string>
+    <string name="light_mode_desc">明亮清晰的界面</string>
+    <string name="dark_mode_desc">护眼节能的界面</string>
+    <string name="system_mode_desc">与系统主题保持一致</string>
+    <string name="blue">蓝色</string>
+    <string name="green">绿色</string>
+    <string name="purple">紫色</string>
+    <string name="orange">橙色</string>
+    <string name="pink">粉色</string>
+    <string name="teal">青色</string>
+    <string name="indigo">靛蓝</string>
+    <string name="theme_applied">主题已应用，重启应用生效</string>
+    <string name="color_selected">已选择%1$s主题</string>
+
     <!-- Common -->
 </resources>

@@ -12,8 +12,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="穿衣"
-        android:textSize="12sp"
-        android:textColor="?attr/colorOnSurfaceVariant"/>
+        android:textSize="11sp"
+        android:textColor="#94A3B8"/>
 
     <TextView
         android:id="@+id/tv_index_value"
@@ -21,8 +21,8 @@
         android:layout_height="wrap_content"
         android:text="适宜"
         android:textSize="14sp"
-        android:textColor="?attr/colorOnSurface"
+        android:textColor="#334155"
         android:textStyle="bold"
-        android:layout_marginTop="4dp"/>
+        android:layout_marginTop="6dp"/>
 
 </LinearLayout>

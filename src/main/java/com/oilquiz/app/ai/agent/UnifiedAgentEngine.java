@@ -57,17 +57,14 @@ public class UnifiedAgentEngine {
     private final AtomicReference<StringBuilder> currentResponse = new AtomicReference<>(new StringBuilder());
     private final AtomicReference<StringBuilder> currentThinking = new AtomicReference<>(new StringBuilder());
     private final AtomicBoolean isInThinking = new AtomicBoolean(false);
-    private final List<String> conversationContext = Collections.synchronizedList(new ArrayList<>());
+
+    private final List<String> contextSummary = Collections.synchronizedList(new ArrayList<>());
 
     private ReasoningMode currentMode = ReasoningMode.AUTO;
     private int maxToolLoops = 5;
     private AgentCallback callback;
 
-    private static final int MAX_CONTEXT_ENTRIES = 20;
-    private static final int MAX_ENTRY_LENGTH = 1000;
-    private static final int MAX_CONTEXT_CHARS = 12000;
     private static final int TOOL_RESULT_MAX_LENGTH = 1500;
-    private static final int SUMMARY_TRIGGER_ENTRIES = 15;
 
     public UnifiedAgentEngine(Activity activity, AIService aiService, AgentService agentService) {
         this.activity = activity;
@@ -145,130 +142,67 @@ public class UnifiedAgentEngine {
         currentResponse.set(new StringBuilder());
         currentThinking.set(new StringBuilder());
         isInThinking.set(enableThinking);
+        contextSummary.clear();
 
-        conversationContext.add("用户: " + truncateForContext(message));
+        contextSummary.add("用户: " + truncateForContext(message));
 
-        SmartIntentRecognizer.IntentResult intent = analyzeIntentWithContext(message);
-        ReasoningMode mode = selectBestMode(intent);
+        executor.submit(() -> {
+            try {
+                SmartIntentRecognizer.IntentResult intent = analyzeIntentWithContext(message);
+                ReasoningMode mode = selectBestMode(intent);
 
-        AILogger.i(TAG, "Execute: intent=" + intent.intent.id + " conf=" + intent.confidence
-            + " mode=" + mode.name() + " needsTool=" + intent.needsTool());
+                AILogger.i(TAG, "Execute: intent=" + intent.intent.id + " conf=" + intent.confidence
+                    + " mode=" + mode.name() + " needsTool=" + intent.needsTool());
 
-        String contextHint = buildContextEnhancedHint(intent);
-        String fullMessage = contextHint + message;
-
-        String intentHint = "";
-        if (intent.needsTool() && intent.confidence >= 0.5) {
-            String recommendedTool = intentRecognizer.getRecommendedTool(intent.intent);
-            if (recommendedTool != null) {
-                intentHint = "\n[提示] 用户可能需要使用工具: " + recommendedTool;
-                if (intent.extractedEntity != null) {
-                    intentHint += "，关键信息: " + intent.extractedEntity;
+                String intentHint = "";
+                if (intent.needsTool() && intent.confidence >= 0.5) {
+                    String recommendedTool = intentRecognizer.getRecommendedTool(intent.intent);
+                    if (recommendedTool != null) {
+                        intentHint = "\n[提示] 用户可能需要使用工具: " + recommendedTool;
+                        if (intent.extractedEntity != null) {
+                            intentHint += "，关键信息: " + intent.extractedEntity;
+                        }
+                        intentHint += "（你也可以选择不使用工具直接回答，或使用其他更合适的工具）\n";
+                    }
                 }
-                intentHint += "（你也可以选择不使用工具直接回答，或使用其他更合适的工具）\n";
-            }
-        }
 
-        notifyStep("意图识别", intent.intent.displayName + " (置信度:" + String.format("%.0f%%", intent.confidence * 100) + ") → " + mode.displayName);
+                notifyStep("意图识别", intent.intent.displayName + " (置信度:" + String.format("%.0f%%", intent.confidence * 100) + ") → " + mode.displayName);
 
-        switch (mode) {
-            case REACT:
-                executeReActLoop(fullMessage + intentHint, maxTokens, enableThinking);
-                break;
-            case CHAIN_OF_THOUGHT:
-                executeCoTLoop(fullMessage + intentHint, maxTokens, enableThinking);
-                break;
-            case PLAN_EXECUTE:
-                executePlanLoop(fullMessage + intentHint, maxTokens, enableThinking);
-                break;
-            case DIRECT:
-            default:
-                executeDirect(fullMessage + intentHint, maxTokens, enableThinking);
-                break;
-        }
-    }
-
-    private String buildContextEnhancedHint(SmartIntentRecognizer.IntentResult intent) {
-        if (conversationContext.size() <= 2) return "";
-
-        StringBuilder hint = new StringBuilder();
-        hint.append("[上下文信息]\n");
-        hint.append("当前是第").append(conversationContext.size() / 2 + 1).append("轮对话。\n");
-
-        List<String> recentObservations = new ArrayList<>();
-        List<String> recentReplies = new ArrayList<>();
-        synchronized (conversationContext) {
-            for (int i = conversationContext.size() - 1; i >= 0 && recentObservations.size() < 3; i--) {
-                String entry = conversationContext.get(i);
-                if (entry.startsWith("Observation:") || entry.startsWith("工具结果:")) {
-                    recentObservations.add(0, entry);
-                } else if (entry.startsWith("助手:")) {
-                    recentReplies.add(0, entry);
+                switch (mode) {
+                    case REACT:
+                        executeReActLoop(message + intentHint, maxTokens, enableThinking);
+                        break;
+                    case CHAIN_OF_THOUGHT:
+                        executeCoTLoop(message + intentHint, maxTokens, enableThinking);
+                        break;
+                    case PLAN_EXECUTE:
+                        executePlanLoop(message + intentHint, maxTokens, enableThinking);
+                        break;
+                    case DIRECT:
+                    default:
+                        executeDirect(message + intentHint, maxTokens, enableThinking);
+                        break;
                 }
+            } catch (Exception e) {
+                AILogger.e(TAG, "Error in execute: " + e.getMessage(), e);
+                notifyError("执行失败: " + e.getMessage());
             }
-        }
-
-        if (!recentObservations.isEmpty()) {
-            hint.append("最近的工具查询结果:\n");
-            for (String obs : recentObservations) {
-                hint.append("  ").append(truncateForContext(obs, 200)).append("\n");
-            }
-        }
-
-        if (!recentReplies.isEmpty() && recentReplies.size() >= 2) {
-            hint.append("之前的对话已在探讨相关问题，请保持回答的连贯性。\n");
-        }
-
-        hint.append("你可以参考以上上下文信息来理解用户的意图。\n\n");
-        return hint.toString();
+        });
     }
 
     public String getContextSummary() {
         StringBuilder summary = new StringBuilder();
-        summary.append("对话共").append(conversationContext.size()).append("条记录。");
-        synchronized (conversationContext) {
+        summary.append("对话共").append(contextSummary.size()).append("条记录。");
+        synchronized (contextSummary) {
             int userCount = 0;
             int toolCount = 0;
-            for (String entry : conversationContext) {
+            for (String entry : contextSummary) {
                 if (entry.startsWith("用户:")) userCount++;
                 if (entry.startsWith("Observation:") || entry.startsWith("工具结果:")) toolCount++;
             }
             summary.append("用户提问").append(userCount).append("次，工具调用").append(toolCount).append("次。");
         }
         return summary.toString();
-    }
-
-    private void executeDirectToolCall(SmartIntentRecognizer.IntentResult intent, int maxTokens) {
-        String toolName = intentRecognizer.getRecommendedTool(intent.intent);
-        if (toolName == null) {
-            AILogger.w(TAG, "No tool for intent: " + intent.intent.id);
-            executeDirect(intent.intent.displayName, maxTokens, false);
-            return;
-        }
-
-        String args = buildToolArgs(intent);
-        notifyToolCallStart(toolName, args);
-        notifyStep("调用工具", toolName);
-
-        executor.execute(() -> {
-            if (isCancelled.get()) { finishGeneration(); return; }
-
-            AgentService.ToolCall call = new AgentService.ToolCall(toolName, args);
-            AgentService.ToolResult result = agentService.executeTool(call);
-
-            activity.runOnUiThread(() -> {
-                if (callback != null) callback.onToolCallComplete(toolName, result);
-            });
-
-            if (isCancelled.get()) { finishGeneration(); return; }
-
-            String toolResultStr = result.success ? result.result : "工具执行失败: " + result.result;
-            conversationContext.add("工具结果: " + truncateForContext(toolResultStr, TOOL_RESULT_MAX_LENGTH));
-
-            String synthesisPrompt = buildSynthesisPrompt(intent, toolResultStr);
-            resetBuffers();
-            executeReActLoop(synthesisPrompt, maxTokens, false);
-        });
     }
 
     private String buildToolArgs(SmartIntentRecognizer.IntentResult intent) {
@@ -286,18 +220,6 @@ public class UnifiedAgentEngine {
         return "{}";
     }
 
-    private String buildSynthesisPrompt(SmartIntentRecognizer.IntentResult intent, String toolResult) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[工具调用结果整合]\n\n");
-        sb.append("用户意图: ").append(intent.intent.displayName).append("\n");
-        if (intent.extractedEntity != null) {
-            sb.append("关键信息: ").append(intent.extractedEntity).append("\n");
-        }
-        sb.append("\n工具返回数据:\n").append(truncateForContext(toolResult, TOOL_RESULT_MAX_LENGTH)).append("\n\n");
-        sb.append("请基于以上工具数据，用自然、友好的语言回答用户。如果数据不完整，请补充常识性信息。");
-        return sb.toString();
-    }
-
     private void executeReActLoop(String message, int maxTokens, boolean enableThinking) {
         String prompt = buildReActPrompt(message);
         sendAndProcess(prompt, maxTokens, enableThinking, new ResponseHandler() {
@@ -313,7 +235,7 @@ public class UnifiedAgentEngine {
 
             @Override
             public void onFinalResponse(String responseText) {
-                conversationContext.add("助手: " + truncateForContext(responseText));
+                contextSummary.add("助手: " + truncateForContext(responseText));
                 notifyComplete(responseText);
             }
         });
@@ -337,7 +259,7 @@ public class UnifiedAgentEngine {
     private void handleReActToolCall(String responseText, int maxTokens) {
         List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
         if (toolCalls.isEmpty()) {
-            conversationContext.add("助手: " + truncateForContext(responseText));
+            contextSummary.add("助手: " + truncateForContext(responseText));
             notifyComplete(responseText);
             return;
         }
@@ -347,7 +269,6 @@ public class UnifiedAgentEngine {
         iterationCount.incrementAndGet();
 
         AILogger.i(TAG, "ReAct tool call #" + toolLoopCount.get() + ": " + call.name);
-        conversationContext.add("助手: [Action: 调用 " + call.name + "]");
         notifyToolCallStart(call.name, call.arguments);
         notifyStep("ReAct步骤" + iterationCount.get(), "调用工具: " + call.name);
 
@@ -362,33 +283,41 @@ public class UnifiedAgentEngine {
 
             if (isCancelled.get()) { finishGeneration(); return; }
 
-            String obsEntry = "Observation: " + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH);
-            if (!result.success) {
-                obsEntry += " [失败]";
-            }
-            conversationContext.add(obsEntry);
-
-            maybeSummarizeContext();
+            String toolResultStr = result.success ? result.result : "工具执行失败: " + result.result;
+            contextSummary.add("Observation: " + truncateForContext(toolResultStr, TOOL_RESULT_MAX_LENGTH));
 
             if (toolLoopCount.get() >= maxToolLoops) {
-                String summary = buildReActSummaryPrompt();
+                String summary = buildToolResultsSummaryPrompt();
                 resetBuffers();
                 executeDirect(summary, maxTokens, false);
                 return;
             }
 
-            String nextPrompt = "[ReAct继续] 观察结果：\n" + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH)
-                + "\n\n请继续思考，如需更多信息请调用工具，否则给出最终答案。";
+            String nextPrompt = "[ReAct继续] 工具返回：\n" + toolResultStr + "\n\n请继续思考，如需更多信息请调用工具，否则给出最终答案。";
             resetBuffers();
-            executeReActLoop(nextPrompt, maxTokens, false);
+            sendAndProcess(nextPrompt, maxTokens, false, new ResponseHandler() {
+                @Override
+                public void onThinkingToken(String token) {
+                    notifyThinkingToken(token);
+                }
+                @Override
+                public void onToolCallDetected(String text) {
+                    handleReActToolCall(text, maxTokens);
+                }
+                @Override
+                public void onFinalResponse(String text) {
+                    contextSummary.add("助手: " + truncateForContext(text));
+                    notifyComplete(text);
+                }
+            });
         });
     }
 
-    private String buildReActSummaryPrompt() {
+    private String buildToolResultsSummaryPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("[ReAct总结] 已收集信息：\n\n");
-        synchronized (conversationContext) {
-            for (String ctx : conversationContext) {
+        sb.append("[总结] 已收集工具结果：\n\n");
+        synchronized (contextSummary) {
+            for (String ctx : contextSummary) {
                 if (ctx.startsWith("Observation:") || ctx.startsWith("工具结果:")) {
                     sb.append(ctx).append("\n");
                 }
@@ -413,7 +342,7 @@ public class UnifiedAgentEngine {
 
             @Override
             public void onFinalResponse(String responseText) {
-                conversationContext.add("助手: " + truncateForContext(responseText));
+                contextSummary.add("助手: " + truncateForContext(responseText));
                 notifyComplete(responseText);
             }
         });
@@ -436,7 +365,7 @@ public class UnifiedAgentEngine {
     private void handleCoTToolCall(String responseText, int maxTokens) {
         List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
         if (toolCalls.isEmpty()) {
-            conversationContext.add("助手: " + truncateForContext(responseText));
+            contextSummary.add("助手: " + truncateForContext(responseText));
             notifyComplete(responseText);
             return;
         }
@@ -457,20 +386,33 @@ public class UnifiedAgentEngine {
                 if (callback != null) callback.onToolCallComplete(call.name, result);
             });
 
-            conversationContext.add("工具结果: " + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH));
-
-            maybeSummarizeContext();
+            String toolResultStr = result.success ? result.result : "工具执行失败: " + result.result;
+            contextSummary.add("工具结果: " + truncateForContext(toolResultStr, TOOL_RESULT_MAX_LENGTH));
 
             if (toolLoopCount.get() >= maxToolLoops) {
-                String resp = currentResponse.get().toString();
-                conversationContext.add("助手: " + truncateForContext(resp));
-                notifyComplete(resp);
+                String summary = buildToolResultsSummaryPrompt();
+                resetBuffers();
+                executeDirect(summary, maxTokens, false);
                 return;
             }
 
-            String nextPrompt = "[推理继续] 工具返回：\n" + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH) + "\n\n请继续推理并给出答案。";
+            String nextPrompt = "[推理继续] 工具返回：\n" + toolResultStr + "\n\n请继续推理并给出答案。";
             resetBuffers();
-            executeCoTLoop(nextPrompt, maxTokens, false);
+            sendAndProcess(nextPrompt, maxTokens, false, new ResponseHandler() {
+                @Override
+                public void onThinkingToken(String token) {
+                    notifyThinkingToken(token);
+                }
+                @Override
+                public void onToolCallDetected(String text) {
+                    handleCoTToolCall(text, maxTokens);
+                }
+                @Override
+                public void onFinalResponse(String text) {
+                    contextSummary.add("助手: " + truncateForContext(text));
+                    notifyComplete(text);
+                }
+            });
         });
     }
 
@@ -481,13 +423,12 @@ public class UnifiedAgentEngine {
 
             @Override
             public void onToolCallDetected(String responseText) {
-                conversationContext.add("助手: " + truncateForContext(responseText));
+                contextSummary.add("助手: " + truncateForContext(responseText));
                 notifyComplete(responseText);
             }
 
             @Override
             public void onFinalResponse(String responseText) {
-                conversationContext.add("计划: " + truncateForContext(responseText));
                 executePlanSteps(responseText, maxTokens, message, new StringBuilder());
             }
         });
@@ -588,7 +529,7 @@ public class UnifiedAgentEngine {
             public void onToolCallDetected(String responseText) {
                 List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
                 if (toolCalls.isEmpty()) {
-                    conversationContext.add("助手: " + truncateForContext(responseText));
+                    contextSummary.add("助手: " + truncateForContext(responseText));
                     notifyComplete(responseText);
                     return;
                 }
@@ -604,8 +545,7 @@ public class UnifiedAgentEngine {
                         AILogger.e(TAG, "executeTool returned null for: " + call.name);
                         activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
                         if (isCancelled.get()) { finishGeneration(); return; }
-                        conversationContext.add("工具结果: 执行失败");
-                        maybeSummarizeContext();
+                        contextSummary.add("工具结果: 执行失败");
                         String nextPrompt = "[继续] 工具调用失败，请尝试其他方式完成。";
                         resetBuffers();
                         executeDirect(nextPrompt, maxTokens, false);
@@ -613,21 +553,21 @@ public class UnifiedAgentEngine {
                     }
                     activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, result); });
                     if (isCancelled.get()) { finishGeneration(); return; }
-                    conversationContext.add("工具结果: " + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH));
-                    maybeSummarizeContext();
+                    contextSummary.add("工具结果: " + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH));
                     if (toolLoopCount.get() >= maxToolLoops) {
-                        conversationContext.add("助手: " + truncateForContext(currentResponse.get().toString()));
-                        notifyComplete(currentResponse.get().toString());
+                        String summary = buildToolResultsSummaryPrompt();
+                        resetBuffers();
+                        executeDirect(summary, maxTokens, false);
                         return;
                     }
-                    String nextPrompt = "[继续] 工具返回：\n" + truncateForContext(result.result, TOOL_RESULT_MAX_LENGTH) + "\n\n请基于以上结果继续回答。";
+                    String nextPrompt = "[继续] 工具返回：\n" + result.result + "\n\n请基于以上结果继续回答。";
                     resetBuffers();
                     executeDirect(nextPrompt, maxTokens, false);
                 });
             }
             @Override
             public void onFinalResponse(String responseText) {
-                conversationContext.add("助手: " + truncateForContext(responseText));
+                contextSummary.add("助手: " + truncateForContext(responseText));
                 notifyComplete(responseText);
             }
         });
@@ -646,9 +586,7 @@ public class UnifiedAgentEngine {
             return;
         }
 
-        String contextMessage = buildContextMessage(message);
-
-        aiService.chatSend(contextMessage, maxTokens, enableThinking, new LlamaHelper.TokenCallback() {
+        aiService.chatSend(message, maxTokens, enableThinking, new LlamaHelper.TokenCallback() {
             @Override
             public void onToken(String token) {
                 activity.runOnUiThread(() -> {
@@ -677,7 +615,8 @@ public class UnifiedAgentEngine {
             public void onComplete(String fullText) {
                 String responseText = currentResponse.get().toString();
                 AILogger.i(TAG, "onComplete: len=" + responseText.length());
-                if (responseText.contains("<|tool_call_begin|>") || responseText.contains("tool_call_begin")) {
+                List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
+                if (!toolCalls.isEmpty()) {
                     handler.onToolCallDetected(responseText);
                 } else {
                     handler.onFinalResponse(responseText);
@@ -698,75 +637,8 @@ public class UnifiedAgentEngine {
         });
     }
 
-    private String buildContextMessage(String currentMessage) {
-        if (conversationContext.isEmpty()) return currentMessage;
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("[对话历史 - 共").append(conversationContext.size()).append("条记录]\n");
-
-        int start = Math.max(0, conversationContext.size() - MAX_CONTEXT_ENTRIES);
-
-        int totalChars = 0;
-        List<String> entriesToInclude = new ArrayList<>();
-        for (int i = conversationContext.size() - 1; i >= start && totalChars < MAX_CONTEXT_CHARS; i--) {
-            String entry = conversationContext.get(i);
-            if (entry.length() > MAX_ENTRY_LENGTH) {
-                entry = entry.substring(0, MAX_ENTRY_LENGTH) + "...";
-            }
-            entriesToInclude.add(0, entry);
-            totalChars += entry.length() + 1;
-        }
-
-        for (String entry : entriesToInclude) {
-            sb.append(entry).append("\n");
-        }
-
-        if (entriesToInclude.size() < Math.min(conversationContext.size(), MAX_CONTEXT_ENTRIES)) {
-            sb.append("[...更早的对话已省略...]\n");
-        }
-
-        sb.append("\n").append(currentMessage);
-        return sb.toString();
-    }
-
-    private void maybeSummarizeContext() {
-        if (conversationContext.size() > SUMMARY_TRIGGER_ENTRIES) {
-            compactContext();
-        }
-    }
-
-    private void compactContext() {
-        synchronized (conversationContext) {
-            int removeCount = conversationContext.size() - SUMMARY_TRIGGER_ENTRIES + 5;
-            if (removeCount <= 0) return;
-
-            StringBuilder compactSummary = new StringBuilder();
-            compactSummary.append("[上下文压缩: 省略了").append(removeCount).append("条早期对话记录]\n");
-
-            List<String> keyObservations = new ArrayList<>();
-            for (int i = 0; i < removeCount && i < conversationContext.size(); i++) {
-                String entry = conversationContext.get(i);
-                if ((entry.startsWith("Observation:") || entry.startsWith("工具结果:")) && keyObservations.size() < 3) {
-                    keyObservations.add(entry);
-                }
-            }
-
-            for (String obs : keyObservations) {
-                compactSummary.append("  ").append(truncateForContext(obs, 150)).append("\n");
-            }
-
-            while (conversationContext.size() > SUMMARY_TRIGGER_ENTRIES - 5) {
-                conversationContext.remove(0);
-            }
-
-            conversationContext.add(0, compactSummary.toString());
-
-            AILogger.i(TAG, "Context compacted, now " + conversationContext.size() + " entries");
-        }
-    }
-
     private String truncateForContext(String text) {
-        return truncateForContext(text, MAX_ENTRY_LENGTH);
+        return truncateForContext(text, 1000);
     }
 
     private String truncateForContext(String text, int maxLen) {
@@ -813,13 +685,13 @@ public class UnifiedAgentEngine {
     }
 
     public void clearContext() {
-        conversationContext.clear();
-        AILogger.i(TAG, "Conversation context cleared");
+        contextSummary.clear();
+        AILogger.i(TAG, "Context summary cleared");
     }
 
-    public List<String> getConversationContext() {
-        synchronized (conversationContext) {
-            return new ArrayList<>(conversationContext);
+    public List<String> getContextSummaryList() {
+        synchronized (contextSummary) {
+            return new ArrayList<>(contextSummary);
         }
     }
 

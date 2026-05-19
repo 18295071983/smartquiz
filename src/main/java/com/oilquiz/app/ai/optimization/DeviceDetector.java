@@ -256,15 +256,77 @@ public class DeviceDetector {
         String gpuModel = getGPUModel();
         if (gpuModel == null) return "UNKNOWN";
         
-        if (gpuModel.contains("Adreno 7") || gpuModel.contains("750") || gpuModel.contains("740")) {
+        gpuModel = gpuModel.toLowerCase();
+        
+        if (gpuModel.contains("adreno 8")) {
+            return "A8XX";
+        }
+        if (gpuModel.contains("adreno 7")) {
             return "A7XX";
-        } else if (gpuModel.contains("Adreno 6") || gpuModel.contains("660") || gpuModel.contains("650") || gpuModel.contains("730")) {
+        }
+        if (gpuModel.contains("adreno 6")) {
             return "A6XX";
-        } else if (gpuModel.contains("Adreno 5") || gpuModel.contains("620") || gpuModel.contains("615")) {
+        }
+        if (gpuModel.contains("adreno 5")) {
             return "A5XX";
-        } else if (gpuModel.contains("Adreno 4") || gpuModel.contains("430")) {
+        }
+        if (gpuModel.contains("adreno 4")) {
             return "A4XX";
         }
+        if (gpuModel.contains("adreno 3")) {
+            return "A3XX";
+        }
+        
+        if (gpuModel.contains("890") || gpuModel.contains("880") || 
+            gpuModel.contains("870") || gpuModel.contains("860") ||
+            gpuModel.contains("850") || gpuModel.contains("840") ||
+            gpuModel.contains("830") || gpuModel.contains("820") ||
+            gpuModel.contains("810") || gpuModel.contains("800")) {
+            return "A8XX";
+        }
+        if (gpuModel.contains("750") || gpuModel.contains("740") ||
+            gpuModel.contains("730") || gpuModel.contains("720") ||
+            gpuModel.contains("710") || gpuModel.contains("700")) {
+            return "A7XX";
+        }
+        if (gpuModel.contains("690") || gpuModel.contains("680") ||
+            gpuModel.contains("660") || gpuModel.contains("650") ||
+            gpuModel.contains("640") || gpuModel.contains("630") ||
+            gpuModel.contains("620") || gpuModel.contains("619") ||
+            gpuModel.contains("618") || gpuModel.contains("616") ||
+            gpuModel.contains("615") || gpuModel.contains("610")) {
+            return "A6XX";
+        }
+        if (gpuModel.contains("540") || gpuModel.contains("530") ||
+            gpuModel.contains("520") || gpuModel.contains("512") ||
+            gpuModel.contains("510") || gpuModel.contains("509") ||
+            gpuModel.contains("508") || gpuModel.contains("506") ||
+            gpuModel.contains("505") || gpuModel.contains("504")) {
+            return "A5XX";
+        }
+        if (gpuModel.contains("430") || gpuModel.contains("420") ||
+            gpuModel.contains("418") || gpuModel.contains("405")) {
+            return "A4XX";
+        }
+        if (gpuModel.contains("330") || gpuModel.contains("320") ||
+            gpuModel.contains("305")) {
+            return "A3XX";
+        }
+        
+        String hardware = getHardware();
+        if (hardware != null) {
+            hardware = hardware.toLowerCase();
+            if (hardware.contains("sm86") || hardware.contains("sm85") ||
+                hardware.contains("sm84") || hardware.contains("sm83")) {
+                return "A7XX";
+            }
+            if (hardware.contains("sm82") || hardware.contains("sm81") ||
+                hardware.contains("sm73") || hardware.contains("sm72") ||
+                hardware.contains("sm71")) {
+                return "A6XX";
+            }
+        }
+        
         return "UNKNOWN";
     }
     

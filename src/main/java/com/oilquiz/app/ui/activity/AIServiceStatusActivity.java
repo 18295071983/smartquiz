@@ -40,6 +40,10 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView modelName;
     private View contextLight;
     private TextView contextInfo;
+    private View openclLight;
+    private TextView openclStatus;
+    private View gpuLight;
+    private TextView gpuStatus;
     private TextView engineInfo;
     
     // 功能状态指示灯
@@ -109,6 +113,10 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         modelName = findViewById(R.id.model_name);
         contextLight = findViewById(R.id.context_light);
         contextInfo = findViewById(R.id.context_info);
+        openclLight = findViewById(R.id.opencl_light);
+        openclStatus = findViewById(R.id.opencl_status);
+        gpuLight = findViewById(R.id.gpu_light);
+        gpuStatus = findViewById(R.id.gpu_status);
         engineInfo = findViewById(R.id.engine_info);
 
         // 功能状态指示灯
@@ -224,8 +232,74 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         updateLibraryStatus();
         updateModelStatus(aiService.getCurrentModelName(), modelLoaded);
         updateContextStatus();
+        updateOpenCLStatus();
         updateFunctionStatus(modelLoaded);
         updateContextStats();
+    }
+    
+    private void updateOpenCLStatus() {
+        boolean libLoaded = LlamaHelper.isLibraryLoaded();
+        
+        if (libLoaded) {
+            boolean openclLoaded = LlamaHelper.isOpenCLLoaded();
+            boolean gpuWorking = LlamaHelper.isGPUWorking();
+            int gpuLayers = 0;
+            try {
+                gpuLayers = LlamaHelper.getGPULayers();
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting GPU layers: " + e.getMessage());
+            }
+            
+            if (openclLight != null) {
+                openclLight.setBackgroundResource(openclLoaded ? R.drawable.circle_green : R.drawable.circle_red);
+            }
+            if (openclStatus != null) {
+                openclStatus.setText(openclLoaded ? "已加载" : "未加载");
+                openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
+            }
+            
+            if (gpuLight != null) {
+                gpuLight.setBackgroundResource(gpuWorking ? R.drawable.circle_green : (openclLoaded ? R.drawable.circle_yellow : R.drawable.circle_red));
+            }
+            if (gpuStatus != null) {
+                String gpuMode = "";
+                int gpuColor = 0;
+                
+                if (gpuWorking) {
+                    if (gpuLayers > 0) {
+                        gpuMode = "GPU加速 (" + gpuLayers + "层)";
+                    } else {
+                        gpuMode = "CPU模式";
+                    }
+                    gpuColor = getResources().getColor(R.color.success);
+                } else if (openclLoaded) {
+                    gpuMode = "已就绪";
+                    gpuColor = getResources().getColor(R.color.warning);
+                } else {
+                    gpuMode = "未启用";
+                    gpuColor = getResources().getColor(R.color.error);
+                }
+                
+                gpuStatus.setText(gpuMode);
+                gpuStatus.setTextColor(gpuColor);
+            }
+        } else {
+            if (openclLight != null) {
+                openclLight.setBackgroundResource(R.drawable.circle_red);
+            }
+            if (openclStatus != null) {
+                openclStatus.setText("未加载");
+                openclStatus.setTextColor(getResources().getColor(R.color.error));
+            }
+            
+            if (gpuLight != null) {
+                gpuLight.setBackgroundResource(R.drawable.circle_red);
+            }
+            if (gpuStatus != null) {
+                gpuStatus.setText("未启用");
+                gpuStatus.setTextColor(getResources().getColor(R.color.error));
+            }
+        }
     }
 
     private void updateMainStatus(boolean modelLoaded, boolean isInitialized) {
@@ -233,7 +307,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         int warningColor = getResources().getColor(R.color.warning);
         int errorColor = getResources().getColor(R.color.error);
         
-        // 更新主状态灯和文本
         if (statusLight != null) {
             if (modelLoaded) {
                 statusLight.setBackgroundResource(R.drawable.circle_green);
@@ -256,7 +329,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
         }
         
-        // 更新状态提示
         if (statusHint != null) {
             if (modelLoaded) {
                 statusHint.setText("AI服务已就绪，所有功能可用");
@@ -271,7 +343,22 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         }
         
         if (engineInfo != null) {
-            engineInfo.setText("Llama CPP");
+            String engineDetail = "Llama CPP";
+            if (LlamaHelper.isLibraryLoaded()) {
+                int gpuLayers = 0;
+                try {
+                    gpuLayers = LlamaHelper.getGPULayers();
+                } catch (Exception e) {
+                }
+                if (gpuLayers > 0) {
+                    engineDetail += " (GPU加速, " + gpuLayers + "层)";
+                } else {
+                    engineDetail += " (CPU模式)";
+                }
+            } else {
+                engineDetail += " (库未加载)";
+            }
+            engineInfo.setText(engineDetail);
         }
     }
 
@@ -508,6 +595,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             
             // 刷新上下文状态
             updateContextStatus();
+            
+            // 刷新OpenCL状态
+            updateOpenCLStatus();
             
             // 刷新功能状态
             updateFunctionStatus(modelLoaded);

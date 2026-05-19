@@ -27,6 +27,23 @@ public class AgentService {
     private static final long CACHE_EXPIRY_MS = 300000;
     private static final int MAX_RETRY_COUNT = 2;
 
+    private static final Pattern TOOL_CALL_PATTERN_STANDARD = Pattern.compile(
+        "<\\|tool_call_begin\\|>[\\s\\S]*?function\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?arguments\\s*:\\s*(\\{[^}]*\\})[\\s\\S]*?<\\|tool_call_end\\|>",
+        Pattern.DOTALL
+    );
+    private static final Pattern TOOL_CALL_PATTERN_NO_END = Pattern.compile(
+        "<\\|tool_call_begin\\|>.*?function\\s*:\\s*\"([^\"]+)\".*?arguments\\s*:\\s*(\\{[^}]*\\})",
+        Pattern.DOTALL
+    );
+    private static final Pattern TOOL_CALL_PATTERN_JSON = Pattern.compile(
+        "\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"arguments\"\\s*:\\s*(\\{[^}]*\\})\\s*\\}",
+        Pattern.DOTALL
+    );
+    private static final Pattern TOOL_CALL_PATTERN_MARKDOWN = Pattern.compile(
+        "```json\\s*\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"arguments\"\\s*:\\s*(\\{[^}]*\\})\\s*\\}\\s*```",
+        Pattern.DOTALL
+    );
+
     private final Context context;
     private final AIToolManager toolManager;
     private final List<ToolSchema> toolSchemas = new ArrayList<>();
@@ -283,23 +300,20 @@ public class AgentService {
         List<ToolCall> calls = new ArrayList<>();
         if (output == null || output.isEmpty()) return calls;
 
-        Pattern p1 = Pattern.compile("<\\|tool_call_begin\\|>[\\s\\S]*?function\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?arguments\\s*:\\s*(\\{[^}]*\\})[\\s\\S]*?<\\|tool_call_end\\|>", Pattern.DOTALL);
-        Matcher m1 = p1.matcher(output);
+        Matcher m1 = TOOL_CALL_PATTERN_STANDARD.matcher(output);
         while (m1.find()) {
             calls.add(new ToolCall(m1.group(1), m1.group(2)));
         }
 
         if (calls.isEmpty()) {
-            Pattern p2 = Pattern.compile("<\\|tool_call_begin\\|>.*?function\\s*:\\s*\"([^\"]+)\".*?arguments\\s*:\\s*(\\{[^}]*\\})", Pattern.DOTALL);
-            Matcher m2 = p2.matcher(output);
+            Matcher m2 = TOOL_CALL_PATTERN_NO_END.matcher(output);
             while (m2.find()) {
                 calls.add(new ToolCall(m2.group(1), m2.group(2)));
             }
         }
 
         if (calls.isEmpty()) {
-            Pattern p3 = Pattern.compile("\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"arguments\"\\s*:\\s*(\\{[^}]*\\})\\s*\\}", Pattern.DOTALL);
-            Matcher m3 = p3.matcher(output);
+            Matcher m3 = TOOL_CALL_PATTERN_JSON.matcher(output);
             while (m3.find()) {
                 String toolName = m3.group(1);
                 if (isKnownOrAliasedTool(toolName)) {
@@ -309,8 +323,7 @@ public class AgentService {
         }
 
         if (calls.isEmpty()) {
-            Pattern p4 = Pattern.compile("```json\\s*\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"arguments\"\\s*:\\s*(\\{[^}]*\\})\\s*\\}\\s*```", Pattern.DOTALL);
-            Matcher m4 = p4.matcher(output);
+            Matcher m4 = TOOL_CALL_PATTERN_MARKDOWN.matcher(output);
             while (m4.find()) {
                 calls.add(new ToolCall(m4.group(1), m4.group(2)));
             }
@@ -353,6 +366,16 @@ public class AgentService {
         }
 
         AILogger.i(TAG, "Resolved tool: " + call.name + " -> " + realToolName);
+
+        ValidationResult validation = validateParams(realToolName, params);
+        if (!validation.valid) {
+            String errorMsg = "参数验证失败: " + String.join(", ", validation.errors);
+            AILogger.e(TAG, errorMsg);
+            return new ToolResult(call.name, errorMsg, false, 0, 0);
+        }
+        if (!validation.warnings.isEmpty()) {
+            AILogger.w(TAG, "Params warnings: " + String.join(", ", validation.warnings));
+        }
 
         Map<String, Object> transformedParams = transformToolParams(call.name, realToolName, params);
 

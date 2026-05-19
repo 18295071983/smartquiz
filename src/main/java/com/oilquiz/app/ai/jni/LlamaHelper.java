@@ -37,9 +37,9 @@ import com.oilquiz.app.util.AILogger;
 public class LlamaHelper {
     private static final String TAG = "LlamaHelper";
     private static final String LIBRARY_NAME = "llama-jni";
-    private static boolean libraryLoaded = false;
+    private static volatile boolean libraryLoaded = false;
     
-    private static NativeLogCallback sLogCallback = null;
+    private static volatile NativeLogCallback sLogCallback = null;
     
     public interface NativeLogCallback {
         void onLog(int level, String tag, String message);
@@ -531,16 +531,48 @@ public class LlamaHelper {
     private static int contextUsedTokens = 0;
 
     public static long chatCreate(String modelPath, int ctxSize, int nThreads, String globalPrompt, String systemPrompt, String normalPrompt) {
-        if (!libraryLoaded) return 0;
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "chatCreate: library not loaded");
+            return 0;
+        }
+
+        if (ctxSize <= 0) {
+            AILogger.e(TAG, "chatCreate: invalid ctxSize=" + ctxSize);
+            return 0;
+        }
+
+        if (ctxSize > 16384) {
+            AILogger.w(TAG, "chatCreate: ctxSize " + ctxSize + " may be too large for mobile devices");
+        }
+
+        if (nThreads <= 0) {
+            nThreads = 4;
+        }
+
+        String gPrompt = globalPrompt != null ? globalPrompt : "";
+        String sPrompt = systemPrompt != null ? systemPrompt : "";
+        String nPrompt = normalPrompt != null ? normalPrompt : "";
+
+        AILogger.i(TAG, "chatCreate: ctxSize=" + ctxSize + ", nThreads=" + nThreads +
+                ", globalPromptLen=" + gPrompt.length() +
+                ", systemPromptLen=" + sPrompt.length() +
+                ", normalPromptLen=" + nPrompt.length());
+
         try {
-            chatContextHandle = nativeChatCreate(modelPath, ctxSize, nThreads, globalPrompt, systemPrompt, normalPrompt);
+            chatContextHandle = nativeChatCreate(modelPath, ctxSize, nThreads, gPrompt, sPrompt, nPrompt);
             if (chatContextHandle != 0) {
                 contextTotalSize = ctxSize;
                 contextUsedTokens = 0;
+                AILogger.i(TAG, "chatCreate: success, handle=" + chatContextHandle);
+            } else {
+                AILogger.e(TAG, "chatCreate: nativeChatCreate returned 0");
             }
             return chatContextHandle;
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error creating chat context: " + e.getMessage(), e);
+            AILogger.e(TAG, "chatCreate: UnsatisfiedLinkError: " + e.getMessage(), e);
+            return 0;
+        } catch (Exception e) {
+            AILogger.e(TAG, "chatCreate: Exception: " + e.getMessage(), e);
             return 0;
         }
     }
@@ -569,13 +601,15 @@ public class LlamaHelper {
     }
 
     public static void chatStop() {
-        if (!libraryLoaded || chatContextHandle == 0) return;
-        try { nativeChatStop(chatContextHandle); } catch (UnsatisfiedLinkError e) {}
+        long handle = chatContextHandle;
+        if (!libraryLoaded || handle == 0) return;
+        try { nativeChatStop(handle); } catch (UnsatisfiedLinkError e) {}
     }
 
     public static void chatClear() {
-        if (!libraryLoaded || chatContextHandle == 0) return;
-        try { nativeChatClear(chatContextHandle); } catch (UnsatisfiedLinkError e) {}
+        long handle = chatContextHandle;
+        if (!libraryLoaded || handle == 0) return;
+        try { nativeChatClear(handle); } catch (UnsatisfiedLinkError e) {}
     }
 
     public static synchronized void chatDestroy() {
@@ -649,6 +683,92 @@ public class LlamaHelper {
             return nativeHandleMemoryPressure(level);
         } catch (UnsatisfiedLinkError e) {
             return 0;
+        }
+    }
+    
+    public static boolean isOpenCLLoaded() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot check OpenCL status");
+            return false;
+        }
+        try {
+            return nativeIsOpenCLLoaded();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error checking OpenCL loaded: " + e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    public static boolean isGPUWorking() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot check GPU status");
+            return false;
+        }
+        try {
+            return nativeIsGPUWorking();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error checking GPU working: " + e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    public static String getOpenCLInfo() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot get OpenCL info");
+            return "Library not loaded";
+        }
+        try {
+            return nativeGetOpenCLInfo();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error getting OpenCL info: " + e.getMessage(), e);
+            return "Error: " + e.getMessage();
+        }
+    }
+    
+    public static String getFullDeviceInfoSummary() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== AI 加速信息\n");
+        sb.append("================\n");
+        sb.append("Native库: ").append(libraryLoaded ? "已加载" : "未加载").append("\n");
+        sb.append("模型初始化: ").append(isModelInitialized() ? "是" : "否").append("\n");
+        sb.append("\n=== OpenCL/GPU状态\n");
+        sb.append("================\n");
+        
+        if (libraryLoaded) {
+            sb.append("OpenCL库: ").append(isOpenCLLoaded() ? "已加载" : "未加载").append("\n");
+            sb.append("GPU加速: ").append(isGPUWorking() ? "启用" : "未启用").append("\n");
+            sb.append("\n=== 设备信息\n");
+            sb.append("================\n");
+            try {
+                String deviceInfo = getDeviceInfo();
+                sb.append(deviceInfo);
+            } catch (Exception e) {
+                sb.append("获取设备信息失败: ").append(e.getMessage());
+            }
+        } else {
+            sb.append("Native库未加载，无法获取GPU状态\n");
+        }
+        
+        return sb.toString();
+    }
+    
+    private static native boolean nativeIsOpenCLLoaded();
+    private static native boolean nativeIsGPUWorking();
+    private static native String nativeGetOpenCLInfo();
+    private static native String nativeDetectGPUInfo();
+    
+    public static String detectGPUInfo() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot detect GPU info");
+            return "{}";
+        }
+        try {
+            String info = nativeDetectGPUInfo();
+            AILogger.i(TAG, "GPU info detected: " + info);
+            return info;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error detecting GPU info: " + e.getMessage(), e);
+            return "{}";
         }
     }
 }

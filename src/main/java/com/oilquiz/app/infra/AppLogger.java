@@ -149,6 +149,10 @@ public class AppLogger {
         logAI(LogLevel.DEBUG, tag, message);
     }
     
+    public static void aiW(String tag, String message) {
+        logAI(LogLevel.WARN, tag, message);
+    }
+    
     public static void aiE(String tag, String message) {
         logAI(LogLevel.ERROR, tag, message);
     }

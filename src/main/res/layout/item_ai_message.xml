@@ -45,6 +45,13 @@
                 android:textSize="13sp"
                 android:visibility="gone" />
 
+            <LinearLayout
+                android:id="@+id/inference_progress_placeholder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/message_text"
                 android:layout_width="wrap_content"
@@ -71,92 +78,92 @@
     </LinearLayout>
 
     <TextView
-            android:id="@+id/btn_expand"
+        android:id="@+id/btn_expand"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="展开全文"
+        android:textSize="12sp"
+        android:textColor="@color/primary"
+        android:padding="4dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/action_buttons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btn_copy"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="展开全文"
+            android:text="复制"
             android:textSize="12sp"
-            android:textColor="@color/primary"
+            android:textColor="@color/text_secondary"
             android:padding="4dp"
-            android:layout_marginTop="4dp"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/btn_share"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="分享"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:padding="4dp"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/btn_regenerate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重新生成"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:padding="4dp"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/btn_new_chat"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="新对话"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:padding="4dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="2dp">
+
+        <ImageView
+            android:id="@+id/status_icon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
             android:visibility="gone" />
 
-        <LinearLayout
-            android:id="@+id/action_buttons"
+        <TextView
+            android:id="@+id/status_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:visibility="gone">
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/btn_copy"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="复制"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="4dp"
-                android:layout_marginEnd="12dp" />
-
-            <TextView
-                android:id="@+id/btn_share"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="分享"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="4dp"
-                android:layout_marginEnd="12dp" />
-
-            <TextView
-                android:id="@+id/btn_regenerate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="重新生成"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="4dp"
-                android:layout_marginEnd="12dp" />
-
-            <TextView
-                android:id="@+id/btn_new_chat"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="新对话"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="4dp" />
-
-        </LinearLayout>
-
-        <LinearLayout
+        <TextView
+            android:id="@+id/timestamp_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="2dp">
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginStart="8dp" />
 
-            <ImageView
-                android:id="@+id/status_icon"
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/status_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="11sp"
-                android:textColor="@color/text_secondary"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/timestamp_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="11sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginStart="8dp" />
-
-        </LinearLayout>
+    </LinearLayout>
 
 </LinearLayout>

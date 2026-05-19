@@ -40,6 +40,7 @@ public class ChatModeManager {
     public interface OnModeChangeListener {
         void onModeChanged(ChatMode newMode, boolean isAuto);
         void onModeSwitchRequested(ChatMode requestedMode, boolean duringGeneration);
+        void onContextNeedRebuild();
     }
 
     private final Context context;
@@ -111,15 +112,22 @@ public class ChatModeManager {
     }
 
     private void applyModeChange(ChatMode mode, boolean isAuto) {
-        this.autoModeEnabled = isAuto;
+        ChatMode oldMode = this.currentMode;
+        if (isAuto) {
+            this.autoModeEnabled = true;
+        }
         this.currentMode = mode;
         prefs.edit()
-            .putBoolean(KEY_AUTO_MODE_ENABLED, isAuto)
+            .putBoolean(KEY_AUTO_MODE_ENABLED, this.autoModeEnabled)
             .putString(KEY_CURRENT_MODE, mode.name())
             .apply();
-        AppLogger.ai(TAG, "Mode changed to: " + mode.displayName + " (auto=" + isAuto + ")");
+        AppLogger.ai(TAG, "Mode changed to: " + mode.displayName + " (auto=" + this.autoModeEnabled + ")");
         if (modeChangeListener != null) {
-            modeChangeListener.onModeChanged(mode, isAuto);
+            modeChangeListener.onModeChanged(mode, this.autoModeEnabled);
+            if (oldMode != mode && !isGenerating) {
+                modeChangeListener.onContextNeedRebuild();
+                AppLogger.ai(TAG, "Context rebuild requested due to mode change: " + oldMode.displayName + " -> " + mode.displayName);
+            }
         }
     }
 
@@ -131,11 +139,7 @@ public class ChatModeManager {
         ChatMode determinedMode = analyzeMessageComplexity(userMessage);
         if (determinedMode != currentMode) {
             AppLogger.ai(TAG, "Auto-switched mode: " + currentMode.displayName + " -> " + determinedMode.displayName);
-            this.currentMode = determinedMode;
-            prefs.edit().putString(KEY_CURRENT_MODE, determinedMode.name()).apply();
-            if (modeChangeListener != null) {
-                modeChangeListener.onModeChanged(determinedMode, true);
-            }
+            applyModeChange(determinedMode, true);
         }
         return determinedMode;
     }

@@ -16,7 +16,6 @@ public class AICenterActivity extends AppCompatActivity {
     private MaterialCardView cardLearningAssistant;
     private MaterialCardView cardTranslator;
     private MaterialCardView cardAIChat;
-    private MaterialCardView cardAgentChat;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,7 +33,6 @@ public class AICenterActivity extends AppCompatActivity {
         cardLearningAssistant = findViewById(R.id.card_learning_assistant);
         cardTranslator = findViewById(R.id.card_translator);
         cardAIChat = findViewById(R.id.card_ai_chat);
-        cardAgentChat = findViewById(R.id.card_agent_chat);
     }
 
     private void setupClickListeners() {
@@ -77,13 +75,6 @@ public class AICenterActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 startActivity(new Intent(AICenterActivity.this, AIChatActivity.class));
-            }
-        });
-
-        cardAgentChat.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startActivity(new Intent(AICenterActivity.this, AgentChatActivity.class));
             }
         });
     }

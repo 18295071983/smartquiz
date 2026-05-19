@@ -77,6 +77,89 @@ public class ChatMessage {
         FAILED
     }
 
+    /** 推理阶段 - 用于显示详细进度 */
+    public enum InferencePhase {
+        IDLE("空闲", "💤"),
+        INITIALIZING("正在初始化...", "⚙️"),
+        LOADING_MODEL("正在加载模型...", "📦"),
+        ENCODING("正在编码输入...", "🔄"),
+        PREFILL("正在处理上下文...", "📝"),
+        THINKING("正在思考...", "🤔"),
+        GENERATING("正在生成回复...", "✍️"),
+        DECODING("正在解码...", "📤"),
+        COMPLETED("已完成", "✅"),
+        FAILED("生成失败", "❌"),
+        FALLBACK_TO_CPU("GPU不可用，切换到CPU...", "🔄"),
+        WAITING("等待中...", "⏳");
+
+        private final String displayText;
+        private final String emoji;
+
+        InferencePhase(String displayText, String emoji) {
+            this.displayText = displayText;
+            this.emoji = emoji;
+        }
+
+        public String getDisplayText() {
+            return displayText;
+        }
+
+        public String getEmoji() {
+            return emoji;
+        }
+
+        public String getFullDisplay() {
+            return emoji + " " + displayText;
+        }
+
+        public boolean isProcessing() {
+            return this != IDLE && this != COMPLETED && this != FAILED;
+        }
+    }
+
+    /** 推理进度信息 */
+    public static class InferenceProgress {
+        public InferencePhase phase;
+        public int totalTokens;
+        public int processedTokens;
+        public float tokensPerSecond;
+        public long estimatedRemainingMs;
+        public int overallProgress;
+        public String additionalInfo;
+
+        public InferenceProgress() {
+            this.phase = InferencePhase.IDLE;
+            this.totalTokens = 0;
+            this.processedTokens = 0;
+            this.tokensPerSecond = 0;
+            this.estimatedRemainingMs = 0;
+            this.overallProgress = 0;
+            this.additionalInfo = "";
+        }
+
+        public InferenceProgress(InferencePhase phase) {
+            this.phase = phase;
+            this.totalTokens = 0;
+            this.processedTokens = 0;
+            this.tokensPerSecond = 0;
+            this.estimatedRemainingMs = 0;
+            this.overallProgress = 0;
+            this.additionalInfo = "";
+        }
+
+        public String getEstimatedTimeFormatted() {
+            if (estimatedRemainingMs <= 0) return "";
+            long seconds = (estimatedRemainingMs + 500) / 1000;
+            if (seconds < 60) return seconds + "秒";
+            return (seconds / 60) + "分" + (seconds % 60) + "秒";
+        }
+
+        public int getPercentage() {
+            if (totalTokens <= 0) return 0;
+            return Math.min(100, (processedTokens * 100) / totalTokens);
+        }
+    }
+
     /** 消息唯一ID */
     public String id;
 
@@ -136,6 +219,15 @@ public class ChatMessage {
 
     /** 任务进度（0-100） */
     public Integer taskProgress;
+
+    /** 推理进度信息 */
+    public InferenceProgress inferenceProgress;
+
+    /** 是否使用GPU加速 */
+    public boolean usingGPU;
+
+    /** GPU层数（如果使用GPU） */
+    public int gpuLayers;
 
     /** 是否展开（用于长消息折叠） */
     public boolean isExpanded;
@@ -493,7 +585,10 @@ public class ChatMessage {
         LIKE,
         DISLIKE,
         SHOW_HELP,
-        SHOW_GUIDE
+        SHOW_GUIDE,
+        VIEW_TOOL_DETAILS,
+        EXPORT_SUMMARY,
+        REPORT_ERROR
     }
 
     /**
@@ -539,15 +634,15 @@ public class ChatMessage {
         }
 
         public static Action viewToolDetails(String messageId) {
-            return new Action(ActionType.COPY, messageId, null);
+            return new Action(ActionType.VIEW_TOOL_DETAILS, messageId, null);
         }
 
         public static Action exportSummary(String messageId) {
-            return new Action(ActionType.COPY, messageId, null);
+            return new Action(ActionType.EXPORT_SUMMARY, messageId, null);
         }
 
         public static Action reportError(String messageId, String content) {
-            return new Action(ActionType.COPY, messageId, content);
+            return new Action(ActionType.REPORT_ERROR, messageId, content);
         }
     }
 

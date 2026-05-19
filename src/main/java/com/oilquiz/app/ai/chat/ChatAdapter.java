@@ -13,6 +13,8 @@ import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Animation;
+import android.view.animation.AlphaAnimation;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -46,7 +48,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private final List<ChatMessage> messages;
     private final OnActionClickListener actionClickListener;
-    private final OnTTSClickListener ttsClickListener;
+    private OnTTSClickListener ttsClickListener;
     private OnRetryClickListener retryClickListener;
     private OnMessageClickListener messageClickListener;
     private RecyclerView attachedRecyclerView;
@@ -88,6 +90,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public void setMessageClickListener(OnMessageClickListener listener) {
         this.messageClickListener = listener;
+    }
+
+    public void setTTSClickListener(OnTTSClickListener listener) {
+        this.ttsClickListener = listener;
     }
 
     public ChatAdapter(List<ChatMessage> messages, OnActionClickListener actionClickListener, OnTTSClickListener ttsClickListener) {
@@ -280,7 +286,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         updateThinkingContent(holder, message);
         updateMessageStatus(holder, message);
-        bindMessageStatus(holder.statusIcon, holder.statusText, message.status);
 
         holder.itemView.setOnClickListener(v -> {
             if (messageClickListener != null) {
@@ -351,12 +356,180 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void updateMessageStatus(AIMessageViewHolder holder, ChatMessage message) {
-        if (!message.isCompleted()) {
-            holder.statusIcon.setImageResource(R.drawable.ic_send);
-            holder.statusIcon.setColorFilter(holder.itemView.getContext().getColor(R.color.text_secondary));
-        } else {
+        Context context = holder.itemView.getContext();
+        
+        if (message.isCompleted()) {
+            if (holder.inferenceProgressContainer != null && holder.inferenceProgressContainer.getVisibility() == View.VISIBLE) {
+                holder.inferenceProgressContainer.setVisibility(View.GONE);
+            }
+            
+            holder.statusIcon.setVisibility(View.VISIBLE);
             holder.statusIcon.setImageResource(R.drawable.ic_check_double);
-            holder.statusIcon.setColorFilter(holder.itemView.getContext().getColor(R.color.text_secondary));
+            holder.statusIcon.setColorFilter(context.getColor(R.color.text_secondary));
+            
+            if (message.tokensGenerated > 0) {
+                float seconds = message.generationTimeMs > 0 ? message.generationTimeMs / 1000.0f : 0;
+                float speed = message.generationTimeMs > 0 ? (message.tokensGenerated * 1000.0f) / message.generationTimeMs : 0;
+                holder.statusText.setText(String.format("已完成 · %d token · %.1fs · %.1f t/s", 
+                    message.tokensGenerated, seconds, speed));
+                holder.statusText.setVisibility(View.VISIBLE);
+            } else {
+                holder.statusText.setText("已完成");
+                holder.statusText.setVisibility(View.VISIBLE);
+            }
+        } else {
+            boolean showDetailedProgress = (message.inferenceProgress != null && 
+                message.inferenceProgress.phase != null && 
+                message.inferenceProgress.phase != ChatMessage.InferencePhase.IDLE && 
+                message.inferenceProgress.phase != ChatMessage.InferencePhase.COMPLETED);
+            
+            if (showDetailedProgress) {
+                if (!holder.ensureInferenceProgressView(context)) {
+                    holder.statusIcon.setVisibility(View.VISIBLE);
+                    holder.statusIcon.setImageResource(R.drawable.ic_send);
+                    holder.statusIcon.setColorFilter(context.getColor(R.color.text_secondary));
+                    holder.statusText.setText("生成中...");
+                    holder.statusText.setVisibility(View.VISIBLE);
+                    return;
+                }
+                holder.inferenceProgressContainer.setVisibility(View.VISIBLE);
+                holder.statusIcon.setVisibility(View.GONE);
+                holder.statusText.setVisibility(View.GONE);
+                
+                ChatMessage.InferenceProgress progress = message.inferenceProgress;
+                ChatMessage.InferencePhase phase = progress.phase;
+                
+                if (holder.progressEmoji != null) {
+                    holder.progressEmoji.setText(phase.getEmoji());
+                }
+                if (holder.progressPhaseText != null) {
+                    holder.progressPhaseText.setText(phase.getDisplayText());
+                }
+                
+                if (holder.progressInfoText != null) {
+                    if (progress.additionalInfo != null && !progress.additionalInfo.isEmpty()) {
+                        holder.progressInfoText.setText(progress.additionalInfo);
+                        holder.progressInfoText.setVisibility(View.VISIBLE);
+                    } else {
+                        holder.progressInfoText.setVisibility(View.GONE);
+                    }
+                }
+                
+                int currentStep = getCurrentStep(phase);
+                updateStepIndicator(holder, currentStep, context);
+                
+                if (holder.inferenceProgressBar != null) {
+                    if (phase == ChatMessage.InferencePhase.GENERATING) {
+                        holder.inferenceProgressBar.setIndeterminate(false);
+                        if (progress.totalTokens > 0) {
+                            holder.inferenceProgressBar.setProgress(progress.getPercentage());
+                        } else {
+                            holder.inferenceProgressBar.setIndeterminate(true);
+                        }
+                    } else {
+                        holder.inferenceProgressBar.setIndeterminate(true);
+                    }
+                }
+                
+                int tokenCount = Math.max(progress.processedTokens, message.tokensGenerated);
+                float tps = progress.tokensPerSecond;
+                if (tps <= 0 && tokenCount > 0 && message.generationTimeMs > 0) {
+                    tps = (tokenCount * 1000.0f) / message.generationTimeMs;
+                }
+                
+                if (holder.statsTokens != null) {
+                    holder.statsTokens.setText(String.valueOf(tokenCount));
+                }
+                if (holder.statsSpeed != null) {
+                    holder.statsSpeed.setText(String.format("%.1f t/s", tps));
+                }
+                
+                if (holder.statsRemaining != null) {
+                    String estimatedTime = progress.getEstimatedTimeFormatted();
+                    if (!estimatedTime.isEmpty()) {
+                        holder.statsRemaining.setText(estimatedTime);
+                    } else if (tps > 0 && tokenCount > 0) {
+                        holder.statsRemaining.setText("计算中...");
+                    } else {
+                        holder.statsRemaining.setText("--秒");
+                    }
+                }
+                
+            } else if (message.status == ChatMessage.MessageStatus.GENERATING) {
+                if (holder.inferenceProgressContainer != null) {
+                    holder.inferenceProgressContainer.setVisibility(View.GONE);
+                }
+                holder.statusIcon.setVisibility(View.VISIBLE);
+                holder.statusIcon.setImageResource(R.drawable.ic_send);
+                holder.statusIcon.setColorFilter(context.getColor(R.color.text_secondary));
+                holder.statusText.setVisibility(View.VISIBLE);
+                if (message.tokensGenerated > 0) {
+                    float seconds = message.generationTimeMs > 0 ? message.generationTimeMs / 1000.0f : 0;
+                    float speed = message.generationTimeMs > 0 ? (message.tokensGenerated * 1000.0f) / message.generationTimeMs : 0;
+                    holder.statusText.setText(String.format("生成中... %d token · %.1fs · %.1f t/s", 
+                        message.tokensGenerated, seconds, speed));
+                } else {
+                    holder.statusText.setText("生成中...");
+                }
+            } else {
+                if (holder.inferenceProgressContainer != null) {
+                    holder.inferenceProgressContainer.setVisibility(View.GONE);
+                }
+                holder.statusIcon.setVisibility(View.GONE);
+                holder.statusText.setVisibility(View.GONE);
+            }
+        }
+    }
+    
+    private int getCurrentStep(ChatMessage.InferencePhase phase) {
+        switch (phase) {
+            case INITIALIZING:
+            case LOADING_MODEL:
+            case WAITING:
+                return 1;
+            case PREFILL:
+            case FALLBACK_TO_CPU:
+                return 2;
+            case ENCODING:
+            case THINKING:
+                return 3;
+            case GENERATING:
+            case DECODING:
+                return 4;
+            case COMPLETED:
+                return 4;
+            default:
+                return 1;
+        }
+    }
+    
+    private void updateStepIndicator(AIMessageViewHolder holder, int currentStep, Context context) {
+        View[] dots = {holder.stepDot1, holder.stepDot2, holder.stepDot3, holder.stepDot4};
+        View[] lines = {holder.stepLine1, holder.stepLine2, holder.stepLine3};
+        TextView[] labels = {holder.stepLabel1, holder.stepLabel2, holder.stepLabel3, holder.stepLabel4};
+        
+        for (int i = 0; i < 4; i++) {
+            if (i < currentStep) {
+                if (dots[i] != null) {
+                    dots[i].setBackgroundResource(R.drawable.step_dot_active);
+                }
+                if (labels[i] != null) {
+                    labels[i].setTextColor(context.getColor(R.color.primary));
+                }
+                if (i < 3 && lines[i] != null) {
+                    lines[i].setBackgroundColor(context.getColor(R.color.primary));
+                }
+            } else {
+                if (dots[i] != null) {
+                    dots[i].setBackgroundResource(R.drawable.step_dot_inactive);
+                }
+                if (labels[i] != null) {
+                    labels[i].setTextColor(context.getColor(R.color.text_secondary));
+                }
+                if (i < 3 && lines[i] != null) {
+                    lines[i].setBackgroundColor(context.getColor(R.color.divider));
+                }
+            }
         }
     }
 
@@ -371,7 +544,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             
             holder.expandButton.setOnClickListener(v -> {
                 message.isExpanded = true;
-                notifyItemChanged(messages.indexOf(message), PAYLOAD_EXPANDED_UPDATE);
+                int pos = holder.getAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) {
+                    notifyItemChanged(pos, PAYLOAD_EXPANDED_UPDATE);
+                }
             });
         } else if (message.isExpanded) {
             holder.expandButton.setVisibility(View.VISIBLE);
@@ -381,7 +557,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             
             holder.expandButton.setOnClickListener(v -> {
                 message.isExpanded = false;
-                notifyItemChanged(messages.indexOf(message), PAYLOAD_EXPANDED_UPDATE);
+                int pos = holder.getAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) {
+                    notifyItemChanged(pos, PAYLOAD_EXPANDED_UPDATE);
+                }
             });
         } else {
             holder.expandButton.setVisibility(View.GONE);
@@ -407,6 +586,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindMessageStatus(ImageView icon, TextView text, ChatMessage.MessageStatus status) {
+        bindMessageStatusWithStats(icon, text, status, -1, -1);
+    }
+    
+    private void bindMessageStatusWithStats(ImageView icon, TextView text, ChatMessage.MessageStatus status, int tokensGenerated, long generationTimeMs) {
         if (status == null) {
             icon.setVisibility(View.GONE);
             text.setVisibility(View.GONE);
@@ -429,6 +612,38 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case READ:
                 icon.setImageResource(R.drawable.ic_check_double);
                 text.setText("已读");
+                break;
+            case GENERATING:
+                icon.setImageResource(R.drawable.ic_send);
+                if (tokensGenerated > 0) {
+                    float seconds = generationTimeMs > 0 ? generationTimeMs / 1000.0f : 0;
+                    float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
+                    text.setText(String.format("生成中... %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
+                } else {
+                    text.setText("生成中...");
+                }
+                break;
+            case COMPLETED:
+                icon.setImageResource(R.drawable.ic_check_double);
+                if (tokensGenerated > 0) {
+                    float seconds = generationTimeMs > 0 ? generationTimeMs / 1000.0f : 0;
+                    float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
+                    text.setText(String.format("已完成 · %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
+                } else {
+                    text.setText("已完成");
+                }
+                break;
+            case IN_PROGRESS:
+                icon.setImageResource(R.drawable.ic_send);
+                text.setText("处理中...");
+                break;
+            case FAILED:
+                icon.setImageResource(R.drawable.ic_error);
+                text.setText("执行失败");
+                break;
+            case PAUSED:
+                icon.setImageResource(R.drawable.ic_check);
+                text.setText("已暂停");
                 break;
             case ERROR:
                 icon.setImageResource(R.drawable.ic_error);
@@ -780,10 +995,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     public void updateAIMessageContent(int position, String content) {
-        notifyItemChanged(position, content);
+        if (position < 0 || position >= messages.size()) return;
+        ChatMessage message = messages.get(position);
+        message.content = content;
+        notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
     }
 
     public void updateAIMessageContentWithPayload(int position, String content) {
+        if (position < 0 || position >= messages.size()) return;
+        ChatMessage message = messages.get(position);
+        message.content = content;
         notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
     }
 
@@ -792,6 +1013,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ChatMessage message = messages.get(position);
         message.status = status;
         notifyItemChanged(position, PAYLOAD_STATUS_UPDATE);
+    }
+
+    public void updateMessageThinkingContent(int position, String thinkingContent) {
+        if (position < 0 || position >= messages.size()) return;
+        ChatMessage message = messages.get(position);
+        message.thinkingContent = thinkingContent;
+        notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
     }
 
     public void updateToolCallStatus(int position, ChatMessage.ToolCallInfo.ToolCallStatus status, String result) {
@@ -822,6 +1050,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    public void updateAIMessageFull(int position, String content, String thinkingContent, ChatMessage.MessageStatus status) {
+        if (position < 0 || position >= messages.size()) return;
+        ChatMessage message = messages.get(position);
+        if (content != null) message.content = content;
+        if (thinkingContent != null) message.thinkingContent = thinkingContent;
+        if (status != null) message.status = status;
+        notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
+    }
+
+    public void updateMessageGenerationStats(int position, int tokensGenerated, long generationTimeMs) {
+        if (position < 0 || position >= messages.size()) return;
+        ChatMessage message = messages.get(position);
+        message.tokensGenerated = tokensGenerated;
+        message.generationTimeMs = generationTimeMs;
+        notifyItemChanged(position, PAYLOAD_STATUS_UPDATE);
+    }
+
     public int findMessagePosition(String messageId) {
         for (int i = 0; i < messages.size(); i++) {
             if (messageId.equals(messages.get(i).id)) {
@@ -831,7 +1076,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return -1;
     }
 
+    public ChatMessage getMessage(int position) {
+        if (position < 0 || position >= messages.size()) return null;
+        return messages.get(position);
+    }
+
+    public List<ChatMessage> getMessages() {
+        return messages;
+    }
+
     static class UserMessageViewHolder extends RecyclerView.ViewHolder {
+        TextView blockLabel;
         TextView messageText;
         TextView timestampText;
         ImageView statusIcon;
@@ -839,6 +1094,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         UserMessageViewHolder(View itemView) {
             super(itemView);
+            blockLabel = itemView.findViewById(R.id.block_label);
             messageText = itemView.findViewById(R.id.message_text);
             timestampText = itemView.findViewById(R.id.timestamp_text);
             statusIcon = itemView.findViewById(R.id.status_icon);
@@ -847,6 +1103,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     static class AIMessageViewHolder extends RecyclerView.ViewHolder {
+        TextView blockLabel;
         TextView messageText;
         TextView thinkingLabel;
         TextView thinkingContent;
@@ -860,9 +1117,30 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ImageView statusIcon;
         TextView statusText;
         TextView expandButton;
+        ViewGroup inferenceProgressContainer;
+        TextView progressEmoji;
+        TextView progressPhaseText;
+        TextView progressInfoText;
+        View stepDot1;
+        View stepDot2;
+        View stepDot3;
+        View stepDot4;
+        View stepLine1;
+        View stepLine2;
+        View stepLine3;
+        TextView stepLabel1;
+        TextView stepLabel2;
+        TextView stepLabel3;
+        TextView stepLabel4;
+        ProgressBar inferenceProgressBar;
+        TextView statsTokens;
+        TextView statsSpeed;
+        TextView statsRemaining;
+        View inferenceProgressView;
 
         AIMessageViewHolder(View itemView) {
             super(itemView);
+            blockLabel = itemView.findViewById(R.id.block_label);
             messageText = itemView.findViewById(R.id.message_text);
             thinkingLabel = itemView.findViewById(R.id.thinking_label);
             thinkingContent = itemView.findViewById(R.id.thinking_content);
@@ -876,6 +1154,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             statusIcon = itemView.findViewById(R.id.status_icon);
             statusText = itemView.findViewById(R.id.status_text);
             expandButton = itemView.findViewById(R.id.btn_expand);
+            inferenceProgressContainer = itemView.findViewById(R.id.inference_progress_placeholder);
+        }
+        
+        boolean ensureInferenceProgressView(Context context) {
+            if (inferenceProgressView != null) return true;
+            if (inferenceProgressContainer == null) return false;
+            LayoutInflater inflater = LayoutInflater.from(context);
+            inferenceProgressView = inflater.inflate(R.layout.item_inference_progress, inferenceProgressContainer, false);
+            inferenceProgressContainer.addView(inferenceProgressView);
+            
+            progressEmoji = inferenceProgressView.findViewById(R.id.progress_emoji);
+            progressPhaseText = inferenceProgressView.findViewById(R.id.progress_phase_text);
+            progressInfoText = inferenceProgressView.findViewById(R.id.progress_info_text);
+            stepDot1 = inferenceProgressView.findViewById(R.id.step_dot_1);
+            stepDot2 = inferenceProgressView.findViewById(R.id.step_dot_2);
+            stepDot3 = inferenceProgressView.findViewById(R.id.step_dot_3);
+            stepDot4 = inferenceProgressView.findViewById(R.id.step_dot_4);
+            stepLine1 = inferenceProgressView.findViewById(R.id.step_line_1);
+            stepLine2 = inferenceProgressView.findViewById(R.id.step_line_2);
+            stepLine3 = inferenceProgressView.findViewById(R.id.step_line_3);
+            stepLabel1 = inferenceProgressView.findViewById(R.id.step_label_1);
+            stepLabel2 = inferenceProgressView.findViewById(R.id.step_label_2);
+            stepLabel3 = inferenceProgressView.findViewById(R.id.step_label_3);
+            stepLabel4 = inferenceProgressView.findViewById(R.id.step_label_4);
+            inferenceProgressBar = inferenceProgressView.findViewById(R.id.inference_progress_bar);
+            statsTokens = inferenceProgressView.findViewById(R.id.stats_tokens);
+            statsSpeed = inferenceProgressView.findViewById(R.id.stats_speed);
+            statsRemaining = inferenceProgressView.findViewById(R.id.stats_remaining);
+            return true;
         }
     }
 
@@ -1012,6 +1319,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     static class ErrorMessageViewHolder extends RecyclerView.ViewHolder {
+        TextView errorTitle;
         TextView errorMessage;
         TextView errorDetail;
         TextView btnRetry;
@@ -1019,6 +1327,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         ErrorMessageViewHolder(View itemView) {
             super(itemView);
+            errorTitle = itemView.findViewById(R.id.error_title);
             errorMessage = itemView.findViewById(R.id.error_message);
             errorDetail = itemView.findViewById(R.id.error_detail);
             btnRetry = itemView.findViewById(R.id.btn_retry);

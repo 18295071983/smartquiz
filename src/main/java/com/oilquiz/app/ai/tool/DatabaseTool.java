@@ -593,7 +593,7 @@ public class DatabaseTool implements AITool {
             }
             
             Future<Float> future = databaseManager.getAverageScore(userId);
-            float avgScore = future.get();
+            float avgScore = future.get(10, TimeUnit.SECONDS);
             
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");

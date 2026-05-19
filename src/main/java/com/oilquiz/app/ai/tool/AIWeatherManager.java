@@ -43,6 +43,7 @@ public class AIWeatherManager implements AITool {
     private static final String HEFENG_ALERT_URL = HEFENG_API_HOST + "/v7/warning/now";
     private static final String HEFENG_INDICES_URL = HEFENG_API_HOST + "/v7/indices/1d";
     private static final String HEFENG_GEOCODE_URL = HEFENG_GEO_HOST + "/v2/city/lookup";
+    private static final String DEFAULT_HEFENG_API_KEY = "be2af1f8490344feb8a7125ab46608dd";
 
     private final Context context;
     private final Gson gson;
@@ -67,7 +68,7 @@ public class AIWeatherManager implements AITool {
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
         String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalStateException("和风天气API Key未配置，请在设置中配置");
+            return DEFAULT_HEFENG_API_KEY;
         }
         return apiKey;
     }
@@ -337,6 +338,11 @@ public class AIWeatherManager implements AITool {
             weatherInfo.append("风速: " + windSpeed + " km/h\n");
             weatherInfo.append("风向: " + windDir + "\n");
             weatherInfo.append("能见度: " + visibility + " km\n");
+
+            if (jsonObject.has("fxLink") && !jsonObject.get("fxLink").isJsonNull()) {
+                String fxLink = jsonObject.get("fxLink").getAsString();
+                weatherInfo.append("链接: " + fxLink + "\n");
+            }
 
             return "天气信息:\n" + weatherInfo.toString();
         } catch (Exception e) {
@@ -1422,7 +1428,7 @@ public class AIWeatherManager implements AITool {
             String units = (String) parameters.get("units");
             String lang = (String) parameters.get("lang");
             
-            String result = getOneCallWeather(lat, lon, exclude, units, lang).get();
+            String result = getOneCallWeather(lat, lon, exclude, units, lang).get(10, TimeUnit.SECONDS);
             
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");

@@ -53,7 +53,7 @@ public class GpuAdaptiveTuner {
         }
 
         GpuProfile gpuProfile = gpuDetector.getGpuProfile();
-        GpuTier gpuTier = gpuDatabase.getTier(gpuProfile != null ? gpuProfile.getGpuName() : "");
+        GpuTier gpuTier = gpuDetector.getGpuTier();
 
         currentConfig = initialConfig;
         isTuning.set(true);

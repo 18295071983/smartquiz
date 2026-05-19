@@ -436,5 +436,26 @@ Enter \'Help\' to see more functions.</string>
     <string name="added">✅ Added</string>
     <string name="max_options_reached">❌ Maximum number of options reached</string>
 
+    <!-- Theme related -->
+    <string name="light_mode">Light Mode</string>
+    <string name="system_default">System Default</string>
+    <string name="save_settings">Save Settings</string>
+    <string name="theme_mode">Theme Mode</string>
+    <string name="theme_color">Theme Color</string>
+    <string name="personalize_your_app">Personalize Your App</string>
+    <string name="choose_your_theme">Choose your preferred theme and color</string>
+    <string name="light_mode_desc">Bright and clear interface</string>
+    <string name="dark_mode_desc">Eye-friendly and energy-saving interface</string>
+    <string name="system_mode_desc">Sync with system theme</string>
+    <string name="blue">Blue</string>
+    <string name="green">Green</string>
+    <string name="purple">Purple</string>
+    <string name="orange">Orange</string>
+    <string name="pink">Pink</string>
+    <string name="teal">Teal</string>
+    <string name="indigo">Indigo</string>
+    <string name="theme_applied">Theme applied, restart the app to take effect</string>
+    <string name="color_selected">%1$s theme selected</string>
+
     <!-- Common -->
 </resources>

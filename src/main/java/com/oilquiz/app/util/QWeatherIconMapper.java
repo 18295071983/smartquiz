@@ -112,20 +112,22 @@ public class QWeatherIconMapper {
             case "800":
                 return "☀️";
             case "101":
-            case "801":
+            case "151":
                 return "⛅";
             case "102":
             case "103":
+            case "152":
+            case "153":
             case "802":
             case "803":
-                return "☁️";
+                return "⛅";
             case "104":
             case "804":
-                return "🌑";
+                return "☁️";
             case "200":
             case "201":
-                return "🌤️";
             case "202":
+                return "🌤️";
             case "203":
             case "204":
                 return "☁️";
@@ -138,6 +140,8 @@ public class QWeatherIconMapper {
             case "307":
             case "308":
             case "309":
+            case "350":
+            case "351":
                 return "🌧️";
             case "207":
             case "208":
@@ -170,8 +174,12 @@ public class QWeatherIconMapper {
             case "408":
             case "409":
             case "410":
+            case "456":
+            case "457":
             case "499":
                 return "❄️";
+            case "399":
+                return "🌧️";
             case "500":
             case "501":
             case "502":
@@ -196,6 +204,10 @@ public class QWeatherIconMapper {
                 return "🔥";
             case "601":
                 return "🥶";
+            case "150":
+                return "🌙";
+            case "304":
+                return "🌩️";
             default:
                 return "🌤️";
         }

@@ -4,6 +4,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -23,8 +25,10 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
+import com.oilquiz.app.ai.chat.StreamingUpdateManager;
 import com.oilquiz.app.ai.service.AIProcessingService;
 import com.oilquiz.app.ai.tool.AIToolsManager;
 import com.oilquiz.app.ai.tool.AIEntertainmentManager;
@@ -145,11 +149,20 @@ public class AIChatActivity extends BaseActivity {
     private boolean isUpdateScheduled = false;
     private android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    private StreamingUpdateManager streamingUpdateManager = null;
+    private long totalTokensGenerated = 0;
+    private long generationStartTime = 0;
+    private boolean isLoadingModel = false;
+    private AIService.DetailedStatusObserver aiStatusObserver = null;
+
     private SpeechRecognizerManager speechManager;
     private boolean isVoiceInputActive = false;
     private ActivityResultLauncher<String[]> attachFileLauncher;
     private List<Uri> attachedFiles = new ArrayList<>();
     private List<ChatMessage.Attachment> currentAttachments = new ArrayList<>();
+
+    private TextToSpeech ttsEngine;
+    private boolean ttsInitialized = false;
 
     private final android.content.ComponentCallbacks2 memoryCallback = new android.content.ComponentCallbacks2() {
         @Override
@@ -279,6 +292,8 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
+            registerAIStatusObserver();
+
             chatHistoryManager = new ChatHistoryManager(this);
             chatModeManager = new ChatModeManager(this);
             chatModeManager.setOnModeChangeListener(new ChatModeManager.OnModeChangeListener() {
@@ -296,6 +311,12 @@ public class AIChatActivity extends BaseActivity {
                 @Override
                 public void onModeSwitchRequested(ChatModeManager.ChatMode requestedMode, boolean duringGeneration) {
                     runOnUiThread(() -> showToast("生成完成后将切换到" + requestedMode.displayName + "模式"));
+                }
+
+                @Override
+                public void onContextNeedRebuild() {
+                    needRebuildContext = true;
+                    AppLogger.ai(TAG, "Context rebuild flag set");
                 }
             });
 
@@ -342,9 +363,49 @@ public class AIChatActivity extends BaseActivity {
             if (LocationTool.hasLocationPermission(this)) {
                 loadWeatherBanner();
             }
+
+            initTTS();
+            if (chatAdapter != null) {
+                chatAdapter.setTTSClickListener(this::speakText);
+            }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing data: " + e.getMessage());
             showToast("数据初始化失败: " + e.getMessage());
+        }
+    }
+
+    private void initTTS() {
+        try {
+            ttsEngine = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+                @Override
+                public void onInit(int status) {
+                    if (status == TextToSpeech.SUCCESS) {
+                        int result = ttsEngine.setLanguage(java.util.Locale.CHINESE);
+                        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                            AppLogger.aiW(TAG, "TTS: 中文语音不支持，尝试使用默认语言");
+                            ttsEngine.setLanguage(java.util.Locale.getDefault());
+                        }
+                        ttsInitialized = true;
+                        AppLogger.ai(TAG, "TTS initialized successfully");
+                    } else {
+                        AppLogger.aiE(TAG, "TTS initialization failed with status: " + status);
+                    }
+                }
+            });
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error initializing TTS: " + e.getMessage());
+        }
+    }
+
+    private void speakText(String text) {
+        if (!ttsInitialized || ttsEngine == null || text == null || text.isEmpty()) {
+            return;
+        }
+        try {
+            ttsEngine.stop();
+            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AI_CHAT_TTS_" + System.currentTimeMillis());
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error speaking text: " + e.getMessage());
         }
     }
 
@@ -541,6 +602,8 @@ public class AIChatActivity extends BaseActivity {
             resetStreamingState();
 
             ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
+            initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
+            initialMessage.status = ChatMessage.MessageStatus.GENERATING;
             chatHistory.add(initialMessage);
             currentStreamingMessageIndex = chatHistory.size() - 1;
             if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -556,24 +619,58 @@ public class AIChatActivity extends BaseActivity {
 
             new Thread(() -> {
                 try {
+                    runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
+                    
                     if (!aiService.isInitialized()) {
                         if (!aiService.initializeSafe()) { handleGenerationError("AI服务初始化失败"); return; }
                     }
 
+                    boolean shouldUseAgent = finalAgentMode;
+                    boolean shouldEnableThinking = finalEnableThinking;
+                    
                     if (!aiService.isChatContextActive() || needRebuildContext) {
-                        needRebuildContext = false;
+                        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.PREFILL, "正在构建上下文..."));
+                        
+                        shouldUseAgent = chatModeManager != null
+                            && chatModeManager.getCurrentMode() == ChatModeManager.ChatMode.AGENT;
+                        shouldEnableThinking = chatModeManager != null
+                            && chatModeManager.getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+                        
                         String systemPrompt = getSystemPromptForMode();
-                        String globalPrompt = "你是一个智能AI助手，精通多种领域知识。请使用中文与用户交流。";
-                        if (!aiService.initChatContext(globalPrompt, systemPrompt, getNormalPromptForMode())) {
-                            handleGenerationError("创建对话上下文失败");
+                        String globalPrompt = "你是一个AI助手，请用中文回答。";
+                        String normalPrompt = getNormalPromptForMode();
+                        
+                        long startTime = System.currentTimeMillis();
+                        AppLogger.ai(TAG, "Creating chat context: globalPromptLen=" + globalPrompt.length() + 
+                                ", systemPromptLen=" + systemPrompt.length() + 
+                                ", normalPromptLen=" + normalPrompt.length() +
+                                ", currentMode=" + (chatModeManager != null ? chatModeManager.getCurrentMode().displayName : "null"));
+                        
+                        boolean ctxResult = aiService.initChatContext(globalPrompt, systemPrompt, normalPrompt);
+                        
+                        long elapsed = System.currentTimeMillis() - startTime;
+                        AppLogger.ai(TAG, "Chat context created in " + elapsed + "ms, result=" + ctxResult);
+                        
+                        if (!ctxResult) {
+                            runOnUiThread(() -> {
+                                endGeneration();
+                                addSystemMessage("创建对话上下文失败");
+                            });
                             return;
                         }
+                        
+                        needRebuildContext = false;
                     }
 
-                    if (finalAgentMode && agentChatHandler != null) {
-                        agentChatHandler.startAgentLoop(prompt, 8192, finalEnableThinking);
+                    if (shouldUseAgent && agentChatHandler != null) {
+                        agentChatHandler.startAgentLoop(prompt, 4096, shouldEnableThinking);
                     } else {
-                        aiService.chatSend(prompt, 8192, finalEnableThinking, new StreamingTokenHandler(streamingIndex, streamingId, prompt));
+                        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.ENCODING, "正在编码输入..."));
+                        long chatStartTime = System.currentTimeMillis();
+                        AppLogger.ai(TAG, "Calling aiService.chatSend: promptLen=" + prompt.length() + 
+                                ", maxTokens=4096, thinking=" + shouldEnableThinking);
+                        
+                        aiService.chatSend(prompt, 4096, shouldEnableThinking, new StreamingTokenHandler(streamingIndex, streamingId, prompt, chatStartTime));
                     }
                 } catch (Exception e) {
                     AppLogger.aiE(TAG, "Error in chat: " + e.getMessage());
@@ -587,6 +684,38 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    private void updateInferencePhase(int messageIndex, ChatMessage.InferencePhase phase, String additionalInfo) {
+        if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
+        
+        ChatMessage msg = chatHistory.get(messageIndex);
+        if (msg.inferenceProgress == null) {
+            msg.inferenceProgress = new ChatMessage.InferenceProgress(phase);
+        } else {
+            msg.inferenceProgress.phase = phase;
+        }
+        
+        if (additionalInfo != null) {
+            msg.inferenceProgress.additionalInfo = additionalInfo;
+        }
+        
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemChanged(messageIndex, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+        }
+    }
+    
+    private void updateInferenceProgress(int messageIndex, int processedTokens, float tokensPerSecond) {
+        if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
+        
+        ChatMessage msg = chatHistory.get(messageIndex);
+        if (msg.inferenceProgress != null) {
+            msg.inferenceProgress.processedTokens = processedTokens;
+            msg.inferenceProgress.tokensPerSecond = tokensPerSecond;
+            if (chatAdapter != null) {
+                chatAdapter.notifyItemChanged(messageIndex, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+            }
+        }
+    }
+
     private void handleGenerationError(String errorMsg) {
         runOnUiThread(() -> {
             endGeneration();
@@ -596,6 +725,7 @@ public class AIChatActivity extends BaseActivity {
                     ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
                     msg.content = currentStreamingContent.toString();
                     msg.status = ChatMessage.MessageStatus.COMPLETED;
+                    msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.FAILED);
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                 } else {
                     chatHistory.remove(currentStreamingMessageIndex);
@@ -612,15 +742,31 @@ public class AIChatActivity extends BaseActivity {
         private final int streamingIndex;
         private final String streamingId;
         private final String prompt;
+        private final long chatStartTime;
+        private boolean isFirstToken = true;
+        private int tokenCount = 0;
 
-        StreamingTokenHandler(int streamingIndex, String streamingId, String prompt) {
+        StreamingTokenHandler(int streamingIndex, String streamingId, String prompt, long chatStartTime) {
             this.streamingIndex = streamingIndex;
             this.streamingId = streamingId;
             this.prompt = prompt;
+            this.chatStartTime = chatStartTime;
         }
 
         @Override
         public void onToken(String token) {
+            if (isFirstToken) {
+                isFirstToken = false;
+                runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
+            }
+            tokenCount++;
+            
+            if (tokenCount % 10 == 0) {
+                long elapsed = System.currentTimeMillis() - chatStartTime;
+                float tokensPerSecond = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
+                runOnUiThread(() -> updateInferenceProgress(streamingIndex, tokenCount, tokensPerSecond));
+            }
+            
             runOnUiThread(() -> handleStreamToken(token));
         }
 
@@ -665,7 +811,7 @@ public class AIChatActivity extends BaseActivity {
                     return;
                 }
             }
-            completeGeneration(fullText);
+            completeGeneration(fullText, tokenCount, chatStartTime);
         }
 
         @Override
@@ -722,19 +868,29 @@ public class AIChatActivity extends BaseActivity {
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
                 ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
                 msg.thinkingContent = currentThinkingContent.toString();
-                if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
+                if (chatAdapter != null) chatAdapter.updateMessageThinkingContent(currentStreamingMessageIndex, currentThinkingContent.toString());
             }
             return;
         }
 
         if (currentStreamingContent != null) {
             currentStreamingContent.append(token);
-            tokenCountSinceLastUpdate++;
-            scheduleStreamingUpdate();
+            totalTokensGenerated++;
+            
+            if (streamingUpdateManager != null) {
+                streamingUpdateManager.addToken(token);
+            } else {
+                tokenCountSinceLastUpdate++;
+                scheduleStreamingUpdate();
+            }
         }
     }
 
     private void scheduleStreamingUpdate() {
+        if (streamingUpdateManager != null) {
+            return;
+        }
+        
         long currentTime = System.currentTimeMillis();
         long timeSinceLastUpdate = currentTime - lastUpdateTime;
         boolean shouldUpdateNow = tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT || timeSinceLastUpdate >= BATCH_INTERVAL_MS || !isUpdateScheduled;
@@ -760,6 +916,10 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void completeGeneration(String fullText) {
+        completeGeneration(fullText, 0, 0);
+    }
+    
+    private void completeGeneration(String fullText, int tokenCount, long chatStartTime) {
         runOnUiThread(() -> {
             endGeneration();
             agentToolLoopCount = 0;
@@ -768,6 +928,21 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage finalMsg = chatHistory.get(currentStreamingMessageIndex);
                 finalMsg.content = content;
                 finalMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                
+                if (tokenCount > 0) {
+                    finalMsg.tokensGenerated = tokenCount;
+                } else if (content != null && !content.isEmpty()) {
+                    finalMsg.tokensGenerated = content.length() / 4;
+                }
+                
+                if (chatStartTime > 0) {
+                    finalMsg.generationTimeMs = System.currentTimeMillis() - chatStartTime;
+                }
+                
+                if (finalMsg.inferenceProgress != null) {
+                    finalMsg.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
+                }
+                
                 if (currentThinkingContent != null && currentThinkingContent.length() > 0) finalMsg.thinkingContent = currentThinkingContent.toString();
                 if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                 saveHistoryAsync();
@@ -899,6 +1074,21 @@ public class AIChatActivity extends BaseActivity {
     private void beginGeneration() {
         isGenerating = true;
         isDirectStreaming = true;
+        totalTokensGenerated = 0;
+        generationStartTime = System.currentTimeMillis();
+        
+        streamingUpdateManager = new StreamingUpdateManager(new StreamingUpdateManager.UpdateCallback() {
+            @Override
+            public void onUpdate(String accumulatedContent, int totalTokensSinceLastUpdate) {
+                safeUpdateMessageFromStreamingManager(accumulatedContent, totalTokensSinceLastUpdate);
+            }
+            
+            @Override
+            public void onStatsUpdate(StreamingUpdateManager.StreamingStats stats) {
+                updateGenerationStats(stats);
+            }
+        }, 50, 200, 5);
+
         if (chatModeManager != null) chatModeManager.setGeneratingState(true);
         if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.VISIBLE);
         if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.VISIBLE);
@@ -907,6 +1097,12 @@ public class AIChatActivity extends BaseActivity {
     private void endGeneration() {
         isGenerating = false;
         isDirectStreaming = false;
+        
+        if (streamingUpdateManager != null) {
+            streamingUpdateManager.flush();
+            streamingUpdateManager = null;
+        }
+        
         hideLoadingUI();
     }
 
@@ -915,6 +1111,10 @@ public class AIChatActivity extends BaseActivity {
         lastUpdateTime = System.currentTimeMillis();
         isUpdateScheduled = false;
         uiHandler.removeCallbacksAndMessages(null);
+        
+        if (streamingUpdateManager != null) {
+            streamingUpdateManager.reset();
+        }
     }
 
     private void safeUpdateMessage() {
@@ -924,8 +1124,30 @@ public class AIChatActivity extends BaseActivity {
             msg.content = currentStreamingContent.toString();
             msg.status = ChatMessage.MessageStatus.GENERATING;
             if (currentThinkingContent != null && currentThinkingContent.length() > 0) msg.thinkingContent = currentThinkingContent.toString();
-            if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);
+            if (chatAdapter != null) chatAdapter.updateAIMessageContent(currentStreamingMessageIndex, currentStreamingContent.toString());
         } catch (IndexOutOfBoundsException e) { currentStreamingMessageIndex = -1; }
+    }
+
+    private void safeUpdateMessageFromStreamingManager(String accumulatedContent, int tokensSinceLastUpdate) {
+        try {
+            if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size() || currentStreamingContent == null) return;
+            
+            ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+            if (msg != null) {
+                msg.status = ChatMessage.MessageStatus.GENERATING;
+                
+                if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
+                    msg.thinkingContent = currentThinkingContent.toString();
+                }
+                
+                if (chatAdapter != null) {
+                    chatAdapter.updateAIMessageContent(currentStreamingMessageIndex, currentStreamingContent.toString());
+                }
+                scrollToBottom();
+            }
+        } catch (IndexOutOfBoundsException e) {
+            currentStreamingMessageIndex = -1;
+        }
     }
 
     private void resetAttachmentAdapter() {
@@ -1091,16 +1313,25 @@ public class AIChatActivity extends BaseActivity {
         if (aiService == null) { showToast("AI服务未初始化"); return false; }
         boolean modelInMemory = LlamaHelper.isModelInitialized();
         if (!modelInMemory || !aiService.isInitialized()) {
-            showLoading("加载模型中...", "模型加载需要一些时间...");
+            isLoadingModel = true;
+            showLoading("初始化AI服务...", "正在准备模型，这可能需要几秒钟...");
+            addSystemMessage("⏳ 开始加载AI模型...", ChatMessage.SystemMessageType.INFO);
+            
             final String msg = pendingMessage;
             new Thread(() -> {
                 long startTime = System.currentTimeMillis();
                 final boolean success = !aiService.isInitialized() ? aiService.initializeSafe() : aiService.reloadCurrentModelSafe();
-                final String loadMsg = "模型加载完成，耗时 " + ((System.currentTimeMillis() - startTime) / 1000) + " 秒";
+                
                 runOnUiThread(() -> {
-                    hideLoading();
-                    if (success) { showToast("模型加载成功"); addSystemMessage("AI服务已就绪\n" + loadMsg); if (msg != null && !msg.isEmpty()) processChatMessage(msg); }
-                    else { showToast("模型加载失败"); addSystemMessage("AI初始化失败，请检查模型"); }
+                    if (success) {
+                        if (msg != null && !msg.isEmpty()) {
+                            processChatMessage(msg);
+                        }
+                    } else {
+                        isLoadingModel = false;
+                        addErrorMessage("模型加载失败", "无法初始化AI模型，请检查模型文件是否正确导入", true);
+                        showToast("模型加载失败");
+                    }
                 });
             }).start();
             return false;
@@ -1200,6 +1431,17 @@ public class AIChatActivity extends BaseActivity {
             case DISLIKE: showToast("我们会努力改进！"); break;
             case SHOW_HELP: handleHelpCommand(); break;
             case SHOW_GUIDE: handleShowGuideCommand(); break;
+            case VIEW_TOOL_DETAILS:
+                showToast(action.messageId != null ? "查看工具详情: " + action.messageId : "查看工具详情");
+                break;
+            case EXPORT_SUMMARY:
+                showToast(action.messageId != null ? "导出总结: " + action.messageId : "导出总结");
+                break;
+            case REPORT_ERROR:
+                String errorMsg = action.content != null ? action.content : "未知错误";
+                addSystemMessage("已收到错误报告: " + errorMsg);
+                showToast("错误已报告，感谢您的反馈！");
+                break;
         }
     }
 
@@ -1453,14 +1695,131 @@ public class AIChatActivity extends BaseActivity {
     protected void onDestroy() {
         super.onDestroy();
         try {
+            unregisterAIStatusObserver();
             unregisterComponentCallbacks(memoryCallback);
             if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
             if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (aiService != null) aiService.chatStop();
             if (speechManager != null) { speechManager.stopListening(); speechManager.release(); }
+            if (ttsEngine != null) { ttsEngine.stop(); ttsEngine.shutdown(); }
             uiHandler.removeCallbacksAndMessages(null);
             isGenerating = false; isDirectStreaming = false;
         } catch (Exception e) { AppLogger.aiE(TAG, "Error onDestroy: " + e.getMessage()); }
+    }
+
+    private void registerAIStatusObserver() {
+        if (aiService == null) return;
+        aiStatusObserver = new AIService.DetailedStatusObserver() {
+            @Override
+            public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+                runOnUiThread(() -> handleAIStatusChange(stage, message, progress, elapsedMs));
+            }
+            @Override
+            public void onError(String errorMessage) {
+                runOnUiThread(() -> handleAIServiceError(errorMessage));
+            }
+            @Override
+            public void onInitialized(String modelName, long loadTimeMs) {
+                runOnUiThread(() -> handleAIServiceInitialized(modelName, loadTimeMs));
+            }
+        };
+        aiService.registerDetailedStatusObserver(aiStatusObserver);
+    }
+
+    private void unregisterAIStatusObserver() {
+        if (aiService != null && aiStatusObserver != null) {
+            aiService.unregisterDetailedStatusObserver(aiStatusObserver);
+            aiStatusObserver = null;
+        }
+    }
+
+    private void handleAIStatusChange(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+        if (!isLoadingModel) return;
+        
+        String stageIcon = getStageIcon(stage);
+        String stageName = getStageDisplayName(stage);
+        String formattedMessage = String.format("%s %s [%d%%]\n已耗时: %.1f秒", 
+            stageIcon, message != null ? message : stageName, 
+            progress, elapsedMs / 1000.0);
+        
+        updateLoadingUI(message, formattedMessage, progress);
+    }
+
+    private void handleAIServiceError(String errorMessage) {
+        isLoadingModel = false;
+        hideLoading();
+        addErrorMessage("AI服务初始化失败", errorMessage, true);
+        showToast("模型加载失败");
+    }
+
+    private void handleAIServiceInitialized(String modelName, long loadTimeMs) {
+        isLoadingModel = false;
+        hideLoading();
+        String successMsg = String.format("✓ 模型加载完成\n模型: %s\n耗时: %.1f秒", 
+            modelName != null ? modelName : "未知", loadTimeMs / 1000.0);
+        addSystemMessage(successMsg, ChatMessage.SystemMessageType.SUCCESS);
+        showToast("模型加载成功");
+        updateModelNameDisplay();
+    }
+
+    private String getStageIcon(AIServiceState.ServiceStage stage) {
+        if (stage == null) return "⚙️";
+        switch (stage) {
+            case UNINITIALIZED: return "⏳";
+            case NATIVE_LIBRARY_LOADING: return "📦";
+            case MODEL_FILE_PREPARING: return "📁";
+            case MODEL_LOADING: return "📥";
+            case GPU_INITIALIZATION: return "🎮";
+            case CPU_FALLBACK: return "💻";
+            case CHAT_CONTEXT_CREATING: return "🔧";
+            case INITIALIZED: return "✓";
+            case ERROR: return "✗";
+            default: return "⚙️";
+        }
+    }
+
+    private String getStageDisplayName(AIServiceState.ServiceStage stage) {
+        if (stage == null) return "处理中";
+        switch (stage) {
+            case UNINITIALIZED: return "未初始化";
+            case NATIVE_LIBRARY_LOADING: return "加载原生库";
+            case MODEL_FILE_PREPARING: return "准备模型文件";
+            case MODEL_LOADING: return "加载模型";
+            case GPU_INITIALIZATION: return "初始化GPU";
+            case CPU_FALLBACK: return "切换到CPU模式";
+            case CHAT_CONTEXT_CREATING: return "创建对话上下文";
+            case INITIALIZED: return "已就绪";
+            case ERROR: return "错误";
+            default: return "处理中";
+        }
+    }
+
+    private void updateLoadingUI(String message, String submessage, int progress) {
+        if (loadingLayout != null) loadingLayout.setVisibility(View.VISIBLE);
+        if (loadingMessage != null) loadingMessage.setText(message);
+        if (loadingSubmessage != null) loadingSubmessage.setText(submessage);
+        if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.VISIBLE);
+    }
+
+    private void addSystemMessage(String message, ChatMessage.SystemMessageType type) {
+        chatHistory.add(ChatMessage.createSystemMessage(
+            java.util.UUID.randomUUID().toString(), 
+            message, 
+            type, 
+            System.currentTimeMillis()));
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+        scrollToBottom();
+        saveHistoryAsync();
+    }
+
+    private void updateGenerationStats(StreamingUpdateManager.StreamingStats stats) {
+        if (stats == null || currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size()) {
+            return;
+        }
+        
+        if (chatAdapter != null) {
+            chatAdapter.updateMessageGenerationStats(currentStreamingMessageIndex, stats.totalTokens, stats.elapsedMs);
+        }
     }
 }

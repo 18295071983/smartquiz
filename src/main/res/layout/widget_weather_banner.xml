@@ -3,7 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="16dp">
+    android:padding="12dp"
+    android:gravity="center_vertical">
 
     <TextView
         android:id="@+id/weather_icon"
@@ -18,7 +19,8 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:paddingLeft="12dp">
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -33,17 +35,28 @@
                 android:text="未知"
                 android:textSize="14sp"
                 android:textColor="#FFFFFF"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:ellipsize="end"
+                android:maxLines="1"/>
 
             <TextView
                 android:id="@+id/weather_temp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="--°C"
-                android:textSize="24sp"
+                android:textSize="20sp"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
-                android:paddingLeft="8dp" />
+                android:paddingStart="8dp" />
+
+            <TextView
+                android:id="@+id/weather_temp_range"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="11sp"
+                android:textColor="#FFD700"
+                android:paddingStart="8dp" />
         </LinearLayout>
 
         <TextView
@@ -55,17 +68,19 @@
             android:textColor="#E0E0E0" />
 
         <HorizontalScrollView
+            android:id="@+id/hsv_forecast"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:scrollbars="none"
-            android:fillViewport="true">
+            android:fillViewport="true"
+            android:layout_marginTop="2dp">
 
             <TextView
                 android:id="@+id/weather_forecast"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=""
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textColor="#CCCCCC"
                 android:singleLine="true"
                 android:marqueeRepeatLimit="marquee_forever"
@@ -82,30 +97,39 @@
             android:paddingTop="2dp">
 
             <TextView
-                android:id="@+id/weather_temp_range"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textSize="12sp"
-                android:textColor="#FFD700" />
-
-            <TextView
                 android:id="@+id/weather_humidity"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="湿度: --%"
-                android:textSize="12sp"
-                android:textColor="#E0E0E0"
-                android:paddingLeft="12dp" />
+                android:textSize="10sp"
+                android:textColor="#E0E0E0" />
 
             <TextView
                 android:id="@+id/weather_wind"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="风速: -- m/s"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:textColor="#E0E0E0"
-                android:paddingLeft="12dp" />
+                android:paddingStart="8dp" />
+
+            <TextView
+                android:id="@+id/weather_feels_like"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="体感: --°C"
+                android:textSize="10sp"
+                android:textColor="#E0E0E0"
+                android:paddingStart="8dp" />
+
+            <TextView
+                android:id="@+id/weather_visibility"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="能见度: -- km"
+                android:textSize="10sp"
+                android:textColor="#E0E0E0"
+                android:paddingStart="8dp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -117,8 +141,8 @@
 
         <ImageView
             android:id="@+id/btn_weather_refresh"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
             android:src="@drawable/ic_refresh"
             android:tint="#FFFFFF"
             android:clickable="true"
@@ -127,14 +151,14 @@
 
         <ImageView
             android:id="@+id/btn_weather_close"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
             android:src="@drawable/ic_close"
             android:tint="#FFFFFF"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless"
-            android:layout_marginTop="4dp" />
+            android:layout_marginTop="2dp" />
     </LinearLayout>
 
 </LinearLayout>
