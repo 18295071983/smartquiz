@@ -2,11 +2,30 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 import android.content.Intent;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Tool(
+    value = "app_operation",
+    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面",
+    category = "app",
+    aliases = {"navigate", "go_to", "open_page", "跳转"},
+    actions = {
+        @Action(name = "navigate", description = "跳转到指定页面"),
+        @Action(name = "list_pages", description = "列出可用页面"),
+        @Action(name = "go_home", description = "返回主页"),
+        @Action(name = "go_back", description = "返回上一页")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等)", required = false)
+    }
+)
 public class AppOperationTool implements AITool {
     private static final String TAG = "AppOperationTool";
     private final Context context;

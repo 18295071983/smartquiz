@@ -297,13 +297,13 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置题目生成按钮
+        // 设置AI聊天按钮
         View btnQuestionGenerate = findViewById(R.id.btn_question_generate);
         if (btnQuestionGenerate != null) {
             btnQuestionGenerate.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, QuestionGenerateActivity.class));
+                    startActivity(new Intent(MainActivity.this, com.oilquiz.app.ui.activity.AIChatActivity.class));
                 }
             });
         }
@@ -319,13 +319,13 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置模型导入按钮
+        // 设置模型管理按钮
         View btnModelImport = findViewById(R.id.btn_model_import);
         if (btnModelImport != null) {
             btnModelImport.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, ModelImportActivity.class));
+                    startActivity(new Intent(MainActivity.this, ModelSelectorActivity.class));
                 }
             });
         }

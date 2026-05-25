@@ -120,6 +120,315 @@ MODELS_CONFIG = {
         ],
         "embedding_dim": 384,
         "max_length": 512
+    },
+    # ============================================================
+    # 图像分类模型（用于图像标签识别）
+    # ============================================================
+    "mobilenet_v2": {
+        "name": "MobileNet V2",
+        "description": "轻量级图像分类模型，用于图像标签识别",
+        "type": "image_classification",
+        "files": [
+            {
+                "name": "mobilenet_v2_1.0_224.tflite",
+                "urls": {
+                    "huggingface_cn": "https://hf-mirror.co/tensorflow/mobilenet_v2_1.0_224-tflite-default-v1/resolve/main/model.tflite",
+                    "modelscope": "https://modelscope.cn/models/tensorflow/MobileNetV2/resolve/master/mobilenet_v2_1.0_224.tflite",
+                    "huggingface_original": "https://huggingface.co/tensorflow/mobilenet_v2_1.0_224-tflite-default-v1/resolve/main/model.tflite"
+                },
+                "size_mb": 14,
+                "expected_hash": None
+            },
+            {
+                "name": "imagenet_labels.txt",
+                "url": None,
+                "size_mb": 0.03,
+                "generate": True,
+                "generator": "imagenet_labels"
+            }
+        ],
+        "input_size": [224, 224],
+        "num_classes": 1000
+    },
+    # ============================================================
+    # 目标检测模型（用于物体检测）
+    # ============================================================
+    "efficientdet_lite0": {
+        "name": "EfficientDet Lite 0",
+        "description": "轻量级目标检测模型",
+        "type": "object_detection",
+        "files": [
+            {
+                "name": "efficientdet_lite0.tflite",
+                "urls": {
+                    "huggingface_cn": "https://hf-mirror.co/tensorflow/efficientdet_lite0-tflite-default-v1/resolve/main/model.tflite",
+                    "modelscope": None,
+                    "huggingface_original": "https://huggingface.co/tensorflow/efficientdet_lite0-tflite-default-v1/resolve/main/model.tflite"
+                },
+                "size_mb": 4.5,
+                "expected_hash": None
+            },
+            {
+                "name": "coco_labels.txt",
+                "url": None,
+                "size_mb": 0.01,
+                "generate": True,
+                "generator": "coco_labels"
+            }
+        ],
+        "input_size": [320, 320],
+        "num_classes": 90
+    }
+}
+
+# ============================================================
+# 标签文件生成配置
+# ============================================================
+LABEL_FILES = {
+    "imagenet_labels": {
+        "name": "ImageNet 1000类别标签",
+        "description": "MobileNet等图像分类模型使用的1000个类别",
+        "labels": [
+            "tench", "goldfish", "great white shark", "tiger shark", "hammerhead",
+            "electric ray", "stingray", "cock", "hen", "ostrich", "brambling",
+            "goldfinch", "house finch", "junco", "indigo bunting", "robin",
+            "bulbul", "jay", "magpie", "chickadee", "water ouzel", "kite",
+            "bald eagle", "vulture", "great grey owl", "European fire salamander",
+            "common newt", "eft", "spotted salamander", "axolotl", "bullfrog",
+            "tree frog", "tailed frog", "loggerhead", "leatherback turtle",
+            "mud turtle", "terrapin", "box turtle", "banded gecko", "common iguana",
+            "American chameleon", "whiptail", "agama", "frilled lizard", "alligator lizard",
+            "Gila monster", "green lizard", "African chameleon", "Komodo dragon",
+            "African crocodile", "American alligator", "triceratops", "thunder snake",
+            "ringneck snake", "hognose snake", "green snake", "king snake",
+            "garter snake", "water snake", "vine snake", "night snake",
+            "boa constrictor", "rock python", "Indian cobra", "green mamba",
+            "sea snake", "horned viper", "diamondback", "sidewinder", "trilobite",
+            "harvestman", "scorpion", "black and gold garden spider", "barn spider",
+            "garden spider", "black widow", "tarantula", "wolf spider", "tick",
+            "centipede", "black grouse", "ptarmigan", "ruffed grouse", "prairie chicken",
+            "peacock", "quail", "partridge", "African grey", "macaw", "sulphur-crested cockatoo",
+            "lorikeet", "coucal", "bee eater", "hornbill", "hummingbird", "jacamar",
+            "toucan", "drake", "red-breasted merganser", "goose", "black swan",
+            "tusker", "echidna", "platypus", "wallaby", "koala", "wombat",
+            "jellyfish", "sea anemone", "brain coral", "flatworm", "nematode",
+            "conch", "snail", "slug", "sea slug", "chiton", "chambered nautilus",
+            "Dungeness crab", "rock crab", "fiddler crab", "king crab",
+            "American lobster", "spiny lobster", "crayfish", "hermit crab",
+            "isopod", "white stork", "black stork", "spoonbill", "flamingo",
+            "little blue heron", "American egret", "bittern", "crane", "limpkin",
+            "European gallinule", "American coot", "bustard", "ruddy turnstone",
+            "red-backed sandpiper", "redshank", "dowitcher", "oystercatcher",
+            "pelican", "king penguin", "albatross", "grey whale", "killer whale",
+            "dugong", "sea lion", "Chihuahua", "Japanese spaniel", "Maltese dog",
+            "Pekinese", "Shih-Tzu", "Blenheim spaniel", "papillon", "toy terrier",
+            "Rhodesian ridgeback", "Afghan hound", "basset", "beagle",
+            "bloodhound", "bluetick", "black-and-tan coonhound", "Walker hound",
+            "English foxhound", "redbone", "borzoi", "Irish wolfhound",
+            "Italian greyhound", "whippet", "Ibizan hound", "Norwegian elkhound",
+            "otterhound", "Saluki", "Scottish deerhound", "Weimaraner",
+            "Staffordshire bullterrier", "American Staffordshire terrier",
+            "Bedlington terrier", "Border terrier", "Kerry blue terrier",
+            "Irish terrier", "Norfolk terrier", "Norwich terrier", "Yorkshire terrier",
+            "wire-haired fox terrier", "Lakeland terrier", "Sealyham terrier",
+            "Airedale", "cairn", "Australian terrier", "Dandie Dinmont",
+            "Boston bull", "miniature schnauzer", "giant schnauzer",
+            "standard schnauzer", "Scotch terrier", "Tibetan terrier",
+            "silky terrier", "soft-coated wheaten terrier", "West Highland white terrier",
+            "Lhasa", "flat-coated retriever", "curly-coated retriever",
+            "golden retriever", "Labrador retriever", "Chesapeake Bay retriever",
+            "German short-haired pointer", "vizsla", "English setter",
+            "Irish setter", "Gordon setter", "Brittany spaniel",
+            "clumber", "English springer", "Welsh springer spaniel",
+            "cocker spaniel", "Sussex spaniel", "Irish water spaniel",
+            "kuvasz", "schipperke", "groenendael", "malinois", "briard",
+            "kelpie", "komondor", "Old English sheepdog", "Shetland sheepdog",
+            "collie", "Border collie", "Bouvier des Flandres", "Rottweiler",
+            "German shepherd", "Doberman", "miniature pinscher",
+            "Greater Swiss Mountain dog", "Bernese mountain dog", "Appenzeller",
+            "EntleBucher", "boxer", "bull mastiff", "Tibetan mastiff",
+            "French bulldog", "Great Dane", "Saint Bernard", "Eskimo dog",
+            "malamute", "Siberian husky", "dalmatian", "affenpinscher",
+            "basenji", "pug", "Leonberg", "Newfoundland", "Great Pyrenees",
+            "Samoyed", "Pomeranian", "chow", "keeshond", "Brabancon griffon",
+            "Pembroke", "Cardigan", "toy poodle", "miniature poodle",
+            "standard poodle", "Mexican hairless", "timber wolf",
+            "white wolf", "red wolf", "coyote", "dingo", "dhole",
+            "African hunting dog", "hyena", "red fox", "kit fox",
+            "Arctic fox", "grey fox", "tabby", "tiger cat", "Persian cat",
+            "Siamese cat", "Egyptian cat", "cougar", "lynx", "leopard",
+            "snow leopard", "jaguar", "lion", "tiger", "cheetah",
+            "brown bear", "American black bear", "ice bear", "sloth bear",
+            "mongoose", "meerkat", "tiger beetle", "ladybug", "ground beetle",
+            "long-horned beetle", "leaf beetle", "dung beetle", "rhinoceros beetle",
+            "weevil", "fly", "bee", "ant", "grasshopper", "cricket",
+            "stick insect", "cockroach", "mantis", "cicada", "leafhopper",
+            "lacewing", "dragonfly", "damselfly", "admiral", "ringlet",
+            "monarch", "cabbage butterfly", "sulphur butterfly",
+            "lycaenid", "starfish", "sea urchin", "sea cucumber", "wood rabbit",
+            "hare", "Angora", "hamster", "porcupine", "fox squirrel",
+            "marmot", "beaver", "guinea pig", "sorrel", "zebra",
+            "hog", "wild boar", "warthog", "hippopotamus", "ox",
+            "water buffalo", "bison", "ram", "bighorn", "ibex", "hartebeest",
+            "impala", "gazelle", "Arabian camel", "llama", "weasel",
+            "mink", "polecat", "black-footed ferret", "otter", "skunk",
+            "badger", "armadillo", "three-toed sloth", "orangutan", "gorilla",
+            "chimpanzee", "gibbon", "siamang", "guenon", "patas", "baboon",
+            "macaque", "langur", "colobus", "proboscis monkey", "marmoset",
+            "capuchin", "howler monkey", "titi", "spider monkey", "squirrel monkey",
+            "Madagascar cat", "indri", "Indian elephant", "African elephant",
+            "lesser panda", "giant panda", "barracouta", "eel",
+            "coho", "rock beauty", "anemone fish", "sturgeon", "gar",
+            "lionfish", "pufferfish", "abacus", "abaya", "academic gown",
+            "accordion", "acoustic guitar", "aircraft carrier", "airliner",
+            "airship", "altar", "ambulance", "amphibian", "analog clock",
+            "apiary", "apron", "ashcan", "assault rifle", "backpack",
+            "bakery", "balance beam", "balloon", "ballpoint", "Band Aid",
+            "banjo", "bannister", "barbell", "barber chair", "barbershop",
+            "barn", "barometer", "barrel", "barrow", "baseball", "basketball",
+            "bassinet", "bassoon", "bathing cap", "bath towel", "bathtub",
+            "beach wagon", "beacon", "beaker", "bearskin", "beer bottle",
+            "beer glass", "bell cote", "bib", "bicycle-built-for-two", "bikini",
+            "binder", "binoculars", "birdhouse", "boathouse", "bobsled",
+            "bolo tie", "bonnet", "bookcase", "bookshop", "bottlecap",
+            "bow", "bow tie", "brass", "brassiere", "breakwater",
+            "breastplate", "broom", "bucket", "buckle", "bulletproof vest",
+            "bullet train", "butcher shop", "cab", "caldron", "candle",
+            "cannon", "canoe", "can opener", "cardigan", "car mirror",
+            "carousel", "carpenter's kit", "carton", "car wheel", "cash machine",
+            "cassette", "cassette player", "castle", "catamaran", "CD player",
+            "cello", "cellular telephone", "chain", "chainlink fence",
+            "chain mail", "chain saw", "chest", "chiffonier", "chime",
+            "china cabinet", "Christmas stocking", "church", "cinema", "cleaver",
+            "cliff dwelling", "cloak", "clog", "cocktail shaker",
+            "coffee mug", "coffeepot", "coil", "combination lock",
+            "computer keyboard", "confectionery", "container ship", "convertible",
+            "corkscrew", "cornet", "cowboy boot", "cowboy hat", "cradle",
+            "crane", "crash helmet", "crate", "crib", "Crock Pot",
+            "croquet ball", "crutch", "cuirass", "dam", "desk", "desktop computer",
+            "dial telephone", "diaper", "digital clock", "digital watch",
+            "dining table", "dishrag", "dishwasher", "disk brake",
+            "dock", "dogsled", "dome", "doormat", "drilling rig", "drum",
+            "drumstick", "dumbbell", "Dutch oven", "electric fan",
+            "electric guitar", "electric locomotive", "entertainment center",
+            "envelope", "espresso maker", "face powder", "feather boa",
+            "file", "fireboat", "fire engine", "fire screen", "flagpole",
+            "flute", "folding chair", "football helmet", "forklift",
+            "fountain", "fountain pen", "four-poster", "freight car",
+            "French horn", "frying pan", "fur coat", "garbage truck",
+            "gas pump", "goblet", "go-kart", "golf ball", "golfcart",
+            "gondola", "gong", "gown", "grand piano", "greenhouse",
+            "grille", "grocery store", "guillotine", "hair slide", "hair spray",
+            "half track", "hammer", "hamper", "hand blower", "hand-held computer",
+            "handkerchief", "hard disc", "harmonica", "harp", "harvester",
+            "hatchet", "holster", "home theater", "honeycomb", "hook",
+            "hoopskirt", "horizontal bar", "horse cart", "hourglass", "iPod",
+            "iron", "jack-o'-lantern", "jean", "jeep", "jersey",
+            "jigsaw puzzle", "jinrikisha", "joystick", "kimono", "knee pad",
+            "knot", "lab coat", "ladle", "lampshade", "laptop",
+            "lawn mower", "lens cap", "letter opener", "library", "lifeboat",
+            "lighter", "limousine", "liner", "lipstick", "Loafer",
+            "loupe", "lumbermill", "magnetic compass", "mailbag",
+            "mailbox", "maillot", "manhole cover", "maraca", "marimba",
+            "mask", "matchstick", "maypole", "maze", "measuring cup",
+            "medicine chest", "megalith", "microphone", "microwave", "military uniform",
+            "milk can", "minibus", "miniskirt", "minivan", "missile",
+            "mitten", "mixing bowl", "mobile home", "Model T", "modem",
+            "monastery", "monitor", "moped", "mortar", "mortarboard",
+            "mosque", "mosquito net", "motor scooter", "mountain bike",
+            "mountain tent", "mouse", "mousetrap", "moving van",
+            "muzzle", "nail", "neck brace", "necklace", "nipple",
+            "notebook", "obelisk", "oboe", "ocarina", "odometer",
+            "oil filter", "organ", "oscilloscope", "overskirt", "oxcart",
+            "oxygen mask", "packet", "paddle", "paddlewheel", "padlock",
+            "paintbrush", "pajama", "palace", "panpipe", "paper towel",
+            "parachute", "parallel bars", "park bench", "parking meter",
+            "passenger car", "patio", "pay-phone", "pedestal", "pencil box",
+            "pencil sharpener", "perfume", "Petri dish", "photocopier",
+            "pick", "pickelhaube", "picket fence", "pickup", "pier",
+            "piggy bank", "pill bottle", "pillow", "ping-pong ball",
+            "pinwheel", "pirate", "pitcher", "plane", "planetarium",
+            "plastic bag", "plate rack", "plow", "plunger", "Polaroid camera",
+            "pole", "police van", "poncho", "pool table", "pop bottle",
+            "pot", "potter's wheel", "power drill", "prayer rug",
+            "printer", "prison", "projectile", "projector", "puck",
+            "punching bag", "purse", "quill", "quilt", "racer", "racket",
+            "radiator", "radio", "radio telescope", "rain barrel",
+            "recreational vehicle", "reel", "reflex camera", "refrigerator",
+            "remote control", "restaurant", "revolver", "rifle", "rocking chair",
+            "rotisserie", "rubber eraser", "rugby ball", "rule",
+            "running shoe", "safe", "safety pin", "saltshaker", "sandal",
+            "sarong", "sax", "scabbard", "scale", "school bus", "schooner",
+            "scoreboard", "screen", "screw", "screwdriver", "seat belt",
+            "sewing machine", "shield", "shoe shop", "shoji", "shopping basket",
+            "shopping cart", "shovel", "shower cap", "shower curtain",
+            "ski", "ski mask", "sleeping bag", "slide rule", "sliding door",
+            "slot", "snorkel", "snowmobile", "snowplow", "soap dispenser",
+            "soccer ball", "sock", "solar dish", "sombrero", "soup bowl",
+            "space bar", "space heater", "space shuttle", "spatula",
+            "speedboat", "spider web", "spindle", "sports car",
+            "spotlight", "stage", "steam locomotive", "steel arch bridge",
+            "steel drum", "stethoscope", "stole", "stone wall",
+            "stopwatch", "stove", "strainer", "streetcar", "stretcher",
+            "studio couch", "stupa", "submarine", "suit", "sundial",
+            "sunglass", "sunglasses", "sunscreen", "suspension bridge",
+            "swab", "sweatshirt", "swimming trunks", "swing", "switch",
+            "syringe", "table lamp", "tank", "tape player", "teapot",
+            "teddy", "television", "tennis ball", "thatch", "theater curtain",
+            "thimble", "thresher", "threshold", "toaster", "tobacco shop",
+            "toilet seat", "torch", "totem pole", "tow truck", "toyshop",
+            "tractor", "trailer truck", "tray", "trench coat",
+            "tricycle", "trimaran", "tripod", "triumphal arch", "trolleybus",
+            "trombone", "tub", "turnstile", "typewriter keyboard",
+            "umbrella", "unicycle", "upright", "vacuum", "vase",
+            "vault", "velvet", "vending machine", "vestment", "viaduct",
+            "violin", "volleyball", "waffle iron", "wall clock",
+            "wallet", "wardrobe", "warplane", "washbasin", "washer",
+            "water bottle", "water jug", "water tower", "whiskey jug", "whistle",
+            "wig", "window screen", "window shade", "Windsor tie",
+            "wine bottle", "wing", "wok", "wooden spoon", "wool", "worm fence",
+            "wreck", "yawl", "yurt", "web site", "comic book",
+            "crossword puzzle", "street sign", "traffic light", "book jacket",
+            "menu", "plate", "guacamole", "consomme", "hot pot", "trifle",
+            "ice cream", "ice lolly", "French loaf", "bagel", "pretzel",
+            "cheeseburger", "hotdog", "mashed potato", "head cabbage",
+            "broccoli", "cauliflower", "zucchini", "spaghetti squash",
+            "acorn squash", "butternut squash", "cucumber", "artichoke",
+            "bell pepper", "cardoon", "mushroom", "Granny Smith", "strawberry",
+            "orange", "lemon", "fig", "pineapple", "banana", "jackfruit",
+            "custard apple", "pomegranate", "hay", "carbonara", "chocolate sauce",
+            "dough", "meat loaf", "pizza", "potpie", "burrito", "red wine",
+            "espresso", "cup", "eggnog", "alp", "bubble", "cliff",
+            "coral reef", "geyser", "lakeside", "promontory", "sandbar",
+            "seashore", "valley", "volcano", "ballplayer", "groom",
+            "scuba diver", "rapeseed", "daisy", "yellow lady's slipper",
+            "corn", "acorn", "hip", "buckeye", "coral fungus",
+            "agaric", "gyromitra", "stinkhorn", "earthstar",
+            "hen-of-the-woods", "bolete", "ear", "toilet tissue"
+        ]
+    },
+    "coco_labels": {
+        "name": "COCO 90类别标签",
+        "description": "EfficientDet等目标检测模型使用的90个类别",
+        "labels": [
+            "person", "bicycle", "car", "motorcycle", "airplane", "bus",
+            "train", "truck", "boat", "traffic light", "fire hydrant",
+            "street sign", "stop sign", "parking meter", "bench", "bird",
+            "cat", "dog", "horse", "sheep", "cow", "elephant", "bear",
+            "zebra", "giraffe", "hat", "backpack", "umbrella", "shoe",
+            "eye glasses", "handbag", "tie", "suitcase", "frisbee", "skis",
+            "snowboard", "sports ball", "kite", "baseball bat",
+            "baseball glove", "skateboard", "surfboard", "tennis racket",
+            "bottle", "plate", "wine glass", "cup", "fork", "knife",
+            "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+            "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+            "chair", "couch", "potted plant", "bed", "mirror",
+            "dining table", "window", "desk", "toilet", "door", "tv",
+            "laptop", "mouse", "remote", "keyboard", "cell phone",
+            "microwave", "oven", "toaster", "sink", "refrigerator",
+            "blender", "book", "clock", "vase", "scissors", "teddy bear",
+            "hair drier", "toothbrush", "hair brush"
+        ]
     }
 }
 
@@ -553,7 +862,20 @@ def download_model(model_name: str) -> bool:
     print(f"\n{'='*60}")
     print(f"📦 准备下载模型: {config['name']}")
     print(f"   描述: {config['description']}")
-    print(f"   嵌入维度: {config['embedding_dim']}")
+    
+    model_type = config.get("type", "embedding")
+    if model_type == "embedding":
+        print(f"   类型: 句子嵌入模型")
+        print(f"   嵌入维度: {config['embedding_dim']}")
+    elif model_type == "image_classification":
+        print(f"   类型: 图像分类模型")
+        print(f"   输入尺寸: {config['input_size']}")
+        print(f"   类别数: {config['num_classes']}")
+    elif model_type == "object_detection":
+        print(f"   类型: 目标检测模型")
+        print(f"   输入尺寸: {config['input_size']}")
+        print(f"   类别数: {config['num_classes']}")
+    
     print(f"   🌐 默认镜像: {MIRRORS[DEFAULT_MIRROR]['name']}")
     print(f"{'='*60}")
     
@@ -563,22 +885,28 @@ def download_model(model_name: str) -> bool:
     for file_config in config["files"]:
         file_path = MODELS_DIR / file_config["name"]
         
-        # 如果文件已存在且大小合理，跳过
         if file_path.exists() and file_path.stat().st_size > 1024:
             print(f"\n⏭️ 文件已存在，跳过: {file_config['name']}")
             success_count += 1
             continue
         
-        # 检查是否需要生成本地文件
         if file_config.get("generate", False):
             print(f"\n📝 生成本地文件: {file_config['name']}")
-            if file_path.exists():
+            generator_name = file_config.get("generator")
+            if generator_name and generator_name in LABEL_FILES:
+                labels = LABEL_FILES[generator_name]["labels"]
+                with open(file_path, "w", encoding="utf-8") as f:
+                    for label in labels:
+                        f.write(label + "\n")
+                print(f"   ✅ 已生成 {len(labels)} 个标签")
                 success_count += 1
+            elif file_path.exists():
+                success_count += 1
+            else:
+                print(f"   ⚠️ 未找到生成器: {file_config['name']}")
             continue
         
-        # 下载文件 - 支持多源切换
         if "urls" in file_config and file_config["urls"]:
-            # 使用多源自动切换
             success, used_mirror = download_file_with_fallback(
                 file_config["urls"], 
                 file_path, 
@@ -738,7 +1066,20 @@ def main():
         for name, config in MODELS_CONFIG.items():
             print(f"  • {name}")
             print(f"    描述: {config['description']}")
-            print(f"    维度: {config['embedding_dim']}")
+            
+            model_type = config.get("type", "embedding")
+            if model_type == "embedding":
+                print(f"    类型: 句子嵌入模型")
+                print(f"    维度: {config['embedding_dim']}")
+            elif model_type == "image_classification":
+                print(f"    类型: 图像分类模型")
+                print(f"    输入尺寸: {config['input_size']}")
+                print(f"    类别数: {config['num_classes']}")
+            elif model_type == "object_detection":
+                print(f"    类型: 目标检测模型")
+                print(f"    输入尺寸: {config['input_size']}")
+                print(f"    类别数: {config['num_classes']}")
+            
             print(f"    文件数: {len(config['files'])}")
             print()
         return 0

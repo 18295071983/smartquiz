@@ -22,6 +22,7 @@
         android:padding="12dp"
         android:textColor="@color/thinking_text"
         android:textSize="14sp"
+        android:lineSpacingMultiplier="1.3"
         android:textIsSelectable="true" />
 
     <ProgressBar

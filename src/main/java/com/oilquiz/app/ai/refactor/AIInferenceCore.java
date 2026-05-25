@@ -1,8 +1,12 @@
 package com.oilquiz.app.ai.refactor;
 
 import android.content.Context;
+import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.model.InferenceType;
+import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
 
@@ -19,6 +23,7 @@ public class AIInferenceCore {
     private final Context context;
     private final ExecutorService executor;
     private final Object inferenceLock = new Object();
+    private InferenceRouter router;
 
     private static AIInferenceCore instance;
 
@@ -39,12 +44,41 @@ public class AIInferenceCore {
         return instance;
     }
 
+    private InferenceRouter getRouter() {
+        if (router == null) {
+            router = InferenceRouter.getInstance(context);
+        }
+        return router;
+    }
+
     public boolean isLocalAvailable() {
         try {
             return LlamaHelper.isModelInitialized();
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * 检查在线模型是否可用
+     */
+    public boolean isOnlineAvailable() {
+        OnlineModelManager manager = OnlineModelManager.getInstance(context);
+        return manager.getActiveModel() != null;
+    }
+
+    /**
+     * 获取当前推理类型
+     */
+    public InferenceType getCurrentInferenceType() {
+        return getRouter().getCurrentInferenceType();
+    }
+
+    /**
+     * 检查当前模型是否可用
+     */
+    public boolean isCurrentModelAvailable() {
+        return getRouter().isCurrentModelAvailable();
     }
 
     private boolean ensureModelReady() {
@@ -85,11 +119,71 @@ public class AIInferenceCore {
     public CompletableFuture<String> generateAsync(String prompt, InferenceConfig config) {
         return CompletableFuture.supplyAsync(() -> {
             synchronized (inferenceLock) {
-                try {
-                    if (!ensureModelReady()) {
-                        throw new IllegalStateException("Model not available and auto-load failed. Please import a model first.");
+                // 优先使用 InferenceRouter 进行自动路由
+                InferenceType type = getRouter().getCurrentInferenceType();
+                
+                // 如果是本地模型且未准备好，尝试自动加载
+                if (type == InferenceType.LOCAL && !ensureModelReady()) {
+                    // 如果本地模型不可用，尝试在线模型
+                    OnlineModelManager manager = OnlineModelManager.getInstance(context);
+                    if (manager.hasActiveOnlineModel()) {
+                        type = InferenceType.ONLINE;
+                        AILogger.i(TAG, "Local model not ready, falling back to online model");
+                    } else {
+                        throw new IllegalStateException("没有可用的模型。请导入本地模型或配置在线模型。");
                     }
+                }
 
+                try {
+                    if (type == InferenceType.ONLINE) {
+                        // 使用在线推理
+                        return getRouter().generate(prompt, config).join();
+                    } else {
+                        // 使用本地推理（保持原有逻辑）
+                        AIService aiService = AIService.getInstance(context);
+                        if (aiService != null && aiService.isInitialized()) {
+                            List<com.oilquiz.app.ai.util.PromptBuilder.Message> history = new ArrayList<>();
+                            if (config.history != null) {
+                                for (ChatMessage msg : config.history) {
+                                    if (msg.isUserMessage()) {
+                                        history.add(new com.oilquiz.app.ai.util.PromptBuilder.Message("user", msg.content));
+                                    } else if (msg.isAIMessage()) {
+                                        history.add(new com.oilquiz.app.ai.util.PromptBuilder.Message("assistant", msg.content));
+                                    }
+                                }
+                            }
+                            return aiService.generateSync(prompt, history, config.maxTokens);
+                        } else {
+                            List<ChatMessage> messages = config.buildMessages(prompt);
+                            String promptText = buildPromptFromMessages(messages);
+                            return LlamaHelper.generate(promptText, config.maxTokens, config.temperature);
+                        }
+                    }
+                } catch (Exception e) {
+                    AILogger.e(TAG, "Inference error: " + e.getMessage(), e);
+                    throw new RuntimeException(e);
+                }
+            }
+        }, executor);
+    }
+
+    public String generateSync(String prompt, InferenceConfig config) {
+        synchronized (inferenceLock) {
+            InferenceType type = getRouter().getCurrentInferenceType();
+            
+            if (type == InferenceType.LOCAL && !ensureModelReady()) {
+                OnlineModelManager manager = OnlineModelManager.getInstance(context);
+                if (manager.hasActiveOnlineModel()) {
+                    type = InferenceType.ONLINE;
+                } else {
+                    throw new IllegalStateException("没有可用的模型。请导入本地模型或配置在线模型。");
+                }
+            }
+
+            try {
+                if (type == InferenceType.ONLINE) {
+                    return getRouter().generate(prompt, config).join();
+                } else {
                     AIService aiService = AIService.getInstance(context);
                     if (aiService != null && aiService.isInitialized()) {
                         List<com.oilquiz.app.ai.util.PromptBuilder.Message> history = new ArrayList<>();
@@ -108,38 +202,6 @@ public class AIInferenceCore {
                         String promptText = buildPromptFromMessages(messages);
                         return LlamaHelper.generate(promptText, config.maxTokens, config.temperature);
                     }
-                } catch (Exception e) {
-                    AILogger.e(TAG, "Inference error: " + e.getMessage(), e);
-                    throw new RuntimeException(e);
-                }
-            }
-        }, executor);
-    }
-
-    public String generateSync(String prompt, InferenceConfig config) {
-        synchronized (inferenceLock) {
-            try {
-                if (!ensureModelReady()) {
-                    throw new IllegalStateException("Model not available and auto-load failed. Please import a model first.");
-                }
-
-                AIService aiService = AIService.getInstance(context);
-                if (aiService != null && aiService.isInitialized()) {
-                    List<com.oilquiz.app.ai.util.PromptBuilder.Message> history = new ArrayList<>();
-                    if (config.history != null) {
-                        for (ChatMessage msg : config.history) {
-                            if (msg.isUserMessage()) {
-                                history.add(new com.oilquiz.app.ai.util.PromptBuilder.Message("user", msg.content));
-                            } else if (msg.isAIMessage()) {
-                                history.add(new com.oilquiz.app.ai.util.PromptBuilder.Message("assistant", msg.content));
-                            }
-                        }
-                    }
-                    return aiService.generateSync(prompt, history, config.maxTokens);
-                } else {
-                    List<ChatMessage> messages = config.buildMessages(prompt);
-                    String promptText = buildPromptFromMessages(messages);
-                    return LlamaHelper.generate(promptText, config.maxTokens, config.temperature);
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Sync inference error: " + e.getMessage(), e);
@@ -148,8 +210,30 @@ public class AIInferenceCore {
         }
     }
 
+    /**
+     * 流式生成
+     */
+    public void generateStream(String prompt, InferenceConfig config, StreamCallback callback) {
+        InferenceType type = getRouter().getCurrentInferenceType();
+        
+        if (type == InferenceType.LOCAL && !ensureModelReady()) {
+            OnlineModelManager manager = OnlineModelManager.getInstance(context);
+            if (manager.hasActiveOnlineModel()) {
+                type = InferenceType.ONLINE;
+            } else {
+                callback.onError("没有可用的模型。请导入本地模型或配置在线模型。");
+                return;
+            }
+        }
+
+        getRouter().generateStream(prompt, config, callback);
+    }
+
     public void shutdown() {
         executor.shutdown();
+        if (router != null) {
+            router.shutdown();
+        }
     }
 
     private String buildPromptFromMessages(List<ChatMessage> messages) {

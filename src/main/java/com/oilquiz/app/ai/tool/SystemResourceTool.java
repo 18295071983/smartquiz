@@ -7,6 +7,9 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -14,10 +17,28 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作
- * 类似openclow功能，让Agent能够调用手机系统资源
- */
+@Tool(
+    value = "system_resource",
+    description = "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作",
+    category = "system",
+    aliases = {"open_app", "send_sms", "make_call", "launch_app"},
+    actions = {
+        @Action(name = "open_app", description = "打开指定应用"),
+        @Action(name = "open_url", description = "打开URL"),
+        @Action(name = "send_sms", description = "发送短信"),
+        @Action(name = "make_call", description = "拨打电话"),
+        @Action(name = "list_apps", description = "列出已安装应用"),
+        @Action(name = "get_app_info", description = "获取应用信息")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "app_name", type = "string", description = "应用名称(如微信、QQ、支付宝等)", required = false),
+        @Param(name = "url", type = "string", description = "URL地址", required = false),
+        @Param(name = "phone_number", type = "string", description = "电话号码", required = false),
+        @Param(name = "message", type = "string", description = "短信内容", required = false),
+        @Param(name = "params", type = "string", description = "附加参数JSON", required = false)
+    }
+)
 public class SystemResourceTool implements AITool {
     private static final String TAG = "SystemResourceTool";
     private final Context context;

@@ -4,6 +4,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
 
+import com.oilquiz.app.manager.ImageLabelManager;
+import com.oilquiz.app.manager.ObjectDetectionManager;
 import com.oilquiz.app.manager.OCRManager;
 import com.oilquiz.app.util.FileParserUtil;
 import com.oilquiz.app.util.ImageGeneratorUtil;
@@ -31,10 +33,14 @@ public class AppToolkit {
     
     // 工具实例
     private OCRManager ocrManager;
+    private ImageLabelManager imageLabelManager;
+    private ObjectDetectionManager objectDetectionManager;
     
     private AppToolkit(Context context) {
         this.context = context.getApplicationContext();
         this.ocrManager = new OCRManager(this.context);
+        this.imageLabelManager = new ImageLabelManager(this.context);
+        this.objectDetectionManager = new ObjectDetectionManager(this.context);
     }
     
     /**
@@ -98,6 +104,106 @@ public class AppToolkit {
      */
     public String getCurrentOcrLanguage() {
         return ocrManager.getCurrentLanguage();
+    }
+    
+    // ==================== 图像标签识别功能 ====================
+    
+    public ImageLabelManager getImageLabelManager() {
+        return imageLabelManager;
+    }
+    
+    public void recognizeImageLabels(Bitmap bitmap, ImageLabelManager.ImageLabelCallback callback) {
+        imageLabelManager.processImage(bitmap, callback);
+    }
+    
+    public void recognizeImageLabels(Bitmap bitmap, ImageLabelManager.ImageLabelCallback callback, int rotationDegrees) {
+        imageLabelManager.processImage(bitmap, callback, rotationDegrees);
+    }
+    
+    public void recognizeImageLabels(Uri imageUri, ImageLabelManager.ImageLabelCallback callback) {
+        imageLabelManager.processImage(imageUri, callback);
+    }
+    
+    public void setImageLabelConfidenceThreshold(float threshold) {
+        imageLabelManager.setConfidenceThreshold(threshold);
+    }
+    
+    public float getImageLabelConfidenceThreshold() {
+        return imageLabelManager.getConfidenceThreshold();
+    }
+    
+    public boolean loadCustomImageLabelModel(String modelPath, String labelPath) {
+        return imageLabelManager.loadCustomModel(modelPath, labelPath);
+    }
+    
+    public String getCurrentImageLabelModelType() {
+        return imageLabelManager.getCurrentModelType();
+    }
+    
+    public String formatImageLabelsAsText(java.util.List<ImageLabelManager.ImageLabelResult> results) {
+        return imageLabelManager.formatResultsAsText(results);
+    }
+    
+    public org.json.JSONObject formatImageLabelsAsJson(java.util.List<ImageLabelManager.ImageLabelResult> results) {
+        return imageLabelManager.formatResultsAsJson(results);
+    }
+    
+    // ==================== 目标检测功能 ====================
+    
+    public ObjectDetectionManager getObjectDetectionManager() {
+        return objectDetectionManager;
+    }
+    
+    public void detectObjects(Bitmap bitmap, ObjectDetectionManager.ObjectDetectionCallback callback) {
+        objectDetectionManager.processImage(bitmap, callback);
+    }
+    
+    public void detectObjects(Bitmap bitmap, ObjectDetectionManager.ObjectDetectionCallback callback, int rotationDegrees) {
+        objectDetectionManager.processImage(bitmap, callback, rotationDegrees);
+    }
+    
+    public void detectObjects(Uri imageUri, ObjectDetectionManager.ObjectDetectionCallback callback) {
+        objectDetectionManager.processImage(imageUri, callback);
+    }
+    
+    public void setObjectDetectionConfidenceThreshold(float threshold) {
+        objectDetectionManager.setConfidenceThreshold(threshold);
+    }
+    
+    public float getObjectDetectionConfidenceThreshold() {
+        return objectDetectionManager.getConfidenceThreshold();
+    }
+    
+    public void setObjectDetectionMultipleObjects(boolean enable) {
+        objectDetectionManager.setEnableMultipleObjects(enable);
+    }
+    
+    public boolean isObjectDetectionMultipleObjects() {
+        return objectDetectionManager.isEnableMultipleObjects();
+    }
+    
+    public void setObjectDetectionClassification(boolean enable) {
+        objectDetectionManager.setEnableClassification(enable);
+    }
+    
+    public boolean isObjectDetectionClassification() {
+        return objectDetectionManager.isEnableClassification();
+    }
+    
+    public void setObjectDetectionMode(String mode) {
+        objectDetectionManager.setDetectionMode(mode);
+    }
+    
+    public String getObjectDetectionMode() {
+        return objectDetectionManager.getCurrentMode();
+    }
+    
+    public String formatDetectedObjectsAsText(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
+        return objectDetectionManager.formatResultsAsText(results);
+    }
+    
+    public org.json.JSONObject formatDetectedObjectsAsJson(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
+        return objectDetectionManager.formatResultsAsJson(results);
     }
     
     // ==================== 图片功能 ====================
@@ -343,6 +449,8 @@ public class AppToolkit {
      */
     public enum ToolType {
         OCR("文字识别"),
+        IMAGE_LABEL("图像标签识别"),
+        OBJECT_DETECTION("目标检测"),
         IMAGE("图片处理"),
         FILE_PARSER("文件解析"),
         WEB_PARSER("网页解析");
@@ -397,6 +505,14 @@ public class AppToolkit {
         if (ocrManager != null) {
             ocrManager.release();
             ocrManager = null;
+        }
+        if (imageLabelManager != null) {
+            imageLabelManager.release();
+            imageLabelManager = null;
+        }
+        if (objectDetectionManager != null) {
+            objectDetectionManager.release();
+            objectDetectionManager = null;
         }
     }
 }

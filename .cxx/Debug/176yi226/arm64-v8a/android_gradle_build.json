@@ -64,7 +64,7 @@
       "output": "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-opencl.so",
       "runtimeFiles": [
         "D:\\quzp\\app\\.cxx\\Debug\\176yi226\\arm64-v8a\\bin\\libggml-base.so",
-        "D:\\quzp\\app\\src\\main\\cpp\\opencl\\build\\OpenCL-ICD-Loader\\build_android\\libOpenCL.so"
+        "D:\\quzp\\app\\src\\main\\cpp\\opencl\\build\\lib\\libOpenCL.so"
       ]
     },
     "llama::@b791850eb95f38641ccb": {

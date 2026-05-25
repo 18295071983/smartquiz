@@ -6,6 +6,7 @@ import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -29,6 +30,9 @@ public class WeatherBannerView extends LinearLayout {
     private TextView weatherWind;
     private TextView weatherTempRange;
     private TextView weatherForecast;
+    private TextView weatherFeelsLike;
+    private TextView weatherVisibility;
+    private HorizontalScrollView hsvForecast;
     private View refreshButton;
     private View closeButton;
 
@@ -38,6 +42,7 @@ public class WeatherBannerView extends LinearLayout {
     private boolean locationPermissionGranted = false;
     private double cachedLat = 0;
     private double cachedLon = 0;
+    private String cachedFxLink = "";
 
     public WeatherBannerView(Context context) {
         super(context);
@@ -65,6 +70,9 @@ public class WeatherBannerView extends LinearLayout {
         weatherWind = findViewById(R.id.weather_wind);
         weatherTempRange = findViewById(R.id.weather_temp_range);
         weatherForecast = findViewById(R.id.weather_forecast);
+        weatherFeelsLike = findViewById(R.id.weather_feels_like);
+        weatherVisibility = findViewById(R.id.weather_visibility);
+        hsvForecast = findViewById(R.id.hsv_forecast);
         refreshButton = findViewById(R.id.btn_weather_refresh);
         closeButton = findViewById(R.id.btn_weather_close);
 
@@ -107,12 +115,19 @@ public class WeatherBannerView extends LinearLayout {
     }
 
     private void navigateToWeatherDetail(String city) {
-        android.content.Intent intent = new android.content.Intent(getContext(),
-            com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
-        intent.putExtra("city", city);
-        if (cachedLat != 0 && cachedLon != 0) {
-            intent.putExtra("lat", cachedLat);
-            intent.putExtra("lon", cachedLon);
+        android.content.Intent intent;
+        if (cachedFxLink != null && !cachedFxLink.isEmpty()) {
+            intent = new android.content.Intent(getContext(), com.oilquiz.app.ui.activity.WeatherWebViewActivity.class);
+            intent.putExtra("url", cachedFxLink);
+            intent.putExtra("title", city + " - 天气详情");
+        } else {
+            intent = new android.content.Intent(getContext(),
+                com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
+            intent.putExtra("city", city);
+            if (cachedLat != 0 && cachedLon != 0) {
+                intent.putExtra("lat", cachedLat);
+                intent.putExtra("lon", cachedLon);
+            }
         }
         getContext().startActivity(intent);
     }
@@ -197,7 +212,7 @@ public class WeatherBannerView extends LinearLayout {
                 params.put("action", "get_current");
                 AIToolResult result = locationTool.execute(params);
 
-                if (result.isSuccess()) {
+                if (result != null && result.isSuccess()) {
                     Object resObj = result.getResult();
                     if (resObj instanceof Map) {
                         Map<?, ?> map = (Map<?, ?>) resObj;
@@ -215,11 +230,10 @@ public class WeatherBannerView extends LinearLayout {
                         }
                     }
                 }
-
-                post(() -> loadWeatherWithCity(currentCity));
-            } catch (Exception e) {
-                post(() -> loadWeatherWithCity(currentCity));
+            } catch (Exception ignored) {
             }
+
+            post(() -> loadWeatherWithCity(currentCity));
         }).start();
     }
 
@@ -235,7 +249,7 @@ public class WeatherBannerView extends LinearLayout {
                 params.put("action", "get_current");
                 AIToolResult result = locationTool.execute(params);
 
-                if (result.isSuccess()) {
+                if (result != null && result.isSuccess()) {
                     Object resObj = result.getResult();
                     if (resObj instanceof Map) {
                         Map<?, ?> map = (Map<?, ?>) resObj;
@@ -253,11 +267,10 @@ public class WeatherBannerView extends LinearLayout {
                         }
                     }
                 }
-
-                post(() -> refreshWeatherWithCity(currentCity));
-            } catch (Exception e) {
-                post(() -> refreshWeatherWithCity(currentCity));
+            } catch (Exception ignored) {
             }
+
+            post(() -> refreshWeatherWithCity(currentCity));
         }).start();
     }
 
@@ -332,6 +345,10 @@ public class WeatherBannerView extends LinearLayout {
     private void updateUI(String weatherText) {
         WeatherBannerManager.WeatherInfo info = parseWeather(weatherText);
 
+        if (info.fxLink != null && !info.fxLink.isEmpty()) {
+            cachedFxLink = info.fxLink;
+        }
+
         if (weatherIcon != null) weatherIcon.setText(info.icon);
         if (weatherCity != null) {
             String displayCity = info.city;
@@ -346,6 +363,8 @@ public class WeatherBannerView extends LinearLayout {
         if (weatherDesc != null) weatherDesc.setText(info.description);
         if (weatherHumidity != null) weatherHumidity.setText("湿度: " + info.humidity);
         if (weatherWind != null) weatherWind.setText("风速: " + info.wind);
+        if (weatherFeelsLike != null) weatherFeelsLike.setText("体感: " + info.feelsLike + "°C");
+        if (weatherVisibility != null) weatherVisibility.setText("能见度: " + info.visibility + " km");
         if (weatherTempRange != null && info.tempRange != null && !info.tempRange.isEmpty()) {
             weatherTempRange.setText(info.tempRange);
             weatherTempRange.setVisibility(View.VISIBLE);
@@ -354,9 +373,17 @@ public class WeatherBannerView extends LinearLayout {
             weatherForecast.setText(info.forecast);
             weatherForecast.setVisibility(View.VISIBLE);
             weatherForecast.setSelected(true);
+            startMarquee(weatherForecast);
         }
 
         loadForecastForBanner();
+    }
+
+    private void startMarquee(final TextView textView) {
+        textView.post(() -> {
+            textView.setSelected(true);
+            textView.requestFocus();
+        });
     }
 
     private void loadForecastForBanner() {
@@ -384,7 +411,7 @@ public class WeatherBannerView extends LinearLayout {
                             if (weatherForecast != null) {
                                 weatherForecast.setText(forecastInfo.forecast);
                                 weatherForecast.setVisibility(View.VISIBLE);
-                                weatherForecast.setSelected(true);
+                                startMarquee(weatherForecast);
                             }
                         }
                     });
@@ -511,6 +538,12 @@ public class WeatherBannerView extends LinearLayout {
                     info.humidity = line.substring(3).trim();
                 } else if (line.startsWith("风速:")) {
                     info.wind = line.substring(3).trim();
+                } else if (line.startsWith("体感温度:")) {
+                    info.feelsLike = line.substring(5).trim().replace("°C", "").replace("°", "");
+                } else if (line.startsWith("能见度:")) {
+                    info.visibility = line.substring(4).trim().replace(" km", "");
+                } else if (line.startsWith("链接:")) {
+                    info.fxLink = line.substring(3).trim();
                 }
             }
 

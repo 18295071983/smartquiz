@@ -6,6 +6,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AutoCompleteTextView;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.ArrayAdapter;
@@ -20,7 +22,12 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.model.APIConfig;
+import com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig;
+import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.UsageTracker;
+import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.adapter.QuestionAdapter;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.database.DatabaseManager;
@@ -37,6 +44,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
     private TextInputEditText etQuestionCount;
     private Spinner difficultySpinner;
     private Spinner typeSpinner;
+    private Spinner modelSpinner;
     private MaterialButton btnGenerate;
     private LinearLayout resultContainer;
     private RecyclerView questionsRecycler;
@@ -55,6 +63,22 @@ public class QuestionGenerateActivity extends AppCompatActivity {
     private AIService aiService;
     private List<List<Question>> historyList;
     private List<String> historyTitles;
+    
+    // 模型选择相关
+    private RadioGroup rgModelType;
+    private RadioButton rbLocalModel;
+    private RadioButton rbOnlineModel;
+    private LinearLayout llOnlineStatus;
+    private View statusIndicator;
+    private TextView tvOnlineStatus;
+    private TextView tvUsageInfo;
+    
+    private OnlineModelManager onlineModelManager;
+    private APIKeyManager apiKeyManager;
+    private UsageTracker usageTracker;
+    private List<String> localModelNames;
+    private List<OnlineModelConfig> onlineModelConfigs;
+    private boolean isOnlineMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,8 +107,39 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         btnShare = findViewById(R.id.btn_share);
         btnExport = findViewById(R.id.btn_export);
         
-        // 初始化AIService
+        // 模型选择相关视图
+        rgModelType = findViewById(R.id.rg_model_type);
+        rbLocalModel = findViewById(R.id.rb_local_model);
+        rbOnlineModel = findViewById(R.id.rb_online_model);
+        modelSpinner = findViewById(R.id.spinner_model);
+        llOnlineStatus = findViewById(R.id.ll_online_status);
+        statusIndicator = findViewById(R.id.status_indicator);
+        tvOnlineStatus = findViewById(R.id.tv_online_status);
+        tvUsageInfo = findViewById(R.id.tv_usage_info);
+        
+        // 初始化服务类
         aiService = AIService.getInstance(this);
+        onlineModelManager = OnlineModelManager.getInstance(this);
+        apiKeyManager = APIKeyManager.getInstance(this);
+        usageTracker = UsageTracker.getInstance(this);
+        
+        // 初始化模型列表
+        localModelNames = new ArrayList<>();
+        onlineModelConfigs = onlineModelManager.getModelList();
+        
+        // 设置模型类型切换监听
+        rgModelType.setOnCheckedChangeListener((group, checkedId) -> {
+            if (checkedId == R.id.rb_online_model) {
+                isOnlineMode = true;
+                llOnlineStatus.setVisibility(View.VISIBLE);
+                updateOnlineStatus();
+                updateModelSpinner(true);
+            } else {
+                isOnlineMode = false;
+                llOnlineStatus.setVisibility(View.GONE);
+                updateModelSpinner(false);
+            }
+        });
         
         // 初始化加载动画
         loadingLayout = getLayoutInflater().inflate(R.layout.layout_loading, null);
@@ -120,6 +175,91 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, options);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
+    }
+
+    /**
+     * 更新模型选择下拉框
+     */
+    private void updateModelSpinner(boolean isOnline) {
+        List<String> modelNames = new ArrayList<>();
+        
+        if (isOnline) {
+            if (onlineModelConfigs.isEmpty()) {
+                modelNames.add("未配置在线模型");
+            } else {
+                for (OnlineModelConfig config : onlineModelConfigs) {
+                    String status = config.enabled ? "✓ " : "✗ ";
+                    modelNames.add(status + config.name + " (" + config.modelName + ")");
+                }
+            }
+        } else {
+            if (localModelNames.isEmpty()) {
+                modelNames.add("未导入本地模型");
+            } else {
+                modelNames.addAll(localModelNames);
+            }
+        }
+        
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelNames);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        modelSpinner.setAdapter(adapter);
+    }
+
+    /**
+     * 更新在线服务状态显示
+     */
+    private void updateOnlineStatus() {
+        if (onlineModelConfigs.isEmpty()) {
+            tvOnlineStatus.setText("未配置任何在线模型");
+            statusIndicator.setBackgroundResource(R.drawable.status_indicator_unknown);
+            tvUsageInfo.setText("");
+            return;
+        }
+        
+        int validCount = 0;
+        int invalidCount = 0;
+        long totalUsage = 0;
+        long totalLimit = 0;
+        
+        for (OnlineModelConfig config : onlineModelConfigs) {
+            if (config.enabled) {
+                validCount++;
+            } else {
+                invalidCount++;
+            }
+            
+            com.oilquiz.app.ai.model.UsageInfo usage = config.usageInfo;
+            if (usage != null) {
+                totalUsage += usage.usedQuota;
+                totalLimit += usage.totalQuota;
+            }
+        }
+        
+        if (invalidCount == 0) {
+            statusIndicator.setBackgroundResource(R.drawable.status_indicator_valid);
+            tvOnlineStatus.setText("在线服务正常 (" + validCount + " 个)");
+        } else if (validCount > 0) {
+            statusIndicator.setBackgroundResource(R.drawable.status_indicator_rate_limited);
+            tvOnlineStatus.setText(validCount + " 正常, " + invalidCount + " 异常");
+        } else {
+            statusIndicator.setBackgroundResource(R.drawable.status_indicator_invalid);
+            tvOnlineStatus.setText("所有服务不可用");
+        }
+        
+        if (totalLimit > 0) {
+            int usagePercent = (int) ((totalUsage * 100) / totalLimit);
+            tvUsageInfo.setText("使用量: " + usagePercent + "%");
+        }
+    }
+
+    private String getServiceTypeDisplay(String type) {
+        if (type == null) return "未知";
+        switch (type) {
+            case APIConfig.ServiceType.OPENAI: return "OpenAI";
+            case APIConfig.ServiceType.ANTHROPIC: return "Claude";
+            case APIConfig.ServiceType.GOOGLE: return "Gemini";
+            default: return "自定义";
+        }
     }
 
     private void setupClickListeners() {

@@ -8,18 +8,19 @@
 
     <TextView
         android:id="@+id/tv_date"
-        android:layout_width="60dp"
+        android:layout_width="64dp"
         android:layout_height="wrap_content"
-        android:text="周一"
+        android:text="今天"
         android:textSize="14sp"
-        android:textColor="?attr/colorOnSurface"/>
+        android:textColor="#1E293B"
+        android:textStyle="bold"/>
 
-    <TextView
+    <ImageView
         android:id="@+id/tv_icon"
-        android:layout_width="48dp"
-        android:layout_height="wrap_content"
-        android:text="🌤️"
-        android:textSize="24sp"/>
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:src="@drawable/wi_unknown"
+        android:scaleType="fitCenter"/>
 
     <TextView
         android:id="@+id/tv_desc"
@@ -28,15 +29,16 @@
         android:layout_weight="1"
         android:text="晴"
         android:textSize="14sp"
-        android:textColor="?attr/colorOnSurface"
-        android:paddingLeft="8dp"/>
+        android:textColor="#64748B"
+        android:paddingStart="8dp"/>
 
     <TextView
         android:id="@+id/tv_temp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="18 ~ 28°C"
-        android:textSize="14sp"
-        android:textColor="?attr/colorOnSurface"/>
+        android:text="18° ~ 28°"
+        android:textSize="15sp"
+        android:textColor="#1E293B"
+        android:textStyle="bold"/>
 
 </LinearLayout>

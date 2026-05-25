@@ -42,6 +42,14 @@
     <!-- 系统通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 调试API密钥注入权限（仅用于开发环境） -->
+    <permission
+        android:name="com.oilquiz.app.permission.DEBUG_INJECT"
+        android:label="@string/permission_debug_inject_label"
+        android:description="@string/permission_debug_inject_desc"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.oilquiz.app.permission.DEBUG_INJECT" />
+
     <application
         android:name=".SmartQuizApplication"
         android:allowBackup="true"
@@ -54,6 +62,20 @@
         android:largeHeap="true"
         tools:targetApi="31">
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <receiver
+            android:name=".infra.DebugKeyReceiver"
+            android:exported="false"
+            android:permission="com.oilquiz.app.permission.DEBUG_INJECT">
+            <intent-filter>
+                <action android:name="com.oilquiz.app.DEBUG_INJECT_KEY" />
+                <action android:name="com.oilquiz.app.DEBUG_INJECT_HOST" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".infra.DebugKeyInjectActivity"
+            android:exported="false"
+            android:permission="com.oilquiz.app.permission.DEBUG_INJECT"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".ui.activity.LoginActivity"
             android:exported="false" />
@@ -184,7 +206,8 @@
             android:exported="false" />
         <activity
             android:name=".ui.activity.ApiConfigActivity"
-            android:exported="false" />
+            android:exported="true"
+            android:theme="@style/Theme.OilQuizApp" />
         <activity
             android:name=".ui.activity.DatabaseManagementActivity"
             android:exported="false" />
@@ -243,6 +266,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.ModelDownloadActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
             android:name=".ui.activity.AICenterActivity"
             android:exported="false" />
 
@@ -279,12 +307,13 @@
             android:exported="false" />
 
         <activity
-            android:name=".ui.activity.AgentChatActivity"
+            android:name=".ui.activity.TokenizerDemoActivity"
             android:exported="false" />
 
         <activity
-            android:name=".ui.activity.TokenizerDemoActivity"
-            android:exported="false" />
+            android:name=".ui.activity.AIIconDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.OilQuizApp" />
 
 
         <activity
@@ -302,16 +331,17 @@
             android:theme="@style/Theme.OilQuizApp" />
 
         <activity
-            android:name=".ui.activity.SpeechRecognizerExampleActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.activity.EnvironmentCheckActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
 
         <activity
             android:name=".ui.activity.WeatherDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
+            android:name=".ui.activity.WeatherWebViewActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
 

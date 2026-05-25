@@ -90,11 +90,9 @@ public class ToolboxActivity extends AppCompatActivity {
 
     private void showAITools() {
         showToolDialog("AI工具", new String[]{
-            "AI聊天",
-            "Agent聊天"
+            "AI聊天"
         }, new Class<?>[]{
-            AIChatActivity.class,
-            AgentChatActivity.class
+            AIChatActivity.class
         });
     }
 

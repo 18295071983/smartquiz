@@ -3,6 +3,8 @@ package com.oilquiz.app.ai.chat;
 import android.content.Context;
 import android.util.Log;
 
+import com.oilquiz.app.util.AILogger;
+
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -21,17 +23,17 @@ public class DeepThinkingEngine {
     private long startTime;
     
     // 可视化日志集成
-    private com.oilquiz.app.util.AILogger2 logger2;
-    private com.oilquiz.app.util.AILogger2.VisualLogEntry currentStepEntry;
+    private AILogger visualLogger;
+    private AILogger.VisualLogEntry currentStepEntry;
     private boolean loggingEnabled;
-    
+
     public DeepThinkingEngine() {
         this.thinkingChain = new ArrayList<>();
         this.contextStack = new Stack<>();
         this.confidenceScore = 0.0;
         this.reasoningDepth = 0;
         this.startTime = System.currentTimeMillis();
-        this.logger2 = com.oilquiz.app.util.AILogger2.getInstance();
+        this.visualLogger = AILogger.getVisualInstance();
         this.loggingEnabled = true;
     }
     
@@ -56,12 +58,12 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in startThinking", e);
             }
             
-            logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.THINKING,
-                       com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                       TAG, "🧠 开始深度思考: " + truncate(question, 80), meta);
-            
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            visualLogger.logVisual(AILogger.LogLevel.THINKING,
+                       AILogger.LogCategory.DEEP_THINKING,
+                       TAG, "开始深度思考: " + truncate(question, 80), meta);
+
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "理解问题",
                 "分析用户问题: " + truncate(question, 100),
@@ -89,8 +91,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in analyzeProblemDecomposition", e);
             }
             
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "问题分解",
                 "将复杂问题拆解为可管理的子任务",
@@ -109,9 +111,9 @@ public class DeepThinkingEngine {
             
             // 记录每个子问题
             if (loggingEnabled) {
-                logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.STEP,
-                           com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                           TAG, "📋 子问题 " + (i+1) + ": " + truncate(subProblems.get(i), 60), null);
+                visualLogger.logVisual(AILogger.LogLevel.STEP,
+                           AILogger.LogCategory.DEEP_THINKING,
+                           TAG, "子问题 " + (i+1) + ": " + truncate(subProblems.get(i), 60), null);
             }
         }
         
@@ -132,8 +134,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in gatherKnowledge", e);
             }
             
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "知识检索",
                 "激活相关知识库和领域经验",
@@ -152,9 +154,9 @@ public class DeepThinkingEngine {
         
         // 记录知识领域
         if (loggingEnabled) {
-            logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.INFO,
-                       com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                       TAG, "📚 知识领域: " + identifyDomains(topic), null);
+            visualLogger.logVisual(AILogger.LogLevel.INFO,
+                       AILogger.LogCategory.DEEP_THINKING,
+                       TAG, "知识领域: " + identifyDomains(topic), null);
         }
         
         addProgress("知识收集", knowledge.toString(), null);
@@ -174,8 +176,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in evaluateHypotheses", e);
             }
             
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "假设评估",
                 "评估多个解决方案的可行性",
@@ -206,12 +208,12 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in evaluateHypotheses hypMeta", e);
             }
                 
-                String level = confidence > 0.7 ? "✅" : confidence > 0.4 ? "⚠️" : "❌";
-                logger2.log(confidence > 0.6 ? 
-                           com.oilquiz.app.util.AILogger2.LogLevel.SUCCESS :
-                           com.oilquiz.app.util.AILogger2.LogLevel.WARNING,
-                           com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                           TAG, level + " 假设" + (i+1) + " [" + String.format("%.1f%%", confidence*100) + "]: " + truncate(hypothesis, 60), hypMeta);
+                String levelIcon = confidence > 0.7 ? "[OK]" : confidence > 0.4 ? "[WARN]" : "[FAIL]";
+                visualLogger.logVisual(confidence > 0.6 ?
+                           AILogger.LogLevel.SUCCESS :
+                           AILogger.LogLevel.WARNING,
+                           AILogger.LogCategory.DEEP_THINKING,
+                           TAG, levelIcon + " 假设" + (i+1) + " [" + String.format("%.1f%%", confidence*100) + "]: " + truncate(hypothesis, 60), hypMeta);
             }
             
             addProgress("评估假设" + (i + 1), eval.toString(), hypothesis);
@@ -234,8 +236,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in logicalReasoning", e);
             }
 
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "逻辑推理",
                 "进行第 " + (reasoningDepth + 1) + " 层推导",
@@ -268,9 +270,9 @@ public class DeepThinkingEngine {
         
         // 记录推理类型
         if (loggingEnabled) {
-            logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.THINKING,
-                       com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                       TAG, "🔗 推理类型: " + reasonType + " | 深度: " + reasoningDepth, null);
+            visualLogger.logVisual(AILogger.LogLevel.THINKING,
+                       AILogger.LogCategory.DEEP_THINKING,
+                       TAG, "推理类型: " + reasonType + " | 深度: " + reasoningDepth, null);
         }
         
         reasoning.append("结论: ").append(truncate(conclusion, 100));
@@ -295,8 +297,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in verifySolution", e);
             }
 
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "验证答案",
                 "检查解决方案的正确性和完整性",
@@ -316,9 +318,9 @@ public class DeepThinkingEngine {
         
         // 记录验证结果
         if (loggingEnabled) {
-            logger2.log(com.oilquiz.app.util.AILogger2.LogLevel.RESULT,
-                       com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                       TAG, "✅ 验证通过 | 置信度: " + String.format("%.1f%%", confidenceScore * 100), null);
+            visualLogger.logVisual(AILogger.LogLevel.RESULT,
+                       AILogger.LogCategory.DEEP_THINKING,
+                       TAG, "验证通过 | 置信度: " + String.format("%.1f%%", confidenceScore * 100), null);
         }
         
         addProgress("验证结果", verification.toString(), solution);
@@ -342,8 +344,8 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in synthesizeAnswer meta", e);
             }
 
-            currentStepEntry = logger2.startStep(
-                com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
+            currentStepEntry = visualLogger.startStep(
+                AILogger.LogCategory.DEEP_THINKING,
                 TAG,
                 "综合答案",
                 "整合所有推理结果，生成最终输出",
@@ -379,12 +381,12 @@ public class DeepThinkingEngine {
                 Log.e(TAG, "DeepThinking error in synthesizeAnswer summaryMeta", e);
             }
 
-            logger2.log(confidenceScore > 0.8 ? 
-                       com.oilquiz.app.util.AILogger2.LogLevel.SUCCESS :
-                       com.oilquiz.app.util.AILogger2.LogLevel.INFO,
-                       com.oilquiz.app.util.AILogger2.LogCategory.DEEP_THINKING,
-                       TAG, "🎉 深度思考完成！耗时: " + String.format("%.2fs", elapsed/1000.0) + 
-                           " | 深度: " + reasoningDepth + "层 | 置信度: " + String.format("%.1f%%", confidenceScore*100), 
+            visualLogger.logVisual(confidenceScore > 0.8 ?
+                       AILogger.LogLevel.SUCCESS :
+                       AILogger.LogLevel.INFO,
+                       AILogger.LogCategory.DEEP_THINKING,
+                       TAG, "深度思考完成！耗时: " + String.format("%.2fs", elapsed/1000.0) +
+                           " | 深度: " + reasoningDepth + "层 | 置信度: " + String.format("%.1f%%", confidenceScore*100),
                        summaryMeta);
         }
     }
@@ -566,14 +568,14 @@ public class DeepThinkingEngine {
     // ========== 可视化日志辅助方法 ==========
     
     private void updateStepProgress(int percent, String statusMessage) {
-        if (loggingEnabled && currentStepEntry != null && logger2 != null) {
-            logger2.updateStepProgress(currentStepEntry, percent, statusMessage, null);
+        if (loggingEnabled && currentStepEntry != null && visualLogger != null) {
+            visualLogger.updateStepProgress(currentStepEntry, percent, statusMessage, null);
         }
     }
-    
+
     private void completeCurrentStep(String resultMessage) {
-        if (loggingEnabled && currentStepEntry != null && logger2 != null) {
-            logger2.completeStep(currentStepEntry, resultMessage, true, null);
+        if (loggingEnabled && currentStepEntry != null && visualLogger != null) {
+            visualLogger.completeStep(currentStepEntry, resultMessage, true, null);
             currentStepEntry = null;
         }
     }

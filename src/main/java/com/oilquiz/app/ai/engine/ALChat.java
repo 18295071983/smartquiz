@@ -1,13 +1,15 @@
 package com.oilquiz.app.ai.engine;
 
+import android.util.Log;
+
 public class ALChat {
+    private static final String TAG = "ALChat";
+    
     static {
-        try {
-            System.loadLibrary("OpenCL");
-        } catch (UnsatisfiedLinkError e) {
-            android.util.Log.w("ALChat", "libOpenCL.so not found, GPU acceleration may not be available");
-        }
+        Log.i(TAG, "ALChat static initializer - loading llama-jni");
+        Log.i(TAG, "OpenCL loading is handled by JNI_OnLoad in native-lib.cpp");
         System.loadLibrary("llama-jni");
+        Log.i(TAG, "llama-jni loaded successfully");
     }
 
     public static final int GPU_BACKEND_CPU = 0;

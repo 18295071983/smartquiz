@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
@@ -14,9 +17,26 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 文件生成工具，提供文件创建和内容生成功能
- */
+@Tool(
+    value = "file_generator",
+    description = "文件生成工具，支持创建文本文件、JSON文件、配置文件等",
+    category = "file",
+    actions = {
+        @Action(name = "create", description = "创建文件"),
+        @Action(name = "append", description = "追加内容到文件"),
+        @Action(name = "write_json", description = "写入JSON文件"),
+        @Action(name = "create_config", description = "创建配置文件"),
+        @Action(name = "create_markdown", description = "创建Markdown文件"),
+        @Action(name = "create_template", description = "创建模板文件"),
+        @Action(name = "generate_report", description = "生成报告")
+    },
+    params = {
+        @Param(name = "file_name", type = "string", description = "文件名", required = true),
+        @Param(name = "content", type = "string", description = "文件内容", required = true),
+        @Param(name = "format", type = "string", description = "文件格式", required = false),
+        @Param(name = "action", type = "string", description = "操作类型", required = true)
+    }
+)
 public class FileGeneratorTool implements AITool {
     private static final String TAG = "FileGeneratorTool";
     private final Context context;

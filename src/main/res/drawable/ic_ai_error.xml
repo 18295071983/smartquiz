@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <path
+        android:fillColor="@color/error_container"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12S6.48,22 12,22 22,17.52 22,12 17.52,2 12,2Z" />
+    
+    <path
+        android:fillColor="@color/error"
+        android:pathData="M12,4C7.59,4 4,7.59 4,12S7.59,20 12,20 20,16.41 20,12 16.41,4 12,4Z" />
+    
+    <path
+        android:fillColor="@color/error_light"
+        android:pathData="M12,6C8.69,6 6,8.69 6,12S8.69,18 12,18 18,15.31 18,12 15.31,6 12,6Z" />
+    
+    <path
+        android:fillColor="@color/on_error"
+        android:pathData="M12,8C12.55,8 13,8.45 13,9V14C13,14.55 12.55,15 12,15S11,14.55 11,14V9C11,8.45 11.45,8 12,8Z" />
+    
+    <path
+        android:fillColor="@color/on_error"
+        android:pathData="M12,16C12.55,16 13,16.45 13,17V18C13,18.55 12.55,19 12,19S11,18.55 11,18V17C11,16.45 11.45,16 12,16Z" />
+    
+    <path
+        android:fillColor="@color/warning"
+        android:pathData="M4.5,3.5L6,5L3,8L1.5,6.5L4.5,3.5Z" />
+    
+    <path
+        android:fillColor="@color/warning"
+        android:pathData="M19.5,3.5L21,5L18,8L16.5,6.5L19.5,3.5Z" />
+</vector>

@@ -11,6 +11,9 @@ import android.os.Looper;
 import com.oilquiz.app.SmartQuizApplication;
 import com.oilquiz.app.resource.PermissionResourceProvider;
 import com.oilquiz.app.util.AILogger;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,6 +23,25 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@Tool(
+    value = "permission_manager",
+    description = "智能权限管理工具，支持权限检查、请求和管理功能",
+    category = "system",
+    actions = {
+        @Action(name = "check", description = "检查单个权限状态"),
+        @Action(name = "check_all", description = "批量检查权限状态"),
+        @Action(name = "request", description = "请求权限（不等待结果）"),
+        @Action(name = "request_and_wait", description = "请求权限并等待结果（推荐）"),
+        @Action(name = "get_status", description = "获取权限详细状态"),
+        @Action(name = "list_permissions", description = "列出所有已知权限"),
+        @Action(name = "explain_permission", description = "解释权限用途"),
+        @Action(name = "can_request", description = "检查是否可以请求权限")
+    },
+    params = {
+        @Param(name = "permission", type = "string", description = "权限名称（如camera/位置/录音/存储/拨打电话/发送短信等）", required = false),
+        @Param(name = "permissions", type = "list", description = "权限列表（用于check_all操作）", required = false)
+    }
+)
 public class PermissionManagerTool implements AITool {
     private static final String TAG = "PermissionManagerTool";
     private static final long PERMISSION_REQUEST_TIMEOUT_MS = 30000;

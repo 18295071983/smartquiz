@@ -100,16 +100,15 @@ public class InferenceConfigManager {
 
         switch (deviceTier) {
             case FLAGSHIP:
-                currentConfig.contextSize = 8192;
-                currentConfig.inferenceParams.nThreads = 6;
+                currentConfig.contextSize = 6144;
+                currentConfig.inferenceParams.nThreads = 4;
                 if (currentConfig.inferenceParams.nBatch == 0) {
                     currentConfig.inferenceParams.nBatch = 1024;
                 }
-                currentConfig.inferenceParams.nUbatch = 256;
-                if (currentConfig.inferenceParams.nGpuLayers == 0) {
-                    currentConfig.inferenceParams.nGpuLayers = 20;
-                }
-                currentConfig.inferenceParams.fKvCacheType = 0;
+                currentConfig.inferenceParams.nUbatch = 512;
+                // GPU 层数取 GPU 数据库值和 tier 默认值的较大者
+                currentConfig.inferenceParams.nGpuLayers = Math.max(currentConfig.inferenceParams.nGpuLayers, 30);
+                currentConfig.inferenceParams.fKvCacheType = 1;
                 currentConfig.generationParams.nPredict = 1024;
                 currentConfig.generationParams.temperature = 0.8f;
                 currentConfig.generationParams.topP = 0.9f;
@@ -119,14 +118,13 @@ public class InferenceConfigManager {
                 break;
             case HIGH_END:
                 currentConfig.contextSize = 4096;
-                currentConfig.inferenceParams.nThreads = 6;
+                currentConfig.inferenceParams.nThreads = 4;
                 if (currentConfig.inferenceParams.nBatch == 0) {
                     currentConfig.inferenceParams.nBatch = 512;
                 }
-                currentConfig.inferenceParams.nUbatch = 256;
-                if (currentConfig.inferenceParams.nGpuLayers == 0) {
-                    currentConfig.inferenceParams.nGpuLayers = 15;
-                }
+                currentConfig.inferenceParams.nUbatch = 512;
+                // GPU 层数取 GPU 数据库值和 tier 默认值的较大者
+                currentConfig.inferenceParams.nGpuLayers = Math.max(currentConfig.inferenceParams.nGpuLayers, 22);
                 currentConfig.inferenceParams.fKvCacheType = 1;
                 currentConfig.generationParams.nPredict = 512;
                 currentConfig.generationParams.temperature = 0.7f;
@@ -142,9 +140,8 @@ public class InferenceConfigManager {
                     currentConfig.inferenceParams.nBatch = 512;
                 }
                 currentConfig.inferenceParams.nUbatch = 128;
-                if (currentConfig.inferenceParams.nGpuLayers == 0) {
-                    currentConfig.inferenceParams.nGpuLayers = 10;
-                }
+                // GPU 层数取 GPU 数据库值和 tier 默认值的较大者
+                currentConfig.inferenceParams.nGpuLayers = Math.max(currentConfig.inferenceParams.nGpuLayers, 14);
                 currentConfig.inferenceParams.fKvCacheType = 1;
                 currentConfig.generationParams.nPredict = 512;
                 currentConfig.generationParams.temperature = 0.7f;

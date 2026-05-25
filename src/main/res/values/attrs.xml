@@ -2,6 +2,7 @@
 <resources>
     <attr name="colorBackground" format="color"/>
     <attr name="colorOnBackground" format="color"/>
+    <attr name="selectableItemBorderless" format="reference"/>
     <declare-styleable name="WeatherBannerView">
         <attr name="autoLoad" format="boolean"/>
         <attr name="defaultCity" format="string"/>

@@ -4,16 +4,23 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CallbackHandler {
     private static final String TAG = "CallbackHandler";
     private static final int MAX_CALLBACKS = 100;
     private static final long CALLBACK_TIMEOUT_MS = 300000L;
+    private static final long NEVER_CALLED_TIMEOUT_MS = 60000L;
+    private static final long CLEANUP_INTERVAL_MS = 60000L;
 
     private static volatile CallbackHandler INSTANCE;
 
@@ -21,12 +28,31 @@ public class CallbackHandler {
     private final Map<String, CallbackInfo> callbacks;
     private final List<EventListener> eventListeners;
     private final AtomicLong callbackSequence;
+    private final ScheduledExecutorService cleanupExecutor;
+    private final AtomicBoolean cleanupScheduled = new AtomicBoolean(false);
 
     private CallbackHandler() {
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.callbacks = new ConcurrentHashMap<>();
         this.eventListeners = new CopyOnWriteArrayList<>();
         this.callbackSequence = new AtomicLong(0);
+        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "CallbackHandler-Cleanup");
+            t.setDaemon(true);
+            return t;
+        });
+        schedulePeriodicCleanup();
+    }
+
+    private void schedulePeriodicCleanup() {
+        if (cleanupScheduled.compareAndSet(false, true)) {
+            cleanupExecutor.scheduleAtFixedRate(
+                this::cleanupStaleCallbacks,
+                CLEANUP_INTERVAL_MS,
+                CLEANUP_INTERVAL_MS,
+                TimeUnit.MILLISECONDS
+            );
+        }
     }
 
     public static CallbackHandler getInstance() {
@@ -335,9 +361,17 @@ public class CallbackHandler {
                 toRemove.add(entry.getKey());
                 continue;
             }
-            if (now - info.lastCalledAt > CALLBACK_TIMEOUT_MS && info.callCount > 0) {
-                toRemove.add(entry.getKey());
-                Log.d(TAG, "Cleaned up stale callback: " + entry.getKey());
+            
+            if (info.callCount > 0) {
+                if (now - info.lastCalledAt > CALLBACK_TIMEOUT_MS) {
+                    toRemove.add(entry.getKey());
+                    Log.d(TAG, "Cleaned up stale callback (timeout): " + entry.getKey());
+                }
+            } else {
+                if (now - info.createdAt > NEVER_CALLED_TIMEOUT_MS) {
+                    toRemove.add(entry.getKey());
+                    Log.d(TAG, "Cleaned up never-called callback: " + entry.getKey());
+                }
             }
         }
 

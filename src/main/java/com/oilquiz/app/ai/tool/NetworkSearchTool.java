@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.util.AILogger;
 
@@ -22,11 +25,30 @@ import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/**
- * 网络搜索工具，用于网络搜索操作
- * 支持 Bing Search API 真实搜索和模拟数据模式
- * 增强功能：网页内容切片、关键信息提取、内容分类、智能摘要、动态网页支持
- */
+@Tool(
+    value = "network_search",
+    description = "网络搜索工具，支持搜索网络信息、获取网页内容、内容切片、关键信息提取、智能摘要生成、动态网页解析和搜索结果详情阅读",
+    category = "search",
+    aliases = {"search", "web_search", "bing_search"},
+    actions = {
+        @Action(name = "search", description = "执行网络搜索"),
+        @Action(name = "get_webpage", description = "获取网页内容"),
+        @Action(name = "extract_info", description = "提取网页关键信息"),
+        @Action(name = "summarize", description = "生成搜索结果摘要"),
+        @Action(name = "search_and_read", description = "搜索并阅读详情"),
+        @Action(name = "get_dynamic_content", description = "获取动态网页内容"),
+        @Action(name = "smart_search", description = "智能搜索"),
+        @Action(name = "smart_read", description = "智能阅读")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "query", type = "string", description = "搜索查询", required = false),
+        @Param(name = "limit", type = "int", description = "结果数量限制(默认5)", required = false),
+        @Param(name = "url", type = "string", description = "网页URL", required = false),
+        @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
+        @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false)
+    }
+)
 public class NetworkSearchTool implements AITool {
     private static final String TAG = "NetworkSearchTool";
     private static final String BING_SEARCH_API_URL = "https://api.bing.microsoft.com/v7.0/search";
@@ -38,9 +60,9 @@ public class NetworkSearchTool implements AITool {
     private static final Pattern H1_PATTERN = Pattern.compile("<h1[^>]*>([^<]*)</h1>", Pattern.CASE_INSENSITIVE);
     private static final Pattern H2_PATTERN = Pattern.compile("<h2[^>]*>([^<]*)</h2>", Pattern.CASE_INSENSITIVE);
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})|(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})|(\\d{4}年\\d{1,2}月\\d{1,2}日)");
-    private static final Pattern PHONE_PATTERN = Pattern.compile("1[3-9]\\d{9}|0\\d{2,3}-\\d{7,8}");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}");
-    private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s\"'<>]+");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("(1[3-9]\\d{9}|0\\d{2,3}-\\d{7,8})");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
+    private static final Pattern URL_PATTERN = Pattern.compile("(https?://[^\\s\"'<>]+)");
     private static final Pattern JSON_LD_PATTERN = Pattern.compile("<script[^>]*type=[\"']application/ld\\+json[\"'][^>]*>([^<]*)</script>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern SCRIPT_CONTENT_PATTERN = Pattern.compile("<script[^>]*>([^<]*)</script>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     

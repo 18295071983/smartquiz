@@ -6,6 +6,11 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.util.Log;
 
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
+import com.oilquiz.app.manager.ImageLabelManager;
+import com.oilquiz.app.manager.ObjectDetectionManager;
 import com.oilquiz.app.manager.OCRManager;
 import com.oilquiz.app.toolkit.AppToolkit;
 import com.oilquiz.app.util.FileParserUtil;
@@ -16,15 +21,32 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/**
- * AppToolkit AI工具类
- * 将AppToolkit的功能封装为AI可调用的工具
- */
+@Tool(
+    value = "app_toolkit",
+    description = "应用工具集合，提供天气查询、数学计算、OCR文字识别、图片处理、文件解析、网页解析等功能",
+    category = "utility",
+    aliases = {"toolkit", "工具集", "工具箱"},
+    actions = {
+        @Action(name = "weather_current", description = "查询当前天气"),
+        @Action(name = "weather_forecast", description = "查询天气预报"),
+        @Action(name = "calculate", description = "数学计算"),
+        @Action(name = "ocr_recognize", description = "OCR文字识别"),
+        @Action(name = "image_label", description = "图片标签识别"),
+        @Action(name = "object_detect", description = "物体检测"),
+        @Action(name = "file_parse", description = "文件解析"),
+        @Action(name = "webpage_parse", description = "网页解析")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "command", type = "string", description = "命令参数", required = false)
+    }
+)
 public class AppToolkitAITool implements AITool {
     
     private static final String TAG = "AppToolkitAITool";
@@ -43,7 +65,7 @@ public class AppToolkitAITool implements AITool {
     
     @Override
     public String getDescription() {
-        return "应用工具集合，提供天气查询、OCR文字识别、图片处理、文件解析、网页解析等功能";
+        return "应用工具集合，提供天气查询、数学计算、OCR文字识别、图片处理、文件解析、网页解析等功能";
     }
     
     @Override
@@ -53,6 +75,8 @@ public class AppToolkitAITool implements AITool {
             if (action == null || action.isEmpty()) {
                 return new AIToolResult("缺少参数: action", parameters);
             }
+
+            normalizePathParams(action, parameters);
             
             switch (action) {
                 // 天气功能
@@ -71,6 +95,10 @@ public class AppToolkitAITool implements AITool {
                 case "weather_all":
                     return getAllWeatherInfo(parameters);
                     
+                // 计算功能
+                case "calculate":
+                    return calculate(parameters);
+                    
                 // OCR功能
                 case "ocr_recognize":
                     return ocrRecognize(parameters);
@@ -80,6 +108,28 @@ public class AppToolkitAITool implements AITool {
                     return ocrSetLanguage(parameters);
                 case "ocr_get_language":
                     return ocrGetLanguage();
+                    
+                // 图像标签识别功能
+                case "image_label_recognize":
+                    return imageLabelRecognize(parameters);
+                case "image_label_set_threshold":
+                    return imageLabelSetThreshold(parameters);
+                case "image_label_get_threshold":
+                    return imageLabelGetThreshold();
+                case "image_label_load_custom_model":
+                    return imageLabelLoadCustomModel(parameters);
+                    
+                // 目标检测功能
+                case "object_detect":
+                    return objectDetect(parameters);
+                case "object_set_threshold":
+                    return objectSetThreshold(parameters);
+                case "object_get_threshold":
+                    return objectGetThreshold();
+                case "object_set_multiple":
+                    return objectSetMultiple(parameters);
+                case "object_set_classification":
+                    return objectSetClassification(parameters);
                     
                 // 图片处理功能
                 case "image_save":
@@ -141,6 +191,46 @@ public class AppToolkitAITool implements AITool {
         } catch (Exception e) {
             Log.e(TAG, "Error executing tool: " + e.getMessage(), e);
             return new AIToolResult("执行失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    private void normalizePathParams(String action, Map<String, Object> parameters) {
+        if (action == null) return;
+
+        switch (action) {
+            case "ocr_recognize":
+                if (!parameters.containsKey("image_path")) {
+                    if (parameters.containsKey("file_path")) {
+                        parameters.put("image_path", parameters.get("file_path"));
+                    } else if (parameters.containsKey("path")) {
+                        parameters.put("image_path", parameters.get("path"));
+                    }
+                }
+                break;
+            case "ocr_recognize_pdf":
+                if (!parameters.containsKey("pdf_path")) {
+                    if (parameters.containsKey("file_path")) {
+                        parameters.put("pdf_path", parameters.get("file_path"));
+                    } else if (parameters.containsKey("path")) {
+                        parameters.put("pdf_path", parameters.get("path"));
+                    }
+                }
+                break;
+            case "file_parse_text":
+            case "file_parse_csv":
+            case "file_parse_json":
+            case "file_read_lines":
+            case "file_get_type":
+                if (!parameters.containsKey("file_path")) {
+                    if (parameters.containsKey("path")) {
+                        parameters.put("file_path", parameters.get("path"));
+                    } else if (parameters.containsKey("image_path")) {
+                        parameters.put("file_path", parameters.get("image_path"));
+                    } else if (parameters.containsKey("pdf_path")) {
+                        parameters.put("file_path", parameters.get("pdf_path"));
+                    }
+                }
+                break;
         }
     }
     
@@ -314,6 +404,303 @@ public class AppToolkitAITool implements AITool {
         });
         
         return new AIToolResult(resultMap, new HashMap<>());
+    }
+    
+    // ==================== 图像标签识别功能 ====================
+    
+    private AIToolResult imageLabelRecognize(Map<String, Object> parameters) {
+        String imagePath = (String) parameters.get("image_path");
+        Object thresholdObj = parameters.get("threshold");
+        Float threshold = thresholdObj != null ? ((Number) thresholdObj).floatValue() : null;
+        
+        if (imagePath == null) {
+            return new AIToolResult("缺少参数: image_path", parameters);
+        }
+        
+        File imageFile = new File(imagePath);
+        if (!imageFile.exists()) {
+            return new AIToolResult("图片文件不存在: " + imagePath, parameters);
+        }
+        
+        try {
+            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            if (bitmap == null) {
+                return new AIToolResult("无法解码图片文件", parameters);
+            }
+            
+            if (threshold != null) {
+                toolkit.setImageLabelConfidenceThreshold(threshold);
+            }
+            
+            final java.util.List<ImageLabelManager.ImageLabelResult>[] resultWrapper = new java.util.List[1];
+            final String[] error = new String[1];
+            final Object lock = new Object();
+            
+            synchronized (lock) {
+                toolkit.recognizeImageLabels(bitmap, new ImageLabelManager.ImageLabelCallback() {
+                    @Override
+                    public void onSuccess(java.util.List<ImageLabelManager.ImageLabelResult> results) {
+                        synchronized (lock) {
+                            resultWrapper[0] = results;
+                            lock.notify();
+                        }
+                    }
+                    
+                    @Override
+                    public void onFailure(String err) {
+                        synchronized (lock) {
+                            error[0] = err;
+                            lock.notify();
+                        }
+                    }
+                });
+                
+                try {
+                    lock.wait(30000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            
+            if (error[0] != null) {
+                return new AIToolResult("图像标签识别失败: " + error[0], parameters);
+            }
+            
+            if (resultWrapper[0] == null || resultWrapper[0].isEmpty()) {
+                Map<String, Object> emptyResult = new HashMap<>();
+                emptyResult.put("status", "success");
+                emptyResult.put("label_count", 0);
+                emptyResult.put("labels", new JSONArray());
+                emptyResult.put("message", "未识别到任何标签");
+                return new AIToolResult(emptyResult, parameters);
+            }
+            
+            org.json.JSONObject jsonResult = toolkit.formatImageLabelsAsJson(resultWrapper[0]);
+            jsonResult.put("text_summary", toolkit.formatImageLabelsAsText(resultWrapper[0]));
+            jsonResult.put("primary_label", resultWrapper[0].get(0).text);
+            
+            java.util.List<String> labelTexts = toolkit.getImageLabelManager().getLabelTexts(resultWrapper[0]);
+            jsonResult.put("label_texts", new JSONArray(labelTexts));
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", jsonResult.toString());
+            resultMap.put("label_count", resultWrapper[0].size());
+            resultMap.put("primary_label", resultWrapper[0].get(0).text);
+            
+            return new AIToolResult(resultMap, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "图像标签识别失败: " + e.getMessage(), e);
+            return new AIToolResult("图像标签识别失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult imageLabelSetThreshold(Map<String, Object> parameters) {
+        Object thresholdObj = parameters.get("threshold");
+        if (thresholdObj == null) {
+            return new AIToolResult("缺少参数: threshold", parameters);
+        }
+        
+        float threshold = ((Number) thresholdObj).floatValue();
+        toolkit.setImageLabelConfidenceThreshold(threshold);
+        
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("threshold", toolkit.getImageLabelConfidenceThreshold());
+        resultMap.put("message", "置信度阈值已设置为: " + threshold);
+        
+        return new AIToolResult(resultMap, parameters);
+    }
+    
+    private AIToolResult imageLabelGetThreshold() {
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("threshold", toolkit.getImageLabelConfidenceThreshold());
+        resultMap.put("model_type", toolkit.getCurrentImageLabelModelType());
+        
+        return new AIToolResult(resultMap, new HashMap<>());
+    }
+    
+    private AIToolResult imageLabelLoadCustomModel(Map<String, Object> parameters) {
+        String modelPath = (String) parameters.get("model_path");
+        String labelPath = (String) parameters.get("label_path");
+        
+        if (modelPath == null) {
+            return new AIToolResult("缺少参数: model_path", parameters);
+        }
+        
+        boolean success = toolkit.loadCustomImageLabelModel(modelPath, labelPath);
+        
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", success ? "success" : "failed");
+        resultMap.put("model_type", toolkit.getCurrentImageLabelModelType());
+        
+        if (success) {
+            resultMap.put("message", "自定义模型加载成功");
+        } else {
+            resultMap.put("message", "自定义模型加载失败");
+        }
+        
+        return new AIToolResult(resultMap, parameters);
+    }
+    
+    // ==================== 目标检测功能 ====================
+    
+    private AIToolResult objectDetect(Map<String, Object> parameters) {
+        String imagePath = (String) parameters.get("image_path");
+        Object thresholdObj = parameters.get("threshold");
+        Float threshold = thresholdObj != null ? ((Number) thresholdObj).floatValue() : null;
+        Object multipleObj = parameters.get("multiple_objects");
+        Boolean multipleObjects = multipleObj != null ? (Boolean) multipleObj : null;
+        Object classificationObj = parameters.get("enable_classification");
+        Boolean enableClassification = classificationObj != null ? (Boolean) classificationObj : null;
+        
+        if (imagePath == null) {
+            return new AIToolResult("缺少参数: image_path", parameters);
+        }
+        
+        File imageFile = new File(imagePath);
+        if (!imageFile.exists()) {
+            return new AIToolResult("图片文件不存在: " + imagePath, parameters);
+        }
+        
+        try {
+            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            if (bitmap == null) {
+                return new AIToolResult("无法解码图片文件", parameters);
+            }
+            
+            if (threshold != null) {
+                toolkit.setObjectDetectionConfidenceThreshold(threshold);
+            }
+            if (multipleObjects != null) {
+                toolkit.setObjectDetectionMultipleObjects(multipleObjects);
+            }
+            if (enableClassification != null) {
+                toolkit.setObjectDetectionClassification(enableClassification);
+            }
+            
+            final java.util.List<ObjectDetectionManager.DetectedObjectResult>[] resultWrapper = new java.util.List[1];
+            final String[] error = new String[1];
+            final Object lock = new Object();
+            
+            synchronized (lock) {
+                toolkit.detectObjects(bitmap, new ObjectDetectionManager.ObjectDetectionCallback() {
+                    @Override
+                    public void onSuccess(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
+                        synchronized (lock) {
+                            resultWrapper[0] = results;
+                            lock.notify();
+                        }
+                    }
+                    
+                    @Override
+                    public void onFailure(String err) {
+                        synchronized (lock) {
+                            error[0] = err;
+                            lock.notify();
+                        }
+                    }
+                });
+                
+                try {
+                    lock.wait(30000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            
+            if (error[0] != null) {
+                return new AIToolResult("目标检测失败: " + error[0], parameters);
+            }
+            
+            if (resultWrapper[0] == null || resultWrapper[0].isEmpty()) {
+                Map<String, Object> emptyResult = new HashMap<>();
+                emptyResult.put("status", "success");
+                emptyResult.put("object_count", 0);
+                emptyResult.put("objects", new JSONArray());
+                emptyResult.put("message", "未检测到任何物体");
+                return new AIToolResult(emptyResult, parameters);
+            }
+            
+            org.json.JSONObject jsonResult = toolkit.formatDetectedObjectsAsJson(resultWrapper[0]);
+            jsonResult.put("text_summary", toolkit.formatDetectedObjectsAsText(resultWrapper[0]));
+            
+            java.util.List<String> detectedLabels = toolkit.getObjectDetectionManager().getDetectedLabels(resultWrapper[0]);
+            jsonResult.put("detected_labels", new JSONArray(detectedLabels));
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", "success");
+            resultMap.put("data", jsonResult.toString());
+            resultMap.put("object_count", resultWrapper[0].size());
+            
+            return new AIToolResult(resultMap, parameters);
+        } catch (Exception e) {
+            Log.e(TAG, "目标检测失败: " + e.getMessage(), e);
+            return new AIToolResult("目标检测失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private AIToolResult objectSetThreshold(Map<String, Object> parameters) {
+        Object thresholdObj = parameters.get("threshold");
+        if (thresholdObj == null) {
+            return new AIToolResult("缺少参数: threshold", parameters);
+        }
+        
+        float threshold = ((Number) thresholdObj).floatValue();
+        toolkit.setObjectDetectionConfidenceThreshold(threshold);
+        
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("threshold", toolkit.getObjectDetectionConfidenceThreshold());
+        resultMap.put("message", "置信度阈值已设置为: " + threshold);
+        
+        return new AIToolResult(resultMap, parameters);
+    }
+    
+    private AIToolResult objectGetThreshold() {
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("threshold", toolkit.getObjectDetectionConfidenceThreshold());
+        resultMap.put("multiple_objects", toolkit.isObjectDetectionMultipleObjects());
+        resultMap.put("enable_classification", toolkit.isObjectDetectionClassification());
+        resultMap.put("detection_mode", toolkit.getObjectDetectionMode());
+        
+        return new AIToolResult(resultMap, new HashMap<>());
+    }
+    
+    private AIToolResult objectSetMultiple(Map<String, Object> parameters) {
+        Object enableObj = parameters.get("enable");
+        if (enableObj == null) {
+            return new AIToolResult("缺少参数: enable", parameters);
+        }
+        
+        boolean enable = (Boolean) enableObj;
+        toolkit.setObjectDetectionMultipleObjects(enable);
+        
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("multiple_objects", toolkit.isObjectDetectionMultipleObjects());
+        resultMap.put("message", enable ? "已启用多物体检测" : "已禁用多物体检测");
+        
+        return new AIToolResult(resultMap, parameters);
+    }
+    
+    private AIToolResult objectSetClassification(Map<String, Object> parameters) {
+        Object enableObj = parameters.get("enable");
+        if (enableObj == null) {
+            return new AIToolResult("缺少参数: enable", parameters);
+        }
+        
+        boolean enable = (Boolean) enableObj;
+        toolkit.setObjectDetectionClassification(enable);
+        
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("status", "success");
+        resultMap.put("enable_classification", toolkit.isObjectDetectionClassification());
+        resultMap.put("message", enable ? "已启用物体分类" : "已禁用物体分类");
+        
+        return new AIToolResult(resultMap, parameters);
     }
     
     // ==================== 图片处理功能 ====================
@@ -971,12 +1358,18 @@ public class AppToolkitAITool implements AITool {
         resultMap.put("description", getDescription());
         
         Map<String, String> categories = new HashMap<>();
+        categories.put("calculate", "数学计算");
         categories.put("weather", "天气查询");
         categories.put("ocr", "OCR文字识别");
+        categories.put("image_label", "图像标签识别");
+        categories.put("object_detection", "目标检测");
         categories.put("image", "图片处理");
         categories.put("file", "文件解析");
         categories.put("web", "网页解析");
         resultMap.put("categories", categories);
+        
+        Map<String, String> calculateActions = new HashMap<>();
+        calculateActions.put("calculate", "执行数学计算");
         
         Map<String, String> weatherActions = new HashMap<>();
         weatherActions.put("weather_current", "获取当前天气");
@@ -992,6 +1385,19 @@ public class AppToolkitAITool implements AITool {
         ocrActions.put("ocr_recognize_pdf", "识别PDF文字");
         ocrActions.put("ocr_set_language", "设置OCR语言");
         ocrActions.put("ocr_get_language", "获取当前语言");
+        
+        Map<String, String> imageLabelActions = new HashMap<>();
+        imageLabelActions.put("image_label_recognize", "识别图像标签");
+        imageLabelActions.put("image_label_set_threshold", "设置置信度阈值");
+        imageLabelActions.put("image_label_get_threshold", "获取当前阈值");
+        imageLabelActions.put("image_label_load_custom_model", "加载自定义模型");
+        
+        Map<String, String> objectDetectionActions = new HashMap<>();
+        objectDetectionActions.put("object_detect", "检测图像中的物体");
+        objectDetectionActions.put("object_set_threshold", "设置置信度阈值");
+        objectDetectionActions.put("object_get_threshold", "获取当前配置");
+        objectDetectionActions.put("object_set_multiple", "启用/禁用多物体检测");
+        objectDetectionActions.put("object_set_classification", "启用/禁用物体分类");
         
         Map<String, String> imageActions = new HashMap<>();
         imageActions.put("image_save", "保存图片");
@@ -1016,8 +1422,11 @@ public class AppToolkitAITool implements AITool {
         webActions.put("web_get_text", "获取网页正文");
         
         Map<String, Map<String, String>> actions = new HashMap<>();
+        actions.put("calculate", calculateActions);
         actions.put("weather", weatherActions);
         actions.put("ocr", ocrActions);
+        actions.put("image_label", imageLabelActions);
+        actions.put("object_detection", objectDetectionActions);
         actions.put("image", imageActions);
         actions.put("file", fileActions);
         actions.put("web", webActions);
@@ -1074,6 +1483,9 @@ public class AppToolkitAITool implements AITool {
         // 通用参数
         descriptions.put("action", "操作类型（必填）");
         
+        // 计算参数
+        descriptions.put("expression", "数学表达式（必填），支持加减乘除、括号、幂运算等，例如: 3+5, (10-2)*3, 2^10");
+        
         // 天气参数
         descriptions.put("city", "城市名称或城市ID（天气查询时使用，不传则使用定位）");
         descriptions.put("lat", "纬度（坐标查询天气时使用）");
@@ -1083,6 +1495,16 @@ public class AppToolkitAITool implements AITool {
         descriptions.put("image_path", "图片文件路径（用于OCR和图片操作）");
         descriptions.put("language", "OCR语言: auto, chinese, english, japanese, korean");
         descriptions.put("pdf_path", "PDF文件路径（用于PDF识别）");
+        
+        // 图像标签识别参数
+        descriptions.put("threshold", "置信度阈值，范围 0.01-0.99，默认 0.5");
+        descriptions.put("model_path", "自定义模型文件路径");
+        descriptions.put("label_path", "自定义标签文件路径（可选）");
+        
+        // 目标检测参数
+        descriptions.put("multiple_objects", "是否启用多物体检测，默认 true");
+        descriptions.put("enable_classification", "是否启用物体分类，默认 true");
+        descriptions.put("enable", "启用/禁用标志，用于设置多物体检测和分类");
         
         // 图片处理参数
         descriptions.put("output_path", "输出文件路径");
@@ -1113,144 +1535,352 @@ public class AppToolkitAITool implements AITool {
     
     // ==================== 天气功能 ====================
     
+    private AIWeatherManager getWeatherManager() {
+        return new AIWeatherManager(context);
+    }
+    
     private AIToolResult getCurrentWeather(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("current", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getCurrentWeatherSmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting current weather", e);
-            return new AIToolResult("获取当前天气失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getWeatherForecast(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("forecast", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getForecastSmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather forecast", e);
-            return new AIToolResult("获取天气预报失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getWeatherHourly(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("hourly", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getHourlySmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting hourly weather", e);
-            return new AIToolResult("获取逐时预报失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getWeatherAirQuality(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("air", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getAirQualitySmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting air quality", e);
-            return new AIToolResult("获取空气质量失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getWeatherAlerts(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("alerts", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getAlertsSmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather alerts", e);
-            return new AIToolResult("获取天气预警失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getWeatherIndices(Map<String, Object> parameters) {
         try {
-            String result = callWeatherApi("indices", parameters);
-            return new AIToolResult(result, parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
+            
+            AIWeatherManager.QueryRetryResult result = weatherManager.getIndicesSmart(city, lat, lon);
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("status", result.success ? "success" : "failed");
+            resultMap.put("data", result.data);
+            resultMap.put("provider", result.provider);
+            resultMap.put("query_type", result.queryType);
+            resultMap.put("attempts", result.attempt);
+            resultMap.put("error_message", result.errorMessage);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather indices", e);
-            return new AIToolResult("获取生活指数失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
     private AIToolResult getAllWeatherInfo(Map<String, Object> parameters) {
         try {
-            String current = callWeatherApi("current", parameters);
-            String forecast = callWeatherApi("forecast", parameters);
-            String hourly = callWeatherApi("hourly", parameters);
-            String air = callWeatherApi("air", parameters);
-            String indices = callWeatherApi("indices", parameters);
-            String alerts = callWeatherApi("alerts", parameters);
+            AIWeatherManager weatherManager = getWeatherManager();
+            String city = (String) parameters.get("city");
+            Double lat = parseDoubleParam(parameters, "lat");
+            Double lon = parseDoubleParam(parameters, "lon");
             
-            StringBuilder result = new StringBuilder();
-            result.append("【当前天气】\n").append(current).append("\n\n");
-            result.append("【天气预报】\n").append(forecast).append("\n\n");
-            result.append("【逐时预报】\n").append(hourly).append("\n\n");
-            result.append("【空气质量】\n").append(air).append("\n\n");
-            result.append("【生活指数】\n").append(indices).append("\n\n");
-            if (alerts != null && !alerts.isEmpty() && !alerts.contains("暂无")) {
-                result.append("【天气预警】\n").append(alerts);
+            Map<String, Object> resultMap = new HashMap<>();
+            List<String> attemptsInfo = new ArrayList<>();
+            
+            AIWeatherManager.QueryRetryResult currentResult = weatherManager.getCurrentWeatherSmart(city, lat, lon);
+            if (currentResult.success) {
+                resultMap.put("current", currentResult.data);
+                attemptsInfo.add("当前天气: " + currentResult.attempt + "次尝试, " + currentResult.provider + "/" + currentResult.queryType);
             }
             
-            return new AIToolResult(result.toString(), parameters);
+            AIWeatherManager.QueryRetryResult forecastResult = weatherManager.getForecastSmart(city, lat, lon);
+            if (forecastResult.success) {
+                resultMap.put("forecast", forecastResult.data);
+                attemptsInfo.add("天气预报: " + forecastResult.attempt + "次尝试");
+            }
+            
+            AIWeatherManager.QueryRetryResult hourlyResult = weatherManager.getHourlySmart(city, lat, lon);
+            if (hourlyResult.success) {
+                resultMap.put("hourly", hourlyResult.data);
+                attemptsInfo.add("逐时预报: " + hourlyResult.attempt + "次尝试");
+            }
+            
+            AIWeatherManager.QueryRetryResult airResult = weatherManager.getAirQualitySmart(city, lat, lon);
+            if (airResult.success) {
+                resultMap.put("air_quality", airResult.data);
+                attemptsInfo.add("空气质量: " + airResult.attempt + "次尝试");
+            }
+            
+            AIWeatherManager.QueryRetryResult indicesResult = weatherManager.getIndicesSmart(city, lat, lon);
+            if (indicesResult.success) {
+                resultMap.put("indices", indicesResult.data);
+                attemptsInfo.add("生活指数: " + indicesResult.attempt + "次尝试");
+            }
+            
+            AIWeatherManager.QueryRetryResult alertsResult = weatherManager.getAlertsSmart(city, lat, lon);
+            if (alertsResult.success && alertsResult.data != null && !alertsResult.data.contains("暂无")) {
+                resultMap.put("alerts", alertsResult.data);
+                attemptsInfo.add("天气预警: " + alertsResult.attempt + "次尝试");
+            }
+            
+            resultMap.put("status", resultMap.size() > 2 ? "success" : "failed");
+            resultMap.put("attempts_info", attemptsInfo);
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error getting all weather info", e);
-            return new AIToolResult("获取天气信息失败: " + e.getMessage(), parameters);
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("status", "failed");
+            errorMap.put("error", e.getMessage());
+            return new AIToolResult(errorMap, parameters);
         }
     }
     
-    private String callWeatherApi(String type, Map<String, Object> parameters) {
-        com.oilquiz.app.weather.WeatherService weatherService = com.oilquiz.app.weather.WeatherService.getInstance(context);
-        String city = (String) parameters.get("city");
-        Double latObj = (Double) parameters.get("lat");
-        Double lonObj = (Double) parameters.get("lon");
+    private Double parseDoubleParam(Map<String, Object> parameters, String key) {
+        Object value = parameters.get(key);
+        if (value == null) return null;
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+    
+    // ==================== 计算功能 ====================
+    
+    private AIToolResult calculate(Map<String, Object> parameters) {
+        String expression = (String) parameters.get("expression");
         
-        double lat = latObj != null ? latObj : 0.0;
-        double lon = lonObj != null ? lonObj : 0.0;
+        if (expression == null || expression.trim().isEmpty()) {
+            return new AIToolResult("缺少参数: expression", parameters);
+        }
+        
+        expression = expression.trim();
         
         try {
-            switch (type) {
-                case "current":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getCurrentWeatherByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getCurrentWeather(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                case "forecast":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getForecastByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getForecast(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                case "hourly":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getHourlyByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getHourly(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                case "air":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getAirQualityByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getAirQuality(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                case "alerts":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getAlertsByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getAlerts(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                case "indices":
-                    if (lat != 0 && lon != 0) {
-                        return weatherService.getIndicesByLocation(lat, lon).get(15, TimeUnit.SECONDS);
-                    } else {
-                        return weatherService.getIndices(city != null ? city : "北京").get(15, TimeUnit.SECONDS);
-                    }
-                default:
-                    return "未知的天气查询类型";
+            // 替换 ^ 为 ** (JavaScript幂运算语法)
+            String jsExpression = expression.replace("^", "**");
+            
+            // 验证表达式只包含安全的字符
+            if (!jsExpression.matches("[0-9+\\-*/.()% ]+")) {
+                return new AIToolResult("表达式包含非法字符，仅支持数字和基本运算符 (+, -, *, /, ^, %)", parameters);
             }
+            
+            double result = evaluateExpression(jsExpression);
+            
+            // 判断是否为整数
+            String resultStr;
+            if (result == Math.floor(result) && !Double.isInfinite(result)) {
+                resultStr = String.valueOf((long) result);
+            } else {
+                resultStr = String.valueOf(result);
+            }
+            
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("expression", expression);
+            resultMap.put("result", resultStr);
+            resultMap.put("status", "success");
+            
+            return new AIToolResult(resultMap, parameters);
         } catch (Exception e) {
-            return "查询失败: " + e.getMessage();
+            Log.e(TAG, "Calculation failed: " + expression, e);
+            return new AIToolResult("计算失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private double evaluateExpression(String expression) {
+        try {
+            // Android不支持javax.script，使用简单的表达式解析
+            expression = expression.replaceAll("\\s+", "");
+            return parseExpression(expression, new int[]{0});
+        } catch (Exception e) {
+            throw new ArithmeticException("表达式计算失败: " + e.getMessage());
+        }
+    }
+    
+    private double parseExpression(String expr, int[] pos) {
+        double left = parseTerm(expr, pos);
+        while (pos[0] < expr.length()) {
+            char op = expr.charAt(pos[0]);
+            if (op == '+' || op == '-') {
+                pos[0]++;
+                double right = parseTerm(expr, pos);
+                left = (op == '+') ? left + right : left - right;
+            } else {
+                break;
+            }
+        }
+        return left;
+    }
+    
+    private double parseTerm(String expr, int[] pos) {
+        double left = parseFactor(expr, pos);
+        while (pos[0] < expr.length()) {
+            char op = expr.charAt(pos[0]);
+            if (op == '*' || op == '/') {
+                pos[0]++;
+                double right = parseFactor(expr, pos);
+                if (op == '/') {
+                    if (right == 0) throw new ArithmeticException("除数不能为零");
+                    left /= right;
+                } else {
+                    left *= right;
+                }
+            } else {
+                break;
+            }
+        }
+        return left;
+    }
+    
+    private double parseFactor(String expr, int[] pos) {
+        if (pos[0] >= expr.length()) throw new ArithmeticException("表达式不完整");
+        
+        char c = expr.charAt(pos[0]);
+        if (c == '(') {
+            pos[0]++;
+            double result = parseExpression(expr, pos);
+            if (pos[0] < expr.length() && expr.charAt(pos[0]) == ')') {
+                pos[0]++;
+            }
+            return result;
+        } else if (Character.isDigit(c) || c == '.') {
+            int start = pos[0];
+            while (pos[0] < expr.length() && (Character.isDigit(expr.charAt(pos[0])) || expr.charAt(pos[0]) == '.')) {
+                pos[0]++;
+            }
+            return Double.parseDouble(expr.substring(start, pos[0]));
+        } else {
+            throw new ArithmeticException("无效字符: " + c);
         }
     }
 }

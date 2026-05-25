@@ -27,6 +27,7 @@ apktool_new.jar
 source.properties
 
 # ============ CMake/Native ============
+.cxx/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -141,6 +142,10 @@ skills/
 
 # ============ Reference docs package ============
 android_ai_multimodel_complete_package/
+
+# ============ Environment ============
+.env
+.env.local
 
 # ============ Misc ============
 *.DS_Store

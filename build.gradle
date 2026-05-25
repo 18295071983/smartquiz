@@ -1,6 +1,7 @@
 plugins {
     id "com.android.application" version "8.4.0"
     id "com.google.dagger.hilt.android" version "2.48"
+    id "com.chaquo.python" version "16.1.0"
 }
 
 // 配置资源处理
@@ -34,12 +35,18 @@ android {
         // 预编译后的.so文件应放在 src/main/jniLibs/ 目录下
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O3"
+                cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
                 arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\quzp\\app\\ninja.exe"
             }
         }
         ndk {
             abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    chaquopy {
+        defaultConfig {
+            version "3.10"
         }
     }
 
@@ -52,10 +59,7 @@ android {
         exclude "META-INF/INDEX.LIST"
         exclude "META-INF/io.netty.versions.properties"
         exclude "mozilla/public-suffix-list.txt"
-        exclude "**/org/tensorflow/lite/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite-gpu/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite-api/**/AndroidManifest.xml"
+
         pickFirst "**/libvulkan.so.*"
         pickFirst "**/libc++_shared.so"
         exclude "**/org/apache/commons/math3/**"
@@ -74,24 +78,21 @@ android {
         debug {
             debuggable true
             minifyEnabled false
-            applicationVariants.all {
-                variant ->
-                    variant.outputs.all {
-                        outputFileName = "答题宝-debug-${variant.versionName}.apk"
-                    }
-            }
         }
         release {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             signingConfig signingConfigs.release
-            applicationVariants.all {
-                variant ->
-                    variant.outputs.all {
-                        outputFileName = "答题宝-release-${variant.versionName}.apk"
-                    }
-            }
+        }
+    }
+
+    android.applicationVariants.all { variant ->
+        variant.outputs.all {
+            def baseName = "答题宝"
+            def buildType = variant.buildType.name
+            def versionName = variant.versionName
+            outputFileName = "${baseName}-${buildType}-${versionName}.apk"
         }
     }
 
@@ -120,22 +121,6 @@ android {
             path "src/main/cpp/CMakeLists.txt"
             version "3.22.1"
         }
-    }
-
-    packagingOptions {
-        exclude "META-INF/DEPENDENCIES"
-        exclude "META-INF/LICENSE"
-        exclude "META-INF/LICENSE.txt"
-        exclude "META-INF/NOTICE"
-        exclude "META-INF/NOTICE.txt"
-        exclude "META-INF/INDEX.LIST"
-        exclude "META-INF/io.netty.versions.properties"
-        exclude "mozilla/public-suffix-list.txt"
-        exclude "**/org/tensorflow/lite/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite-gpu/**/AndroidManifest.xml"
-        exclude "**/tensorflow-lite-api/**/AndroidManifest.xml"
-        pickFirst "**/libvulkan.so.*"
     }
 }
 
@@ -212,10 +197,19 @@ dependencies {
         implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
         implementation "com.google.mlkit:text-recognition-japanese:16.0.0"
         implementation "com.google.mlkit:text-recognition-korean:16.0.0"
-        implementation "org.tensorflow:tensorflow-lite:2.14.0"
-    implementation "org.tensorflow:tensorflow-lite-gpu:2.14.0"
+    
+    implementation "com.google.mlkit:image-labeling:17.0.7"
+    implementation "com.google.mlkit:image-labeling-custom:17.0.1"
+    
+    implementation "com.google.mlkit:object-detection:17.0.0"
+    implementation "com.google.mlkit:object-detection-custom:17.0.1"
+    
+    // TensorFlow Lite
+    implementation "org.tensorflow:tensorflow-lite:2.15.0"
     implementation "org.tensorflow:tensorflow-lite-support:0.4.4"
-    implementation "org.tensorflow:tensorflow-lite-task-text:0.4.4"
+    implementation "org.tensorflow:tensorflow-lite-gpu:2.15.0"
+    implementation "org.tensorflow:tensorflow-lite-metadata:0.4.4"
+    
     implementation "androidx.room:room-runtime:2.5.2"
     annotationProcessor "androidx.room:room-compiler:2.5.2"
     implementation "com.squareup.okio:okio:3.6.0"

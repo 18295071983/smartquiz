@@ -170,6 +170,12 @@ public class WeatherBannerManager {
                     info.humidity = line.substring(3).trim();
                 } else if (line.startsWith("风速:")) {
                     info.wind = line.substring(3).trim();
+                } else if (line.startsWith("体感温度:")) {
+                    info.feelsLike = line.substring(5).trim().replace("°C", "").replace("°", "");
+                } else if (line.startsWith("能见度:")) {
+                    info.visibility = line.substring(4).trim().replace(" km", "");
+                } else if (line.startsWith("链接:")) {
+                    info.fxLink = line.substring(3).trim();
                 }
             }
 
@@ -193,6 +199,9 @@ public class WeatherBannerManager {
         public String wind = "-- m/s";
         public String tempRange = "";
         public String forecast = "";
+        public String feelsLike = "--";
+        public String visibility = "--";
+        public String fxLink = "";
     }
 
     private void runOnUiThread(Runnable runnable) {

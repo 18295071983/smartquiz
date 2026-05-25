@@ -37,9 +37,20 @@ import com.oilquiz.app.util.AILogger;
 public class LlamaHelper {
     private static final String TAG = "LlamaHelper";
     private static final String LIBRARY_NAME = "llama-jni";
-    private static boolean libraryLoaded = false;
+    private static volatile boolean libraryLoaded = false;
     
-    private static NativeLogCallback sLogCallback = null;
+    private static volatile NativeLogCallback sLogCallback = null;
+    
+    private static volatile long lastModelInitCheckTime = 0;
+    private static volatile boolean cachedModelInitialized = false;
+    private static final long MODEL_INIT_CHECK_INTERVAL_MS = 1000;
+    
+    // Native 状态恢复跟踪
+    private static volatile int nativeRecoveryAttemptCount = 0;
+    private static volatile int nativeRecoverySuccessCount = 0;
+    private static volatile long lastNativeRecoveryTime = 0;
+    private static final int MAX_RECOVERY_ATTEMPTS_PER_HOUR = 5;
+    private static final long RECOVERY_COOLDOWN_MS = 30000; // 30秒冷却
     
     public interface NativeLogCallback {
         void onLog(int level, String tag, String message);
@@ -77,10 +88,29 @@ public class LlamaHelper {
             AILogger.w(TAG, "Library not loaded, cannot initialize model");
             return -1;
         }
+        
+        ValidationResult validation = validateInitModelParams(modelPath, nCtx, nThreads);
+        if (!validation.valid) {
+            AILogger.e(TAG, "initModel param validation failed: " + validation.errorMessage);
+            return -1;
+        }
+        
+        if (validation.warningMessage != null) {
+            AILogger.w(TAG, "initModel warning: " + validation.warningMessage);
+        }
+        
         try {
-            return nativeInitModel(modelPath, nCtx, nThreads);
+            int result = nativeInitModel(modelPath, nCtx, nThreads);
+            if (result == 0) {
+                cachedModelInitialized = true;
+                lastModelInitCheckTime = System.currentTimeMillis();
+            }
+            return result;
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error initializing model: " + e.getMessage(), e);
+            return -1;
+        } catch (Exception e) {
+            AILogger.e(TAG, "Exception initializing model: " + e.getMessage(), e);
             return -1;
         }
     }
@@ -128,6 +158,43 @@ public class LlamaHelper {
 
     private static native void nativeGenerateStream(String prompt, int maxTokens, float temperature, float topP, int topK, TokenCallback callback);
 
+    // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
+    public static void generateStream(ChatRequest request, TokenCallback callback) {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot generate stream");
+            if (callback != null) {
+                callback.onError("AI model not available");
+            }
+            return;
+        }
+        if (request == null || request.getFullPromptUtf8() == null) {
+            AILogger.e(TAG, "Invalid ChatRequest");
+            if (callback != null) {
+                callback.onError("Invalid request");
+            }
+            return;
+        }
+        try {
+            nativeGenerateStreamBytes(
+                request.getFullPromptUtf8(),
+                request.getMaxTokens(),
+                request.getTemperature(),
+                request.getTopP(),
+                request.getTopK(),
+                request.isEnableThinking(),
+                callback
+            );
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error generating stream: " + e.getMessage(), e);
+            if (callback != null) {
+                callback.onError("AI generation failed");
+            }
+        }
+    }
+
+    private static native void nativeGenerateStreamBytes(byte[] promptUtf8, int maxTokens, float temperature,
+                                                         float topP, int topK, boolean enableThinking, TokenCallback callback);
+
     // 停止生成
     public static void stopGeneration() {
         if (!libraryLoaded) {
@@ -166,6 +233,8 @@ public class LlamaHelper {
         }
         try {
             nativeRelease();
+            cachedModelInitialized = false;
+            lastModelInitCheckTime = System.currentTimeMillis();
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error releasing resources: " + e.getMessage(), e);
         }
@@ -390,15 +459,108 @@ public class LlamaHelper {
             AILogger.e(TAG, "Library not loaded, cannot check if model is initialized");
             return false;
         }
-        try {
-            return nativeIsModelInitialized();
-        } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error checking if model is initialized: " + e.getMessage(), e);
-            return false;
+        
+        long now = System.currentTimeMillis();
+        boolean shouldCheck = (now - lastModelInitCheckTime) > MODEL_INIT_CHECK_INTERVAL_MS;
+        
+        if (shouldCheck) {
+            try {
+                cachedModelInitialized = nativeIsModelInitialized();
+                lastModelInitCheckTime = now;
+            } catch (UnsatisfiedLinkError e) {
+                AILogger.e(TAG, "Error checking if model is initialized: " + e.getMessage(), e);
+                cachedModelInitialized = false;
+                lastModelInitCheckTime = now;
+            }
         }
+        
+        return cachedModelInitialized;
     }
 
     private static native boolean nativeIsModelInitialized();
+
+    /**
+     * 检查 Native 层状态是否有效（比 isModelInitialized 更严格）
+     * 同时检查模型初始化和上下文活性
+     */
+    public static boolean isNativeStateValid() {
+        if (!libraryLoaded) {
+            return false;
+        }
+        boolean modelOk = isModelInitialized();
+        if (!modelOk) {
+            return false;
+        }
+        // 如果 chatContextHandle 为 0，说明还没创建聊天上下文，不算无效
+        if (chatContextHandle == 0) {
+            return true;
+        }
+        // 如果已经创建了聊天上下文，检查它是否仍然有效
+        return isChatContextActive();
+    }
+
+    /**
+     * 记录一次 Native 恢复尝试，返回是否可以继续尝试
+     */
+    public static boolean canAttemptRecovery() {
+        long now = System.currentTimeMillis();
+        // 冷却期检查
+        if (now - lastNativeRecoveryTime < RECOVERY_COOLDOWN_MS) {
+            AILogger.w(TAG, "Recovery attempt blocked by cooldown");
+            return false;
+        }
+        // 每小时最大尝试次数检查
+        if (nativeRecoveryAttemptCount >= MAX_RECOVERY_ATTEMPTS_PER_HOUR) {
+            long timeSinceFirstAttempt = now - lastNativeRecoveryTime;
+            if (timeSinceFirstAttempt < 3600000) { // 1小时内
+                AILogger.w(TAG, "Recovery attempts exhausted for this hour: " + nativeRecoveryAttemptCount);
+                return false;
+            }
+            // 超过1小时，重置计数
+            nativeRecoveryAttemptCount = 0;
+        }
+        return true;
+    }
+
+    /**
+     * 记录恢复尝试
+     */
+    public static void recordRecoveryAttempt() {
+        nativeRecoveryAttemptCount++;
+        lastNativeRecoveryTime = System.currentTimeMillis();
+        AILogger.i(TAG, "Recovery attempt recorded, total: " + nativeRecoveryAttemptCount);
+    }
+
+    /**
+     * 记录恢复成功
+     */
+    public static void recordRecoverySuccess() {
+        nativeRecoverySuccessCount++;
+        AILogger.i(TAG, "Recovery success recorded, total success: " + nativeRecoverySuccessCount);
+    }
+
+    /**
+     * 获取恢复尝试次数
+     */
+    public static int getRecoveryAttemptCount() {
+        return nativeRecoveryAttemptCount;
+    }
+
+    /**
+     * 获取恢复成功次数
+     */
+    public static int getRecoverySuccessCount() {
+        return nativeRecoverySuccessCount;
+    }
+
+    /**
+     * 重置恢复计数
+     */
+    public static void resetRecoveryCount() {
+        nativeRecoveryAttemptCount = 0;
+        nativeRecoverySuccessCount = 0;
+        lastNativeRecoveryTime = 0;
+    }
 
     // 错误处理
     public static String getLastError() {
@@ -530,17 +692,52 @@ public class LlamaHelper {
     private static int contextTotalSize = 0;
     private static int contextUsedTokens = 0;
 
+    // 活跃生成任务标志，防止并发调用native层
+    private static volatile boolean hasActiveGeneration = false;
+
     public static long chatCreate(String modelPath, int ctxSize, int nThreads, String globalPrompt, String systemPrompt, String normalPrompt) {
-        if (!libraryLoaded) return 0;
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "chatCreate: library not loaded");
+            return 0;
+        }
+
+        if (ctxSize <= 0) {
+            AILogger.e(TAG, "chatCreate: invalid ctxSize=" + ctxSize);
+            return 0;
+        }
+
+        if (ctxSize > 16384) {
+            AILogger.w(TAG, "chatCreate: ctxSize " + ctxSize + " may be too large for mobile devices");
+        }
+
+        if (nThreads <= 0) {
+            nThreads = 4;
+        }
+
+        String gPrompt = globalPrompt != null ? globalPrompt : "";
+        String sPrompt = systemPrompt != null ? systemPrompt : "";
+        String nPrompt = normalPrompt != null ? normalPrompt : "";
+
+        AILogger.i(TAG, "chatCreate: ctxSize=" + ctxSize + ", nThreads=" + nThreads +
+                ", globalPromptLen=" + gPrompt.length() +
+                ", systemPromptLen=" + sPrompt.length() +
+                ", normalPromptLen=" + nPrompt.length());
+
         try {
-            chatContextHandle = nativeChatCreate(modelPath, ctxSize, nThreads, globalPrompt, systemPrompt, normalPrompt);
+            chatContextHandle = nativeChatCreate(modelPath, ctxSize, nThreads, gPrompt, sPrompt, nPrompt);
             if (chatContextHandle != 0) {
                 contextTotalSize = ctxSize;
                 contextUsedTokens = 0;
+                AILogger.i(TAG, "chatCreate: success, handle=" + chatContextHandle);
+            } else {
+                AILogger.e(TAG, "chatCreate: nativeChatCreate returned 0");
             }
             return chatContextHandle;
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error creating chat context: " + e.getMessage(), e);
+            AILogger.e(TAG, "chatCreate: UnsatisfiedLinkError: " + e.getMessage(), e);
+            return 0;
+        } catch (Exception e) {
+            AILogger.e(TAG, "chatCreate: Exception: " + e.getMessage(), e);
             return 0;
         }
     }
@@ -556,26 +753,117 @@ public class LlamaHelper {
     }
 
     public static void chatSend(String message, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
-        if (!libraryLoaded || chatContextHandle == 0) {
-            if (callback != null) callback.onError("Chat context not initialized");
+        if (!libraryLoaded) {
+            handleValidationError(callback, "Native库未加载，无法发送消息");
             return;
         }
+
+        if (chatContextHandle == 0) {
+            handleValidationError(callback, "Chat上下文未初始化");
+            return;
+        }
+
+        // 防止并发调用native层
+        if (hasActiveGeneration) {
+            AILogger.w(TAG, "已有活跃的生成任务，拒绝新的chatSend调用");
+            handleValidationError(callback, "已有活跃的生成任务");
+            return;
+        }
+
+        // 检查Native层状态
+        if (!isNativeStateValid()) {
+            AILogger.e(TAG, "Native状态异常，拒绝chatSend调用");
+            handleValidationError(callback, "Native状态异常");
+            return;
+        }
+        
+        ValidationResult validation = validateChatSendParams(message, maxTokens, temperature, topP, topK);
+        if (!validation.valid) {
+            handleValidationError(callback, validation.errorMessage);
+            return;
+        }
+        
+        if (validation.warningMessage != null) {
+            AILogger.w(TAG, "chatSend warning: " + validation.warningMessage);
+        }
+        
+        String safeMessage = sanitizeMessage(message);
+        if (safeMessage == null) {
+            handleValidationError(callback, "消息内容格式错误");
+            return;
+        }
+
+        // 设置活跃生成标志
+        hasActiveGeneration = true;
+        SafeTokenCallbackWrapper safeCallback = new SafeTokenCallbackWrapper(callback);
+        
         try {
-            nativeChatSend(chatContextHandle, message, maxTokens, temperature, topP, topK, enableThinking, callback);
+            nativeChatSend(chatContextHandle, safeMessage, maxTokens, temperature, topP, topK, enableThinking, safeCallback);
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error in chat send: " + e.getMessage(), e);
-            if (callback != null) callback.onError("Chat send failed");
+            AILogger.e(TAG, "Native链接错误: " + e.getMessage(), e);
+            safeCallback.invalidate();
+            handleValidationError(callback, "Native层不可用: " + e.getMessage());
+            resetNativeState();
+        } catch (Exception e) {
+            AILogger.e(TAG, "chatSend调用异常: " + e.getMessage(), e);
+            safeCallback.invalidate();
+            handleValidationError(callback, "调用异常: " + e.getMessage());
+            hasActiveGeneration = false;
         }
     }
 
     public static void chatStop() {
-        if (!libraryLoaded || chatContextHandle == 0) return;
-        try { nativeChatStop(chatContextHandle); } catch (UnsatisfiedLinkError e) {}
+        long handle = chatContextHandle;
+        if (!libraryLoaded || handle == 0) return;
+        try { nativeChatStop(handle); } catch (UnsatisfiedLinkError e) {}
     }
 
     public static void chatClear() {
-        if (!libraryLoaded || chatContextHandle == 0) return;
-        try { nativeChatClear(chatContextHandle); } catch (UnsatisfiedLinkError e) {}
+        long handle = chatContextHandle;
+        if (!libraryLoaded || handle == 0) return;
+        try { nativeChatClear(handle); } catch (UnsatisfiedLinkError e) {}
+    }
+
+    // 活跃生成标志管理
+    public static void setHasActiveGeneration(boolean active) {
+        hasActiveGeneration = active;
+    }
+
+    public static boolean hasActiveGeneration() {
+        return hasActiveGeneration;
+    }
+
+    // 消息内容清理
+    private static String sanitizeMessage(String message) {
+        if (message == null) return "";
+        // 移除null字符等潜在危险字符
+        String cleaned = message.replace("\u0000", "");
+        // 限制长度
+        if (cleaned.length() > 32768) {
+            AILogger.w(TAG, "消息过长，截断到32768字符，原长度=" + cleaned.length());
+            cleaned = cleaned.substring(0, 32768);
+        }
+        if (cleaned.isEmpty()) return null;
+        return cleaned;
+    }
+
+    // 重置Native状态
+    private static void resetNativeState() {
+        AILogger.w(TAG, "重置native状态");
+        hasActiveGeneration = false;
+        if (chatContextHandle != 0) {
+            chatDestroy();
+        }
+    }
+
+    // 清理Native层回调引用
+    public static void cleanupNativeCallback() {
+        if (!libraryLoaded) return;
+        try {
+            nativeCleanupCallback();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error cleaning up native callback: " + e.getMessage());
+        }
     }
 
     public static synchronized void chatDestroy() {
@@ -642,6 +930,7 @@ public class LlamaHelper {
     private static native int nativeGetContextSize(long handle);
     private static native int nativeGetContextUsedTokens(long handle);
     private static native int nativeGetContextRemainingTokens(long handle);
+    private static native void nativeCleanupCallback();
 
     public static int handleMemoryPressure(int level) {
         if (!libraryLoaded) return 0;
@@ -649,6 +938,255 @@ public class LlamaHelper {
             return nativeHandleMemoryPressure(level);
         } catch (UnsatisfiedLinkError e) {
             return 0;
+        }
+    }
+    
+    public static boolean isOpenCLLoaded() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot check OpenCL status");
+            return false;
+        }
+        try {
+            return nativeIsOpenCLLoaded();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error checking OpenCL loaded: " + e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    public static boolean isGPUWorking() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot check GPU status");
+            return false;
+        }
+        try {
+            return nativeIsGPUWorking();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error checking GPU working: " + e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    public static String getOpenCLInfo() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot get OpenCL info");
+            return "Library not loaded";
+        }
+        try {
+            return nativeGetOpenCLInfo();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error getting OpenCL info: " + e.getMessage(), e);
+            return "Error: " + e.getMessage();
+        }
+    }
+    
+    public static String getFullDeviceInfoSummary() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== AI 加速信息\n");
+        sb.append("================\n");
+        sb.append("Native库: ").append(libraryLoaded ? "已加载" : "未加载").append("\n");
+        sb.append("模型初始化: ").append(isModelInitialized() ? "是" : "否").append("\n");
+        sb.append("\n=== OpenCL/GPU状态\n");
+        sb.append("================\n");
+        
+        if (libraryLoaded) {
+            sb.append("OpenCL库: ").append(isOpenCLLoaded() ? "已加载" : "未加载").append("\n");
+            sb.append("GPU加速: ").append(isGPUWorking() ? "启用" : "未启用").append("\n");
+            sb.append("\n=== 设备信息\n");
+            sb.append("================\n");
+            try {
+                String deviceInfo = getDeviceInfo();
+                sb.append(deviceInfo);
+            } catch (Exception e) {
+                sb.append("获取设备信息失败: ").append(e.getMessage());
+            }
+        } else {
+            sb.append("Native库未加载，无法获取GPU状态\n");
+        }
+        
+        return sb.toString();
+    }
+    
+    private static native boolean nativeIsOpenCLLoaded();
+    private static native boolean nativeIsGPUWorking();
+    private static native String nativeGetOpenCLInfo();
+    private static native String nativeDetectGPUInfo();
+    
+    public static String detectGPUInfo() {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot detect GPU info");
+            return "{}";
+        }
+        try {
+            String info = nativeDetectGPUInfo();
+            AILogger.i(TAG, "GPU info detected: " + info);
+            return info;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error detecting GPU info: " + e.getMessage(), e);
+            return "{}";
+        }
+    }
+    
+    public static class ValidationResult {
+        public final boolean valid;
+        public final String errorMessage;
+        public final String warningMessage;
+        
+        public ValidationResult(boolean valid, String errorMessage, String warningMessage) {
+            this.valid = valid;
+            this.errorMessage = errorMessage;
+            this.warningMessage = warningMessage;
+        }
+        
+        public static ValidationResult ok() {
+            return new ValidationResult(true, null, null);
+        }
+        
+        public static ValidationResult error(String message) {
+            return new ValidationResult(false, message, null);
+        }
+        
+        public static ValidationResult warning(String message) {
+            return new ValidationResult(true, null, message);
+        }
+    }
+    
+    private static ValidationResult validateChatSendParams(String message, int maxTokens, 
+            float temperature, float topP, int topK) {
+        if (message == null) {
+            return ValidationResult.error("消息内容不能为null");
+        }
+        
+        if (message.length() > 32768) {
+            return ValidationResult.error("消息内容过长: " + message.length() + "字符，最大支持32768");
+        }
+        
+        if (maxTokens <= 0) {
+            return ValidationResult.error("maxTokens必须大于0: " + maxTokens);
+        }
+        
+        if (maxTokens > 32768) {
+            return ValidationResult.warning("maxTokens可能过大: " + maxTokens + "，建议不超过4096");
+        }
+        
+        if (temperature < 0.0f || temperature > 2.0f) {
+            return ValidationResult.error("temperature必须在0.0-2.0之间: " + temperature);
+        }
+        
+        if (topP < 0.0f || topP > 1.0f) {
+            return ValidationResult.error("topP必须在0.0-1.0之间: " + topP);
+        }
+        
+        if (topK < 0 || topK > 1000) {
+            return ValidationResult.error("topK必须在0-1000之间: " + topK);
+        }
+        
+        return ValidationResult.ok();
+    }
+    
+    private static ValidationResult validateGenerateParams(String prompt, int maxTokens, 
+            float temperature, float topP, int topK) {
+        if (prompt == null) {
+            return ValidationResult.error("prompt不能为null");
+        }
+        
+        if (prompt.length() > 32768) {
+            return ValidationResult.error("prompt过长: " + prompt.length() + "字符，最大支持32768");
+        }
+        
+        if (maxTokens <= 0) {
+            return ValidationResult.error("maxTokens必须大于0: " + maxTokens);
+        }
+        
+        if (temperature < 0.0f || temperature > 2.0f) {
+            return ValidationResult.error("temperature必须在0.0-2.0之间: " + temperature);
+        }
+        
+        if (topP < 0.0f || topP > 1.0f) {
+            return ValidationResult.error("topP必须在0.0-1.0之间: " + topP);
+        }
+        
+        if (topK < 0 || topK > 1000) {
+            return ValidationResult.error("topK必须在0-1000之间: " + topK);
+        }
+        
+        return ValidationResult.ok();
+    }
+    
+    private static ValidationResult validateInitModelParams(String modelPath, int nCtx, int nThreads) {
+        if (modelPath == null || modelPath.isEmpty()) {
+            return ValidationResult.error("模型路径不能为空");
+        }
+        
+        if (nCtx <= 0 || nCtx > 16384) {
+            return ValidationResult.error("nCtx必须在1-16384之间: " + nCtx);
+        }
+        
+        if (nThreads <= 0 || nThreads > 32) {
+            return ValidationResult.error("nThreads必须在1-32之间: " + nThreads);
+        }
+        
+        return ValidationResult.ok();
+    }
+    
+    private static void handleValidationError(TokenCallback callback, String errorMessage) {
+        AILogger.e(TAG, "参数验证失败: " + errorMessage);
+        if (callback != null) {
+            try {
+                callback.onError("参数错误: " + errorMessage);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Error calling onError callback: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 安全的Token回调包装器，防止回调中异常导致native层崩溃
+     */
+    private static class SafeTokenCallbackWrapper implements TokenCallback {
+        private final TokenCallback wrapped;
+        private volatile boolean isActive = true;
+
+        SafeTokenCallbackWrapper(TokenCallback wrapped) {
+            this.wrapped = wrapped;
+        }
+
+        @Override
+        public void onToken(String token) {
+            if (!isActive || wrapped == null) return;
+            try {
+                wrapped.onToken(token);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Token回调异常: " + e.getMessage());
+            }
+        }
+
+        @Override
+        public void onComplete(String fullText) {
+            if (!isActive || wrapped == null) return;
+            isActive = false;
+            hasActiveGeneration = false;
+            try {
+                wrapped.onComplete(fullText);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Complete回调异常: " + e.getMessage());
+            }
+        }
+
+        @Override
+        public void onError(String error) {
+            if (!isActive || wrapped == null) return;
+            isActive = false;
+            hasActiveGeneration = false;
+            try {
+                wrapped.onError(error);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Error回调异常: " + e.getMessage());
+            }
+        }
+
+        void invalidate() {
+            isActive = false;
         }
     }
 }

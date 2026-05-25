@@ -377,13 +377,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_quiz"
-                            android:tint="@color/primary"
+                            android:text="💬"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/question_generation"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -391,7 +391,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="@string/question_generation"
+                            android:text="@string/ai_chat"
                             android:textAllCaps="false"
                             android:textColor="@color/text_primary"
                             android:clickable="false"
@@ -423,13 +423,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_ocr"
-                            android:tint="@color/secondary"
+                            android:text="📷"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/text_recognition"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -477,13 +477,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_import"
-                            android:tint="@color/tertiary"
+                            android:text="🤖"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/model_import"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -491,7 +491,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="@string/model_import"
+                            android:text="@string/model_management"
                             android:textAllCaps="false"
                             android:textColor="@color/text_primary"
                             android:clickable="false"
@@ -523,13 +523,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/primary"
+                            android:text="⚡"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/ai_service_status"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -611,13 +611,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_note"
-                            android:tint="@color/tertiary"
+                            android:text="📝"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/learning_notes"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -657,13 +657,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/primary"
+                            android:text="🧠"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/ai_config"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -671,7 +671,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="@string/ai_config"
+                            android:text="@string/ai_center"
                             android:textAllCaps="false"
                             android:textColor="@color/text_primary"
                             android:clickable="false"
@@ -712,13 +712,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_weather_placeholder"
-                            android:tint="@color/tertiary"
+                            android:text="🌤️"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/frontend_render"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -758,13 +758,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_backup"
-                            android:tint="@color/primary"
+                            android:text="💾"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/data_backup"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -813,13 +813,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_import"
-                            android:tint="@color/secondary"
+                            android:text="📥"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/import_export"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -859,13 +859,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_theme"
-                            android:tint="@color/tertiary"
+                            android:text="🎨"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/theme_settings"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -914,13 +914,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/primary"
+                            android:text="🌐"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/language_settings"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -960,13 +960,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_history"
-                            android:tint="@color/secondary"
+                            android:text="📚"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/learning_history"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -1015,13 +1015,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_info"
-                            android:tint="@color/tertiary"
+                            android:text="ℹ️"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/about_app"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -1061,13 +1061,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_stats"
-                            android:tint="@color/primary"
+                            android:text="📋"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/system_logs"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -1116,13 +1116,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/secondary"
+                            android:text="🔧"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="@string/native_detection"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -1163,13 +1163,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/tertiary"
+                            android:text="🧰"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="工具集"
                             android:clickable="false"
                             android:focusable="false" />
 
@@ -1209,13 +1209,13 @@
                         android:clickable="false"
                         android:focusable="false">
 
-                        <ImageView
+                        <TextView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/primary"
+                            android:text="🗄️"
+                            android:textSize="24sp"
+                            android:gravity="center"
                             android:layout_marginEnd="12dp"
-                            android:contentDescription="数据库管理"
                             android:clickable="false"
                             android:focusable="false" />
 

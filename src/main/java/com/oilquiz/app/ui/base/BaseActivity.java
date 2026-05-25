@@ -5,11 +5,13 @@ import android.view.MenuItem;
 import android.widget.Toast;
 
 import androidx.annotation.LayoutRes;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.resource.PermissionResourceProvider;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
@@ -101,5 +103,13 @@ public abstract class BaseActivity extends AppCompatActivity {
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+    
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        PermissionResourceProvider.getInstance(this)
+            .onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 }

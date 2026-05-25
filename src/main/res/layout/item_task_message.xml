@@ -24,12 +24,12 @@
         android:textSize="14sp"
         android:textIsSelectable="true" />
 
-        <ProgressBar
-            android:id="@+id/task_progress"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:visibility="gone"
-            style="?android:attr/progressBarStyleHorizontal" />
+    <ProgressBar
+        android:id="@+id/task_progress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:visibility="gone"
+        style="?android:attr/progressBarStyleHorizontal" />
 
 </LinearLayout>

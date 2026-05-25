@@ -20,6 +20,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class DatabaseManager {
     private static final String TAG = "DatabaseManager";
@@ -465,7 +466,7 @@ public class DatabaseManager {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
-                return upgradeManager.upgrade(DatabaseVersionChecker.LATEST_VERSION).get();
+                return upgradeManager.upgrade(DatabaseVersionChecker.LATEST_VERSION).get(30, TimeUnit.SECONDS);
             } catch (Exception e) {
                 Log.e(TAG, "数据库升级失败", e);
                 return false;
@@ -481,7 +482,7 @@ public class DatabaseManager {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
-                return upgradeManager.upgrade(targetVersion).get();
+                return upgradeManager.upgrade(targetVersion).get(30, TimeUnit.SECONDS);
             } catch (Exception e) {
                 Log.e(TAG, "数据库升级失败", e);
                 return false;
@@ -546,7 +547,7 @@ public class DatabaseManager {
                     return false;
                 }
                 // 1. 备份当前数据库
-                backupDatabase().get();
+                backupDatabase().get(30, TimeUnit.SECONDS);
                 
                 // 2. 关闭数据库
                 database.close();

@@ -10,10 +10,10 @@ public class CreativeWritingEngine {
     private static final String TAG = "CreativeWriter";
     private static final int MAX_TASK_ITERATIONS = 15;
 
-    private final AIAgentEngine agentEngine;
+    private final UnifiedAgentEngine agentEngine;
     private final AIService aiService;
 
-    public CreativeWritingEngine(AIAgentEngine agentEngine) {
+    public CreativeWritingEngine(UnifiedAgentEngine agentEngine) {
         this.agentEngine = agentEngine;
         this.aiService = agentEngine.getAIService();
     }
@@ -27,12 +27,12 @@ public class CreativeWritingEngine {
             lower.contains("广告") || lower.contains("标语") || lower.contains("邮件");
     }
 
-    public AIAgentEngine.AgentResult executeCreativeTask(String message) {
+    public UnifiedAgentEngine.AgentResult executeCreativeTask(String message) {
         try {
             String theme = extractTheme(message);
             String outline = generateOutline(message, theme);
             if (outline == null || outline.isEmpty()) {
-                return new AIAgentEngine.AgentResult("创作失败: 无法生成大纲", false);
+                return new UnifiedAgentEngine.AgentResult("创作失败: 无法生成大纲", false);
             }
 
             List<String> sections = parseOutline(outline);
@@ -45,10 +45,10 @@ public class CreativeWritingEngine {
                 fullContent.append(section).append("\n\n");
             }
 
-            return new AIAgentEngine.AgentResult(fullContent.toString().trim(), true);
+            return new UnifiedAgentEngine.AgentResult(fullContent.toString().trim(), true);
         } catch (Exception e) {
             AILogger.e(TAG, "Creative writing failed: " + e.getMessage());
-            return new AIAgentEngine.AgentResult("创作失败: " + e.getMessage(), false);
+            return new UnifiedAgentEngine.AgentResult("创作失败: " + e.getMessage(), false);
         }
     }
 

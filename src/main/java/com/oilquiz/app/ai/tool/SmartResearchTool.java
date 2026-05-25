@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -8,10 +11,22 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 智能研究工具，整合网络搜索和网页阅读功能
- * 提供一站式研究体验：搜索 → 智能选择 → 深度阅读 → 综合摘要
- */
+@Tool(
+    value = "smart_research",
+    description = "智能研究工具，整合搜索和阅读功能，自动完成搜索→选择→阅读→摘要的完整研究流程",
+    category = "research",
+    actions = {
+        @Action(name = "research", description = "执行完整研究流程"),
+        @Action(name = "quick_search", description = "快速搜索"),
+        @Action(name = "deep_read", description = "深度阅读"),
+        @Action(name = "summarize_topic", description = "主题摘要")
+    },
+    params = {
+        @Param(name = "topic", type = "string", description = "研究主题", required = true),
+        @Param(name = "depth", type = "int", description = "研究深度(默认1)", required = false),
+        @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false)
+    }
+)
 public class SmartResearchTool implements AITool {
     private static final String TAG = "SmartResearchTool";
     private final Context context;

@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.BufferedReader;
@@ -16,9 +19,24 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 文件阅读工具，提供高级文件读取和内容解析功能
- */
+@Tool(
+    value = "file_reader",
+    description = "文件阅读工具，支持读取文本文件、解析结构化内容、提取关键信息",
+    category = "file",
+    actions = {
+        @Action(name = "read", description = "读取文件内容"),
+        @Action(name = "read_lines", description = "按行读取文件"),
+        @Action(name = "extract_text", description = "提取文本内容"),
+        @Action(name = "search_text", description = "搜索文本"),
+        @Action(name = "extract_entities", description = "提取实体信息"),
+        @Action(name = "preview", description = "预览文件")
+    },
+    params = {
+        @Param(name = "file_path", type = "string", description = "文件路径", required = true),
+        @Param(name = "encoding", type = "string", description = "文件编码(默认UTF-8)", required = false),
+        @Param(name = "action", type = "string", description = "操作类型", required = true)
+    }
+)
 public class FileReaderTool implements AITool {
     private static final String TAG = "FileReaderTool";
     private final Context context;

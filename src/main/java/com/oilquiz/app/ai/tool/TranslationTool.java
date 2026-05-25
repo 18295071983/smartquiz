@@ -2,11 +2,31 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 import com.oilquiz.app.ai.feature.Translator;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Tool(
+    value = "translation",
+    description = "翻译工具，支持中英文、日文、韩文等多种语言互译",
+    category = "utility",
+    aliases = {"translate", "翻译", "language_translate"},
+    actions = {
+        @Action(name = "translate", description = "翻译文本"),
+        @Action(name = "translate_to_zh", description = "翻译成中文"),
+        @Action(name = "translate_to_en", description = "翻译成英文"),
+        @Action(name = "detect_language", description = "检测语言")
+    },
+    params = {
+        @Param(name = "text", type = "string", description = "待翻译文本", required = true),
+        @Param(name = "target_lang", type = "string", description = "目标语言(如zh/en/ja/ko等)", required = false),
+        @Param(name = "source_lang", type = "string", description = "源语言(自动检测)", required = false)
+    }
+)
 public class TranslationTool implements AITool {
     private static final String TAG = "TranslationTool";
     private final Context context;

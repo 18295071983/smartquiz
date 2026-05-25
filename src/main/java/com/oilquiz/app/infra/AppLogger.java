@@ -3,6 +3,8 @@ package com.oilquiz.app.infra;
 import android.content.Context;
 import android.util.Log;
 
+import com.oilquiz.app.util.AILogger;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -139,59 +141,29 @@ public class AppLogger {
     }
     
     /**
-     * AI日志 - 记录AI相关操作
+     * AI日志 - 记录AI相关操作（委托给AILogger）
      */
     public static void ai(String tag, String message) {
-        logAI(LogLevel.INFO, tag, message);
+        AILogger.i(tag, message);
     }
     
     public static void aiD(String tag, String message) {
-        logAI(LogLevel.DEBUG, tag, message);
+        AILogger.d(tag, message);
+    }
+    
+    public static void aiW(String tag, String message) {
+        AILogger.w(tag, message);
     }
     
     public static void aiE(String tag, String message) {
-        logAI(LogLevel.ERROR, tag, message);
+        AILogger.e(tag, message);
     }
     
     /**
-     * 核心AI日志记录方法
+     * AI错误日志（带异常）
      */
-    private static void logAI(LogLevel level, String tag, String message) {
-        if (!isInitialized) {
-            Log.e(TAG, "AppLogger未初始化");
-            return;
-        }
-        
-        // 检查是否达到最小记录级别
-        if (level.getLevel() < minLogLevel.getLevel()) {
-            return;
-        }
-
-        // 格式化日志条目
-        String logEntry = formatLogEntry(level, tag, "[AI] " + message);
-        
-        // 写入AI日志文件
-        writeToFile(AI_LOG_FILE, logEntry, true);
-        
-        // 同时输出到系统日志
-        switch (level) {
-            case VERBOSE:
-                Log.v(tag, "[AI] " + message);
-                break;
-            case DEBUG:
-                Log.d(tag, "[AI] " + message);
-                break;
-            case INFO:
-                Log.i(tag, "[AI] " + message);
-                break;
-            case WARN:
-                Log.w(tag, "[AI] " + message);
-                break;
-            case ERROR:
-            case CRASH:
-                Log.e(tag, "[AI] " + message);
-                break;
-        }
+    public static void aiE(String tag, String message, Throwable e) {
+        AILogger.e(tag, message, e);
     }
     
     /**

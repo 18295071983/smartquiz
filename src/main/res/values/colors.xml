@@ -22,12 +22,14 @@
 
     <color name="error">#EF4444</color>
     <color name="error_container">#FEF2F2</color>
+    <color name="on_error_container">#991B1B</color>
     <color name="success">#10B981</color>
     <color name="success_light">#6EE7B7</color>
     <color name="success_container">#ECFDF5</color>
 
     <color name="warning">#F59E0B</color>
     <color name="warning_light">#FCD34D</color>
+    <color name="warning_container">#FFFBEB</color>
 
     <color name="text_primary">#1E293B</color>
     <color name="text_secondary">#64748B</color>
@@ -40,8 +42,10 @@
     <color name="transparent">#00000000</color>
     <color name="outline">#E2E8F0</color>
     <color name="divider">#E2E8F0</color>
+    <color name="primary_alpha_10">#1A8B5CF6</color>
     <color name="primary_alpha_20">#338B5CF6</color>
     <color name="primary_alpha_50">#808B5CF6</color>
+    <color name="primary_alpha_80">#CC8B5CF6</color>
 
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
@@ -141,6 +145,7 @@
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#FFFFFF</color>
     <color name="on_error">#FFFFFF</color>
+    <color name="on_success">#065F46</color>
     <color name="on_background">#1E293B</color>
     <color name="on_surface">#1E293B</color>
     <color name="on_surface_variant">#64748B</color>
@@ -193,4 +198,24 @@
     <color name="weather_banner_bg_end">#A78BFA</color>
     <color name="weather_banner_text">#FFFFFF</color>
     <color name="weather_banner_text_secondary">#E2E8F0</color>
+
+    <!-- Dialog Colors -->
+    <color name="dialog_title_text">#1E293B</color>
+    <color name="dialog_primary_text">#334155</color>
+    <color name="dialog_secondary_text">#64748B</color>
+    <color name="dialog_suggestion_text">#6699CC</color>
+    <color name="dialog_error_text">#E74C3C</color>
+    <color name="dialog_format_text">#6699CC</color>
+    <color name="dialog_example_text">#27AE60</color>
+    <color name="dialog_error_icon">#E74C3C</color>
+    <color name="dialog_warning_icon">#F59E0B</color>
+    <color name="dialog_warning_text">#B7791F</color>
+    <color name="dialog_button_text_secondary">#64748B</color>
+
+    <!-- Dialog Background Colors -->
+    <color name="bg_validation_info">#E3F2FD</color>
+    <color name="bg_validation_success">#ECFDF5</color>
+    <color name="bg_validation_error">#FEE2E2</color>
+    <color name="bg_warning">#FEF3C7</color>
+
 </resources>

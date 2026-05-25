@@ -77,6 +77,89 @@ public class ChatMessage {
         FAILED
     }
 
+    /** 推理阶段 - 用于显示详细进度 */
+    public enum InferencePhase {
+        IDLE("空闲", "💤"),
+        INITIALIZING("正在初始化...", "⚙️"),
+        LOADING_MODEL("正在加载模型...", "📦"),
+        ENCODING("正在编码输入...", "🔄"),
+        PREFILL("正在处理上下文...", "📝"),
+        THINKING("正在思考...", "🤔"),
+        GENERATING("正在生成回复...", "✍️"),
+        DECODING("正在解码...", "📤"),
+        COMPLETED("已完成", "✅"),
+        FAILED("生成失败", "❌"),
+        FALLBACK_TO_CPU("GPU不可用，切换到CPU...", "🔄"),
+        WAITING("等待中...", "⏳");
+
+        private final String displayText;
+        private final String emoji;
+
+        InferencePhase(String displayText, String emoji) {
+            this.displayText = displayText;
+            this.emoji = emoji;
+        }
+
+        public String getDisplayText() {
+            return displayText;
+        }
+
+        public String getEmoji() {
+            return emoji;
+        }
+
+        public String getFullDisplay() {
+            return emoji + " " + displayText;
+        }
+
+        public boolean isProcessing() {
+            return this != IDLE && this != COMPLETED && this != FAILED;
+        }
+    }
+
+    /** 推理进度信息 */
+    public static class InferenceProgress {
+        public InferencePhase phase;
+        public int totalTokens;
+        public int processedTokens;
+        public float tokensPerSecond;
+        public long estimatedRemainingMs;
+        public int overallProgress;
+        public String additionalInfo;
+
+        public InferenceProgress() {
+            this.phase = InferencePhase.IDLE;
+            this.totalTokens = 0;
+            this.processedTokens = 0;
+            this.tokensPerSecond = 0;
+            this.estimatedRemainingMs = 0;
+            this.overallProgress = 0;
+            this.additionalInfo = "";
+        }
+
+        public InferenceProgress(InferencePhase phase) {
+            this.phase = phase;
+            this.totalTokens = 0;
+            this.processedTokens = 0;
+            this.tokensPerSecond = 0;
+            this.estimatedRemainingMs = 0;
+            this.overallProgress = 0;
+            this.additionalInfo = "";
+        }
+
+        public String getEstimatedTimeFormatted() {
+            if (estimatedRemainingMs <= 0) return "";
+            long seconds = (estimatedRemainingMs + 500) / 1000;
+            if (seconds < 60) return seconds + "秒";
+            return (seconds / 60) + "分" + (seconds % 60) + "秒";
+        }
+
+        public int getPercentage() {
+            if (totalTokens <= 0) return 0;
+            return Math.min(100, (processedTokens * 100) / totalTokens);
+        }
+    }
+
     /** 消息唯一ID */
     public String id;
 
@@ -137,8 +220,66 @@ public class ChatMessage {
     /** 任务进度（0-100） */
     public Integer taskProgress;
 
+    /** 推理进度信息 */
+    public InferenceProgress inferenceProgress;
+
+    /** 是否使用GPU加速 */
+    public boolean usingGPU;
+
+    /** GPU层数（如果使用GPU） */
+    public int gpuLayers;
+
     /** 是否展开（用于长消息折叠） */
     public boolean isExpanded;
+
+    /** 在线模型信息 */
+    public ModelInfo modelInfo;
+
+    /**
+     * 在线模型信息类 - 用于显示模型名称、状态、延迟、成本等
+     */
+    public static class ModelInfo {
+        /** 模型名称 */
+        public String modelName;
+        /** 模型类型（如 gpt-4, gpt-3.5-turbo） */
+        public String modelType;
+        /** API URL */
+        public String apiUrl;
+        /** 状态：0=未知, 1=在线, 2=离线, 3=错误 */
+        public int status;
+        /** 延迟（毫秒） */
+        public long latencyMs;
+        /** 上次使用时间戳 */
+        public long lastUsedTime;
+        /** 成本估算 */
+        public double costEstimate;
+        /** 是否启用 */
+        public boolean isEnabled;
+
+        public ModelInfo(String modelName) {
+            this.modelName = modelName;
+            this.status = 0;
+            this.isEnabled = true;
+        }
+
+        public ModelInfo(String modelName, String modelType, long latencyMs, double costEstimate) {
+            this.modelName = modelName;
+            this.modelType = modelType;
+            this.latencyMs = latencyMs;
+            this.costEstimate = costEstimate;
+            this.status = 0;
+            this.isEnabled = true;
+        }
+
+        public String getStatusText() {
+            switch (status) {
+                case 1: return "在线";
+                case 2: return "离线";
+                case 3: return "错误";
+                default: return "未知";
+            }
+        }
+    }
 
     public static class ToolCallInfo {
         public String toolName;
@@ -221,7 +362,8 @@ public class ChatMessage {
             PLANNING,
             ACTING,
             OBSERVING,
-            REFLECTING
+            REFLECTING,
+            PAUSED
         }
 
         public AgentStepInfo(AgentStepType stepType, int iteration, int totalIterations) {
@@ -238,6 +380,7 @@ public class ChatMessage {
                 case ACTING: return "⚙️ 行动";
                 case OBSERVING: return "👁️ 观察";
                 case REFLECTING: return "🔄 反思";
+                case PAUSED: return "⏸️ 已暂停";
                 default: return "📌 步骤";
             }
         }
@@ -249,6 +392,7 @@ public class ChatMessage {
                 case ACTING: return "⚙️";
                 case OBSERVING: return "👁️";
                 case REFLECTING: return "🔄";
+                case PAUSED: return "⏸️";
                 default: return "📌";
             }
         }
@@ -297,11 +441,20 @@ public class ChatMessage {
         /** 步骤ID */
         public final String id;
 
-        /** 步骤名称 */
-        public final String name;
+        /** 步骤编号 */
+        public int stepNumber;
+
+        /** 步骤名称/标题 */
+        public String name;
+
+        /** 步骤标题（别名，便于流式更新使用） */
+        public String title;
 
         /** 步骤详细描述 */
-        public final String description;
+        public String description;
+
+        /** 步骤内容（别名，便于流式更新使用） */
+        public String content;
 
         /** 步骤状态 */
         public ThinkingStepStatus status;
@@ -316,7 +469,10 @@ public class ChatMessage {
         public String result;
 
         /** 步骤类型 */
-        public final ThinkingStepType stepType;
+        public ThinkingStepType stepType;
+
+        /** 步骤进度 (0-100) */
+        public int progress;
 
         public enum ThinkingStepType {
             /** 理解用户输入 */
@@ -343,10 +499,46 @@ public class ChatMessage {
 
         public ThinkingStep(String name, String description, ThinkingStepType stepType) {
             this.id = UUID.randomUUID().toString();
+            this.stepNumber = 0;
             this.name = name;
+            this.title = name;
             this.description = description;
+            this.content = description;
             this.status = ThinkingStepStatus.PENDING;
             this.stepType = stepType;
+            this.progress = 0;
+        }
+
+        public ThinkingStep(int stepNumber, String stepType, String title, String content, int progress) {
+            this.id = UUID.randomUUID().toString();
+            this.stepNumber = stepNumber;
+            this.name = title;
+            this.title = title;
+            this.description = content;
+            this.content = content;
+            this.status = ThinkingStepStatus.IN_PROGRESS;
+            this.stepType = parseStepType(stepType);
+            this.progress = progress;
+        }
+
+        private static ThinkingStepType parseStepType(String typeStr) {
+            if (typeStr == null) return ThinkingStepType.UNDERSTAND;
+            String upper = typeStr.toUpperCase().trim();
+            try {
+                return ThinkingStepType.valueOf(upper);
+            } catch (IllegalArgumentException e) {
+                if (upper.contains("UNDERSTAND") || upper.contains("理解")) return ThinkingStepType.UNDERSTAND;
+                if (upper.contains("INTENT") || upper.contains("意图")) return ThinkingStepType.INTENT;
+                if (upper.contains("PLAN") || upper.contains("规划")) return ThinkingStepType.PLANNING;
+                if (upper.contains("DECOMPOSE") || upper.contains("分解")) return ThinkingStepType.DECOMPOSE;
+                if (upper.contains("EXECUTE") || upper.contains("执行")) return ThinkingStepType.EXECUTE;
+                if (upper.contains("SEARCH") || upper.contains("搜索")) return ThinkingStepType.SEARCH;
+                if (upper.contains("ANALYSIS") || upper.contains("分析")) return ThinkingStepType.ANALYSIS;
+                if (upper.contains("GENERATE") || upper.contains("生成")) return ThinkingStepType.GENERATE;
+                if (upper.contains("VERIFY") || upper.contains("验证")) return ThinkingStepType.VERIFY;
+                if (upper.contains("SUMMARIZE") || upper.contains("总结")) return ThinkingStepType.SUMMARIZE;
+                return ThinkingStepType.UNDERSTAND;
+            }
         }
 
         public ThinkingStep withStatus(ThinkingStepStatus status) {
@@ -422,15 +614,32 @@ public class ChatMessage {
     }
 
     /**
+     * 附件上传/处理状态
+     */
+    public enum AttachmentStatus {
+        PENDING,
+        UPLOADING,
+        PROCESSING,
+        COMPLETED,
+        FAILED
+    }
+
+    /**
      * 附件类
      */
     public static class Attachment {
         public final String id;
-        public final String type;
-        public final String url;
-        public final String name;
-        public final long size;
-        public final String mimeType;
+        public String type;
+        public String url;
+        public String name;
+        public long size;
+        public String mimeType;
+        public String thumbnailPath;
+        public long durationMs;
+        public AttachmentStatus status;
+        public int uploadProgress;
+        public String errorMessage;
+        public String localFilePath;
 
         public Attachment(String type, String url, String name) {
             this.id = UUID.randomUUID().toString();
@@ -439,6 +648,9 @@ public class ChatMessage {
             this.name = name;
             this.size = 0;
             this.mimeType = getMimeFromType(type);
+            this.status = AttachmentStatus.COMPLETED;
+            this.uploadProgress = 0;
+            this.durationMs = 0;
         }
 
         public Attachment(String type, String url, String name, long size) {
@@ -448,6 +660,40 @@ public class ChatMessage {
             this.name = name;
             this.size = size;
             this.mimeType = getMimeFromType(type);
+            this.status = AttachmentStatus.COMPLETED;
+            this.uploadProgress = 0;
+            this.durationMs = 0;
+        }
+
+        public Attachment withThumbnail(String thumbnailPath) {
+            this.thumbnailPath = thumbnailPath;
+            return this;
+        }
+
+        public Attachment withDuration(long durationMs) {
+            this.durationMs = durationMs;
+            return this;
+        }
+
+        public Attachment withStatus(AttachmentStatus status) {
+            this.status = status;
+            return this;
+        }
+
+        public Attachment withUploadProgress(int progress) {
+            this.uploadProgress = progress;
+            return this;
+        }
+
+        public Attachment withLocalFilePath(String localFilePath) {
+            this.localFilePath = localFilePath;
+            return this;
+        }
+
+        public Attachment withError(String errorMessage) {
+            this.errorMessage = errorMessage;
+            this.status = AttachmentStatus.FAILED;
+            return this;
         }
 
         private String getMimeFromType(String type) {
@@ -468,6 +714,18 @@ public class ChatMessage {
             return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
         }
 
+        public String getFormattedDuration() {
+            if (durationMs <= 0) return "";
+            long seconds = durationMs / 1000;
+            long minutes = seconds / 60;
+            long hours = minutes / 60;
+            if (hours > 0) {
+                return String.format("%d:%02d:%02d", hours, minutes % 60, seconds % 60);
+            } else {
+                return String.format("%d:%02d", minutes, seconds % 60);
+            }
+        }
+
         public String getEmoji() {
             if (type == null) return "📎";
             String lowerType = type.toLowerCase();
@@ -481,6 +739,43 @@ public class ChatMessage {
             if (lowerType.contains("html")) return "🌐";
             return "📎";
         }
+
+        public boolean isImage() {
+            return type != null && type.toLowerCase().contains("image");
+        }
+
+        public boolean isVideo() {
+            return type != null && type.toLowerCase().contains("video");
+        }
+
+        public boolean isAudio() {
+            return type != null && type.toLowerCase().contains("audio");
+        }
+
+        public boolean isDocument() {
+            return !isImage() && !isVideo() && !isAudio();
+        }
+
+        public boolean isUploading() {
+            return status == AttachmentStatus.UPLOADING || status == AttachmentStatus.PENDING;
+        }
+
+        public boolean hasError() {
+            return status == AttachmentStatus.FAILED;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (obj == null || getClass() != obj.getClass()) return false;
+            Attachment that = (Attachment) obj;
+            return id != null && id.equals(that.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return id != null ? id.hashCode() : 0;
+        }
     }
 
     /**
@@ -493,7 +788,10 @@ public class ChatMessage {
         LIKE,
         DISLIKE,
         SHOW_HELP,
-        SHOW_GUIDE
+        SHOW_GUIDE,
+        VIEW_TOOL_DETAILS,
+        EXPORT_SUMMARY,
+        REPORT_ERROR
     }
 
     /**
@@ -539,15 +837,15 @@ public class ChatMessage {
         }
 
         public static Action viewToolDetails(String messageId) {
-            return new Action(ActionType.COPY, messageId, null);
+            return new Action(ActionType.VIEW_TOOL_DETAILS, messageId, null);
         }
 
         public static Action exportSummary(String messageId) {
-            return new Action(ActionType.COPY, messageId, null);
+            return new Action(ActionType.EXPORT_SUMMARY, messageId, null);
         }
 
         public static Action reportError(String messageId, String content) {
-            return new Action(ActionType.COPY, messageId, content);
+            return new Action(ActionType.REPORT_ERROR, messageId, content);
         }
     }
 
@@ -595,6 +893,7 @@ public class ChatMessage {
         this.agentStepInfo = builder.agentStepInfo;
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
+        this.inferenceProgress = builder.inferenceProgress;
     }
 
     // ==================== 静态工厂方法 ====================
@@ -1049,6 +1348,7 @@ public class ChatMessage {
             .expanded(this.isExpanded)
             .errorDetail(this.errorDetail)
             .retryable(this.retryable)
+            .inferenceProgress(this.inferenceProgress)
             .build();
         return cloned;
     }
@@ -1077,6 +1377,7 @@ public class ChatMessage {
         private boolean retryable = false;
         private Integer taskProgress;
         private boolean isExpanded = false;
+        private InferenceProgress inferenceProgress;
 
         public Builder(MessageType type) {
             this.type = type;
@@ -1104,6 +1405,11 @@ public class ChatMessage {
 
         public Builder status(MessageStatus status) {
             this.status = status;
+            return this;
+        }
+
+        public Builder inferenceProgress(InferenceProgress progress) {
+            this.inferenceProgress = progress;
             return this;
         }
 

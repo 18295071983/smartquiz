@@ -123,6 +123,18 @@ public class SmartQuizApplication extends Application {
                             aiService.onAppEnterForeground();
                             com.oilquiz.app.util.AILogger.i("SmartQuizApplication", 
                                 "AI服务状态: " + aiService.getStatusInfo());
+                            
+                            // 尝试热启动恢复模型
+                            if (aiService.canHotStart()) {
+                                com.oilquiz.app.util.AILogger.i("SmartQuizApplication", "检测到可热启动，尝试恢复AI模型...");
+                                aiService.tryHotStart(new AIService.HotStartCallback() {
+                                    @Override
+                                    public void onHotStartComplete(boolean success, String message) {
+                                        com.oilquiz.app.util.AILogger.i("SmartQuizApplication", 
+                                            "热启动结果: " + success + " - " + message);
+                                    }
+                                });
+                            }
                         } catch (Exception e) {
                             com.oilquiz.app.util.AILogger.e("SmartQuizApplication", 
                                 "恢复AI服务状态失败: " + e.getMessage(), e);
