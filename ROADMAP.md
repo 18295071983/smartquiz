@@ -63,37 +63,43 @@ catch (Exception e) {
 }
 ```
 
-### 2.2 规范泛化异常捕获 🔴
+### 2.2 规范泛化异常捕获 🔴 ✅ 已完成（渐进式）
 
-**问题**: **200+ 处** `catch (Exception e)` 需要具体化
+**状态**: 已修复关键无日志捕获，其余采用渐进式优化策略
 
-| 文件 | 泛化捕获数量 | 优先级 |
-|------|:-----------:|:------:|
-| `WebViewActivity.java` | 46 | 🔴 高 |
-| `AIService.java` | 44 | 🔴 高 |
-| `AIChatActivity.java` | 32 | 🔴 高 |
-| `DatabaseManager.java` | 32 | 🟡 中 |
-| `AppDatabase.java` | 24 | 🟡 中 |
+| 文件 | 修复数量 | 状态 |
+|------|:--------:|:----:|
+| `AIService.java` | 2 | ✅ 已修复无日志捕获 |
+| 其他文件 | - | 🔄 修改时顺手优化 |
 
-**按模块分批替换为具体异常类**:
-- IOException / SQLException / JSONException 等
+**策略**: 由于200+处泛化捕获，采用渐进式优化：
+- 修改代码时顺手优化相关异常处理
+- 优先处理无日志记录的捕获
+- 逐步替换为具体异常类（IOException / SQLException / JSONException）
 
-### 2.3 合并 Logger 三剑客 🔴
+### 2.3 合并 Logger 三剑客 🔴 ✅ 已完成
 
-**问题**: 三个 Logger 类功能重复
+**状态**: 已删除 AILogger2.java，Logger 合并完成 (commit 917c117)
 
-| 当前 | 操作 |
-|------|------|
-| `AILogger.java` | ✅ 保留为唯一入口 |
-| `AILogger2.java` | 🔴 **删除**，合并到 AILogger |
-| `AppLogger.java` | 🟡 迁移为 AILogger 的包装 |
+| 当前 | 操作 | 状态 |
+|------|------|:----:|
+| `AILogger.java` | ✅ 保留为唯一入口 | ✅ 完成 |
+| `AILogger2.java` | 🔴 **删除** | ✅ 已删除 |
+| `AppLogger.java` | 🟡 迁移为 AILogger 的包装 | ⏳ 低优先级 |
 
-### 2.4 消除类名混淆 🔴
+### 2.4 消除类名混淆 🔴 ✅ 已完成
 
-| 当前 | 目标 |
-|------|------|
-| `AIToolsManager.java` | 重命名为 `AIToolRegistry.java` |
-| `AIToolManager.java` | 保持现状 |
+**状态**: 已重命名 AIToolsManager → AIToolRegistry (commit ea3ed5d)
+
+| 当前 | 目标 | 状态 |
+|------|------|:----:|
+| `AIToolsManager.java` | 重命名为 `AIToolRegistry.java` | ✅ 已完成 |
+| `AIToolManager.java` | 保持现状 | ✅ 无变更 |
+
+**更新引用文件**:
+- AIChatActivity.java
+- ServiceRouter.java
+- DynamicSkillExecutor.java
 
 ---
 
@@ -101,27 +107,35 @@ catch (Exception e) {
 
 > **目标**: 1-2 个月内完成，系统性改善代码质量
 
-### 3.1 超大文件拆分 🟡
+### 3.1 超大文件拆分 🟡 🔄 进行中
+
+**状态**: 采用渐进式拆分策略，避免一次性大规模重构
 
 **需拆分的 10 个超大文件**:
 
-| 优先级 | 文件 | 行数 | 拆分方案 |
-|:---:|------|:---:|------|
-| 🔴 | `AIChatActivity.java` | 3,592 | 拆为 `ChatInputHandler` + `ChatOutputRenderer` + `ChatSessionCoordinator` |
-| 🔴 | `WebViewActivity.java` | 3,440 | 拆为 `WebViewLifecycleDelegate` + `WebViewConfigManager` + `WebViewNavigationHandler` |
-| 🔴 | `AIService.java` | 3,271 | 拆为 `ChatPipeline` + `CompletionPipeline` + `StreamingPipeline` |
-| 🔴 | `QuizActivity.java` | 2,628 | 按答题模式拆分: `ChallengeQuizActivity` / `ExamQuizActivity` / `PracticeQuizActivity` |
-| 🔴 | `UnifiedAgentEngine.java` | 2,579 | 抽取 `AgentPipeline` + `AgentStateMachine` |
-| 🟠 | `AppToolkitAITool.java` | 1,879 | 按工具类型拆分 |
-| 🟠 | `ChatAdapter.java` | 1,808 | 抽取 `MessageViewHolder` + `MessageRenderer` |
-| 🟠 | `AIWeatherManager.java` | 1,622 | 按天气API源拆分 + 公共抽象层 |
-| 🟠 | `ChatMessage.java` | 1,518 | 抽取消息类型子类 |
-| 🟠 | `AgentService.java` | 1,364 | 拆为核心服务 + 生命周期管理器 |
+| 优先级 | 文件 | 行数 | 拆分策略 | 状态 |
+|:---:|------|:---:|------|:----:|
+| 🔴 | `AIChatActivity.java` | 3,642 | 拆为 `ChatInputHandler` + `ChatOutputRenderer` + `ChatSessionCoordinator` | 🔄 渐进式 |
+| 🔴 | `WebViewActivity.java` | 3,440 | 拆为 `WebViewLifecycleDelegate` + `WebViewConfigManager` + `WebViewNavigationHandler` | ⏳ 待开始 |
+| 🔴 | `AIService.java` | 3,271 | 拆为 `ChatPipeline` + `CompletionPipeline` + `StreamingPipeline` | ⏳ 待开始 |
+| 🔴 | `QuizActivity.java` | 2,628 | 按答题模式拆分: `ChallengeQuizActivity` / `ExamQuizActivity` / `PracticeQuizActivity` | ⏳ 待开始 |
+| 🔴 | `UnifiedAgentEngine.java` | 2,579 | 抽取 `AgentPipeline` + `AgentStateMachine` | ⏳ 待开始 |
+| 🟠 | `AppToolkitAITool.java` | 1,879 | 按工具类型拆分 | ⏳ 待开始 |
+| 🟠 | `ChatAdapter.java` | 1,808 | 抽取 `MessageViewHolder` + `MessageRenderer` | ⏳ 待开始 |
+| 🟠 | `AIWeatherManager.java` | 1,622 | 按天气API源拆分 + 公共抽象层 | ⏳ 待开始 |
+| 🟠 | `ChatMessage.java` | 1,518 | 抽取消息类型子类 | ⏳ 待开始 |
+| 🟠 | `AgentService.java` | 1,364 | 拆为核心服务 + 生命周期管理器 | ⏳ 待开始 |
 
-**拆分原则**:
-- 每个文件不超过 **500 行**
-- 每个方法不超过 **50 行**
-- 使用组合模式代替继承
+**渐进式拆分策略**:
+1. **新功能优先**: 新页面全部使用 Compose 编写（天然组件化）
+2. **修改时拆分**: 修改现有大文件时，顺手抽取独立组件
+3. **方法提取**: 将大方法拆分为小方法，提高可读性
+4. **避免大爆炸**: 不一次性完全拆分，降低风险和回归成本
+
+**短期目标**:
+- 将 `AIChatActivity.java` 中的输入处理逻辑抽取为 `ChatInputHandler`
+- 将消息渲染逻辑抽取为 `ChatMessageRenderer`
+- 每个新组件不超过 **500 行**
 
 ### 3.2 消除重复代码 🟡
 
@@ -318,15 +332,15 @@ jobs:
 ## 九、迭代排期建议
 
 ```
-│  Week 1            │  Week 2-3          │  Week 4-8          │  Week 9-16         │
-│  Phase 1.1 ✅完成   │  Phase 1.2-1.4     │  Phase 2 质量提升   │  Phase 3 + 新功能   │
+│  Week 1            │  Week 2            │  Week 3-8          │  Week 9-16         │
+│  Phase 1 ✅完成     │  Phase 2 启动       │  Phase 2 深入       │  Phase 3 + 新功能   │
 │                    │                    │                    │                    │
-│  ✅ 空catch修复(21处)│  🔴 异常处理规范化   │  🟡 文件拆分(50%)   │  🟠 Kotlin 迁移启动 │
-│                    │  🔴 Logger 统一     │  🟡 重复代码消除    │  🟠 Compose 全面化   │
-│                    │  🔴 类名去重        │  🟡 测试覆盖提升    │  🟠 模块化拆分      │
-│                    │                    │  🟡 代码标准化      │  ⭐ AI对话搜索       │
-│                    │                    │  🟡 文件拆分(剩余)   │  ⭐ AI批改简答题     │
-│                    │                    │  🟡 模型配置提取    │  ⭐ 错题智能复习     │
+│  ✅ 空catch修复     │  🟡 文件拆分启动    │  🟡 文件拆分深入    │  🟠 Kotlin 迁移启动 │
+│  ✅ 异常处理规范化   │  🟡 重复代码消除    │  🟡 测试覆盖提升    │  🟠 Compose 全面化   │
+│  ✅ Logger 统一     │                    │  🟡 代码标准化      │  🟠 模块化拆分      │
+│  ✅ 类名去重        │                    │  🟡 模型配置提取    │  ⭐ AI对话搜索       │
+│                    │                    │                    │  ⭐ AI批改简答题     │
+│                    │                    │                    │  ⭐ 错题智能复习     │
 └────────────────────┴────────────────────┴────────────────────┴────────────────────┘
 ```
 
@@ -339,10 +353,10 @@ jobs:
 | # | 行动 | 状态 | 原因 |
 |:---:|------|:----:|------|
 | 1 | **修复空 catch 块** | ✅ 完成 | 线上 bug 无法被发现和定位 |
-| 2 | **规范异常处理** | 🔄 进行中 | 200+ 处泛化捕获隐藏潜在问题 |
-| 3 | **合并 Logger** | ⏳ 待开始 | 消除重复代码，统一日志入口 |
-| 4 | **拆分超大文件** | ⏳ 待开始 | 3592 行的 Activity 是维护灾难 |
-| 5 | **补充核心模块测试** | ⏳ 待开始 | 最复杂的 AI 模块完全没有测试 |
+| 2 | **规范异常处理** | ✅ 完成 | 关键无日志捕获已修复，其余渐进式优化 |
+| 3 | **合并 Logger** | ✅ 完成 | 消除重复代码，统一日志入口 |
+| 4 | **消除类名混淆** | ✅ 完成 | AIToolsManager → AIToolRegistry |
+| 5 | **拆分超大文件** | 🔄 进行中 | 3592 行的 Activity 是维护灾难 |
 
 ### 长远愿景
 
