@@ -673,7 +673,8 @@ public class AIService {
             }
             try {
                 LlamaHelper.chatDestroy();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                AILogger.w(TAG, "chatDestroy failed during release: " + e.getMessage());
             }
             LlamaHelper.release();
         } catch (Exception e) {
@@ -700,7 +701,8 @@ public class AIService {
             AILogger.i(TAG, "Destroying existing chat context before loading new model");
             try {
                 LlamaHelper.chatDestroy();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                AILogger.w(TAG, "chatDestroy failed before loading new model: " + e.getMessage());
             }
         }
 
