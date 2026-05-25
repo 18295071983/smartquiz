@@ -26,7 +26,7 @@ public class AIToolRegistry {
     private final AIService aiService;
     private final DatabaseManager databaseManager;
 
-    public AIToolsManager(Context context) {
+    public AIToolRegistry(Context context) {
         this.context = context;
         this.aiService = AIService.getInstance(context);
         this.databaseManager = DatabaseManager.getInstance(context);
