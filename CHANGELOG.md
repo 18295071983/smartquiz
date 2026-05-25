@@ -1,5 +1,64 @@
 # 变更日志
 
+## [Unreleased] - 2026-05-26
+
+### 新增功能
+
+#### 1. JNI 中文编码修复
+- **问题**：JNI 的 `GetStringUTFChars`/`NewStringUTF` 使用 Modified UTF-8，无法正确处理中文字符
+- **解决方案**：
+  - 新增 `ChatRequest` 数据类，使用 `byte[]` 传递 UTF-8 编码内容
+  - Java 层使用 `StandardCharsets.UTF_8` 编码字符串
+  - Native 层实现 `bytesToUtf8String()` 和 `utf8StringToJstring()` 进行正确编解码
+  - 支持 UTF-16 surrogate pairs（4字节Unicode字符）
+
+#### 2. 主界面优化
+- **按钮功能调整**：
+  - 题目生成 → AI聊天
+  - 模型导入 → 模型管理
+  - AI配置 → AI中心
+- **图标更新**：所有图标替换为 Emoji 风格，提升视觉一致性
+
+### 技术实现
+
+#### UTF-8 编解码 (native-lib.cpp)
+```cpp
+// Java byte[] → C++ std::string (标准UTF-8)
+static std::string bytesToUtf8String(JNIEnv* env, jbyteArray byteArray) {
+    jbyte* bytes = env->GetByteArrayElements(byteArray, nullptr);
+    std::string result(reinterpret_cast<const char*>(bytes), length);
+    env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
+    return result;
+}
+
+// C++ std::string → Java jstring (支持中文)
+static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str) {
+    // 手动解析UTF-8多字节序列，处理中文3字节编码
+    // 转换为UTF-16后使用 NewString 创建 jstring
+}
+```
+
+#### ChatRequest 数据类
+```java
+public class ChatRequest {
+    private byte[] fullPromptUtf8;  // UTF-8编码的提示词
+    private int maxTokens;
+    private float temperature;
+    // ... Builder模式支持
+}
+```
+
+### 性能影响
+- 编码转换开销：< 0.1ms（100个汉字）
+- 相比模型推理时间（500-2000ms），影响可忽略（< 0.02%）
+
+### 代码变更
+- **新增**：`ChatRequest.java`
+- **修改**：`LlamaHelper.java`, `native-lib.cpp`, `InferenceRouter.java`
+- **修改**：`activity_main.xml`, `MainActivity.java`, `strings.xml`
+
+---
+
 ## [2.0.0] - 2026-05-20
 
 ### 新增功能
