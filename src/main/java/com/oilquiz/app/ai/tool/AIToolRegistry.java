@@ -19,9 +19,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class AIToolsManager {
+public class AIToolRegistry {
 
-    private static final String TAG = "AIToolsManager";
+    private static final String TAG = "AIToolRegistry";
     private final Context context;
     private final AIService aiService;
     private final DatabaseManager databaseManager;

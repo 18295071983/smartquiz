@@ -1,6 +1,6 @@
 package com.oilquiz.app.ai.agent;
 
-import com.oilquiz.app.ai.tool.AIToolsManager;
+import com.oilquiz.app.ai.tool.AIToolRegistry;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.LocationTool;
@@ -16,7 +16,7 @@ public class ServiceRouter {
     private static final String TAG = "ServiceRouter";
 
     private final UnifiedAgentEngine agentEngine;
-    private final AIToolsManager toolsManager;
+    private final AIToolRegistry toolsManager;
     private final AIToolManager toolManager;
     private LocationTool locationTool;
 
@@ -66,7 +66,7 @@ public class ServiceRouter {
 
     public ServiceRouter(UnifiedAgentEngine agentEngine) {
         this.agentEngine = agentEngine;
-        this.toolsManager = new AIToolsManager(agentEngine.getActivity());
+        this.toolsManager = new AIToolRegistry(agentEngine.getActivity());
         this.toolManager = AIToolManager.getInstance(agentEngine.getActivity());
     }
 

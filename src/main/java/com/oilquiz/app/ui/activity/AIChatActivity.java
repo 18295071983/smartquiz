@@ -34,7 +34,7 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
 import com.oilquiz.app.ai.service.AIProcessingService;
-import com.oilquiz.app.ai.tool.AIToolsManager;
+import com.oilquiz.app.ai.tool.AIToolRegistry;
 import com.oilquiz.app.ai.tool.AIEntertainmentManager;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
@@ -133,7 +133,7 @@ public class AIChatActivity extends BaseActivity {
     private ChatHistoryAdapter chatHistoryAdapter;
     private AttachmentAdapter attachmentAdapter;
     private FileContentExtractor fileContentExtractor;
-    private AIToolsManager aiToolsManager;
+    private AIToolRegistry aiToolsManager;
     private AIEntertainmentManager aiEntertainmentManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
@@ -345,7 +345,7 @@ public class AIChatActivity extends BaseActivity {
             fileContentExtractor = new FileContentExtractor(this);
             initAttachFileLauncher();
 
-            aiToolsManager = new AIToolsManager(this);
+            aiToolsManager = new AIToolRegistry(this);
             aiConfig = new AIConfig(this);
 
             if (aiConfig.isAgentEnabled()) {
@@ -1119,7 +1119,7 @@ public class AIChatActivity extends BaseActivity {
             }
             
             // 使用标准的工具调用方式
-            executeTool(AIToolsManager.Tool.GET_WEATHER, params);
+            executeTool(AIToolRegistry.Tool.GET_WEATHER, params);
         } else {
             executeToolByPrefix(prefix, params);
         }
@@ -1140,16 +1140,16 @@ public class AIChatActivity extends BaseActivity {
 
     private void executeToolByPrefix(String prefix, String params) {
         String toolName = null;
-        if ("翻译".equals(prefix)) toolName = AIToolsManager.Tool.TRANSLATE_TEXT;
-        else if ("生成题目".equals(prefix)) toolName = AIToolsManager.Tool.GENERATE_QUESTIONS;
-        else if ("分析题目".equals(prefix)) toolName = AIToolsManager.Tool.ANALYZE_QUESTION;
-        else if ("学习计划".equals(prefix)) toolName = AIToolsManager.Tool.CREATE_STUDY_PLAN;
-        else if ("统计".equals(prefix)) toolName = AIToolsManager.Tool.GET_STATISTICS;
-        else if ("搜索题目".equals(prefix)) toolName = AIToolsManager.Tool.SEARCH_QUESTIONS;
-        else if ("导入题目".equals(prefix)) toolName = AIToolsManager.Tool.IMPORT_QUESTIONS;
-        else if ("导出题目".equals(prefix)) toolName = AIToolsManager.Tool.EXPORT_QUESTIONS;
-        else if ("数据库操作".equals(prefix)) toolName = AIToolsManager.Tool.DATABASE_OPERATIONS;
-        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = AIToolsManager.Tool.GET_WEATHER;
+        if ("翻译".equals(prefix)) toolName = AIToolRegistry.Tool.TRANSLATE_TEXT;
+        else if ("生成题目".equals(prefix)) toolName = AIToolRegistry.Tool.GENERATE_QUESTIONS;
+        else if ("分析题目".equals(prefix)) toolName = AIToolRegistry.Tool.ANALYZE_QUESTION;
+        else if ("学习计划".equals(prefix)) toolName = AIToolRegistry.Tool.CREATE_STUDY_PLAN;
+        else if ("统计".equals(prefix)) toolName = AIToolRegistry.Tool.GET_STATISTICS;
+        else if ("搜索题目".equals(prefix)) toolName = AIToolRegistry.Tool.SEARCH_QUESTIONS;
+        else if ("导入题目".equals(prefix)) toolName = AIToolRegistry.Tool.IMPORT_QUESTIONS;
+        else if ("导出题目".equals(prefix)) toolName = AIToolRegistry.Tool.EXPORT_QUESTIONS;
+        else if ("数据库操作".equals(prefix)) toolName = AIToolRegistry.Tool.DATABASE_OPERATIONS;
+        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = AIToolRegistry.Tool.GET_WEATHER;
 
         if (toolName != null) executeTool(toolName, params);
         else processChatMessage(prefix + " " + params);
