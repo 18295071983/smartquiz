@@ -345,6 +345,12 @@
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
 
+        <activity
+            android:name=".ui.activity.MCPManagerActivity"
+            android:exported="false"
+            android:label="MCP 服务器管理"
+            android:theme="@style/Theme.OilQuizApp" />
+
         <!-- FileProvider配置 -->
         <provider
             android:name="androidx.core.content.FileProvider"

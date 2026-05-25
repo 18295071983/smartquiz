@@ -1,9 +1,14 @@
 package com.oilquiz.app.ai.agent;
 
 import android.content.Context;
+import com.oilquiz.app.ai.mcp.MCPManager;
+import com.oilquiz.app.ai.mcp.MCPServer;
+import com.oilquiz.app.ai.mcp.MCPTool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.util.AILogger;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,10 +20,12 @@ public class AgentToolsManager {
 
     private final Context context;
     private final AIToolManager aiToolManager;
+    private final MCPManager mcpManager;
     private AgentService agentService;
 
     private final Map<String, ToolInfo> cognitiveTools = new HashMap<>();
     private final Map<String, ToolInfo> executionToolsCache = new HashMap<>();
+    private final Map<String, MCPTool> mcpToolsCache = new HashMap<>();
     private boolean initialized = false;
 
     public static class ToolInfo {
@@ -40,6 +47,37 @@ public class AgentToolsManager {
     public AgentToolsManager(Context context) {
         this.context = context.getApplicationContext();
         this.aiToolManager = AIToolManager.getInstance(context);
+        this.mcpManager = MCPManager.getInstance(context);
+        setupMCPListener();
+    }
+
+    private void setupMCPListener() {
+        mcpManager.addListener(new MCPManager.MCPStateListener() {
+            @Override
+            public void onServerConnected(MCPServer server) {
+                AILogger.i(TAG, "MCP server connected, syncing tools: " + server.getServerName());
+                syncFromMCPManager();
+            }
+
+            @Override
+            public void onServerDisconnected(MCPServer server) {
+                AILogger.i(TAG, "MCP server disconnected: " + server.getServerName());
+                // 移除该服务器的工具
+                mcpToolsCache.entrySet().removeIf(entry ->
+                    entry.getValue().getServerName().equals(server.getServerName()));
+            }
+
+            @Override
+            public void onResourcesUpdated(MCPServer server, JSONObject params) {
+                AILogger.i(TAG, "MCP resources updated: " + server.getServerName());
+                syncFromMCPManager();
+            }
+
+            @Override
+            public void onProgress(MCPServer server, JSONObject params) {
+                // 忽略进度更新
+            }
+        });
     }
 
     public void setAgentService(AgentService agentService) {
@@ -52,7 +90,8 @@ public class AgentToolsManager {
         initialized = true;
         registerCognitiveTools();
         syncFromAIToolManager();
-        AILogger.i(TAG, "AgentToolsManager initialized: " + cognitiveTools.size() + " cognitive + " + executionToolsCache.size() + " execution tools");
+        syncFromMCPManager();
+        AILogger.i(TAG, "AgentToolsManager initialized: " + cognitiveTools.size() + " cognitive + " + executionToolsCache.size() + " execution + " + mcpToolsCache.size() + " MCP tools");
     }
 
     // 最大认知工具数量
@@ -123,6 +162,7 @@ public class AgentToolsManager {
 
     private String categorizeTool(String name, String description) {
         String combined = (name + " " + description).toLowerCase();
+        if (combined.contains("mcp")) return "mcp";
         if (combined.contains("天气") || combined.contains("weather")) return "weather";
         if (combined.contains("搜索") || combined.contains("search") || combined.contains("find")) return "search";
         if (combined.contains("计算") || combined.contains("calc") || combined.contains("math")) return "calculate";
@@ -141,6 +181,16 @@ public class AgentToolsManager {
         List<ToolInfo> all = new ArrayList<>();
         all.addAll(cognitiveTools.values());
         all.addAll(executionToolsCache.values());
+        // 添加 MCP 工具
+        for (MCPTool mcpTool : mcpToolsCache.values()) {
+            all.add(new ToolInfo(
+                mcpTool.getName(),
+                mcpTool.getDescription() + " [MCP:" + mcpTool.getServerName() + "]",
+                mcpTool.getSignature(),
+                "mcp",
+                false
+            ));
+        }
         return all;
     }
 
@@ -198,6 +248,17 @@ public class AgentToolsManager {
                 .append("\n    ").append(tool.paramSchema).append("\n");
         }
 
+        // 添加 MCP 工具
+        if (!mcpToolsCache.isEmpty()) {
+            sb.append("\n  【MCP 工具】\n");
+            for (MCPTool tool : mcpToolsCache.values()) {
+                sb.append("  - ").append(tool.getName())
+                    .append(": ").append(tool.getDescription())
+                    .append(" [MCP:").append(tool.getServerName()).append("]\n")
+                    .append("    ").append(tool.getSignature()).append("\n");
+            }
+        }
+
         return sb.toString();
     }
 
@@ -207,10 +268,44 @@ public class AgentToolsManager {
 
     public void refresh() {
         syncFromAIToolManager();
+        syncFromMCPManager();
         if (agentService != null) {
             syncFromAgentService();
         }
         AILogger.i(TAG, "Tools refreshed: " + getAllTools().size() + " total");
+    }
+
+    /**
+     * 从 MCP Manager 同步工具
+     */
+    public void syncFromMCPManager() {
+        mcpToolsCache.clear();
+        List<MCPTool> mcpTools = mcpManager.getAllTools();
+        for (MCPTool tool : mcpTools) {
+            mcpToolsCache.put(tool.getName(), tool);
+            AILogger.d(TAG, "Synced MCP tool: " + tool.getName() + " from " + tool.getServerName());
+        }
+    }
+
+    /**
+     * 获取 MCP 工具
+     */
+    public MCPTool getMCPTool(String name) {
+        return mcpToolsCache.get(name);
+    }
+
+    /**
+     * 是否有 MCP 工具
+     */
+    public boolean hasMCPTool(String name) {
+        return mcpToolsCache.containsKey(name);
+    }
+
+    /**
+     * 获取所有 MCP 工具
+     */
+    public List<MCPTool> getAllMCPTools() {
+        return new ArrayList<>(mcpToolsCache.values());
     }
 
     public Context getContext() { return context; }

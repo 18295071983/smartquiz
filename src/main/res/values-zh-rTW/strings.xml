@@ -436,4 +436,39 @@
     <string name="indigo">靛藍</string>
     <string name="theme_applied">主題已套用，重啟應用生效</string>
     <string name="color_selected">已選擇%1$s主題</string>
+
+    <!-- MCP Manager -->
+    <string name="mcp_server_manager">MCP 伺服器管理</string>
+    <string name="mcp_add_server">新增 MCP 伺服器</string>
+    <string name="mcp_filesystem">檔案系統</string>
+    <string name="mcp_sqlite">SQLite</string>
+    <string name="mcp_git">Git</string>
+    <string name="mcp_custom">自訂命令</string>
+    <string name="mcp_server_name">伺服器名稱</string>
+    <string name="mcp_base_path">基礎路徑</string>
+    <string name="mcp_db_path">資料庫路徑</string>
+    <string name="mcp_repo_path">儲存庫路徑</string>
+    <string name="mcp_command">啟動命令</string>
+    <string name="mcp_require_node">需要安裝 Node.js 和 npx</string>
+    <string name="mcp_require_python">需要安裝 Python 和 uvx</string>
+    <string name="mcp_server_connected">伺服器已連線</string>
+    <string name="mcp_server_disconnected">伺服器已離線</string>
+    <string name="mcp_server_added">伺服器新增成功</string>
+    <string name="mcp_server_failed">伺服器連線失敗</string>
+    <string name="mcp_connecting">正在連線伺服器...</string>
+    <string name="mcp_no_servers">暫無 MCP 伺服器</string>
+    <string name="mcp_add_server_hint">點擊下方按鈕新增伺服器</string>
+    <string name="mcp_server_count">伺服器: %1$d/%2$d</string>
+    <string name="mcp_tool_count">可用工具: %1$d</string>
+    <string name="mcp_tools">個工具</string>
+    <string name="mcp_remove">刪除</string>
+    <string name="mcp_remove_confirm">確定要刪除伺服器 "%1$s" 嗎？</string>
+    <string name="mcp_view_tools">檢視工具</string>
+    <string name="mcp_no_tools">該伺服器沒有可用工具</string>
+    <string name="mcp_fill_info">請填寫完整資訊</string>
+    <string name="mcp_connected">已連線</string>
+    <string name="mcp_disconnected">未連線</string>
+    <string name="mcp_refresh">重新整理</string>
+    <string name="mcp_disconnect_all">中斷所有連線</string>
+
 </resources>

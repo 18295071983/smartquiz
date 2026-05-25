@@ -555,5 +555,39 @@
     <string name="enable">启用</string>
     <string name="disable">禁用</string>
 
+    <!-- MCP Manager -->
+    <string name="mcp_server_manager">MCP 服务器管理</string>
+    <string name="mcp_add_server">添加 MCP 服务器</string>
+    <string name="mcp_filesystem">文件系统</string>
+    <string name="mcp_sqlite">SQLite</string>
+    <string name="mcp_git">Git</string>
+    <string name="mcp_custom">自定义命令</string>
+    <string name="mcp_server_name">服务器名称</string>
+    <string name="mcp_base_path">基础路径</string>
+    <string name="mcp_db_path">数据库路径</string>
+    <string name="mcp_repo_path">仓库路径</string>
+    <string name="mcp_command">启动命令</string>
+    <string name="mcp_require_node">需要安装 Node.js 和 npx</string>
+    <string name="mcp_require_python">需要安装 Python 和 uvx</string>
+    <string name="mcp_server_connected">服务器已连接</string>
+    <string name="mcp_server_disconnected">服务器已断开</string>
+    <string name="mcp_server_added">服务器添加成功</string>
+    <string name="mcp_server_failed">服务器连接失败</string>
+    <string name="mcp_connecting">正在连接服务器...</string>
+    <string name="mcp_no_servers">暂无 MCP 服务器</string>
+    <string name="mcp_add_server_hint">点击右下角按钮添加服务器</string>
+    <string name="mcp_server_count">服务器: %1$d/%2$d</string>
+    <string name="mcp_tool_count">可用工具: %1$d</string>
+    <string name="mcp_tools">个工具</string>
+    <string name="mcp_remove">删除</string>
+    <string name="mcp_remove_confirm">确定要删除服务器 "%1$s" 吗？</string>
+    <string name="mcp_view_tools">查看工具</string>
+    <string name="mcp_no_tools">该服务器没有可用工具</string>
+    <string name="mcp_fill_info">请填写完整信息</string>
+    <string name="mcp_connected">已连接</string>
+    <string name="mcp_disconnected">未连接</string>
+    <string name="mcp_refresh">刷新</string>
+    <string name="mcp_disconnect_all">断开所有</string>
+
     <!-- Common -->
 </resources>

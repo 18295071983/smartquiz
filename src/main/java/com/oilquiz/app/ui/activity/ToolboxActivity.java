@@ -90,9 +90,11 @@ public class ToolboxActivity extends AppCompatActivity {
 
     private void showAITools() {
         showToolDialog("AI工具", new String[]{
-            "AI聊天"
+            "AI聊天",
+            "MCP服务器管理"
         }, new Class<?>[]{
-            AIChatActivity.class
+            AIChatActivity.class,
+            MCPManagerActivity.class
         });
     }
 

@@ -459,5 +459,39 @@ Enter \'Help\' to see more functions.</string>
     <string name="theme_applied">Theme applied, restart the app to take effect</string>
     <string name="color_selected">%1$s theme selected</string>
 
+    <!-- MCP Manager -->
+    <string name="mcp_server_manager">MCP Server Manager</string>
+    <string name="mcp_add_server">Add MCP Server</string>
+    <string name="mcp_filesystem">Filesystem</string>
+    <string name="mcp_sqlite">SQLite</string>
+    <string name="mcp_git">Git</string>
+    <string name="mcp_custom">Custom Command</string>
+    <string name="mcp_server_name">Server Name</string>
+    <string name="mcp_base_path">Base Path</string>
+    <string name="mcp_db_path">Database Path</string>
+    <string name="mcp_repo_path">Repository Path</string>
+    <string name="mcp_command">Startup Command</string>
+    <string name="mcp_require_node">Requires Node.js and npx</string>
+    <string name="mcp_require_python">Requires Python and uvx</string>
+    <string name="mcp_server_connected">Server connected</string>
+    <string name="mcp_server_disconnected">Server disconnected</string>
+    <string name="mcp_server_added">Server added successfully</string>
+    <string name="mcp_server_failed">Server connection failed</string>
+    <string name="mcp_connecting">Connecting to server...</string>
+    <string name="mcp_no_servers">No MCP servers</string>
+    <string name="mcp_add_server_hint">Tap the button below to add a server</string>
+    <string name="mcp_server_count">Servers: %1$d/%2$d</string>
+    <string name="mcp_tool_count">Available tools: %1$d</string>
+    <string name="mcp_tools">Tools</string>
+    <string name="mcp_remove">Remove</string>
+    <string name="mcp_remove_confirm">Are you sure you want to delete server "%1$s"?</string>
+    <string name="mcp_view_tools">View Tools</string>
+    <string name="mcp_no_tools">No available tools</string>
+    <string name="mcp_fill_info">Please fill in all information</string>
+    <string name="mcp_connected">Connected</string>
+    <string name="mcp_disconnected">Disconnected</string>
+    <string name="mcp_refresh">Refresh</string>
+    <string name="mcp_disconnect_all">Disconnect All</string>
+
     <!-- Common -->
 </resources>

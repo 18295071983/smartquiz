@@ -157,6 +157,8 @@
     <color name="text_light">#FFFFFF</color>
     <color name="error_light">#FECACA</color>
     <color name="success_color">@color/success</color>
+    <color name="status_success">@color/success</color>
+    <color name="status_error">@color/error</color>
 
     <color name="theme_blue">#3B82F6</color>
     <color name="theme_green">#10B981</color>
