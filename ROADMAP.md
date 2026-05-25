@@ -1,21 +1,21 @@
-# 答题宝 (SmartQuiz) 开发路线图与迭代建议
+# 答题宝 (SmartQuiz) 开发路线图
 
-> 版本: 2.1 | 更新日期: 2026-05-20 | 基于代码库全面分析
+> 版本: 2.1 | 更新日期: 2026-05-26 | 基于代码库全面分析
 
 ---
 
-## 已完成更新 (v2.0.0 - 2026-05-20)
+## 已完成更新 (v2.0.0 - v2.0.1)
 
 ### ✅ Phase 0 - 已完成的紧急优化
 
 | 任务 | 状态 | 详情 |
 |------|------|------|
-| **API 密钥安全迁移** | ✅ 已完成 | 移除硬编码API Key，使用APIKeyManager统一管理 (feature/secure-api-keys) |
+| **API 密钥安全迁移** | ✅ 已完成 | 移除硬编码API Key，使用APIKeyManager统一管理 |
 | **模型加载性能优化** | ✅ 已完成 | 全局初始化一次性执行，加载时间从30秒降至5秒（提升83%） |
 | **GPU 加速配置优化** | ✅ 已完成 | GPU层数自动计算，推理速度从0.3 t/s提升至12 t/s（提升40x） |
-| **Batch Size 动态计算** | ✅ 已完成 | 根据设备内存和GPU/CPU模式动态调整批处理大小 |
 | **热启动保持** | ✅ 已完成 | 模型在内存中保持加载状态，内存紧张时不再释放 |
-| **AI 聊天界面修复** | ✅ 已完成 | 修复消息不显示、流式更新字段丢失、生成超时等问题 |
+| **中文编码修复** | ✅ 已完成 | v2.0.1修复JNI字符串传递中文乱码问题 |
+| **MCP 功能实现** | ✅ 已完成 | 支持Termux环境运行MCP服务器（filesystem、SQLite、Git） |
 
 **详细变更请参阅** [CHANGELOG.md](CHANGELOG.md)
 
@@ -28,10 +28,9 @@ Phase 1 (紧急修复)          Phase 2 (质量提升)           Phase 3 (架构
 2-4 周                      4-8 周                       8-16 周
     ↓                           ↓                           ↓
 ┌──────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
-│ 安全隐患清理   │    │ 测试覆盖率提升        │    │ 超大文件拆分          │
-│ 弃用代码删除   │    │ 错误处理规范化        │    │ Kotlin 迁移启动       │
-│ API 密钥迁移   │    │ 重复代码消除          │    │ 新功能开发            │
-│ 空 catch 修复  │    │ 代码标准化            │    │ Compose 全面化        │
+│ 空 catch 修复  │    │ 超大文件拆分          │    │ Kotlin 迁移启动       │
+│ 异常处理规范化 │    │ 重复代码消除          │    │ Compose 全面化        │
+│ Logger 统一   │    │ 测试覆盖率提升        │    │ 模块化拆分            │
 └──────────────┘    └──────────────────────┘    └──────────────────────┘
 ```
 
@@ -39,51 +38,62 @@ Phase 1 (紧急修复)          Phase 2 (质量提升)           Phase 3 (架构
 
 ## 二、Phase 1 — 紧急修复 (优先级 P0)
 
-> **目标**: 一周内完成，消除安全风险和明显缺陷
+> **目标**: 1-2 周内完成，消除代码隐患
 
-### 2.1 移除硬编码 API 密钥 🔴
+### 2.1 修复空 catch 块 🔴
 
-**问题**: [AIWeatherManager.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/tool/AIWeatherManager.java) 中 3 处明文密钥
+**问题**: 约 **30+ 处** 空 `catch (Exception e) {}`
 
-| 位置 | 密钥类型 | 操作 |
-|------|---------|------|
-| L43 | 和风天气 API Key | 迁移到 `APIKeyManager` 加密存储 |
-| L144 | OpenWeatherMap Key | 迁移到 `APIKeyManager` 加密存储 |
-| L224 | OpenWeatherMap Key（重复） | 合并取单一配置 |
+| 文件 | 空 catch 数量 | 优先级 |
+|------|:------------:|:------:|
+| `AIChatActivity.java` | 10 | 🔴 高 |
+| `AILogger.java` | 7 | 🔴 高 |
+| `AILogger2.java` | 4 | 🟡 中 |
+| `LlamaHelper.java` | 2 | 🟡 中 |
+| `FileContentExtractor.java` | 1 | 🟢 低 |
 
-**实现方案**:
+**修复方案**:
 ```java
 // 改造前
-private static final String API_KEY = "be2af1f8490344feb8a7125ab46608dd";
+catch (Exception e) {}
 
 // 改造后
-private String getApiKey() {
-    return APIKeyManager.getInstance().getKey("weather_hefeng");
+catch (Exception e) { 
+    AILogger.w(TAG, "操作失败", e); 
 }
 ```
 
-### 2.2 修复空 catch 块 🔴
+### 2.2 规范泛化异常捕获 🔴
 
-**问题**: [DeepThinkingEngine.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/chat/DeepThinkingEngine.java) 中 **9 处** 空 `catch (Exception e) {}`
+**问题**: **200+ 处** `catch (Exception e)` 需要具体化
 
-| 行号 | 当前 | 建议 |
-|------|------|------|
-| L54, L85, L126, L166, L196, L222, L281, L326, L361 | `catch (Exception e) {}` | `catch (Exception e) { Log.w(TAG, "操作失败", e); }` |
+| 文件 | 泛化捕获数量 | 优先级 |
+|------|:-----------:|:------:|
+| `WebViewActivity.java` | 46 | 🔴 高 |
+| `AIService.java` | 44 | 🔴 高 |
+| `AIChatActivity.java` | 32 | 🔴 高 |
+| `DatabaseManager.java` | 32 | 🟡 中 |
+| `AppDatabase.java` | 24 | 🟡 中 |
 
-**额外修复**:
-- [AILogger2.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/util/AILogger2.java) 4 处: L369, L388, L408, L425
-- [AIChatActivity.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java) L1440-L1441
+**按模块分批替换为具体异常类**:
+- IOException / SQLException / JSONException 等
 
-### 2.3 删除弃用代码 🔴
+### 2.3 合并 Logger 三剑客 🔴
 
-**问题**: `ai/config/` 下 3 个全类标记 `@Deprecated`，占据了约 30 处弃用标注
+**问题**: 三个 Logger 类功能重复
 
-| 文件 | 弃用标注数 | 操作 |
-|------|:---:|------|
-| [GpuCompatibilityAdapter.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/config/GpuCompatibilityAdapter.java) | 7 | **删除文件** |
-| [GpuAutoAdapter.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/config/GpuAutoAdapter.java) | 8 | **删除文件** |
-| [DeviceCapabilityDetector.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/config/DeviceCapabilityDetector.java) | 8 | **删除文件** |
-| [DatabaseFieldManager.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/database/DatabaseFieldManager.java) L325, L346 | 2 | 标记为 `@Deprecated(forRemoval = true)` |
+| 当前 | 操作 |
+|------|------|
+| `AILogger.java` | ✅ 保留为唯一入口 |
+| `AILogger2.java` | 🔴 **删除**，合并到 AILogger |
+| `AppLogger.java` | 🟡 迁移为 AILogger 的包装 |
+
+### 2.4 消除类名混淆 🔴
+
+| 当前 | 目标 |
+|------|------|
+| `AIToolsManager.java` | 重命名为 `AIToolRegistry.java` |
+| `AIToolManager.java` | 保持现状 |
 
 ---
 
@@ -93,108 +103,61 @@ private String getApiKey() {
 
 ### 3.1 超大文件拆分 🟡
 
-**需拆分的 14 个文件**（按行数排序）:
+**需拆分的 10 个超大文件**:
 
 | 优先级 | 文件 | 行数 | 拆分方案 |
 |:---:|------|:---:|------|
-| **最高** | [WebViewActivity.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/WebViewActivity.java) | 3,559 | 拆为 `WebViewLifecycleDelegate` + `WebViewConfigManager` + `WebViewNavigationHandler` |
-| **最高** | [QuizActivity.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ui/activity/QuizActivity.java) | 2,628 | 按答题模式拆: `ChallengeQuizActivity` / `ExamQuizActivity` / `PracticeQuizActivity` |
-| **最高** | [AIService.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/service/AIService.java) | 2,113 | 拆为 `ChatPipeline` / `CompletionPipeline` / `StreamingPipeline` / `ServiceLifecycleDelegate` |
-| **高** | [AIChatActivity.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java) | 1,449 | 抽取 `ChatInputHandler` / `ChatOutputRenderer` / `ChatSessionCoordinator` |
-| **高** | [AIWeatherManager.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/tool/AIWeatherManager.java) | 1,244 | 按天气 API 源拆分 + 公共抽象层 |
-| **中** | [UnifiedAgentEngine.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/agent/UnifiedAgentEngine.java) | 842 | 抽取 `AgentPipeline` / `AgentStateMachine` |
-| **中** | [AgentService.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/service/AgentService.java) | 807 | 拆为核心服务 + 生命周期管理器 |
-| **中** | [SmartIntentRecognizer.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/agent/SmartIntentRecognizer.java) | 711 | 按意图分类拆为多个 Strategy |
-| **低** | 其余 6 个文件 | 500-700 | 各自抽取内聚的子功能模块 |
+| 🔴 | `AIChatActivity.java` | 3,592 | 拆为 `ChatInputHandler` + `ChatOutputRenderer` + `ChatSessionCoordinator` |
+| 🔴 | `WebViewActivity.java` | 3,440 | 拆为 `WebViewLifecycleDelegate` + `WebViewConfigManager` + `WebViewNavigationHandler` |
+| 🔴 | `AIService.java` | 3,271 | 拆为 `ChatPipeline` + `CompletionPipeline` + `StreamingPipeline` |
+| 🔴 | `QuizActivity.java` | 2,628 | 按答题模式拆分: `ChallengeQuizActivity` / `ExamQuizActivity` / `PracticeQuizActivity` |
+| 🔴 | `UnifiedAgentEngine.java` | 2,579 | 抽取 `AgentPipeline` + `AgentStateMachine` |
+| 🟠 | `AppToolkitAITool.java` | 1,879 | 按工具类型拆分 |
+| 🟠 | `ChatAdapter.java` | 1,808 | 抽取 `MessageViewHolder` + `MessageRenderer` |
+| 🟠 | `AIWeatherManager.java` | 1,622 | 按天气API源拆分 + 公共抽象层 |
+| 🟠 | `ChatMessage.java` | 1,518 | 抽取消息类型子类 |
+| 🟠 | `AgentService.java` | 1,364 | 拆为核心服务 + 生命周期管理器 |
 
 **拆分原则**:
-- 每个文件不超过 **400 行**
+- 每个文件不超过 **500 行**
 - 每个方法不超过 **50 行**
 - 使用组合模式代替继承
 
 ### 3.2 消除重复代码 🟡
 
-**Logger 三剑客合并**:
+**模型配置去重**:
 
-| 当前 | 替代方案 |
-|------|---------|
-| [AILogger.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/util/AILogger.java) | 保留唯一入口 |
-| [AILogger2.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/util/AILogger2.java) | **删除**，合并到 AILogger |
-| [AppLogger.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/infra/AppLogger.java) | 迁移为 AILogger 的包装 |
+当前三处重复的模型元数据:
+- `MultiModelManager.java:L97-L112`
+- `ModelSelectionActivity.java:L60-L93`
+- `ModelComparisonActivity.java:L57-L90`
 
-**设备检测器合并**:
-- [DeviceDetector.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/optimization/DeviceDetector.java) ← 保留
-- [DeviceCapabilityDetector.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/config/DeviceCapabilityDetector.java) ← **删除**（已弃用）
+→ 统一提取到 `ModelPresetConfig.java` 或 `models.json` 配置文件
 
-**近乎重复的类名去重**:
-- `AIToolsManager.java` vs `AIToolManager.java` → 重命名`AIToolsManager` 为 `AIToolRegistry`
+### 3.3 补充单元测试 �
 
-**模型参数去重** — 三处相同数据:
+**当前状态**: 16 个测试文件 vs 460+ 源码文件，覆盖率 **< 5%**
 
-当前这三处完全重复的模型元数据:
-- [MultiModelManager.java:L97-L112](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/model/MultiModelManager.java#L97-L112)
-- [ModelSelectionActivity.java:L60-L93](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/model/ModelSelectionActivity.java)
-- [ModelComparisonActivity.java:L57-L90](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/model/ModelComparisonActivity.java)
+| 阶段 | 目标模块 | 新增测试数 |
+|------|---------|:---------:|
+| 第1周 | `ai/agent/` | 9 个 |
+| 第2周 | `ai/service/` + `ai/model/` | 8 个 |
+| 第3周 | `database/` DAO 层 | 11 个 |
+| 第4周 | `repository/` | 8 个 |
+| 第5周 | `ai/tool/` + `ai/skill/` | 7 个 |
+| 第6周 | `manager/` | 8 个 |
 
-→ 统一提取到 `ModelPresetConfig` 或 `models.json` 配置文件。
-
-### 3.3 错误处理规范化 🟡
-
-**Phase 2 目标**: 将 `catch (Exception e)` 替换率提升到 60%+
-
-| 当前 | 目标 | 方法 |
-|------|------|------|
-| 60+ 处泛化 `catch (Exception)` | ≤ 20 处 | 按模块分批替换为具体异常类 |
-| 20 处空/ignore catch | 0 处 | 至少添加日志记录 |
-| 无统一异常体系 | 建立 [Result] 模式 | 引入 `sealed class AiResult<T> { Success / Error }` |
-
-**按模块优先级替换**:
-1. `ai/service/` — AgentService (10处)、AIService
-2. `WebViewActivity` — 21 处
-3. `AIChatActivity` — 16 处
-
-### 3.4 代码标准化 🟡
-
-| 项 | 现状 | 目标 |
-|------|------|------|
-| 文件行数 | 14 个文件 > 500 行 | 所有文件 ≤ 400 行 |
-| 方法行数 | 部分超过 100 行 | ≤ 50 行 |
-| 注释规范 | 代码中有大量无注释区域 | 所有公共 API 有 JavaDoc |
-| 命名一致性 | `AIToolsManager` / `AIToolManager` 混淆 | 统一命名规范 |
+**目标**: 核心模块测试覆盖率达到 **60%**
 
 ---
 
 ## 四、Phase 3 — 架构演进 (优先级 P2)
 
-> **目标**: 2-4 个月内完成，提升系统可维护性和可扩展性
+> **目标**: 2-4 个月内完成，提升系统可维护性
 
-### 4.1 补充测试 🟠
+### 4.1 Kotlin 迁移 🟠
 
-**当前覆盖率**: 极低。21 个测试文件 vs 300+ 源码文件。
-
-**分阶段目标**:
-
-| 阶段 | 目标模块 | 新增测试 | 理由 |
-|------|---------|:---:|------|
-| 第1周 | `ai/agent/` | 9 个 | 核心 Agent 引擎必须有测试保障 |
-| 第2周 | `ai/gpu/` + `ai/model/` | 8 个 | GPU 子系统是性能关键 |
-| 第3周 | `database/` DAO 层 | 11 个 | 数据库正确性是数据基础 |
-| 第4周 | `repository/` | 8 个 | 数据仓库层的业务逻辑 |
-| 第5周 | `ai/feature/` + `ai/skill/` | 7 个 | AI 功能模块 |
-| 第6周 | `manager/` (Backup/Theme/Language) | 8 个 | 业务管理器 |
-
-**测试策略**:
-```
-DAO 测试      → Room In-Memory Database (快速, 隔离)
-Repository    → Mock DAO + LiveData 测试
-ViewModel     → Mock Repository + Coroutine 测试
-AI 引擎       → Mock JNI 层 + 异步测试
-GPU 子系统    → Robolectric + 设备模拟
-```
-
-### 4.2 Kotlin 迁移 🟠
-
-**当前**: `< 1% Kotlin`（3个 Compose 示例文件，无生产代码）
+**当前**: < 1% Kotlin（仅3个 Compose 示例文件）
 
 **迁移策略 — 「新代码 Kotlin 优先」**:
 
@@ -207,35 +170,24 @@ GPU 子系统    → Robolectric + 设备模拟
 | 第5步 | Manager 类 → Kotlin | 3 周 |
 | 第6步 | Activity（分批）→ Kotlin | 逐步进行 |
 
-**Kotlin 带来的收益**:
-- 减少空指针: 编译期 null-safety
-- 减少样板: data class、扩展函数、协程
-- 更好的 Compose 支持
+### 4.2 Compose 全面化 🟠
 
-### 4.3 Compose 全面化 🟠
-
-**当前**: Compose 仅用于 3 个示例页面，主力仍是 XML Layout
+**当前**: Compose 仅用于3个示例页面，主力仍是 XML Layout
 
 **迁移路线**:
 1. **新页面**: 全部用 Compose 编写
 2. **简单页面优先迁移**: Settings, About, Category Selection
 3. **中等页面**: Question Detail, Note Editor, Study Plan
-4. **复杂页面最后**: AIChatActivity, QuizActivity, ImportActivity
+4. **复杂页面最后**: AIChatActivity, QuizActivity
 
-**Compose vs XML 决策矩阵**:
-- 新功能 → 一律 Compose
-- 修改现有页面 → 评估改造工作量，优先 Compose
-- 不改动的页面 → 保持 XML，不强制迁移
-
-### 4.4 架构提升 🟠
+### 4.3 架构提升 🟠
 
 | 项 | 现状 | 改进方向 |
 |------|------|---------|
 | **状态管理** | LiveData + 直接回调 | 统一到 StateFlow / SharedFlow |
-| **导航** | 隐式 Intent + 手动管理 | 引入 Navigation Component (Compose + XML) |
-| **模块化** | 单模块 (app) | 按功能拆分为 `:core`, `:feature-quiz`, `:feature-ai`, `:feature-export` |
-| **构建优化** | 全量构建 | 增量编译 + Gradle Build Cache + 并行构建 |
-| **依赖注入** | Hilt 已集成但未全面使用 | 扩大 Hilt 覆盖范围，减少 `new` 和手动单例 |
+| **导航** | 隐式 Intent + 手动管理 | 引入 Navigation Component |
+| **模块化** | 单模块 (app) | 按功能拆分 `:core`, `:feature-quiz`, `:feature-ai` |
+| **依赖注入** | Hilt 已集成但未全面使用 | 扩大 Hilt 覆盖范围 |
 
 ---
 
@@ -245,34 +197,34 @@ GPU 子系统    → Robolectric + 设备模拟
 
 | 功能 | 说明 | 难度 | 收益 |
 |------|------|:---:|:---:|
-| **AI 对话搜索** | 唯一标记的 TODO: [ChatHistoryAdapter:L293](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ui/adapter/ChatHistoryAdapter.java#L293)，实现历史消息全文搜索 | ⭐⭐ | 高 |
-| **题目分享** | 将题目+解析生成卡片分享到微信/QQ | ⭐⭐ | 高 |
-| **错题智能复习** | 基于艾宾浩斯遗忘曲线自动推送复习提醒 | ⭐⭐⭐ | 极高 |
-| **语音答题** | 语音输入题目答案，解放双手 | ⭐⭐⭐ | 高 |
+| **AI 对话搜索** | 历史消息全文搜索（已有 TODO: ChatHistoryAdapter:L293） | ⭐⭐ | 高 |
 | **AI 批改简答题** | 利用 LLM 自动评判主观题 | ⭐⭐ | 极高 |
+| **错题智能复习** | 基于艾宾浩斯遗忘曲线自动推送复习提醒 | ⭐⭐⭐ | 极高 |
+| **题目分享** | 将题目+解析生成卡片分享到微信/QQ | ⭐⭐ | 高 |
+| **语音答题** | 语音输入题目答案，解放双手 | ⭐⭐⭐ | 高 |
 | **学习数据分析** | 可视化学习趋势、知识点图谱、薄弱项分析 | ⭐⭐⭐⭐ | 高 |
 
 ### 5.2 中等优先级（差异化竞争力）
 
 | 功能 | 说明 | 难度 | 收益 |
 |------|------|:---:|:---:|
+| **AI 题目解释** | 每道题附带 AI 生成的详细解析 | ⭐⭐ | 极高 |
+| **PDF 题库识别** | 拍照/扫描 PDF → OCR → 自动生成题目 | ⭐⭐⭐⭐ | 高 |
 | **多人对战模式** | 局域网或在线实时 PK 答题 | ⭐⭐⭐⭐ | 高 |
 | **题库市场** | 用户上传/下载共享题库 | ⭐⭐⭐⭐⭐ | 极高 |
 | **Anki 集成** | 导入 Anki 牌组，或导出为 Anki 格式 | ⭐⭐⭐ | 中 |
-| **PDF 题库识别** | 拍照/扫描 PDF → OCR → 自动生成题目 | ⭐⭐⭐⭐ | 高 |
 | **学习小组** | 多人共享题库和学习计划 | ⭐⭐⭐⭐⭐ | 中 |
-| **AI 题目解释** | 每道题附带 AI 生成的详细解析 | ⭐⭐ | 极高 |
 
 ### 5.3 低优先级（长期愿景）
 
 | 功能 | 说明 |
 |------|------|
+| **Java 版 MCP 客户端** | 实现原生 Java MCP 客户端，直接通过 Socket/stdio 与服务器通信，消除对外部命令（Node.js/npx）的依赖 |
 | **iOS 版本** | 使用 Kotlin Multiplatform 或 Flutter 跨平台 |
 | **Web 管理后台** | 通过浏览器管理题库、分析数据 |
 | **插件系统** | 开放的题目导入插件接口 |
 | **知识图谱** | 知识点关联网络，发现知识点间的联系 |
 | **自适应出题** | AI 根据用户水平动态调整题目难度 |
-| **Java 版 MCP 客户端** | 实现原生 Java MCP 客户端，直接通过 Socket/stdio 与服务器通信，消除对外部命令（Node.js/npx）的依赖 |
 
 ---
 
@@ -332,8 +284,8 @@ jobs:
 | 指标 | 当前 | 门禁值 |
 |------|:---:|:---:|
 | 测试覆盖率 | < 5% | ≥ 60% (核心模块) |
-| 空 catch 块 | 20+ | 0 |
-| 文件最大行数 | 3,559 | ≤ 400 |
+| 空 catch 块 | 30+ | 0 |
+| 文件最大行数 | 3,592 | ≤ 500 |
 | 方法最大行数 | 200+ | ≤ 50 |
 | 重复代码率 | 中 | < 3% |
 
@@ -369,10 +321,10 @@ jobs:
 │  Week 1-2          │  Week 3-6          │  Week 7-12         │  Week 13-16        │
 │  Phase 1 紧急修复   │  Phase 2 质量提升   │  Phase 3 架构演进   │  新功能开发         │
 │                    │                    │                    │                    │
-│  🔴 API 密钥迁移    │  🟡 文件拆分(50%)   │  🟠 测试覆盖(ai/)   │  ⭐ 错题智能复习     │
-│  🔴 空catch修复     │  🟡 重复代码消除    │  🟠 Kotlin 迁移启动 │  ⭐ AI 批改简答题    │
-│  🔴 弃用代码删除    │  🟡 错误处理规范化   │  🟠 Compose 全面化   │  ⭐ 题目分享         │
-│  🔴 Logger 统一    │  🟡 代码标准化      │  🟠 模块化拆分      │  ⭐ 学习数据分析     │
+│  🔴 空catch修复     │  🟡 文件拆分(50%)   │  🟠 测试覆盖(ai/)   │  ⭐ AI对话搜索       │
+│  🔴 异常处理规范化   │  🟡 重复代码消除    │  🟠 Kotlin 迁移启动 │  ⭐ AI批改简答题     │
+│  🔴 Logger 统一    │  🟡 测试覆盖提升    │  🟠 Compose 全面化   │  ⭐ 错题智能复习     │
+│  🔴 类名去重       │  🟡 代码标准化      │  🟠 模块化拆分      │  ⭐ 题目分享         │
 │                    │  🟡 文件拆分(剩余)   │                     │                    │
 │                    │  🟡 模型配置提取    │                     │                    │
 └────────────────────┴────────────────────┴────────────────────┴────────────────────┘
@@ -386,11 +338,11 @@ jobs:
 
 | # | 行动 | 原因 |
 |:---:|------|------|
-| 1 | **移除硬编码 API 密钥** | 代码已公开在 GitHub，密钥泄露风险 |
-| 2 | **修复空 catch 块** | 线上 bug 无法被发现和定位 |
-| 3 | **拆分超大文件** | 3559 行的 Activity 是维护灾难 |
-| 4 | **补充 Agent/Gpu 测试** | 最复杂的模块完全没有测试 |
-| 5 | **启动 Kotlin 迁移** | 长期降低空指针/样板代码成本 |
+| 1 | **修复空 catch 块** | 线上 bug 无法被发现和定位 |
+| 2 | **规范异常处理** | 200+ 处泛化捕获隐藏潜在问题 |
+| 3 | **拆分超大文件** | 3592 行的 Activity 是维护灾难 |
+| 4 | **合并 Logger** | 消除重复代码，统一日志入口 |
+| 5 | **补充核心模块测试** | 最复杂的 AI 模块完全没有测试 |
 
 ### 长远愿景
 
@@ -406,3 +358,4 @@ jobs:
 - [开发指南](DEVELOPMENT_GUIDE.md)
 - [环境搭建指南](SETUP_GUIDE.md)
 - [开发标准](docs/development/development_standards.md)
+- [变更日志](CHANGELOG.md)
