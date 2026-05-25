@@ -371,8 +371,8 @@ public class AILogger2 {
         try {
             meta.put("type", "thinking");
             meta.put("content_length", thoughtContent.length());
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build thinking metadata", e); }
+
         return log(LogLevel.THINKING, LogCategory.DEEP_THINKING, tag, thoughtContent, meta);
     }
     
@@ -390,8 +390,8 @@ public class AILogger2 {
                     meta.put("param_" + param.getKey(), param.getValue().toString());
                 }
             }
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build tool call metadata", e); }
+
         String message = "调用工具: " + toolName + "." + action;
         return log(LogLevel.TOOL_CALL, LogCategory.TOOL_EXECUTION, "Tool:" + toolName, message, meta);
     }
@@ -410,8 +410,8 @@ public class AILogger2 {
             if (data != null) {
                 meta.put("data", data.toString());
             }
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build agent step metadata", e); }
+
         String message = String.format(Locale.getDefault(), 
             "步骤 %d/%d [%s]: %s", stepNum, totalSteps, stepType, description);
         
@@ -427,8 +427,8 @@ public class AILogger2 {
             meta.put("metric", metricName);
             meta.put("value", value);
             meta.put("unit", unit);
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build performance metadata", e); }
+
         log(LogLevel.INFO, LogCategory.PERFORMANCE, "Perf:" + metricName, 
             metricName + " = " + value + " " + unit, meta);
     }

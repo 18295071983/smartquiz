@@ -742,9 +742,9 @@ public class AILogger {
                     String key = it.next();
                     step.metadata.put(key, additionalData.get(key));
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) { android.util.Log.w(TAG, "Failed to add step metadata", e); }
         }
-        
+
         notifyVisualListenersUpdate(step);
     }
     
@@ -770,9 +770,9 @@ public class AILogger {
                     String key = it.next();
                     step.metadata.put("result_" + key, resultData.get(key));
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) { android.util.Log.w(TAG, "Failed to add result metadata", e); }
         }
-        
+
         activeSteps.remove(step.id + "");
         notifyVisualListenersUpdate(step);
     }
@@ -785,7 +785,7 @@ public class AILogger {
         try {
             meta.put("type", "thinking");
             meta.put("content_length", thoughtContent.length());
-        } catch (Exception e) {}
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build thinking metadata", e); }
         return logVisual(LogLevel.THINKING, LogCategory.DEEP_THINKING, tag, thoughtContent, meta);
     }
     
@@ -802,8 +802,8 @@ public class AILogger {
                     meta.put("param_" + param.getKey(), param.getValue().toString());
                 }
             }
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build tool call metadata", e); }
+
         String message = "调用工具: " + toolName + "." + action;
         return logVisual(LogLevel.TOOL_CALL, LogCategory.TOOL_EXECUTION, "Tool:" + toolName, message, meta);
     }
@@ -820,8 +820,8 @@ public class AILogger {
             meta.put("step_type", stepType);
             meta.put("progress", (int)((double)stepNum / totalSteps * 100));
             if (data != null) meta.put("data", data.toString());
-        } catch (Exception e) {}
-        
+        } catch (Exception e) { android.util.Log.w(TAG, "Failed to build agent step metadata", e); }
+
         String message = String.format(Locale.getDefault(), 
             "步骤 %d/%d [%s]: %s", stepNum, totalSteps, stepType, description);
         return logVisual(LogLevel.ACTION, LogCategory.AGENT_ENGINE, "Agent:Step" + stepNum, message, meta);
@@ -847,7 +847,7 @@ public class AILogger {
             for (OnVisualLogListener listener : visualListeners) {
                 try {
                     listener.onNewLog(entry);
-                } catch (Exception e) {}
+                } catch (Exception e) { android.util.Log.w(TAG, "Visual listener onNewLog failed", e); }
             }
         });
     }
@@ -857,7 +857,7 @@ public class AILogger {
             for (OnVisualLogListener listener : visualListeners) {
                 try {
                     listener.onLogUpdated(entry);
-                } catch (Exception e) {}
+                } catch (Exception e) { android.util.Log.w(TAG, "Visual listener onLogUpdated failed", e); }
             }
         });
     }

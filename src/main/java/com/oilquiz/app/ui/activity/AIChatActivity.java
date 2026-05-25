@@ -2998,8 +2998,8 @@ public class AIChatActivity extends BaseActivity {
 
             unregisterAIStatusObserver();
             unregisterComponentCallbacks(memoryCallback);
-            if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
-            if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
+            if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) { AILogger.w(TAG, "unregisterReceiver aiResultReceiver failed", e); } }
+            if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) { AILogger.w(TAG, "unregisterReceiver aiTokenReceiver failed", e); } }
             if (aiService != null) aiService.chatStop();
             uiHandler.removeCallbacksAndMessages(null);
             isGenerating = false; isDirectStreaming = false;
@@ -3341,7 +3341,7 @@ public class AIChatActivity extends BaseActivity {
                 memDivider.setVisibility(android.view.View.VISIBLE);
                 memValue.setText(String.format("%.1f MB", memUsage));
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get memory usage", e); }
 
         try {
             float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
@@ -3350,7 +3350,7 @@ public class AIChatActivity extends BaseActivity {
                 speedDivider.setVisibility(android.view.View.VISIBLE);
                 speedValue.setText(String.format("%.2f token/s", speed));
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get inference speed", e); }
 
         try {
             int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
@@ -3358,7 +3358,7 @@ public class AIChatActivity extends BaseActivity {
                 tokenRow.setVisibility(android.view.View.VISIBLE);
                 tokenValue.setText(String.valueOf(tokenCount));
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get token count", e); }
 
         try {
             String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
@@ -3366,7 +3366,7 @@ public class AIChatActivity extends BaseActivity {
                 modelInfoCard.setVisibility(android.view.View.VISIBLE);
                 modelInfoText.setText(modelInfo);
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get model info", e); }
 
         String fullDetails = buildFullDetailsText();
 
@@ -3419,19 +3419,19 @@ public class AIChatActivity extends BaseActivity {
         try {
             float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
             if (speed > 0) details.append("推理速度: ").append(String.format("%.2f token/s", speed)).append("\n");
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get inference speed for details", e); }
 
         try {
             int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
             if (tokenCount > 0) details.append("Token计数: ").append(tokenCount).append("\n");
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get token count for details", e); }
 
         try {
             String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
             if (modelInfo != null && !modelInfo.isEmpty() && !modelInfo.startsWith("Error:")) {
                 details.append("\n📋 模型信息\n").append(modelInfo).append("\n");
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { AILogger.w(TAG, "Failed to get model info for details", e); }
 
         return details.toString();
     }
