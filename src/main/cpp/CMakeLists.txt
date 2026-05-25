@@ -5,13 +5,44 @@ project(llama-jni)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ggml requires non-finite math arithmetics (NaN/Inf handling)
+# -ffast-math enables -ffinite-math-only which breaks ggml compilation
+# Use -O3 without -ffast-math, and explicitly disable finite-math-only
+add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
+
 option(GGML_OPENCL "Enable OpenCL backend" ON)
-option(GGML_VULKAN "Enable Vulkan backend" OFF)
+option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 
-set(GGML_VULKAN OFF CACHE BOOL "Enable Vulkan backend" FORCE)
+# --- Vulkan auto-detection ---
+# Check for glslc (needed for SPIR-V shader compilation).
+# If not found, gracefully disable Vulkan instead of failing the build.
+# Common location: $ANDROID_NDK/shader-tools/<host-platform>/glslc[.exe]
+if(GGML_VULKAN)
+    find_program(GLSLC_EXECUTABLE glslc
+        PATHS
+            ${ANDROID_NDK}/shader-tools/windows-x86_64
+            ${ANDROID_NDK}/shader-tools/linux-x86_64
+            ${ANDROID_NDK}/shader-tools/darwin-x86_64
+        NO_DEFAULT_PATH
+    )
+    if(NOT GLSLC_EXECUTABLE)
+        find_program(GLSLC_EXECUTABLE glslc)
+    endif()
+
+    if(NOT GLSLC_EXECUTABLE)
+        message(WARNING "Vulkan: glslc not found! Install Vulkan SDK or ensure "
+                        "ANDROID_NDK is set (needs shader-tools/ subdirectory). "
+                        "Falling back to OpenCL-only. Disabling Vulkan.")
+        set(GGML_VULKAN OFF)
+    else()
+        message(STATUS "Vulkan: glslc found at ${GLSLC_EXECUTABLE}")
+    endif()
+endif()
+
+set(GGML_VULKAN ${GGML_VULKAN} CACHE BOOL "Enable Vulkan backend" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "Enable CUDA backend" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "Enable dynamic backend loading" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
@@ -20,7 +51,11 @@ set(LLAMA_CPP_PATH "${CMAKE_SOURCE_DIR}/llama.cpp")
 set(OPENCL_HEADERS_DIR "${CMAKE_SOURCE_DIR}/opencl/headers")
 set(OPENCL_ICD_LIB "${CMAKE_SOURCE_DIR}/opencl/build/lib/libOpenCL.so")
 
-message(STATUS "Vulkan backend disabled (Adreno 750 has limited Vulkan compute support)")
+if(GGML_VULKAN)
+    message(STATUS "Vulkan backend: ENABLED (glslc: ${GLSLC_EXECUTABLE})")
+else()
+    message(STATUS "Vulkan backend: DISABLED (use -DGGML_VULKAN=ON to enable; requires Vulkan SDK with glslc)")
+endif()
 
 if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
     message(STATUS "OpenCL backend enabled (using local ICD loader)")

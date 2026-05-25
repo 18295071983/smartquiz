@@ -22,6 +22,8 @@
     <string name="learning_notes">學習筆記</string>
     <string name="learning_history">學習歷史</string>
     <string name="ai_config">AI設定</string>
+    <string name="ai_center">AI中心</string>
+    <string name="model_management">模型管理</string>
     <string name="frontend_render">天氣詳情</string>
     <string name="data_backup">資料備份</string>
     <string name="import_export">匯入匯出</string>

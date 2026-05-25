@@ -36,6 +36,44 @@ public class AIToolResult {
     }
     
     /**
+     * 创建结果（支持成功/失败标记）
+     */
+    public AIToolResult(Object result, Map<String, Object> additionalInfo, boolean success) {
+        this.success = success;
+        this.result = success ? result : null;
+        this.errorMessage = success ? null : (result instanceof String ? (String) result : null);
+        this.additionalInfo = additionalInfo;
+    }
+    
+    /**
+     * 创建成功结果（静态工厂方法）
+     */
+    public static AIToolResult success(Object result) {
+        return new AIToolResult(result, null);
+    }
+    
+    /**
+     * 创建成功结果带附加信息
+     */
+    public static AIToolResult success(Object result, Map<String, Object> additionalInfo) {
+        return new AIToolResult(result, additionalInfo);
+    }
+    
+    /**
+     * 创建失败结果（静态工厂方法）
+     */
+    public static AIToolResult fail(String errorMessage) {
+        return new AIToolResult(errorMessage, null);
+    }
+    
+    /**
+     * 创建失败结果带附加信息
+     */
+    public static AIToolResult fail(String errorMessage, Map<String, Object> additionalInfo) {
+        return new AIToolResult(errorMessage, additionalInfo);
+    }
+    
+    /**
      * 是否执行成功
      */
     public boolean isSuccess() {

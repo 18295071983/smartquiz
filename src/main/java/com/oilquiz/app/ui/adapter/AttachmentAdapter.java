@@ -1,6 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -15,6 +16,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.ChatMessage.Attachment;
 
 import java.io.File;
@@ -108,6 +110,8 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             holder.imageView.setImageResource(android.R.drawable.ic_menu_gallery);
         }
 
+        bindAttachmentStatus(holder, attachment);
+
         holder.itemView.setOnClickListener(v -> {
             if (clickListener != null) {
                 clickListener.onImageClick(attachment, position);
@@ -124,6 +128,31 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
     }
 
+    private void bindAttachmentStatus(ImageAttachmentViewHolder holder, Attachment attachment) {
+        if (holder.progressBar != null) {
+            if (attachment.isUploading() || attachment.status == com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus.PENDING ||
+                attachment.status == com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus.PROCESSING) {
+                holder.progressBar.setVisibility(View.VISIBLE);
+                holder.progressBar.setProgress(attachment.uploadProgress);
+                holder.progressBar.setIndeterminate(attachment.uploadProgress <= 0);
+            } else {
+                holder.progressBar.setVisibility(View.GONE);
+            }
+        }
+
+        if (holder.overlay != null && attachment.hasError()) {
+            holder.overlay.setVisibility(View.VISIBLE);
+            if (holder.zoomIcon != null) {
+                holder.zoomIcon.setVisibility(View.GONE);
+            }
+        } else if (holder.overlay != null) {
+            holder.overlay.setVisibility(View.GONE);
+            if (holder.zoomIcon != null) {
+                holder.zoomIcon.setVisibility(View.VISIBLE);
+            }
+        }
+    }
+
     private void bindFileAttachment(FileAttachmentViewHolder holder, Attachment attachment, int position) {
         holder.fileIcon.setText(attachment.getEmoji());
 
@@ -132,7 +161,12 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
 
         if (holder.fileSize != null) {
-            holder.fileSize.setText(attachment.getDisplaySize());
+            String statusText = getStatusText(attachment);
+            if (statusText != null) {
+                holder.fileSize.setText(statusText);
+            } else {
+                holder.fileSize.setText(attachment.getDisplaySize());
+            }
         }
 
         holder.itemView.setOnClickListener(v -> {
@@ -149,6 +183,22 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         if (holder.removeButton != null) {
             holder.removeButton.setOnClickListener(v -> showRemoveDialog(attachment, position));
         }
+    }
+
+    private String getStatusText(Attachment attachment) {
+        if (attachment.hasError()) {
+            return "上传失败: " + (attachment.errorMessage != null ? attachment.errorMessage : "");
+        }
+        if (attachment.isUploading()) {
+            return "上传中... " + attachment.uploadProgress + "%";
+        }
+        if (attachment.status == com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus.PROCESSING) {
+            return "处理中...";
+        }
+        if (attachment.status == com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus.PENDING) {
+            return "等待上传...";
+        }
+        return null;
     }
 
     private void showRemoveDialog(Attachment attachment, int position) {
@@ -185,6 +235,47 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
 
     public boolean isEmpty() {
         return attachments.isEmpty();
+    }
+
+    public void updateAttachmentProgress(int position, int progress) {
+        if (position >= 0 && position < attachments.size()) {
+            Attachment attachment = attachments.get(position);
+            attachment.uploadProgress = progress;
+            attachment.status = com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus.UPLOADING;
+            notifyItemChanged(position);
+        }
+    }
+
+    public void updateAttachmentStatus(int position, com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus status) {
+        updateAttachmentStatus(position, status, null);
+    }
+
+    public void updateAttachmentStatus(int position, com.oilquiz.app.ai.chat.ChatMessage.AttachmentStatus status, String errorMessage) {
+        if (position >= 0 && position < attachments.size()) {
+            Attachment attachment = attachments.get(position);
+            attachment.status = status;
+            if (errorMessage != null) {
+                attachment.errorMessage = errorMessage;
+            }
+            notifyItemChanged(position);
+        }
+    }
+
+    public void updateAttachment(int position, Attachment newAttachment) {
+        if (position >= 0 && position < attachments.size()) {
+            attachments.set(position, newAttachment);
+            notifyItemChanged(position);
+        }
+    }
+
+    public int findAttachmentById(String attachmentId) {
+        if (attachmentId == null) return -1;
+        for (int i = 0; i < attachments.size(); i++) {
+            if (attachmentId.equals(attachments.get(i).id)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override

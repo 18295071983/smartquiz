@@ -23,6 +23,8 @@
     <string name="learning_notes">Learning Notes</string>
     <string name="learning_history">Learning History</string>
     <string name="ai_config">AI Configuration</string>
+    <string name="ai_center">AI Center</string>
+    <string name="model_management">Model Management</string>
     <string name="frontend_render">Weather Details</string>
     <string name="data_backup">Data Backup</string>
     <string name="import_export">Import/Export</string>

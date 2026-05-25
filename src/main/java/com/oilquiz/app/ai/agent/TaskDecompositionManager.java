@@ -12,9 +12,9 @@ public class TaskDecompositionManager {
     private static final int MAX_AUTO_DECOMPOSE_TASKS = 5;
     private static final int LONG_CONTENT_THRESHOLD = 500;
 
-    private final AIAgentEngine agentEngine;
+    private final UnifiedAgentEngine agentEngine;
 
-    public TaskDecompositionManager(AIAgentEngine agentEngine) {
+    public TaskDecompositionManager(UnifiedAgentEngine agentEngine) {
         this.agentEngine = agentEngine;
     }
 

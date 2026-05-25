@@ -65,6 +65,10 @@ static volatile bool s_gpuWorking = false;
 static void* s_oclHandle = nullptr;
 static size_t s_detectedGpuMemory = 0;
 
+// Native层回调引用追踪
+static jobject g_activeCallback = nullptr;
+static std::mutex g_activeCallbackMutex;
+
 static std::string s_detectedVulkanVersion = "Unknown";
 static bool s_vulkanVersionDetected = false;
 
@@ -1608,12 +1612,16 @@ public:
 
 class NativeChatContext {
 private:
+    std::mutex mtx;
+    std::atomic<bool> destroyed{false};
+    
     llama_model *model;
     llama_context *ctx;
     const llama_vocab *vocab;
     int n_ctx;
     int n_threads;
     std::atomic<bool> shouldStop;
+    std::atomic<bool> isGenerating;
     bool ownsModel;
     bool ownsContext;
 
@@ -1648,6 +1656,10 @@ private:
     bool encodeTokens(const std::vector<llama_token>& tokens) {
         if (tokens.empty()) return true;
         if (shouldStop) return false;
+        if (ctx == nullptr) {
+            LOGE("encodeTokens: ctx is null");
+            return false;
+        }
         int n_ctx_avail = llama_n_ctx(ctx);
         if (total_tokens_in_kv + (int)tokens.size() > n_ctx_avail) {
             LOGE("Not enough context space: have %d, need %d", n_ctx_avail - total_tokens_in_kv, (int)tokens.size());
@@ -1668,7 +1680,7 @@ private:
 
 public:
     NativeChatContext() : model(nullptr), ctx(nullptr), vocab(nullptr),
-                          n_ctx(0), n_threads(4), shouldStop(false),
+                          n_ctx(0), n_threads(4), shouldStop(false), isGenerating(false),
                           ownsModel(false), ownsContext(false),
                           system_end_pos(0), current_pos(0), total_tokens_in_kv(0) {}
 
@@ -1989,19 +2001,50 @@ public:
 
     using StreamCallback = std::function<void(const std::string& token, bool isDone, const std::string& error)>;
 
-    void chatSend(const std::string& userMessage, int maxTokens, float temperature, float topP, int topK, bool enableThinking, StreamCallback callback) {
+    bool chatSend(const std::string& userMessage, int maxTokens, float temperature, float topP, int topK, bool enableThinking, StreamCallback callback) {
+        // 防止重复调用
+        if (isGenerating.exchange(true)) {
+            LOGE("chatSend: already generating, rejecting concurrent call");
+            callback("", true, "已有正在进行的生成任务");
+            return false;
+        }
+        
         shouldStop = false;
+        
+        // 使用try_to_lock防止死锁
+        std::unique_lock<std::mutex> lock(mtx, std::try_to_lock);
+        if (!lock.owns_lock()) {
+            LOGE("chatSend: Failed to acquire lock, possible deadlock");
+            isGenerating.store(false);
+            callback("", true, "无法获取锁，请稍后重试");
+            return false;
+        }
+        
+        if (destroyed.load()) {
+            LOGE("chatSend: context already destroyed");
+            isGenerating.store(false);
+            lock.unlock();
+            callback("", true, "Context destroyed");
+            return false;
+        }
+        
         auto totalStartTime = std::chrono::steady_clock::now();
         LOGI("=== CHAT SEND START === user_msg_len=%zu, maxTokens=%d, thinking=%d", userMessage.size(), maxTokens, enableThinking);
 
-        if (!model || !ctx || !vocab) {
+        if (!isValid()) {
+            LOGE("chatSend: context invalid - model=%p, ctx=%p, vocab=%p, n_ctx=%d",
+                 (void*)model, (void*)ctx, (void*)vocab, n_ctx);
+            isGenerating.store(false);
+            lock.unlock();
             callback("", true, "Context not initialized");
-            return;
+            return false;
         }
 
         if (shouldStop) {
+            isGenerating.store(false);
+            lock.unlock();
             callback("", true, "Generation stopped before start");
-            return;
+            return false;
         }
 
         auto stepStartTime = std::chrono::steady_clock::now();
@@ -2015,8 +2058,10 @@ public:
         LOGI("[PERF] Tokenize user message: %zu tokens in %lldms", user_tokens.size(), stepElapsed);
 
         if (user_tokens.empty()) {
+            isGenerating.store(false);
+            lock.unlock();
             callback("", true, "Failed to tokenize user message");
-            return;
+            return false;
         }
 
         stepStartTime = std::chrono::steady_clock::now();
@@ -2043,8 +2088,10 @@ public:
         LOGI("[PERF] Context shift check: %lldms", stepElapsed);
 
         if (total_tokens_in_kv + (int)user_tokens.size() >= n_ctx - 4) {
+            isGenerating.store(false);
+            lock.unlock();
             callback("", true, "Context too long, cannot fit user message");
-            return;
+            return false;
         }
 
         Turn userTurn;
@@ -2058,12 +2105,14 @@ public:
             stepEndTime = std::chrono::steady_clock::now();
             stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
             LOGI("[PERF] Encode user tokens FAILED in %lldms", stepElapsed);
+            isGenerating.store(false);
+            lock.unlock();
             if (shouldStop) {
                 callback("", true, "Generation stopped");
             } else {
                 callback("", true, "Failed to encode user message");
             }
-            return;
+            return false;
         }
         stepEndTime = std::chrono::steady_clock::now();
         stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
@@ -2211,7 +2260,13 @@ public:
         auto totalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(totalEndTime - totalStartTime).count();
         LOGI("=== CHAT SEND COMPLETE === total=%lldms, tokens=%d, kv_total=%d, turns=%zu, tool_call=%d",
              totalElapsed, n_decode, total_tokens_in_kv, turns.size(), isToolCallResponse ? 1 : 0);
+
+        // 解锁后再调用回调，防止死锁
+        isGenerating.store(false);
+        lock.unlock();
+        
         callback(fullResponse, true, isToolCallResponse ? "[TOOL_CALL]" : "");
+        return !fullResponse.empty() || isToolCallResponse;
     }
 
     void stopGeneration() {
@@ -2276,18 +2331,41 @@ public:
     }
 
     void destroy() {
+        if (destroyed.exchange(true)) {
+            LOGI("NativeChatContext already destroyed");
+            return;
+        }
+        
         LOGI("NativeChatContext destroy (ownsContext=%d)", ownsContext ? 1 : 0);
+        
+        std::lock_guard<std::mutex> lock(mtx);
+        
         turns.clear();
         system_tokens.clear();
-        if (ctx && ownsContext) { llama_free(ctx); ctx = nullptr; }
-        if (ownsModel && model) { llama_model_free(model); model = nullptr; }
+        global_tokens.clear();
+        normal_tokens.clear();
+        
+        if (ctx && ownsContext) { 
+            llama_free(ctx); 
+            ctx = nullptr; 
+        }
+        if (ownsModel && model) { 
+            llama_model_free(model); 
+            model = nullptr; 
+        }
         vocab = nullptr;
+        n_ctx = 0;
         current_pos = 0;
         total_tokens_in_kv = 0;
         ownsContext = false;
+        ownsModel = false;
     }
 
-    bool isValid() const { return model != nullptr && vocab != nullptr; }
+    bool isValid() const { 
+        return model != nullptr && ctx != nullptr && vocab != nullptr && n_ctx > 0; 
+    }
+
+    bool isCurrentlyGenerating() const { return isGenerating.load(); }
 
     std::vector<Turn>& getTurns() { return turns; }
 
@@ -2379,8 +2457,36 @@ public:
 };
 
 static llama_jni::InferenceContext* s_helperContext = nullptr;
+static std::mutex s_globalMutex;
 
 static NativeChatContext* g_chatContext = nullptr;
+
+// 清理Native层消息内容
+static std::string sanitizeNativeMessage(const std::string& message) {
+    std::string result;
+    result.reserve(message.size());
+    for (char c : message) {
+        // 移除null字符和其他控制字符（保留换行符）
+        if (c != '\0' && (c >= 32 || c == '\n' || c == '\t' || c == '\r')) {
+            result.push_back(c);
+        }
+    }
+    return result;
+}
+
+static bool isValidChatHandle(jlong handle) {
+    if (handle == 0) {
+        return false;
+    }
+    NativeChatContext* ctx = reinterpret_cast<NativeChatContext*>(handle);
+    if (ctx == nullptr) {
+        return false;
+    }
+    if (ctx == g_chatContext) {
+        return true;
+    }
+    return ctx->isValid();
+}
 
 extern "C" {
 
@@ -2442,66 +2548,244 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     JNIEnv* env, jclass, jlong handle, jstring message, jint maxTokens,
     jfloat temperature, jfloat topP, jint topK, jboolean enableThinking, jobject callback) {
-    LOGI("nativeChatSend called");
+    LOGI("nativeChatSend called, handle=%lld", (long long)handle);
 
-    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
-    if (!chatCtx || !chatCtx->isValid()) {
-        jclass cbClass = env->GetObjectClass(callback);
-        jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
-        if (onError) env->CallVoidMethod(callback, onError, env->NewStringUTF("Chat context not initialized"));
-        env->DeleteLocalRef(cbClass);
+    if (callback == nullptr) {
+        LOGE("nativeChatSend: callback is null");
         return;
     }
 
+    if (message == nullptr) {
+        LOGE("nativeChatSend: message is null");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                jstring errStr = env->NewStringUTF("消息内容为空");
+                env->CallVoidMethod(callback, onError, errStr);
+                env->DeleteLocalRef(errStr);
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
+
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatSend: invalid handle=%lld, g_chatContext=%p", (long long)handle, (void*)g_chatContext);
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                jstring errStr = env->NewStringUTF("Chat上下文未初始化或已失效");
+                env->CallVoidMethod(callback, onError, errStr);
+                env->DeleteLocalRef(errStr);
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
+
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeChatSend: chatCtx is null or invalid");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                jstring errStr = env->NewStringUTF("Chat上下文未初始化");
+                env->CallVoidMethod(callback, onError, errStr);
+                env->DeleteLocalRef(errStr);
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
+
+    // 检查是否已有正在进行的生成
+    if (chatCtx->isCurrentlyGenerating()) {
+        LOGE("nativeChatSend: already generating");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                env->CallVoidMethod(callback, onError, env->NewStringUTF("已有正在进行的生成任务"));
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
+
+    // 获取JavaVM以便线程切换
+    JavaVM* javaVM = nullptr;
+    env->GetJavaVM(&javaVM);
+
     const char* msgStr = env->GetStringUTFChars(message, nullptr);
+    if (msgStr == nullptr) {
+        LOGE("nativeChatSend: GetStringUTFChars failed");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                env->CallVoidMethod(callback, onError, env->NewStringUTF("消息内容解析失败"));
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
     std::string msgContent(msgStr);
     env->ReleaseStringUTFChars(message, msgStr);
+    msgStr = nullptr;
+
+    // 清理消息内容
+    msgContent = sanitizeNativeMessage(msgContent);
+    if (msgContent.empty()) {
+        LOGE("nativeChatSend: message is empty after sanitization");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                env->CallVoidMethod(callback, onError, env->NewStringUTF("消息内容无效"));
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
 
     jobject globalCallback = env->NewGlobalRef(callback);
+    if (globalCallback == nullptr) {
+        LOGE("nativeChatSend: Failed to create global ref for callback");
+        jclass cbClass = env->GetObjectClass(callback);
+        if (cbClass != nullptr) {
+            jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+            if (onError != nullptr) {
+                env->CallVoidMethod(callback, onError, env->NewStringUTF("内存分配失败"));
+            }
+            env->DeleteLocalRef(cbClass);
+        }
+        return;
+    }
+
+    // 保存全局回调引用
+    {
+        std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+        if (g_activeCallback != nullptr) {
+            env->DeleteGlobalRef(g_activeCallback);
+        }
+        g_activeCallback = globalCallback;
+    }
     
     jclass cbClass = env->GetObjectClass(globalCallback);
     jmethodID onToken = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
     jmethodID onComplete = env->GetMethodID(cbClass, "onComplete", "(Ljava/lang/String;)V");
     jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
     jclass globalCbClass = (jclass)env->NewGlobalRef(cbClass);
+    if (globalCbClass == nullptr) {
+        LOGE("nativeChatSend: Failed to create global ref for class");
+        env->DeleteGlobalRef(globalCallback);
+        env->DeleteLocalRef(cbClass);
+        {
+            std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+            g_activeCallback = nullptr;
+        }
+        return;
+    }
     env->DeleteLocalRef(cbClass);
 
-    auto streamCallback = [globalCallback, globalCbClass, onToken, onComplete, onError](const std::string& token, bool isDone, const std::string& error) {
-        JavaVM* jvm = getJavaVM();
+    auto streamCallback = [javaVM, globalCallback, globalCbClass, onToken, onComplete, onError](const std::string& token, bool isDone, const std::string& error) {
+        if (javaVM == nullptr) {
+            LOGE("streamCallback: JVM is null");
+            return;
+        }
         JNIEnv* cbEnv = nullptr;
         bool didAttach = false;
 
-        int result = jvm->GetEnv((void**)&cbEnv, JNI_VERSION_1_6);
+        int result = javaVM->GetEnv((void**)&cbEnv, JNI_VERSION_1_6);
         if (result == JNI_EDETACHED) {
-            if (jvm->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
+            if (javaVM->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
             didAttach = true;
         } else if (result != JNI_OK) return;
 
+        // 检查回调是否有效
+        {
+            std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+            if (globalCallback == nullptr || g_activeCallback != globalCallback) {
+                LOGW("streamCallback: callback is invalid or outdated");
+                if (didAttach) javaVM->DetachCurrentThread();
+                return;
+            }
+        }
+
         try {
+            if (globalCallback == nullptr) return;
             if (isDone) {
                 if (!error.empty()) {
-                    if (onError) cbEnv->CallVoidMethod(globalCallback, onError, cbEnv->NewStringUTF(error.c_str()));
+                    if (onError != nullptr) {
+                        jstring jErr = cbEnv->NewStringUTF(error.c_str());
+                        cbEnv->CallVoidMethod(globalCallback, onError, jErr);
+                        cbEnv->DeleteLocalRef(jErr);
+                    }
                 } else {
-                    if (onComplete) cbEnv->CallVoidMethod(globalCallback, onComplete, cbEnv->NewStringUTF(token.c_str()));
+                    if (onComplete != nullptr) {
+                        jstring jToken = cbEnv->NewStringUTF(token.c_str());
+                        cbEnv->CallVoidMethod(globalCallback, onComplete, jToken);
+                        cbEnv->DeleteLocalRef(jToken);
+                    }
                 }
+                // 清理全局引用
+                {
+                    std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+                    if (g_activeCallback == globalCallback) {
+                        g_activeCallback = nullptr;
+                    }
+                }
+                if (globalCallback != nullptr) cbEnv->DeleteGlobalRef(globalCallback);
+                if (globalCbClass != nullptr) cbEnv->DeleteGlobalRef(globalCbClass);
             } else {
-                if (onToken) cbEnv->CallVoidMethod(globalCallback, onToken, cbEnv->NewStringUTF(token.c_str()));
+                if (onToken != nullptr) {
+                    jstring jToken = cbEnv->NewStringUTF(token.c_str());
+                    cbEnv->CallVoidMethod(globalCallback, onToken, jToken);
+                    cbEnv->DeleteLocalRef(jToken);
+                }
             }
-        } catch (...) {}
-
-        if (isDone) {
-            cbEnv->DeleteGlobalRef(globalCallback);
-            cbEnv->DeleteGlobalRef(globalCbClass);
+        } catch (...) {
+            LOGE("streamCallback: Exception caught");
         }
-        if (didAttach) jvm->DetachCurrentThread();
+
+        if (didAttach) javaVM->DetachCurrentThread();
     };
 
-    chatCtx->chatSend(msgContent, maxTokens, temperature, topP, topK, enableThinking, streamCallback);
+    try {
+        chatCtx->chatSend(msgContent, maxTokens, temperature, topP, topK, enableThinking, streamCallback);
+    } catch (const std::exception& e) {
+        LOGE("nativeChatSend: exception in chatSend: %s", e.what());
+        std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+        if (g_activeCallback == globalCallback) {
+            g_activeCallback = nullptr;
+        }
+        if (globalCallback != nullptr) {
+            env->DeleteGlobalRef(globalCallback);
+        }
+        if (globalCbClass != nullptr) {
+            env->DeleteGlobalRef(globalCbClass);
+        }
+        jclass cbClassErr = env->GetObjectClass(callback);
+        if (cbClassErr != nullptr) {
+            jmethodID onErrorMethod = env->GetMethodID(cbClassErr, "onError", "(Ljava/lang/String;)V");
+            if (onErrorMethod != nullptr) {
+                std::string errorStr = "Native层异常: " + std::string(e.what());
+                jstring jErr = env->NewStringUTF(errorStr.c_str());
+                env->CallVoidMethod(callback, onErrorMethod, jErr);
+                env->DeleteLocalRef(jErr);
+            }
+            env->DeleteLocalRef(cbClassErr);
+        }
+    }
 }
 
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatStop(
     JNIEnv* env, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) return;
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (chatCtx) chatCtx->stopGeneration();
 }
@@ -2509,6 +2793,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatStop(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatClear(
     JNIEnv* env, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) return;
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (chatCtx) chatCtx->clearChat();
 }
@@ -2516,19 +2801,34 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatClear(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatDestroy(
     JNIEnv* env, jclass, jlong handle) {
+    LOGI("nativeChatDestroy called, handle=%lld", (long long)handle);
+    
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatDestroy: invalid handle=%lld", (long long)handle);
+        return;
+    }
+    
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (chatCtx) {
         chatCtx->destroy();
+        if (chatCtx == g_chatContext) {
+            g_chatContext = nullptr;
+        }
         delete chatCtx;
-        if (chatCtx == g_chatContext) g_chatContext = nullptr;
+        LOGI("nativeChatDestroy: context deleted");
     }
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatGetInfo(
     JNIEnv* env, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) {
+        return env->NewStringUTF("No chat context");
+    }
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
-    if (chatCtx) return env->NewStringUTF(chatCtx->getInfo().c_str());
+    if (chatCtx && chatCtx->isValid()) {
+        return env->NewStringUTF(chatCtx->getInfo().c_str());
+    }
     return env->NewStringUTF("No chat context");
 }
 
@@ -2536,6 +2836,11 @@ JNIEXPORT jboolean JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
     JNIEnv* env, jclass, jlong handle, jstring globalPrompt, jstring systemPrompt, jstring normalPrompt) {
     LOGI("nativeChatUpdatePrompts called");
+
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatUpdatePrompts: invalid handle");
+        return JNI_FALSE;
+    }
 
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (!chatCtx || !chatCtx->isValid()) {
@@ -3094,6 +3399,218 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
         }
     };
     
+    // Start stream generation
+    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, tokenCallback);
+}
+
+// 辅助函数：将byte[]转换为标准UTF-8字符串（正确处理中文）
+static std::string bytesToUtf8String(JNIEnv* env, jbyteArray byteArray) {
+    if (byteArray == nullptr) {
+        return "";
+    }
+
+    jsize length = env->GetArrayLength(byteArray);
+    if (length == 0) {
+        return "";
+    }
+
+    jbyte* bytes = env->GetByteArrayElements(byteArray, nullptr);
+    if (bytes == nullptr) {
+        return "";
+    }
+
+    // 直接构造std::string，Java层已经用UTF-8编码
+    std::string result(reinterpret_cast<const char*>(bytes), length);
+
+    env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
+
+    return result;
+}
+
+// 辅助函数：将标准UTF-8字符串转换为jstring（正确处理中文）
+static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str) {
+    if (utf8Str.empty()) {
+        return env->NewStringUTF("");
+    }
+
+    // 使用NewString构造UTF-16字符串，避免Modified UTF-8问题
+    // 先将UTF-8转为UTF-16
+    std::vector<jchar> utf16Chars;
+    utf16Chars.reserve(utf8Str.length()); // 预分配，通常UTF-16不会比UTF-8长
+
+    size_t i = 0;
+    while (i < utf8Str.length()) {
+        unsigned char c = utf8Str[i];
+        unsigned int codePoint = 0;
+
+        if ((c & 0x80) == 0) {
+            // 1-byte ASCII
+            codePoint = c;
+            i += 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            // 2-byte sequence
+            if (i + 1 < utf8Str.length()) {
+                codePoint = ((c & 0x1F) << 6) | (utf8Str[i + 1] & 0x3F);
+            }
+            i += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            // 3-byte sequence (中文常用)
+            if (i + 2 < utf8Str.length()) {
+                codePoint = ((c & 0x0F) << 12) | ((utf8Str[i + 1] & 0x3F) << 6) | (utf8Str[i + 2] & 0x3F);
+            }
+            i += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            // 4-byte sequence
+            if (i + 3 < utf8Str.length()) {
+                codePoint = ((c & 0x07) << 18) | ((utf8Str[i + 1] & 0x3F) << 12) |
+                           ((utf8Str[i + 2] & 0x3F) << 6) | (utf8Str[i + 3] & 0x3F);
+            }
+            i += 4;
+        } else {
+            // Invalid byte, skip
+            i += 1;
+            continue;
+        }
+
+        // 将code point转为UTF-16
+        if (codePoint <= 0xFFFF) {
+            utf16Chars.push_back(static_cast<jchar>(codePoint));
+        } else {
+            // Surrogate pair for code points > 0xFFFF
+            codePoint -= 0x10000;
+            utf16Chars.push_back(static_cast<jchar>(0xD800 + (codePoint >> 10)));
+            utf16Chars.push_back(static_cast<jchar>(0xDC00 + (codePoint & 0x3FF)));
+        }
+    }
+
+    return env->NewString(utf16Chars.data(), utf16Chars.size());
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jbyteArray promptUtf8,
+    jint maxTokens,
+    jfloat temperature,
+    jfloat topP,
+    jint topK,
+    jboolean enableThinking,
+    jobject callback) {
+    LOGI("LlamaHelper: Stream generation with bytes called");
+    LOGI("LlamaHelper: promptBytes=%p, maxTokens=%d, temp=%f, topP=%f, topK=%d",
+         promptUtf8, maxTokens, temperature, topP, topK);
+
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("LlamaHelper: s_helperContext is null or invalid");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Model not initialized");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    if (!s_helperContext->ensureContext()) {
+        LOGE("LlamaHelper: Failed to create context for stream");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Failed to create inference context");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    // 使用byte[]方式获取UTF-8字符串（正确处理中文）
+    std::string promptContent = bytesToUtf8String(env, promptUtf8);
+    if (promptContent.empty()) {
+        LOGE("LlamaHelper: Failed to decode prompt bytes");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Invalid prompt encoding");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    LOGI("LlamaHelper: Decoded prompt length=%zu", promptContent.length());
+
+    // 创建全局引用，防止回调时对象被回收
+    jobject globalCallback = env->NewGlobalRef(callback);
+
+    // 提前缓存 jmethodID，避免每个 token 都反射查找
+    jclass callbackClass = env->GetObjectClass(globalCallback);
+    jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
+    env->DeleteLocalRef(callbackClass);
+
+    // Create a callback wrapper for JNI - 正确处理线程安全和中文编码
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+        JavaVM* jvm = getJavaVM();
+        JNIEnv* env = nullptr;
+
+        // 尝试获取JNIEnv
+        int result = jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+
+        // 如果当前线程没有Attach到JVM，需要Attach
+        bool didAttach = false;
+        if (result == JNI_EDETACHED) {
+            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                LOGE("Failed to attach thread to JVM");
+                return;
+            }
+            didAttach = true;
+        } else if (result != JNI_OK) {
+            LOGE("Failed to get JNIEnv");
+            return;
+        }
+
+        try {
+            if (isDone) {
+                if (!error.empty()) {
+                    if (onErrorMethod != nullptr) {
+                        jstring errorStr = utf8StringToJstring(env, error);
+                        env->CallVoidMethod(globalCallback, onErrorMethod, errorStr);
+                        env->DeleteLocalRef(errorStr);
+                    }
+                } else {
+                    if (onCompleteMethod != nullptr) {
+                        jstring resultStr = utf8StringToJstring(env, token);
+                        env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
+                        env->DeleteLocalRef(resultStr);
+                    }
+                }
+            } else if (!token.empty()) {
+                if (onTokenMethod != nullptr) {
+                    jstring tokenStr = utf8StringToJstring(env, token);
+                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                    env->DeleteLocalRef(tokenStr);
+                }
+            }
+        } catch (...) {
+            LOGE("Exception in JNI callback");
+        }
+
+        // 如果是完成回调，释放全局引用
+        if (isDone) {
+            env->DeleteGlobalRef(globalCallback);
+            env->DeleteGlobalRef(globalCallbackClass);
+        }
+
+        // 如果是我们Attach的，需要Detach
+        if (didAttach) {
+            jvm->DetachCurrentThread();
+        }
+    };
+
     // Start stream generation
     s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, tokenCallback);
 }
@@ -3693,6 +4210,17 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeDetectGPUInfo(
     }
     
     return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCleanupCallback(
+    JNIEnv* env, jclass) {
+    std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
+    if (g_activeCallback != nullptr) {
+        env->DeleteGlobalRef(g_activeCallback);
+        g_activeCallback = nullptr;
+        LOGI("nativeCleanupCallback: cleaned up global callback ref");
+    }
 }
 
 }

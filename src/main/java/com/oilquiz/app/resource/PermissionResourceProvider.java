@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -17,15 +19,20 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PermissionResourceProvider {
 
     private static final String TAG = "PermissionResourceProvider";
     private static final int REQUEST_CODE_BASE = 10000;
+    private static final long DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS = 30000;
 
     private static PermissionResourceProvider instance;
     private Context context;
+    private final Handler mainHandler;
 
     private Map<String, String[]> permissionGroups;
     private PermissionRequestListener permissionRequestListener;
@@ -46,6 +53,7 @@ public class PermissionResourceProvider {
 
     private PermissionResourceProvider(Context context) {
         this.context = context.getApplicationContext();
+        this.mainHandler = new Handler(Looper.getMainLooper());
         initPermissionGroups();
     }
 
@@ -414,7 +422,8 @@ public class PermissionResourceProvider {
     }
 
     public boolean hasLocationPermission() {
-        return isPermissionGroupGranted("location");
+        return isPermissionGranted(Manifest.permission.ACCESS_FINE_LOCATION) ||
+               isPermissionGranted(Manifest.permission.ACCESS_COARSE_LOCATION);
     }
 
     public boolean hasMicrophonePermission() {
@@ -453,6 +462,293 @@ public class PermissionResourceProvider {
             return hasStoragePermission();
         }
         return isPermissionGroupGranted("media");
+    }
+
+    public static class PermissionRequestResult {
+        public boolean success;
+        public boolean granted;
+        public boolean timeout;
+        public boolean hasActivity;
+        public List<String> grantedPermissions;
+        public List<String> deniedPermissions;
+        public String errorMessage;
+
+        public PermissionRequestResult() {
+            this.success = false;
+            this.granted = false;
+            this.timeout = false;
+            this.hasActivity = false;
+            this.grantedPermissions = new ArrayList<>();
+            this.deniedPermissions = new ArrayList<>();
+            this.errorMessage = null;
+        }
+    }
+
+    public PermissionRequestResult ensurePermission(String permission) {
+        return ensurePermission(permission, DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS);
+    }
+
+    public PermissionRequestResult ensurePermission(final String permission, final long timeoutMs) {
+        final PermissionRequestResult result = new PermissionRequestResult();
+        
+        if (isPermissionGranted(permission)) {
+            result.success = true;
+            result.granted = true;
+            result.hasActivity = true;
+            result.grantedPermissions.add(permission);
+            result.errorMessage = "权限已授予";
+            Log.i(TAG, "Permission already granted: " + permission);
+            return result;
+        }
+
+        final android.app.Activity activity = com.oilquiz.app.SmartQuizApplication.getCurrentActivity();
+        if (activity == null) {
+            result.success = false;
+            result.granted = false;
+            result.hasActivity = false;
+            result.errorMessage = "没有可用的 Activity，无法请求权限";
+            Log.e(TAG, "No activity available to request permission: " + permission);
+            return result;
+        }
+
+        result.hasActivity = true;
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicBoolean granted = new AtomicBoolean(false);
+        final List<String> deniedList = new ArrayList<>();
+
+        mainHandler.post(() -> {
+            try {
+                requestPermission(activity, permission, new PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        Log.i(TAG, "Permission request success: " + permission);
+                        granted.set(true);
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onDenied(List<String> deniedPermissions) {
+                        Log.w(TAG, "Permission request denied: " + permission);
+                        deniedList.addAll(deniedPermissions);
+                        granted.set(false);
+                        latch.countDown();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Error requesting permission: " + permission, e);
+                result.errorMessage = "请求权限异常: " + e.getMessage();
+                granted.set(false);
+                latch.countDown();
+            }
+        });
+
+        try {
+            boolean completed = latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            
+            if (!completed) {
+                result.success = true;
+                result.granted = false;
+                result.timeout = true;
+                result.errorMessage = "权限请求超时";
+                
+                boolean currentGranted = isPermissionGranted(permission);
+                result.granted = currentGranted;
+                if (currentGranted) {
+                    result.grantedPermissions.add(permission);
+                    result.errorMessage = "权限请求超时，但检测到权限已授予";
+                } else {
+                    result.deniedPermissions.add(permission);
+                }
+                
+                Log.w(TAG, "Permission request timeout: " + permission + ", currentGranted=" + currentGranted);
+            } else {
+                result.success = true;
+                result.granted = granted.get();
+                
+                if (granted.get()) {
+                    result.grantedPermissions.add(permission);
+                    result.errorMessage = "权限请求成功";
+                } else {
+                    result.deniedPermissions.addAll(deniedList);
+                    if (deniedList.isEmpty()) {
+                        result.deniedPermissions.add(permission);
+                    }
+                    result.errorMessage = "权限被拒绝";
+                    
+                    boolean shouldShowRationale = false;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        shouldShowRationale = activity.shouldShowRequestPermissionRationale(permission);
+                    }
+                    
+                    if (!shouldShowRationale) {
+                        result.errorMessage += "（用户可能选择了不再询问）";
+                    }
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            result.success = false;
+            result.granted = false;
+            result.errorMessage = "权限请求被中断";
+            Log.e(TAG, "Permission request interrupted: " + permission, e);
+        }
+
+        return result;
+    }
+
+    public PermissionRequestResult ensurePermissions(String... permissions) {
+        return ensurePermissions(DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS, permissions);
+    }
+
+    public PermissionRequestResult ensurePermissions(final long timeoutMs, final String... permissions) {
+        final PermissionRequestResult result = new PermissionRequestResult();
+        final List<String> permissionsToRequest = new ArrayList<>();
+
+        for (String permission : permissions) {
+            if (isPermissionGranted(permission)) {
+                result.grantedPermissions.add(permission);
+            } else {
+                permissionsToRequest.add(permission);
+            }
+        }
+
+        if (permissionsToRequest.isEmpty()) {
+            result.success = true;
+            result.granted = true;
+            result.hasActivity = true;
+            result.errorMessage = "所有权限已授予";
+            return result;
+        }
+
+        final android.app.Activity activity = com.oilquiz.app.SmartQuizApplication.getCurrentActivity();
+        if (activity == null) {
+            result.success = false;
+            result.granted = false;
+            result.hasActivity = false;
+            result.deniedPermissions.addAll(permissionsToRequest);
+            result.errorMessage = "没有可用的 Activity，无法请求权限";
+            Log.e(TAG, "No activity available to request permissions");
+            return result;
+        }
+
+        result.hasActivity = true;
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicBoolean allGranted = new AtomicBoolean(false);
+        final List<String> deniedList = new ArrayList<>();
+
+        mainHandler.post(() -> {
+            try {
+                requestPermissions(activity, permissionsToRequest.toArray(new String[0]), new PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        Log.i(TAG, "All permissions granted");
+                        allGranted.set(true);
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onDenied(List<String> deniedPermissions) {
+                        Log.w(TAG, "Some permissions denied: " + deniedPermissions);
+                        deniedList.addAll(deniedPermissions);
+                        allGranted.set(false);
+                        latch.countDown();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Error requesting permissions", e);
+                result.errorMessage = "请求权限异常: " + e.getMessage();
+                allGranted.set(false);
+                latch.countDown();
+            }
+        });
+
+        try {
+            boolean completed = latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            
+            if (!completed) {
+                result.success = true;
+                result.granted = false;
+                result.timeout = true;
+                result.errorMessage = "权限请求超时";
+                
+                for (String permission : permissionsToRequest) {
+                    if (isPermissionGranted(permission)) {
+                        result.grantedPermissions.add(permission);
+                    } else {
+                        result.deniedPermissions.add(permission);
+                    }
+                }
+                
+                result.granted = result.deniedPermissions.isEmpty();
+                Log.w(TAG, "Permissions request timeout");
+            } else {
+                result.success = true;
+                result.granted = allGranted.get();
+                
+                if (allGranted.get()) {
+                    result.grantedPermissions.addAll(permissionsToRequest);
+                    result.errorMessage = "所有权限请求成功";
+                } else {
+                    result.deniedPermissions.addAll(deniedList);
+                    if (deniedList.isEmpty()) {
+                        for (String permission : permissionsToRequest) {
+                            if (!isPermissionGranted(permission)) {
+                                result.deniedPermissions.add(permission);
+                            }
+                        }
+                    }
+                    result.errorMessage = "部分或全部权限被拒绝";
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            result.success = false;
+            result.granted = false;
+            result.errorMessage = "权限请求被中断";
+            Log.e(TAG, "Permissions request interrupted", e);
+        }
+
+        return result;
+    }
+
+    public PermissionRequestResult ensurePermissionGroup(String groupName) {
+        return ensurePermissionGroup(groupName, DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS);
+    }
+
+    public PermissionRequestResult ensurePermissionGroup(String groupName, long timeoutMs) {
+        String[] permissions = getPermissionsInGroup(groupName);
+        if (permissions == null || permissions.length == 0) {
+            PermissionRequestResult result = new PermissionRequestResult();
+            result.success = false;
+            result.errorMessage = "未知的权限组: " + groupName;
+            Log.e(TAG, "Unknown permission group: " + groupName);
+            return result;
+        }
+        return ensurePermissions(timeoutMs, permissions);
+    }
+
+    public PermissionRequestResult ensureLocationPermission() {
+        return ensureLocationPermission(DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS);
+    }
+
+    public PermissionRequestResult ensureLocationPermission(long timeoutMs) {
+        if (hasLocationPermission()) {
+            PermissionRequestResult result = new PermissionRequestResult();
+            result.success = true;
+            result.granted = true;
+            result.hasActivity = true;
+            if (isPermissionGranted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                result.grantedPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            }
+            if (isPermissionGranted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                result.grantedPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+            }
+            result.errorMessage = "位置权限已授予";
+            return result;
+        }
+        return ensurePermissionGroup("location", timeoutMs);
     }
 
     private void showPermissionRequestDialog(Activity activity, String[] permissions, PermissionCallback callback) {

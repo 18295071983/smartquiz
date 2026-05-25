@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.BufferedReader;
@@ -19,10 +22,26 @@ import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/**
- * 网页阅读工具，用于获取和解析网页内容
- * 支持与网络搜索工具配合使用，提供智能阅读能力
- */
+@Tool(
+    value = "webpage_reader",
+    description = "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要，可与网络搜索工具配合使用",
+    category = "web",
+    actions = {
+        @Action(name = "read", description = "读取网页内容"),
+        @Action(name = "extract", description = "提取网页关键信息"),
+        @Action(name = "summarize", description = "生成网页摘要"),
+        @Action(name = "read_multiple", description = "批量读取网页"),
+        @Action(name = "follow_links", description = "跟踪链接")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型: read, extract, summarize, read_multiple, follow_links", required = true),
+        @Param(name = "url", type = "string", description = "网页URL", required = true),
+        @Param(name = "content", type = "string", description = "网页内容(与url二选一)", required = false),
+        @Param(name = "query", type = "string", description = "搜索查询词", required = false),
+        @Param(name = "maxDepth", type = "int", description = "最大链接深度(默认2)", required = false),
+        @Param(name = "maxLinks", type = "int", description = "最大链接数量(默认10)", required = false)
+    }
+)
 public class WebPageReaderTool implements AITool {
     private static final String TAG = "WebPageReaderTool";
     private final Context context;

@@ -25,6 +25,8 @@
     <string name="learning_notes">学习笔记</string>
     <string name="learning_history">学习历史</string>
     <string name="ai_config">AI配置</string>
+    <string name="ai_center">AI中心</string>
+    <string name="model_management">模型管理</string>
     <string name="frontend_render">天气详情</string>
     <string name="data_backup">数据备份</string>
     <string name="import_export">导入导出</string>
@@ -411,7 +413,6 @@
     <string name="model_path">模型路径</string>
     <string name="unknown">未知</string>
     <string name="currently_in_use">当前使用</string>
-    <string name="click_to_switch">点击切换</string>
 
     <!-- HistoryAdapter -->
     <string name="practice_mode">练习模式</string>
@@ -470,6 +471,89 @@
     <string name="indigo">靛蓝</string>
     <string name="theme_applied">主题已应用，重启应用生效</string>
     <string name="color_selected">已选择%1$s主题</string>
+
+    <!-- Agent Input Validation Dialog -->
+    <string name="dialog_need_more_info_title">需要补充信息</string>
+    <string name="dialog_need_more_info_hint">请输入...</string>
+    <string name="dialog_task_prefix">任务: </string>
+    <string name="dialog_suggestions_label">建议:</string>
+    <string name="dialog_submit">提交</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="dialog_input_empty">输入不能为空</string>
+    <string name="dialog_error_prefix">参数 %1$s 验证失败</string>
+
+    <!-- Validation Error Dialog -->
+    <string name="dialog_validation_error_title">输入验证失败</string>
+    <string name="dialog_retry">重新输入</string>
+    <string name="dialog_cancel_task">取消任务</string>
+    <string name="dialog_retry_count">已尝试 %1$d/3 次</string>
+    <string name="dialog_warning_last_attempt">警告：还剩1次机会</string>
+    <string name="dialog_correct_format_label">正确格式:</string>
+    <string name="dialog_examples_label">示例:</string>
+
+    <!-- Validation Error Messages -->
+    <string name="validation_error_empty">输入不能为空</string>
+    <string name="validation_error_too_short">输入过短，请至少输入2个字符</string>
+    <string name="validation_error_too_long">输入过长，请控制在500字以内</string>
+    
+    <!-- City Validation -->
+    <string name="validation_error_city_length">城市名称长度应在2-50个字符之间</string>
+    <string name="validation_error_city_invalid">城市名称包含无效字符</string>
+    <string name="validation_city_format">城市名称（2-50个字符，支持中文、英文、数字）</string>
+    
+    <!-- DateTime Validation -->
+    <string name="validation_error_datetime_format">时间格式不正确</string>
+    <string name="validation_datetime_format">支持格式：\n• 相对时间：明天上午10点\n• 标准时间：2024-05-25 10:00\n• 简短时间：10:30</string>
+    
+    <!-- Email Validation -->
+    <string name="validation_error_email_format">邮箱格式不正确</string>
+    <string name="validation_email_format">邮箱格式：username@example.com</string>
+    
+    <!-- Phone Validation -->
+    <string name="validation_error_phone_format">手机号格式不正确</string>
+    <string name="validation_error_phone_length">手机号应为11位数字</string>
+    <string name="validation_error_phone_start">手机号应以1开头</string>
+    <string name="validation_phone_format">手机号格式：1xxxxxxxxxx（11位数字）</string>
+    
+    <!-- Expression Validation -->
+    <string name="validation_error_expression_empty">表达式不能为空</string>
+    <string name="validation_error_expression_invalid">表达式包含无效字符</string>
+    <string name="validation_expression_format">支持：数字、+、-、*、/、()、^、%</string>
+    
+    <!-- Query Validation -->
+    <string name="validation_error_query_empty">搜索关键词不能为空</string>
+    <string name="validation_error_query_too_short">搜索关键词太短</string>
+    <string name="validation_query_format">搜索关键词（至少2个字符）</string>
+
+    <!-- Examples -->
+    <string name="example_cities">北京, 上海, 深圳, 杭州, 广州, New York, 东京</string>
+    <string name="example_datetime">明天上午10点, 明天10:00, 2024-05-25 14:30, 下午3点</string>
+    <string name="example_email">zhangsan@example.com, li@test.org, wang@company.cn</string>
+    <string name="example_phone">13800138000, 18612345678, 15987654321</string>
+    <string name="example_expression">1+2*3, 2^10, 100/5, (1+2)*3</string>
+    <string name="example_query">人工智能, 机器学习, 北京天气, 最新新闻</string>
+
+    <!-- Thinking Display -->
+    <string name="thinking_stage_start">开始分析用户请求...</string>
+    <string name="thinking_stage_complete">思考完成，准备执行...</string>
+    <string name="thinking_indicator">💭 思考中...</string>
+
+    <!-- OnlineModelAdapter -->
+    <string name="status_online">在线</string>
+    <string name="status_offline">离线</string>
+    <string name="status_error">错误</string>
+    <string name="status_unknown">未知</string>
+    <string name="current_using">当前使用</string>
+    <string name="click_to_switch">点击切换</string>
+    <string name="empty_models">暂无模型</string>
+    <string name="no_models_available">暂无可用模型</string>
+    <string name="add_model">添加模型</string>
+    <string name="last_used_days">%d 天前使用</string>
+    <string name="last_used_hours">%d 小时前使用</string>
+    <string name="last_used_minutes">%d 分钟前使用</string>
+    <string name="last_used_just_now">刚刚使用</string>
+    <string name="enable">启用</string>
+    <string name="disable">禁用</string>
 
     <!-- Common -->
 </resources>

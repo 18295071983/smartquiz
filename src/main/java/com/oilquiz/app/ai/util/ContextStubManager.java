@@ -35,9 +35,6 @@ public class ContextStubManager {
         STUB_VALUES.put("language", "中文");
         STUB_VALUES.put("theme", "默认");
         STUB_VALUES.put("fontSize", "正常");
-        STUB_VALUES.put("ttsEnabled", "关闭");
-        STUB_VALUES.put("ttsVoice", "默认");
-        STUB_VALUES.put("ttsSpeed", "正常");
         STUB_VALUES.put("notificationEnabled", "开启");
         STUB_VALUES.put("autoSaveEnabled", "开启");
         STUB_VALUES.put("cloudSyncEnabled", "关闭");

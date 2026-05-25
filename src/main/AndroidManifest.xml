@@ -206,7 +206,8 @@
             android:exported="false" />
         <activity
             android:name=".ui.activity.ApiConfigActivity"
-            android:exported="false" />
+            android:exported="true"
+            android:theme="@style/Theme.OilQuizApp" />
         <activity
             android:name=".ui.activity.DatabaseManagementActivity"
             android:exported="false" />
@@ -265,6 +266,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.ModelDownloadActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
             android:name=".ui.activity.AICenterActivity"
             android:exported="false" />
 
@@ -304,6 +310,11 @@
             android:name=".ui.activity.TokenizerDemoActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".ui.activity.AIIconDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.OilQuizApp" />
+
 
         <activity
             android:name=".ai.model.ModelSelectionActivity"
@@ -320,10 +331,6 @@
             android:theme="@style/Theme.OilQuizApp" />
 
         <activity
-            android:name=".ui.activity.SpeechRecognizerExampleActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.activity.EnvironmentCheckActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
@@ -337,16 +344,6 @@
             android:name=".ui.activity.WeatherWebViewActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
-
-        <activity
-            android:name=".ui.activity.WeatherTestActivity"
-            android:exported="true"
-            android:theme="@style/Theme.OilQuizApp">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
 
         <!-- FileProvider配置 -->
         <provider

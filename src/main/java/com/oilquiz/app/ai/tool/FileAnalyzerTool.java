@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
@@ -16,9 +19,24 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 文件分析工具，提供文件内容分析和统计功能
- */
+@Tool(
+    value = "file_analyzer",
+    description = "文件分析工具，提供文件统计、关键词提取、内容分析等功能",
+    category = "file",
+    actions = {
+        @Action(name = "analyze", description = "分析文件"),
+        @Action(name = "statistics", description = "获取文件统计信息"),
+        @Action(name = "keywords", description = "提取关键词"),
+        @Action(name = "word_count", description = "词频统计"),
+        @Action(name = "detect_format", description = "检测文件格式"),
+        @Action(name = "analyze_directory", description = "分析目录")
+    },
+    params = {
+        @Param(name = "file_path", type = "string", description = "文件路径", required = true),
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "analysis_type", type = "string", description = "分析类型", required = false)
+    }
+)
 public class FileAnalyzerTool implements AITool {
     private static final String TAG = "FileAnalyzerTool";
     private final Context context;

@@ -18,6 +18,8 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.model.ModelManager;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.refactor.AIConfig;
+import com.oilquiz.app.ai.refactor.AIConfig.OptimizationMode;
 
 import java.util.Arrays;
 import java.util.List;
@@ -67,7 +69,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private MaterialButton btnTestAi;
     private MaterialButton btnDeviceInfo;
     private SwitchMaterial aiEnableSwitch;
-    private SwitchMaterial optimizationSwitch;
+    private AppCompatSpinner optimizationModeSpinner;
+    private SwitchMaterial agentSwitch;
     private AppCompatSpinner tokenSpinner;
 
     @Override
@@ -142,7 +145,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         // 配置选项
         tokenSpinner = findViewById(R.id.token_spinner);
         aiEnableSwitch = findViewById(R.id.ai_enable_switch);
-        optimizationSwitch = findViewById(R.id.optimization_switch);
+        optimizationModeSpinner = findViewById(R.id.optimization_mode_spinner);
+        agentSwitch = findViewById(R.id.agent_switch);
 
         // 初始化按钮
         MaterialButton btnInitializeModel = findViewById(R.id.btn_initialize_model);
@@ -188,13 +192,45 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             });
         }
 
-        if (optimizationSwitch != null) {
+        AIConfig aiConfig = new AIConfig(this);
+        if (optimizationModeSpinner != null) {
+            OptimizationMode[] modes = OptimizationMode.values();
+            String[] modeNames = new String[modes.length];
+            for (int i = 0; i < modes.length; i++) modeNames[i] = modes[i].displayName;
+
+            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_item, modeNames);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            optimizationModeSpinner.setAdapter(adapter);
+
+            OptimizationMode currentMode = aiService.getOptimizationMode();
+            int currentPosition = currentMode != null ? currentMode.id : OptimizationMode.BALANCED.id;
+            optimizationModeSpinner.setSelection(currentPosition);
+
+            optimizationModeSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+                    OptimizationMode selected = OptimizationMode.fromId(position);
+                    aiService.setOptimizationMode(selected);
+                    Toast.makeText(AIServiceStatusActivity.this, "优化模式: " + selected.displayName + "，重启AI对话后生效", Toast.LENGTH_SHORT).show();
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
+        }
+
+        if (agentSwitch != null) {
             // 先设置当前状态
-            optimizationSwitch.setChecked(aiService.isOptimizationEnabled());
+            agentSwitch.setChecked(aiConfig.isAgentEnabled());
             // 设置监听
-            optimizationSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                aiService.setOptimizationEnabled(isChecked);
-                Toast.makeText(this, "优化设置已" + (isChecked ? "启用" : "禁用"), Toast.LENGTH_SHORT).show();
+            agentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                aiConfig.setAgentEnabled(isChecked);
+                String msg = isChecked ? "Agent代理已启用，重启AI对话后生效" : "Agent代理已禁用";
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                // 同步更新功能状态指示灯
+                runOnUiThread(() -> {
+                    if (agentLight != null) {
+                        agentLight.setBackgroundResource(isChecked ? R.drawable.circle_green : R.drawable.circle_red);
+                    }
+                });
             });
         }
 
@@ -214,12 +250,26 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     private void initTokenSpinner() {
         if (tokenSpinner != null) {
-            List<String> tokenOptions = Arrays.asList("128", "256", "512", "1024", "2048");
+            final List<String> tokenOptions = Arrays.asList("1024", "2048", "4096", "8192");
             android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(this,
                     android.R.layout.simple_spinner_item, tokenOptions);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             tokenSpinner.setAdapter(adapter);
-            tokenSpinner.setSelection(1); // 默认选择256
+
+            AIConfig aiConfig = new AIConfig(this);
+            int savedValue = aiConfig.getMaxTokens();
+            int position = tokenOptions.indexOf(String.valueOf(savedValue));
+            tokenSpinner.setSelection(position >= 0 ? position : 2);
+
+            tokenSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int pos, long id) {
+                    int selected = Integer.parseInt(tokenOptions.get(pos));
+                    AIConfig config = new AIConfig(AIServiceStatusActivity.this);
+                    config.setMaxTokens(selected);
+                    Toast.makeText(AIServiceStatusActivity.this, "最大Token数: " + selected, Toast.LENGTH_SHORT).show();
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
         }
     }
 
@@ -405,6 +455,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         int green = R.drawable.circle_green;
         int red = R.drawable.circle_red;
         
+        AIConfig aiConfig = new AIConfig(this);
+        
         if (chatLight != null) {
             chatLight.setBackgroundResource(modelLoaded ? green : red);
         }
@@ -418,7 +470,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             creativeLight.setBackgroundResource(modelLoaded ? green : red);
         }
         if (agentLight != null) {
-            agentLight.setBackgroundResource(modelLoaded ? green : red);
+            agentLight.setBackgroundResource(modelLoaded && aiConfig.isAgentEnabled() ? green : red);
         }
         if (summarizeLight != null) {
             summarizeLight.setBackgroundResource(modelLoaded ? green : red);

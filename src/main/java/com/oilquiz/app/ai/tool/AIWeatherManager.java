@@ -6,6 +6,9 @@ import android.util.Log;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.APIKeyManager;
 
 import java.io.BufferedReader;
@@ -22,6 +25,27 @@ import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.HashMap;
 
+@Tool(
+    value = "ai_weather",
+    description = "Weather query tool, supports current weather, forecast, hourly weather, air quality, weather alerts, life indices",
+    category = "weather",
+    aliases = {"weather", "get_weather"},
+    actions = {
+        @Action(name = "current", description = "Get current weather"),
+        @Action(name = "forecast", description = "Get weather forecast"),
+        @Action(name = "hourly", description = "Get hourly weather"),
+        @Action(name = "air_quality", description = "Get air quality"),
+        @Action(name = "alerts", description = "Get weather alerts"),
+        @Action(name = "indices", description = "Get life indices"),
+        @Action(name = "all", description = "Get all weather info")
+    },
+    params = {
+        @Param(name = "city", type = "string", description = "City name", required = false),
+        @Param(name = "lat", type = "float", description = "Latitude", required = false),
+        @Param(name = "lon", type = "float", description = "Longitude", required = false),
+        @Param(name = "action", type = "string", description = "Action type", required = true)
+    }
+)
 public class AIWeatherManager implements AITool {
 
     private static final String TAG = "AIWeatherManager";
@@ -1449,5 +1473,164 @@ public class AIWeatherManager implements AITool {
         descriptions.put("lon", "经度（用于按坐标查询）");
         descriptions.put("provider", "API提供商: hefeng(和风天气,默认), openweathermap");
         return descriptions;
+    }
+
+    /**
+     * 智能查询结果类，包含重试信息
+     */
+    public static class QueryRetryResult {
+        public boolean success;
+        public String data;
+        public String provider;
+        public String queryType;
+        public int attempt;
+        public String errorMessage;
+
+        public QueryRetryResult(boolean success, String data, String provider, String queryType, int attempt, String errorMessage) {
+            this.success = success;
+            this.data = data;
+            this.provider = provider;
+            this.queryType = queryType;
+            this.attempt = attempt;
+            this.errorMessage = errorMessage;
+        }
+    }
+
+    /**
+     * 智能获取当前天气（支持重试和多提供商）
+     */
+    public QueryRetryResult getCurrentWeatherSmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("current", city, lat, lon);
+    }
+
+    /**
+     * 智能获取天气预报（支持重试和多提供商）
+     */
+    public QueryRetryResult getForecastSmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("forecast", city, lat, lon);
+    }
+
+    /**
+     * 智能获取小时预报（支持重试和多提供商）
+     */
+    public QueryRetryResult getHourlySmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("hourly", city, lat, lon);
+    }
+
+    /**
+     * 智能获取空气质量（支持重试和多提供商）
+     */
+    public QueryRetryResult getAirQualitySmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("air_quality", city, lat, lon);
+    }
+
+    /**
+     * 智能获取天气预警（支持重试和多提供商）
+     */
+    public QueryRetryResult getAlertsSmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("alerts", city, lat, lon);
+    }
+
+    /**
+     * 智能获取生活指数（支持重试和多提供商）
+     */
+    public QueryRetryResult getIndicesSmart(String city, Double lat, Double lon) {
+        return executeSmartQuery("indices", city, lat, lon);
+    }
+
+    /**
+     * 执行智能查询（支持重试和多提供商切换）
+     */
+    private QueryRetryResult executeSmartQuery(String queryType, String city, Double lat, Double lon) {
+        int maxAttempts = 2;
+        WeatherProvider[] providers = {currentProvider};
+        
+        if (currentProvider == WeatherProvider.HEFENG) {
+            providers = new WeatherProvider[]{WeatherProvider.HEFENG, WeatherProvider.OPENWEATHERMAP};
+        } else {
+            providers = new WeatherProvider[]{WeatherProvider.OPENWEATHERMAP, WeatherProvider.HEFENG};
+        }
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            for (WeatherProvider provider : providers) {
+                try {
+                    String result = executeQuery(provider, queryType, city, lat, lon);
+                    if (result != null && !result.startsWith("获取") && !result.startsWith("解析")) {
+                        return new QueryRetryResult(true, result, provider.name(), queryType, attempt, null);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Query failed on provider " + provider + ", attempt " + attempt + ": " + e.getMessage());
+                }
+            }
+        }
+
+        return new QueryRetryResult(false, null, currentProvider.name(), queryType, maxAttempts, "所有提供商查询均失败");
+    }
+
+    /**
+     * 根据提供商和查询类型执行具体查询
+     */
+    private String executeQuery(WeatherProvider provider, String queryType, String city, Double lat, Double lon) throws Exception {
+        WeatherProvider originalProvider = currentProvider;
+        currentProvider = provider;
+        
+        try {
+            boolean useLocation = lat != null && lon != null;
+            
+            switch (queryType) {
+                case "current":
+                    if (useLocation) {
+                        return getCurrentWeatherByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getCurrentWeather(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                case "forecast":
+                    if (useLocation) {
+                        return getHefengForecastByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getHefengForecast(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                case "hourly":
+                    if (useLocation) {
+                        return getHefengHourlyByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getHefengHourly(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                case "air_quality":
+                    if (useLocation) {
+                        return getHefengAirQualityByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getHefengAirQuality(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                case "alerts":
+                    if (useLocation) {
+                        return getHefengAlertsByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getHefengAlerts(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                case "indices":
+                    if (useLocation) {
+                        return getHefengIndicesByLocation(lat, lon).get(10, TimeUnit.SECONDS);
+                    } else if (city != null && !city.isEmpty()) {
+                        return getHefengIndices(city).get(10, TimeUnit.SECONDS);
+                    }
+                    return "请提供城市名称或经纬度";
+                    
+                default:
+                    return "未知的查询类型: " + queryType;
+            }
+        } finally {
+            currentProvider = originalProvider;
+        }
     }
 }

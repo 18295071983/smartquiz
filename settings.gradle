@@ -2,6 +2,8 @@
 
 pluginManagement {
     repositories {
+        // Chaquopy 仓库
+        maven { url 'https://chaquo.com/maven' }
         // 国内镜像源
         maven { url 'https://maven.aliyun.com/repository/public/' }
         maven { url 'https://maven.aliyun.com/repository/google/' }
@@ -15,6 +17,8 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // Chaquopy 仓库
+        maven { url 'https://chaquo.com/maven' }
         // 国内镜像源
         maven { url 'https://maven.aliyun.com/repository/public/' }
         maven { url 'https://maven.aliyun.com/repository/google/' }

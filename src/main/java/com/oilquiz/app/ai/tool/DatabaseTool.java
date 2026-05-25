@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.database.DatabaseManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.model.User;
@@ -15,6 +18,38 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+@Tool(
+    value = "database",
+    description = "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作",
+    category = "data",
+    actions = {
+        @Action(name = "execute_query", description = "执行SQL查询"),
+        @Action(name = "get_questions", description = "获取题目列表"),
+        @Action(name = "search_questions", description = "搜索题目"),
+        @Action(name = "get_question_count", description = "获取题目数量"),
+        @Action(name = "get_question_statistics", description = "获取题目统计信息"),
+        @Action(name = "get_question_by_id", description = "根据ID获取题目"),
+        @Action(name = "add_questions", description = "添加题目"),
+        @Action(name = "update_question", description = "更新题目"),
+        @Action(name = "delete_question", description = "删除题目"),
+        @Action(name = "get_user", description = "获取用户信息"),
+        @Action(name = "add_user", description = "添加用户"),
+        @Action(name = "get_score_history", description = "获取分数历史"),
+        @Action(name = "add_score", description = "添加分数记录"),
+        @Action(name = "get_average_score", description = "获取平均分")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "query", type = "string", description = "SQL查询语句", required = false),
+        @Param(name = "keyword", type = "string", description = "搜索关键词", required = false),
+        @Param(name = "id", type = "string", description = "题目/用户ID", required = false),
+        @Param(name = "category", type = "string", description = "题目分类", required = false),
+        @Param(name = "type", type = "string", description = "题目类型", required = false),
+        @Param(name = "difficulty", type = "int", description = "难度: 1-简单, 2-中等, 3-困难", required = false),
+        @Param(name = "page", type = "int", description = "页码", required = false),
+        @Param(name = "page_size", type = "int", description = "每页数量", required = false)
+    }
+)
 public class DatabaseTool implements AITool {
     private static final String TAG = "DatabaseTool";
     private final Context context;

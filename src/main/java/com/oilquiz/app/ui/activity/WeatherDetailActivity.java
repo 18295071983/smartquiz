@@ -195,10 +195,18 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private String httpGet(String urlString) throws Exception {
-        java.net.URL url = new java.net.URL(urlString);
+        String fullUrl = urlString;
+        if (apiKey != null && !apiKey.isEmpty()) {
+            if (urlString.contains("?")) {
+                fullUrl = urlString + "&key=" + apiKey;
+            } else {
+                fullUrl = urlString + "?key=" + apiKey;
+            }
+        }
+        
+        java.net.URL url = new java.net.URL(fullUrl);
         java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
-        connection.setRequestProperty("X-QW-Api-Key", apiKey);
         connection.setRequestProperty("Accept-Encoding", "gzip, deflate");
         connection.setConnectTimeout(10000);
         connection.setReadTimeout(10000);

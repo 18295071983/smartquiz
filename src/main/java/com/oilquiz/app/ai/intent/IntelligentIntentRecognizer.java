@@ -77,10 +77,15 @@ public class IntelligentIntentRecognizer {
         
         // 计算器相关
         INTENT_KEYWORDS.put(PrimaryIntent.CALCULATOR, new String[]{
-            "计算", "算一下", "等于", "加", "减", "乘", "除", "+"
+            "计算", "算一下", "等于多少", "运算", "math", "calculator",
+            "+", "-", "*", "/", "加减乘除", "数学"
         });
-        
-        // 设置模式匹配
+        INTENT_KEYWORDS.put(PrimaryIntent.PYTHON, new String[]{
+            "python", "Python", "写代码", "代码", "编程", "程序",
+            "用python", "用Python", "生成代码", "执行代码", "写个函数",
+            "阶乘", "排序", "算法", "脚本", ".py"
+        });
+
         INTENT_PATTERNS.put(PrimaryIntent.CALCULATOR, new Pattern[]{
             Pattern.compile("[0-9]+[\\+\\-\\*/][0-9]+"),
             Pattern.compile("[0-9]+\\s*[\\+\\-\\*/]\\s*[0-9]+")
@@ -170,6 +175,11 @@ public class IntelligentIntentRecognizer {
         if (message.matches(".*[0-9]+.*[\\+\\-\\*/].*[0-9]+.*")) {
             return PrimaryIntent.CALCULATOR;
         }
+
+        // 检查是否是需要写代码的请求（自然语言）
+        if (isCodeGenerationRequest(message)) {
+            return PrimaryIntent.PYTHON;
+        }
         
         // 检查是否包含文件名或路径
         if (message.contains(".txt") || message.contains(".json") ||
@@ -187,6 +197,45 @@ public class IntelligentIntentRecognizer {
         // 默认返回聊天
         return PrimaryIntent.CHAT;
     }
+
+    /**
+     * 检测是否是代码生成请求（自然语言）
+     */
+    private static boolean isCodeGenerationRequest(String message) {
+        String lower = message.toLowerCase();
+        // 代码生成相关动作词
+        String[] actionWords = {"写", "生成", "实现", "编写", "创建", "做一个", "给我"};
+        // 代码相关名词
+        String[] codeWords = {"代码", "程序", "函数", "算法", "脚本"};
+        // 算法相关
+        String[] algoWords = {"排序", "查找", "搜索", "遍历", "递归", "迭代"};
+        // 计算相关
+        String[] calcWords = {"平均数", "求和", "最大值", "最小值", "中位数", "方差", "阶乘", "斐波那契"};
+
+        // 检查是否是写代码的请求
+        boolean hasAction = false;
+        for (String word : actionWords) {
+            if (lower.contains(word)) {
+                hasAction = true;
+                break;
+            }
+        }
+
+        if (hasAction) {
+            // 如果有动作词，检查是否跟代码/程序相关
+            for (String word : codeWords) {
+                if (lower.contains(word)) return true;
+            }
+            for (String word : algoWords) {
+                if (lower.contains(word)) return true;
+            }
+            for (String word : calcWords) {
+                if (lower.contains(word)) return true;
+            }
+        }
+
+        return false;
+    }
     
     /**
      * 获取推荐工具
@@ -202,7 +251,7 @@ public class IntelligentIntentRecognizer {
             case WEB:
                 return "app_toolkit";
             case WEATHER:
-                return "weather_tool";
+                return "ai_weather";
             case SEARCH:
                 return "network_search";
             case TRANSLATE:
@@ -211,6 +260,8 @@ public class IntelligentIntentRecognizer {
                 return "calculator";
             case DATABASE:
                 return "database";
+            case PYTHON:
+                return "python_execute";
             default:
                 return null;
         }
@@ -249,7 +300,11 @@ public class IntelligentIntentRecognizer {
             case CALCULATOR:
                 params.put("expression", extractMathExpression(message));
                 break;
-                
+
+            case PYTHON:
+                params.put("task", extractPythonTask(message));
+                break;
+
             default:
                 // 不需要参数
                 break;
@@ -346,7 +401,32 @@ public class IntelligentIntentRecognizer {
         }
         return expr.toString().trim();
     }
-    
+
+    /**
+     * 提取 Python 任务描述（支持自然语言）
+     */
+    private static String extractPythonTask(String message) {
+        String task = message.trim();
+        
+        // 移除各种前缀
+        String[] prefixes = {
+            "(?i)用\\s*python", "(?i)用\\s*Python", "(?i)python", "(?i)Python",
+            "(?i)写\\s*(一个|个)?\\s*代码", "(?i)编程", "(?i)生成\\s*代码",
+            "(?i)给我\\s*写", "(?i)实现\\s*(一个|个)?", "(?i)创建\\s*(一个|个)?",
+            "(?i)写\\s*(一个|个)?\\s*", "(?i)用代码\\s*"
+        };
+        for (String prefix : prefixes) {
+            task = task.replaceAll(prefix, "");
+        }
+        task = task.trim();
+        
+        // 如果清理后太短，返回原始消息
+        if (task.length() < 2) {
+            return message;
+        }
+        return task;
+    }
+
     /**
      * 检测语言
      */
@@ -381,6 +461,7 @@ public class IntelligentIntentRecognizer {
         ANALYSIS("分析"),
         CHAT("聊天"),
         CALCULATOR("计算器"),
+        PYTHON("Python编程"),
         UNKNOWN("未知");
         
         private final String displayName;

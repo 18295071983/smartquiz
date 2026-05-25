@@ -43,14 +43,23 @@
                 android:padding="10dp"
                 android:textColor="@color/thinking_text"
                 android:textSize="13sp"
+                android:lineSpacingMultiplier="1.2"
                 android:visibility="gone" />
 
-            <LinearLayout
-                android:id="@+id/inference_progress_placeholder"
+            <!-- 推理进度视图 -->
+            <com.oilquiz.app.ai.chat.InferenceProgressView
+                android:id="@+id/inference_progress_view"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
                 android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/attachments_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:visibility="gone"
+                android:clipToPadding="false" />
 
             <TextView
                 android:id="@+id/message_text"
@@ -65,15 +74,6 @@
                 android:textIsSelectable="true" />
 
         </LinearLayout>
-
-        <ImageView
-            android:id="@+id/btn_tts"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:contentDescription="TTS"
-            android:layout_marginTop="4dp"
-            android:visibility="gone" />
 
     </LinearLayout>
 
@@ -156,14 +156,56 @@
             android:textColor="@color/text_secondary"
             android:visibility="gone" />
 
+<!-- 在线模型信息区域 -->
+    <LinearLayout
+        android:id="@+id/model_info_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/model_status_indicator"
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:background="@drawable/status_indicator_unknown"/>
+
         <TextView
-            android:id="@+id/timestamp_text"
+            android:id="@+id/model_name_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"/>
+
+        <TextView
+            android:id="@+id/model_latency_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="11sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginStart="8dp" />
+            android:textColor="@color/text_tertiary"/>
+
+        <TextView
+            android:id="@+id/model_cost_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textSize="11sp"
+            android:textColor="@color/text_tertiary"/>
 
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/timestamp_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginStart="8dp" />
+
+</LinearLayout>
 
 </LinearLayout>

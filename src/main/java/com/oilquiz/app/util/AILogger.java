@@ -1,8 +1,14 @@
 package com.oilquiz.app.util;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -13,18 +19,155 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class AILogger {
     private static final String TAG = "AILogger";
     private static final String LOG_DIR = "ai_logs";
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
     private static final long MAX_LOG_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     
     private static File logFile;
     private static ReentrantLock logLock = new ReentrantLock();
     private static Context appContext;
+    
+    // ========== 可视化日志系统（从AILogger2迁移）==========
+    private static volatile AILogger visualInstance;
+    private static final ReentrantLock visualInitLock = new ReentrantLock();
+    
+    // 可视化日志数据结构
+    private final CopyOnWriteArrayList<VisualLogEntry> visualLogEntries;
+    private final Map<String, VisualLogEntry> activeSteps;
+    private final List<OnVisualLogListener> visualListeners;
+    private final AtomicInteger idGenerator;
+    private final Handler mainHandler;
+    private final Map<LogLevel, AtomicInteger> levelCounts;
+    private final Map<LogCategory, AtomicInteger> categoryCounts;
+    private long sessionStartTime;
+    private long lastLogTime;
+    private boolean visualEnabled = true;
+    private int maxVisualEntries = 500;
+    private LogLevel minDisplayLevel = LogLevel.DEBUG;
+    
+    // 日志级别枚举
+    public enum LogLevel {
+        VERBOSE("🔍", "#9E9E9E", "VERBOSE"),
+        DEBUG("🐛", "#4CAF50", "DEBUG"),
+        INFO("ℹ️", "#8B5CF6", "INFO"),
+        SUCCESS("✅", "#4CAF50", "SUCCESS"),
+        WARNING("⚠️", "#FF9800", "WARN"),
+        ERROR("❌", "#F44336", "ERROR"),
+        THINKING("🧠", "#9C27B0", "THINKING"),
+        ACTION("⚡", "#FF5722", "ACTION"),
+        TOOL_CALL("🛠️", "#00BCD4", "TOOL"),
+        RESULT("📊", "#3F51B5", "RESULT"),
+        STEP("➡️", "#607D8B", "STEP");
+        
+        public final String icon;
+        public final String colorHex;
+        public final String name;
+        
+        LogLevel(String icon, String colorHex, String name) {
+            this.icon = icon;
+            this.colorHex = colorHex;
+            this.name = name;
+        }
+    }
+    
+    // 日志分类枚举
+    public enum LogCategory {
+        GENERAL("通用"),
+        AI_SERVICE("AI服务"),
+        AGENT_ENGINE("Agent引擎"),
+        DEEP_THINKING("深度思考"),
+        SKILL_SYSTEM("技能系统"),
+        TOOL_EXECUTION("工具执行"),
+        CONVERSATION("对话管理"),
+        PERFORMANCE("性能监控"),
+        MEMORY("内存管理"),
+        ERROR_RECOVERY("错误恢复");
+        
+        public final String displayName;
+        
+        LogCategory(String displayName) {
+            this.displayName = displayName;
+        }
+    }
+    
+    // 可视化日志条目
+    public static class VisualLogEntry {
+        public final long id;
+        public final long timestamp;
+        public final String formattedTime;
+        public LogLevel level;
+        public final LogCategory category;
+        public final String tag;
+        public String message;
+        public JSONObject metadata;
+        public long durationMs;
+        public int progressPercent;
+        public final String parentStepId;
+        public final List<VisualLogEntry> subEntries;
+        
+        public VisualLogEntry(long id, long timestamp, LogLevel level, LogCategory category,
+                             String tag, String message, JSONObject metadata, 
+                             long durationMs, int progressPercent, String parentStepId) {
+            this.id = id;
+            this.timestamp = timestamp;
+            this.formattedTime = TIMESTAMP_FORMAT.format(new Date(timestamp));
+            this.level = level;
+            this.category = category;
+            this.tag = tag;
+            this.message = message;
+            this.metadata = metadata != null ? metadata : new JSONObject();
+            this.durationMs = durationMs;
+            this.progressPercent = progressPercent;
+            this.parentStepId = parentStepId;
+            this.subEntries = new CopyOnWriteArrayList<>();
+        }
+        
+        public int getColor() {
+            try {
+                return Color.parseColor(level.colorHex);
+            } catch (Exception e) {
+                return Color.GRAY;
+            }
+        }
+    }
+    
+    // 监听器接口
+    public interface OnVisualLogListener {
+        void onNewLog(VisualLogEntry entry);
+        void onLogUpdated(VisualLogEntry entry);
+        void onTimelineCleared();
+    }
+    
+    // 私有构造函数（可视化实例）
+    private AILogger(boolean visualMode) {
+        visualLogEntries = new CopyOnWriteArrayList<>();
+        activeSteps = new HashMap<>();
+        visualListeners = new ArrayList<>();
+        idGenerator = new AtomicInteger(1);
+        mainHandler = new Handler(Looper.getMainLooper());
+        levelCounts = new HashMap<>();
+        categoryCounts = new HashMap<>();
+        sessionStartTime = System.currentTimeMillis();
+        lastLogTime = sessionStartTime;
+        
+        for (LogLevel level : LogLevel.values()) {
+            levelCounts.put(level, new AtomicInteger(0));
+        }
+        for (LogCategory category : LogCategory.values()) {
+            categoryCounts.put(category, new AtomicInteger(0));
+        }
+    }
     
     /**
      * 初始化AILogger
@@ -522,5 +665,239 @@ public class AILogger {
             "日志统计: 总数=%d | INFO=%d | WARN=%d | ERROR=%d",
             allLogs.size(), infoCount, warnCount, errorCount
         );
+    }
+    
+    // ========== 可视化日志方法（从AILogger2迁移）==========
+    
+    /**
+     * 获取可视化日志单例实例
+     */
+    public static AILogger getVisualInstance() {
+        if (visualInstance == null) {
+            visualInitLock.lock();
+            try {
+                if (visualInstance == null) {
+                    visualInstance = new AILogger(true);
+                }
+            } finally {
+                visualInitLock.unlock();
+            }
+        }
+        return visualInstance;
+    }
+    
+    /**
+     * 记录可视化日志
+     */
+    public VisualLogEntry logVisual(LogLevel level, LogCategory category, String tag, 
+                                   String message, JSONObject metadata) {
+        if (!visualEnabled || level.ordinal() < minDisplayLevel.ordinal()) {
+            return null;
+        }
+        
+        long now = System.currentTimeMillis();
+        long entryId = idGenerator.getAndIncrement();
+        
+        VisualLogEntry entry = new VisualLogEntry(
+            entryId, now, level, category, tag, message, metadata, 0, 0, null
+        );
+        
+        addVisualEntry(entry);
+        // 同时写入文件日志
+        i(tag, "[" + level.name + "] " + message);
+        return entry;
+    }
+    
+    /**
+     * 开始一个步骤（用于跟踪长时间操作）
+     */
+    public VisualLogEntry startStep(LogCategory category, String tag, String stepName, 
+                                   String description, JSONObject metadata) {
+        VisualLogEntry step = logVisual(LogLevel.STEP, category, tag, 
+                                       stepName + ": " + description, metadata);
+        if (step != null) {
+            step.progressPercent = 0;
+            activeSteps.put(step.id + "", step);
+        }
+        return step;
+    }
+    
+    /**
+     * 更新步骤进度
+     */
+    public void updateStepProgress(VisualLogEntry step, int progressPercent, 
+                                   String statusMessage, JSONObject additionalData) {
+        if (step == null) return;
+        
+        step.progressPercent = Math.min(100, Math.max(0, progressPercent));
+        step.durationMs = System.currentTimeMillis() - step.timestamp;
+        
+        if (statusMessage != null && !statusMessage.isEmpty()) {
+            step.message = statusMessage;
+        }
+        
+        if (additionalData != null) {
+            try {
+                for (java.util.Iterator<String> it = additionalData.keys(); it.hasNext(); ) {
+                    String key = it.next();
+                    step.metadata.put(key, additionalData.get(key));
+                }
+            } catch (Exception e) {}
+        }
+        
+        notifyVisualListenersUpdate(step);
+    }
+    
+    /**
+     * 完成步骤
+     */
+    public void completeStep(VisualLogEntry step, String resultMessage, 
+                            boolean success, JSONObject resultData) {
+        if (step == null) return;
+        
+        step.durationMs = System.currentTimeMillis() - step.timestamp;
+        step.progressPercent = 100;
+        
+        if (resultMessage != null) {
+            step.message += "\n→ " + resultMessage;
+        }
+        
+        step.level = success ? LogLevel.SUCCESS : LogLevel.ERROR;
+        
+        if (resultData != null) {
+            try {
+                for (java.util.Iterator<String> it = resultData.keys(); it.hasNext(); ) {
+                    String key = it.next();
+                    step.metadata.put("result_" + key, resultData.get(key));
+                }
+            } catch (Exception e) {}
+        }
+        
+        activeSteps.remove(step.id + "");
+        notifyVisualListenersUpdate(step);
+    }
+    
+    /**
+     * 记录思考过程
+     */
+    public VisualLogEntry logThinking(String tag, String thoughtContent) {
+        JSONObject meta = new JSONObject();
+        try {
+            meta.put("type", "thinking");
+            meta.put("content_length", thoughtContent.length());
+        } catch (Exception e) {}
+        return logVisual(LogLevel.THINKING, LogCategory.DEEP_THINKING, tag, thoughtContent, meta);
+    }
+    
+    /**
+     * 记录工具调用
+     */
+    public VisualLogEntry logToolCall(String toolName, String action, Map<String, Object> params) {
+        JSONObject meta = new JSONObject();
+        try {
+            meta.put("tool_name", toolName);
+            meta.put("action", action);
+            if (params != null) {
+                for (Map.Entry<String, Object> param : params.entrySet()) {
+                    meta.put("param_" + param.getKey(), param.getValue().toString());
+                }
+            }
+        } catch (Exception e) {}
+        
+        String message = "调用工具: " + toolName + "." + action;
+        return logVisual(LogLevel.TOOL_CALL, LogCategory.TOOL_EXECUTION, "Tool:" + toolName, message, meta);
+    }
+    
+    /**
+     * 记录Agent执行步骤
+     */
+    public VisualLogEntry logAgentStep(int stepNum, int totalSteps, String stepType,
+                                       String description, Object data) {
+        JSONObject meta = new JSONObject();
+        try {
+            meta.put("step_number", stepNum);
+            meta.put("total_steps", totalSteps);
+            meta.put("step_type", stepType);
+            meta.put("progress", (int)((double)stepNum / totalSteps * 100));
+            if (data != null) meta.put("data", data.toString());
+        } catch (Exception e) {}
+        
+        String message = String.format(Locale.getDefault(), 
+            "步骤 %d/%d [%s]: %s", stepNum, totalSteps, stepType, description);
+        return logVisual(LogLevel.ACTION, LogCategory.AGENT_ENGINE, "Agent:Step" + stepNum, message, meta);
+    }
+    
+    // ========== 内部方法 ==========
+    
+    private void addVisualEntry(VisualLogEntry entry) {
+        levelCounts.get(entry.level).incrementAndGet();
+        categoryCounts.get(entry.category).incrementAndGet();
+        lastLogTime = entry.timestamp;
+        
+        visualLogEntries.add(entry);
+        while (visualLogEntries.size() > maxVisualEntries) {
+            visualLogEntries.remove(0);
+        }
+        
+        notifyVisualListenersNew(entry);
+    }
+    
+    private void notifyVisualListenersNew(VisualLogEntry entry) {
+        mainHandler.post(() -> {
+            for (OnVisualLogListener listener : visualListeners) {
+                try {
+                    listener.onNewLog(entry);
+                } catch (Exception e) {}
+            }
+        });
+    }
+    
+    private void notifyVisualListenersUpdate(VisualLogEntry entry) {
+        mainHandler.post(() -> {
+            for (OnVisualLogListener listener : visualListeners) {
+                try {
+                    listener.onLogUpdated(entry);
+                } catch (Exception e) {}
+            }
+        });
+    }
+    
+    // ========== 查询方法 ==========
+    
+    public List<VisualLogEntry> getAllVisualEntries() {
+        return new ArrayList<>(visualLogEntries);
+    }
+    
+    public List<VisualLogEntry> getVisualEntriesByLevel(LogLevel level) {
+        List<VisualLogEntry> filtered = new ArrayList<>();
+        for (VisualLogEntry entry : visualLogEntries) {
+            if (entry.level == level) filtered.add(entry);
+        }
+        return filtered;
+    }
+    
+    public List<VisualLogEntry> getVisualEntriesByCategory(LogCategory category) {
+        List<VisualLogEntry> filtered = new ArrayList<>();
+        for (VisualLogEntry entry : visualLogEntries) {
+            if (entry.category == category) filtered.add(entry);
+        }
+        return filtered;
+    }
+    
+    public void addVisualListener(OnVisualLogListener listener) {
+        if (listener != null && !visualListeners.contains(listener)) {
+            visualListeners.add(listener);
+        }
+    }
+    
+    public void removeVisualListener(OnVisualLogListener listener) {
+        visualListeners.remove(listener);
+    }
+    
+    public void clearVisualLogs() {
+        visualLogEntries.clear();
+        activeSteps.clear();
+        for (AtomicInteger count : levelCounts.values()) count.set(0);
+        for (AtomicInteger count : categoryCounts.values()) count.set(0);
     }
 }

@@ -461,9 +461,33 @@ public class AIToolsManager {
             }
             
             String result = weatherManager.getWeather(city).get(15, TimeUnit.SECONDS);
+            
+            // 检查结果是否包含错误信息
+            if (result != null && result.contains("失败")) {
+                return result; // AIWeatherManager已经返回了友好的错误信息
+            }
+            
             return result;
+        } catch (java.util.concurrent.TimeoutException e) {
+            return "获取天气超时，请检查网络连接或稍后再试";
         } catch (Exception e) {
-            return "获取天气时出错: " + e.getMessage();
+            Log.e(TAG, "Error getting weather", e);
+            // 返回友好的错误信息，避免技术细节
+            String errorMsg = e.getMessage();
+            if (errorMsg != null) {
+                if (errorMsg.contains("404")) {
+                    return "未找到该城市的信息，请检查城市名称是否正确";
+                } else if (errorMsg.contains("401")) {
+                    return "天气服务密钥无效，请联系管理员";
+                } else if (errorMsg.contains("429")) {
+                    return "天气服务调用次数超限，请稍后再试";
+                } else if (errorMsg.contains("timeout") || errorMsg.contains("timed out")) {
+                    return "获取天气超时，请检查网络连接";
+                } else if (errorMsg.contains("UnknownHostException")) {
+                    return "网络连接失败，请检查网络设置";
+                }
+            }
+            return "获取天气失败，请稍后再试";
         }
     }
 

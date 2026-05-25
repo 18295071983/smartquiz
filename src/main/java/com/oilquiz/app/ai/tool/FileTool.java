@@ -1,15 +1,30 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 文件工具，用于文件操作
- */
+@Tool(
+    value = "file",
+    description = "文件操作工具，用于获取文件信息、读取文件内容等",
+    category = "file",
+    actions = {
+        @Action(name = "get_file_info", description = "获取文件信息"),
+        @Action(name = "read_file", description = "读取文件内容"),
+        @Action(name = "list_files", description = "列出目录中的文件")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作类型: get_file_info, read_file, list_files", required = true),
+        @Param(name = "file_path", type = "string", description = "文件路径", required = false),
+        @Param(name = "directory_path", type = "string", description = "目录路径", required = false)
+    }
+)
 public class FileTool implements AITool {
     private static final String TAG = "FileTool";
     private final Context context;

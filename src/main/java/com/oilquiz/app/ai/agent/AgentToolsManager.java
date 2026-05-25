@@ -55,30 +55,35 @@ public class AgentToolsManager {
         AILogger.i(TAG, "AgentToolsManager initialized: " + cognitiveTools.size() + " cognitive + " + executionToolsCache.size() + " execution tools");
     }
 
+    // 最大认知工具数量
+    private static final int MAX_COGNITIVE_TOOLS = 4;
+    // 最大执行工具数量
+    private static final int MAX_EXECUTION_TOOLS = 6;
+
     private void registerCognitiveTools() {
+        // 只注册最核心的认知工具，减少内存占用
         cognitiveTools.put("intent_recognition",
             new ToolInfo("intent_recognition", "识别用户意图，判断问题类型", "message(用户消息,必填)", "reasoning", true));
-        cognitiveTools.put("context_analysis",
-            new ToolInfo("context_analysis", "分析对话上下文，提取关键信息", "context(对话上下文,必填)", "reasoning", true));
         cognitiveTools.put("plan_generation",
             new ToolInfo("plan_generation", "生成任务执行计划，分解复杂任务", "task(任务描述,必填)", "reasoning", true));
-        cognitiveTools.put("reflection",
-            new ToolInfo("reflection", "反思推理过程，检查答案合理性", "reasoning(推理过程,必填)", "reasoning", true));
         cognitiveTools.put("knowledge_retrieval",
             new ToolInfo("knowledge_retrieval", "从知识库检索相关信息", "query(查询问题,必填)", "knowledge", true));
-        cognitiveTools.put("entity_extraction",
-            new ToolInfo("entity_extraction", "提取文本中的实体信息", "text(文本内容,必填)", "knowledge", true));
-        cognitiveTools.put("sentiment_analysis",
-            new ToolInfo("sentiment_analysis", "分析文本情感倾向", "text(文本内容,必填)", "analysis", true));
-        cognitiveTools.put("information_validation",
-            new ToolInfo("information_validation", "验证信息来源和准确性", "information(待验证信息,必填)", "analysis", true));
+        cognitiveTools.put("reflection",
+            new ToolInfo("reflection", "反思推理过程，检查答案合理性", "reasoning(推理过程,必填)", "reasoning", true));
     }
 
     private void syncFromAIToolManager() {
         executionToolsCache.clear();
         try {
             List<Map<String, Object>> toolDescs = aiToolManager.getToolDescriptions();
+            int count = 0;
             for (Map<String, Object> desc : toolDescs) {
+                // 限制执行工具数量
+                if (count >= MAX_EXECUTION_TOOLS) {
+                    AILogger.w(TAG, "Execution tools limit reached: " + MAX_EXECUTION_TOOLS);
+                    break;
+                }
+
                 String name = (String) desc.get("name");
                 String description = (String) desc.get("description");
                 @SuppressWarnings("unchecked")
@@ -98,6 +103,7 @@ public class AgentToolsManager {
                 executionToolsCache.put(name,
                     new ToolInfo(name, description, paramSchema.toString(), category, false));
                 AILogger.d(TAG, "Synced tool: " + name + " [" + category + "]");
+                count++;
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Failed to sync from AIToolManager: " + e.getMessage());
