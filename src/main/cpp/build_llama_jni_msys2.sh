@@ -35,7 +35,7 @@ export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 # 厂商驱动位于 /vendor/lib64/libOpenCL.so，运行时动态加载
 OPENCL_LIB=""
 OPENCL_LIB_PATHS=()
-OPENCL_ENABLED=1
+OPENCL_ENABLED=0
 
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
@@ -195,7 +195,16 @@ if [ $ARM64_LIB_FOUND -eq 0 ]; then
     exit 1
 fi
 
-# 注意：不再复制libOpenCL.so，运行时动态加载设备厂商驱动
+# 复制所有依赖库到jniLibs目录
+ARM64_BIN_DIR="$ARM64_BUILD_DIR/bin"
+for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so; do
+    if [ -f "$ARM64_BIN_DIR/$lib" ]; then
+        cp "$ARM64_BIN_DIR/$lib" "$JNI_LIBS_DIR/arm64-v8a/"
+        log_info "ARM64依赖库已复制: $lib"
+    else
+        log_warn "ARM64依赖库未找到: $lib (搜索路径: $ARM64_BIN_DIR)"
+    fi
+done
 
 # ============================================
 # 编译x86_64架构
@@ -257,6 +266,17 @@ if [ $X64_LIB_FOUND -eq 0 ]; then
     done
     exit 1
 fi
+
+# 复制所有依赖库到jniLibs目录
+X64_BIN_DIR="$X64_BUILD_DIR/bin"
+for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so; do
+    if [ -f "$X64_BIN_DIR/$lib" ]; then
+        cp "$X64_BIN_DIR/$lib" "$JNI_LIBS_DIR/x86_64/"
+        log_info "x86_64依赖库已复制: $lib"
+    else
+        log_warn "x86_64依赖库未找到: $lib (搜索路径: $X64_BIN_DIR)"
+    fi
+done
 
 # ============================================
 # 编译完成
