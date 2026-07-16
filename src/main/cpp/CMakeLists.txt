@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Use -O3 without -ffast-math, and explicitly disable finite-math-only
 add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 
-option(GGML_OPENCL "Enable OpenCL backend" ON)
+option(GGML_OPENCL "Enable OpenCL backend" OFF)
 option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
