@@ -59,7 +59,6 @@ endif()
 
 if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
     message(STATUS "OpenCL backend enabled (using local ICD loader)")
-    set(GGML_OPENCL ON CACHE BOOL "Enable OpenCL backend" FORCE)
     set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
     set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels in binary" FORCE)
     
