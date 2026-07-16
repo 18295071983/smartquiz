@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/surface"
+    tools:context=".fragment.ProfileFragment">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="个人中心"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="@color/on_surface"
+        android:layout_marginBottom="24dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonEdit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="编辑个人信息"
+        app:backgroundTint="@color/primary"
+        android:textColor="@android:color/white"
+        app:cornerRadius="12dp"
+        android:textAllCaps="false"
+        android:layout_marginBottom="16dp" />
+
+    <!-- 设置功能区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="24dp">
+
+        <!-- 推送通知设置 -->
+        <LinearLayout
+            android:id="@+id/linearLayoutNotifications"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@android:color/transparent"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="推送通知"
+                android:textSize="16sp"
+                android:textColor="@color/on_surface" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchNotifications"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                app:thumbTint="@color/primary"
+                app:trackTint="@color/surface_variant" />
+
+        </LinearLayout>
+
+        <!-- 清除缓存 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonClearCache"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="清除缓存"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+        <!-- 题库管理 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonQuestionBank"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="题库管理"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+        <!-- 主题切换 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonToggleTheme"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="主题设置"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+        <!-- 反馈 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonFeedback"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="反馈"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+        <!-- 检查更新 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonCheckUpdates"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="检查更新"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+        <!-- 关于 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonAbout"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="关于"
+            android:textSize="16sp"
+            android:textColor="@color/primary"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.TextButton" />
+
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonLogout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="退出登录"
+        app:backgroundTint="@color/error"
+        android:textColor="@android:color/white"
+        app:cornerRadius="12dp"
+        android:textAllCaps="false" />
+
+</LinearLayout>

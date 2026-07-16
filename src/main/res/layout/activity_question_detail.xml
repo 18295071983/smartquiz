@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:orientation="vertical"
+    tools:context=".ui.activity.QuestionDetailActivity">
+
+    <LinearLayout
+        android:id="@+id/error_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/error_message"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="错误信息"
+            android:textColor="?attr/colorError"
+            android:textSize="16sp" />
+
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+        <TextView
+            android:id="@+id/questionTextTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="题目文本"
+            android:textSize="18sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/categoryTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="分类"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/difficultyTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="难度"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/optionATextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选项A"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/optionBTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选项B"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/optionCTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选项C"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/optionDTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选项D"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/correctAnswerTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="正确答案"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/explanationTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="解析"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginBottom="16dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/editButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="编辑"
+                app:backgroundTint="@color/primary"
+                android:textColor="@android:color/white"
+                android:layout_marginEnd="8dp"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/deleteButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="删除"
+                app:backgroundTint="@color/error"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+        </LinearLayout>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

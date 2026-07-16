@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/white"
+    tools:context=".FilePreviewActivity">
+
+    <!-- 标题栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/teal_500"
+        app:title="文件预览"
+        app:titleTextColor="@color/white">
+    </androidx.appcompat.widget.Toolbar>
+
+    <!-- 主要内容区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 加载进度 -->
+        <LinearLayout
+            android:id="@+id/progress_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="visible">
+
+            <ProgressBar
+                android:id="@+id/progress_bar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/teal_500"
+                android:secondaryProgressTint="@color/teal_200" />
+
+            <TextView
+                android:id="@+id/progress_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="预览中..."
+                android:textSize="16sp"
+                android:textColor="@color/teal_700" />
+
+        </LinearLayout>
+
+        <!-- 内容容器 -->
+        <LinearLayout
+            android:id="@+id/content_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <!-- 状态文本 -->
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="预览状态"
+                android:textSize="14sp"
+                android:textColor="@color/gray"
+                android:layout_marginBottom="16dp"/>
+            <!-- 预览列表 -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/previewRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 底部按钮栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/white"
+        android:padding="16dp"
+        android:elevation="8dp"
+        android:layout_gravity="bottom">
+
+        <Button
+            android:id="@+id/btnCancel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="取消"
+            android:textSize="16sp"
+            android:textColor="@color/teal_700"
+            android:background="@drawable/rounded_corners_gray"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnNext"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="下一步"
+            android:textSize="16sp"
+            android:textColor="@color/white"
+            android:background="@drawable/rounded_corners_teal"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
+
+</LinearLayout>

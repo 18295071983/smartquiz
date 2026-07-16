@@ -1,0 +1,180 @@
+{
+  "name": "增强HTML模板",
+  "description": "增强版HTML导出模板，包含更多样式和交互功能",
+  "format": "ENHANCED_HTML",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "questionType",
+    "difficulty",
+    "category"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型",
+    "difficulty": "难度",
+    "category": "分类"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "groupByCategory": true,
+    "includeCategories": true,
+    "enableSearch": true,
+    "enableFilter": true
+  },
+  "template": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n<title>增强版HTML导出</title>\n<style>\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\nbody {\n  font-family: 'Microsoft YaHei', Arial, sans-serif;\n  line-height: 1.6;\n  color: #333;\n  background-color: #f5f5f5;\n  padding: 15px;\n}\n.container {\n  width: 100%;\n  background-color: #fff;\n  border-radius: 8px;\n  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n  padding: 20px;\n}\nh1 {\n  color: #2c3e50;\n  margin-bottom: 20px;\n  text-align: center;\n  padding-bottom: 10px;\n  border-bottom: 2px solid #3498db;\n  font-size: 20px;\n}\n.search-filter {\n  background-color: #f8f9fa;\n  padding: 15px;\n  border-radius: 8px;\n  margin-bottom: 20px;\n  border: 1px solid #e9ecef;\n}\n.search-box {\n  margin-bottom: 15px;\n}\n.search-box input {\n  width: 100%;\n  padding: 10px;\n  border: 1px solid #ced4da;\n  border-radius: 4px;\n  font-size: 14px;\n}\n.filter-row {\n  display: flex;\n  gap: 10px;\n  flex-wrap: wrap;\n  margin-bottom: 10px;\n}\n.filter-group {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex: 1;\n  min-width: 120px;\n}\n.filter-group label {\n  font-weight: 500;\n  color: #495057;\n  font-size: 13px;\n}\n.filter-group select, .filter-group input[type=checkbox] {\n  padding: 6px 10px;\n  border: 1px solid #ced4da;\n  border-radius: 4px;\n  font-size: 13px;\n  flex: 1;\n}\n.filter-group button {\n  padding: 6px 14px;\n  background-color: #3498db;\n  color: white;\n  border: none;\n  border-radius: 4px;\n  cursor: pointer;\n  font-size: 13px;\n  transition: background-color 0.3s ease;\n}\n.filter-group button:hover {\n  background-color: #2980b9;\n}\n.category-section {\n  margin-bottom: 30px;\n}\n.category-section h2 {\n  color: #3498db;\n  margin-bottom: 15px;\n  padding-bottom: 8px;\n  border-bottom: 1px solid #e0e0e0;\n  font-size: 18px;\n}\n.question {\n  margin-bottom: 20px;\n  padding: 15px;\n  border: 1px solid #e0e0e0;\n  border-radius: 8px;\n  background-color: #fafafa;\n  transition: all 0.3s ease;\n}\n.question:hover {\n  box-shadow: 0 2px 8px rgba(0,0,0,0.1);\n  transform: translateY(-1px);\n}\n.question-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: 10px;\n  font-size: 13px;\n  color: #666;\n}\n.question h3 {\n  color: #2c3e50;\n  margin-bottom: 10px;\n  font-size: 16px;\n}\n.question-text {\n  font-size: 15px;\n  margin-bottom: 12px;\n  line-height: 1.6;\n}\n.options {\n  margin: 12px 0;\n  padding-left: 15px;\n}\n.options p {\n  margin: 8px 0;\n  padding: 4px 0;\n  font-size: 14px;\n}\n.correct-answer {\n  margin-top: 12px;\n  padding: 8px;\n  background-color: #d4edda;\n  border: 1px solid #c3e6cb;\n  border-radius: 4px;\n  color: #155724;\n  font-weight: 600;\n  font-size: 14px;\n  display: block;\n}\n.correct-answer.hidden {\n  display: none;\n}\n.explanation {\n  margin-top: 12px;\n  padding: 12px;\n  background-color: #e3f2fd;\n  border-left: 4px solid #2196f3;\n  border-radius: 4px;\n  color: #1565c0;\n  font-size: 14px;\n  display: none;\n}\n.explanation.visible {\n  display: block;\n}\n.question-actions {\n  margin-top: 12px;\n  display: flex;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n.question-actions button {\n  padding: 5px 10px;\n  background-color: #6c757d;\n  color: white;\n  border: none;\n  border-radius: 4px;\n  cursor: pointer;\n  font-size: 12px;\n  transition: background-color 0.3s ease;\n}
+.question-actions button:hover {
+  background-color: #5a6268;
+}
+.footer {
+  margin-top: 30px;
+  padding-top: 15px;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+  color: #666;
+  font-size: 13px;
+}
+#question-count {
+  font-weight: bold;
+  color: #3498db;
+}
+@media (max-width: 768px) {
+  body {
+    padding: 10px;
+  }
+  .container {
+    padding: 15px;
+  }
+  .filter-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .filter-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .filter-group select {
+    flex: 1;
+  }
+  .question-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // 搜索功能
+  const searchInput = document.getElementById('search-input');
+  const questions = document.querySelectorAll('.question');
+  const questionCount = document.getElementById('question-count');
+  
+  // 搜索功能
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      const searchTerm = searchInput.value.toLowerCase();
+      let visibleCount = 0;
+      
+      questions.forEach(question => {
+        const questionText = question.querySelector('.question-text').textContent.toLowerCase();
+        const questionType = question.querySelector('.question-type') ? question.querySelector('.question-type').textContent.toLowerCase() : '';
+        const category = question.closest('.category-section') ? question.closest('.category-section').querySelector('h2').textContent.toLowerCase() : '';
+        
+        if (questionText.includes(searchTerm) || questionType.includes(searchTerm) || category.includes(searchTerm)) {
+          question.style.display = 'block';
+          visibleCount++;
+        } else {
+          question.style.display = 'none';
+        }
+      });
+      
+      if (questionCount) {
+        questionCount.textContent = visibleCount;
+      }
+    });
+  }
+  
+  // 显示/隐藏答案和解析
+  document.querySelectorAll('.toggle-answer').forEach(button => {
+    button.addEventListener('click', function() {
+      const question = this.closest('.question');
+      const correctAnswer = question.querySelector('.correct-answer');
+      if (correctAnswer) {
+        correctAnswer.classList.toggle('hidden');
+      }
+    });
+  });
+  
+  document.querySelectorAll('.toggle-explanation').forEach(button => {
+    button.addEventListener('click', function() {
+      const question = this.closest('.question');
+      const explanation = question.querySelector('.explanation');
+      if (explanation) {
+        explanation.classList.toggle('visible');
+      }
+    });
+  });
+  
+  // 初始化题目数量
+  if (questionCount) {
+    questionCount.textContent = questions.length;
+  }
+});
+</script>
+</head>
+<body>
+<div class="container">
+<h1>增强版HTML导出</h1>
+<div class="search-filter">
+<div class="search-box">
+<input type="text" id="search-input" placeholder="搜索题目...">
+</div>
+<div class="filter-row">
+<div class="filter-group">
+<label for="type-filter">题型:</label>
+<select id="type-filter">
+<option value="all">全部</option>
+{{questionTypes}}
+</select>
+</div>
+<div class="filter-group">
+<label for="difficulty-filter">难度:</label>
+<select id="difficulty-filter">
+<option value="all">全部</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+</select>
+</div>
+<div class="filter-group">
+<button id="apply-filter">应用筛选</button>
+</div>
+<div class="filter-group">
+<span>显示题目数量: <span id="question-count">0</span></span>
+</div>
+</div>
+</div>
+{{questions}}
+<div class="footer">
+<p>导出时间: {{exportTime}}</p>
+<p>导出题目数量: {{questionCount}}</p>
+</div>
+</div>
+</body>
+</html>"
+}

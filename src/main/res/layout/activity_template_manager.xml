@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="模板管理"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_batch_delete"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="批量删除"
+            android:layout_marginEnd="8dp"
+            app:backgroundTint="@color/error"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_batch_enable"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="批量启用"
+            android:layout_marginEnd="8dp"
+            app:backgroundTint="@color/primary"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_batch_disable"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="批量禁用"
+            android:layout_marginEnd="8dp"
+            app:backgroundTint="@color/secondary"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_batch_copy"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="批量复制"
+            app:backgroundTint="@color/primary"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/templateListView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

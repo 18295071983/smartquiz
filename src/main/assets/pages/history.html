@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史记录 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .history-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        
+        .history-header h1 {
+            font-size: 1.8rem;
+            color: var(--primary);
+        }
+        
+        .history-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: var(--transition);
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        .history-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .history-item {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        
+        .history-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .history-item-title {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+        
+        .history-item-time {
+            font-size: 0.8rem;
+            color: var(--text-light);
+        }
+        
+        .history-item-details {
+            font-size: 0.9rem;
+            color: var(--text-medium);
+        }
+        
+        .filter-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--bg-light);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .filter-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+        
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            color: var(--text-light);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i>
+            </div>
+            <h1>历史记录</h1>
+        </header>
+        
+        <main class="history-container">
+            <div class="history-header">
+                <h1>学习历史</h1>
+                <button class="btn" onclick="clearHistory()">
+                    <i class="fas fa-trash"></i> 清空
+                </button>
+            </div>
+            
+            <div class="filter-section">
+                <button class="filter-btn active" data-filter="all">全部</button>
+                <button class="filter-btn" data-filter="quiz">测验</button>
+                <button class="filter-btn" data-filter="study">学习</button>
+                <button class="filter-btn" data-filter="import">导入</button>
+            </div>
+            
+            <div class="history-tabs">
+                <div class="tab active" data-tab="recent">最近</div>
+                <div class="tab" data-tab="week">本周</div>
+                <div class="tab" data-tab="month">本月</div>
+            </div>
+            
+            <ul class="history-list" id="historyList">
+                <!-- 历史记录项将通过JavaScript动态添加 -->
+            </ul>
+            
+            <div class="empty-state" id="emptyState">
+                <i class="fas fa-history"></i>
+                <p>暂无历史记录</p>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+    <script src="./js/pages/history.js"></script>
+</body>
+</html>

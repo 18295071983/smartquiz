@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    tools:context=".ui.activity.MappingEditorActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="2dp"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/primary"
+            app:title="字段映射"
+            app:titleTextColor="@color/white"
+            app:navigationIcon="@drawable/ic_back"
+            app:navigationContentDescription="返回"/>
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <LinearLayout
+        android:id="@+id/contentLayout"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        app:layout_constraintTop_toBottomOf="@id/appBar"
+        app:layout_constraintBottom_toTopOf="@id/bottomButtons">
+
+        <androidx.core.widget.NestedScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="2dp"
+                    app:cardBackgroundColor="@color/primary_container"
+                    android:layout_marginBottom="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="字段映射配置"
+                            android:textSize="19sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_primary_container"
+                            android:layout_marginBottom="5dp"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="将Excel列映射到对应的题目字段"
+                            android:textSize="14sp"
+                            android:textColor="@color/on_primary_container" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <LinearLayout
+                    android:id="@+id/mappingContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="16dp"/>
+
+            </LinearLayout>
+
+        </androidx.core.widget.NestedScrollView>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomButtons"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp"
+        android:background="@color/surface"
+        app:elevation="8dp"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_add_field"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_gradient_secondary"
+                android:text="添加字段"
+                android:textColor="@color/white"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp"
+                app:icon="@drawable/ic_add"
+                app:iconTint="@color/white"
+                app:iconGravity="textStart"
+                app:iconSize="22dp"
+                android:drawablePadding="8dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_load_mapping"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_outline_primary"
+                android:text="加载配置"
+                android:textColor="#6366f1"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_cancel"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="取消"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#6b7280"
+                android:textAllCaps="false"
+                android:backgroundTint="#f3f4f6"
+                app:cornerRadius="14dp"
+                android:layout_marginEnd="8dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_next"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_gradient_primary"
+                android:text="下一步"
+                android:textColor="@color/white"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp"
+                app:icon="@drawable/ic_chevron_right"
+                app:iconTint="@color/white"
+                app:iconGravity="textEnd"
+                app:iconSize="22dp"
+                android:drawablePadding="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/progressContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="@color/surface"
+        android:elevation="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:visibility="gone">
+        <ProgressBar
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:layout_marginBottom="8dp"/>
+        <TextView
+            android:id="@+id/progressText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="处理中..."
+            android:textSize="14sp"
+            android:textColor="@color/on_surface"
+            android:gravity="center"/>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

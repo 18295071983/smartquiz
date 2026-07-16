@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.QuestionBankActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="0dp">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="题库管理"
+            app:titleTextColor="@color/on_surface"
+            app:elevation="4dp">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnListView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="列表"
+                    android:textSize="12sp"
+                    android:minWidth="60dp"
+                    app:cornerRadius="16dp"
+                    app:backgroundTint="@color/primary"
+                    android:textColor="@color/white"
+                    android:layout_marginEnd="8dp"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCardView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="卡片"
+                    android:textSize="12sp"
+                    android:minWidth="60dp"
+                    app:cornerRadius="16dp"
+                    app:backgroundTint="@color/gray_500"
+                    android:textColor="@color/white"/>
+            </LinearLayout>
+        </androidx.appcompat.widget.Toolbar>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            
+            <!-- 统计信息卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="16dp"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp"
+                app:cardBackgroundColor="@color/surface">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:orientation="vertical">
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="统计信息"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="12dp"/>
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="3">
+                        <TextView
+                            android:id="@+id/totalCountTextView"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="总题数: 0"
+                            android:textSize="14sp"
+                            android:textColor="@color/on_surface"
+                            android:gravity="center"/>
+                        <TextView
+                            android:id="@+id/favoriteCountTextView"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="收藏: 0"
+                            android:textSize="14sp"
+                            android:textColor="@color/on_surface"
+                            android:gravity="center"/>
+                        <TextView
+                            android:id="@+id/categoryCountTextView"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="分类: 0"
+                            android:textSize="14sp"
+                            android:textColor="@color/on_surface"
+                            android:gravity="center"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+            
+
+    
+    <!-- 题目列表 -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/questionListView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="16dp"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

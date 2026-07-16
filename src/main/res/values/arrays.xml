@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="export_formats">
+        <item>EXCEL</item>
+        <item>CSV</item>
+        <item>MARKDOWN</item>
+        <item>HTML</item>
+    </string-array>
+    <string-array name="template_types">
+        <item>通用模板</item>
+        <item>讲义模板</item>
+        <item>背诵模板</item>
+        <item>学习模板</item>
+        <item>浏览模板</item>
+        <item>展示模板</item>
+    </string-array>
+    <string-array name="feedback_types">
+        <item>功能建议</item>
+        <item>bug反馈</item>
+        <item>其他问题</item>
+    </string-array>
+</resources>

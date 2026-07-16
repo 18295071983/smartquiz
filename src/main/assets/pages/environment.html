@@ -1,0 +1,126 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>环境检�?- SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="environment-section">
+                <h2>环境检�?/h2>
+                
+                <div class="environment-info">
+                    <div class="info-card">
+                        <h3>浏览器信�?/h3>
+                        <div class="info-item">
+                            <span class="info-label">浏览器名称：</span>
+                            <span id="browser-name">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">浏览器版本：</span>
+                            <span id="browser-version">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">用户代理�?/span>
+                            <span id="user-agent">检测中...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h3>设备信息</h3>
+                        <div class="info-item">
+                            <span class="info-label">操作系统�?/span>
+                            <span id="os">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">设备类型�?/span>
+                            <span id="device-type">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">屏幕分辨率：</span>
+                            <span id="screen-resolution">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">视口大小�?/span>
+                            <span id="viewport-size">检测中...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h3>网络信息</h3>
+                        <div class="info-item">
+                            <span class="info-label">网络状态：</span>
+                            <span id="network-status">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">连接类型�?/span>
+                            <span id="connection-type">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">下载速度�?/span>
+                            <span id="download-speed">检测中...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h3>功能检�?/h3>
+                        <div class="info-item">
+                            <span class="info-label">LocalStorage�?/span>
+                            <span id="local-storage">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">SessionStorage�?/span>
+                            <span id="session-storage">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">IndexedDB�?/span>
+                            <span id="indexed-db">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Canvas�?/span>
+                            <span id="canvas">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">WebGL�?/span>
+                            <span id="webgl">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Audio�?/span>
+                            <span id="audio">检测中...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Video�?/span>
+                            <span id="video">检测中...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="environment-actions">
+                    <button id="refresh-env-btn" class="btn-primary">
+                        <i class="fas fa-sync-alt"></i> 刷新检�?                    </button>
+                    <button id="export-env-btn" class="btn-secondary">
+                        <i class="fas fa-download"></i> 导出环境信息
+                    </button>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

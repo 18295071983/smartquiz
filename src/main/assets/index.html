@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>导出题目</title>
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: 'Microsoft YaHei', Arial, sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background-color: #f5f5f5;
+  padding: 20px;
+}
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  padding: 30px;
+}
+h1 {
+  color: #2c3e50;
+  margin-bottom: 30px;
+  text-align: center;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #3498db;
+}
+h2 {
+  color: #3498db;
+  margin: 30px 0 20px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.question {
+  margin-bottom: 30px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #fafafa;
+  transition: all 0.3s ease;
+}
+.question:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+.question-header {
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.question-number {
+  display: inline-block;
+  background-color: #3498db;
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 30px;
+  margin-right: 10px;
+  font-weight: bold;
+}
+.question-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+.question-type {
+  display: inline-block;
+  background-color: #95a5a6;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-left: 10px;
+}
+.options {
+  margin: 15px 0;
+  padding-left: 20px;
+}
+.option {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.option:hover {
+  background-color: #f0f8ff;
+}.correct {
+  margin-top: 15px;
+  padding: 12px;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+  color: #155724;
+  font-weight: 600;
+}.explanation {
+  margin-top: 15px;
+  padding: 15px;
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  border-radius: 4px;
+  color: #1565c0;
+}.explanation h4 {
+  margin-bottom: 8px;
+  color: #0d47a1;
+}.difficulty {
+  display: inline-block;
+  background-color: #ff9800;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-left: 10px;
+}.footer {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}.media-container {
+  margin: 15px 0;
+  text-align: center;
+}.media-container img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}.media-container audio, .media-container video {
+  max-width: 100%;
+  margin: 10px 0;
+}@media (max-width: 768px) {
+.container {
+  padding: 15px;
+}
+.question {
+  padding: 15px;
+}
+}</style>
+</head>
+<body>
+<div class="container">
+<h1>导出题目</h1>
+<div class="question">
+<div class="question-header">
+<span class="question-number">1</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">（）不合格者，严禁独立上岗操作。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 安全教育考核</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">2</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">从业人员在作业过程中，应当严格遵守本单位的安全生产规章制度和操作规程，服从管理，正确（） 。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 佩戴和使用劳动防护用品</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">3</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">进入含有毒有害气体或缺氧环境的有限空间内作业时，应将与其相通的管道加（）隔绝。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 盲板</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">4</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">安全带是进行机械高处作业人员预防坠落伤亡的个体防护用品，安全带的正确使用方法是（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高挂低用</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">5</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">凡用惰性气体置换过的设备，进入前必须用空气置换出惰性气体，并测定设备内的氧含量，一般在（%（V））之间时方可进入。对不允许充入纯氧的，应采取措施增加含氧量。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 18-21</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">6</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">积存的煤粉与空气接触容易产生（），（）是影响煤粉爆炸的重要因素，煤粉爆炸的前期往往是（），（）煤粉不易爆炸。取样与动火时间间隔最多是（）分钟。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 自燃；煤粉浓度；自然；潮湿的；30</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">7</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉煤锁斗（D-2220101A/B）以（）的方式顺序控制操作，以保持粉煤给料罐（D-2220102）料位的稳定。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 交替</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">8</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化工艺粉煤进料单元包括：一台粉煤仓、（）台粉煤锁斗和一个粉煤给料罐。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 2.0</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">9</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉粉煤进料系统以（）输送方式完成气化炉粉煤进料。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 密相</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">10</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">减压过滤器底部收集的粉煤通过煤粉旋转给料阀利用（）排放至粉煤仓（CS-2220101）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 重力</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">11</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化单元共有粉煤给料罐（D-2220102）（）台，每条气化线配备（）台。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 24；1</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">12</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉煤给料罐（D-2220102）在（）排出粉煤，通过输煤管线输送到气化炉。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 底部</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">13</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">低压煤粉通过（）运行的锁斗实现连续的进入高压煤粉给料罐。通过密相气力输送系统，粉煤被加压并通过载气处于流态化。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 两个交替</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">14</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉在粉煤给料罐底部通气锥内（），通过（）经主烧嘴进入气化炉反应室。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 流化；四根煤粉给料线</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">15</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉煤给料罐（D-2220102）锥部流化气正常情况下，控制模式为流量控制，通气锥压差由22201PDICA0701 、 22201PDICA0702 、 22201PDICA0703 、22201PDICA0704 控制，当（）过大，控制方案改为压差控制。压差控制的设定值小于（）MPag。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 通气锥压差；0.6</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">16</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">当判断 A 锁斗能进入升压阶段时，（两锁斗不能同时升压），会自动让出（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 进料权限</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">17</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">点火烧嘴在引LPG前，将LPG管线上的（）盲板导通进行（），使管线内的氧含量＜()%（v/v）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 低压氮气；置换；0.5</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">18</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉单系列引次高压蒸汽时，先微开单系列阀的旁路阀进行暖管，从22801XV0502处排放，防止管道出现水击。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 暖管</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">19</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉锁斗升压时，先打开下路充压气体升压，待锁斗压力大于（）MPa时打开上路充压气体升压。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 2.0</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">20</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉给料罐向备煤返煤时，要打开返煤管线（）吹扫和预热。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 低压热氮</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">21</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉煤仓在投用前要用低压热氮进行置换，其过滤器放空管线上的氧含量检测仪22201AT0101小于（）%（v/v）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 0.5</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">22</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉给料线在打循环时，要通过缓冲罐2过来的COO/NH给循环管线建立（），防止煤粉给料线的角阀前后压差过大造成阀体磨损。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 背压</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">23</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化向备煤返煤时，返料过程中注意粉煤给料罐的压力控制，防止压力高使备煤粉煤仓（）破裂。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 防爆板</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">24</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">减压过滤器F-2220106的排放气在开工工况时排放至（）；正常工况时切至（）装置排放。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 大气；低温甲醇洗</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">25</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">当煤粉给料灌D-2220102发生煤粉泄漏时，中控人员应迅速对给料罐进行（）处理。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 泄压</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">26</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">结合事故案例，讨论分析典型事故，总结吸取事故教训，健全完善（），开展（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 防范措施；应急演练</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">27</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉给料罐底部通气锥的（）过大可造成通气锥损坏。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 压差</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">28</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">自气化界区来的燃料气经一个（）缓冲后供给下游4台气化炉使用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 燃料气缓冲罐</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">29</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉（R-2230101)反应室外的水夹套系统由（）、（）和（）组成。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 夹套冷却水罐；夹套冷却器；夹套冷却水泵</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">30</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">组合烧嘴（B-2230101）由用于煤气化的（）和提供点火的（）构成。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 主烧嘴；点火烧嘴</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">31</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化合成气和液态熔渣经气化炉（R-2230101)反应室出口，进入激冷室内的（），激冷水通过下降管上部的（）喷出，在下降管内壁形成一层（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 下降管；激冷环；液膜和水幕</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">32</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤气化装置内不同地方所产生的高压、中压、低低压蒸汽冷凝液被收集起来，送至相应的（）进行闪蒸膨胀</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 冷凝液闪蒸罐</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">33</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">高压二氧化碳可以用于煤粉给料线的吹扫、隔离。但是，氧管线的隔离、吹扫我们只选择（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高压氮气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">34</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">在气化炉点火烧嘴开车前和运行期间，确认主烧嘴氧管线、煤粉给料线（）正常，以防止高温原料气反窜入氧管线和煤粉管线。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 氮塞</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">35</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉交出检修时，煤粉输送系统的煤粉要返至备煤粉仓进行储存，返料时煤粉给料罐的压力泄至0.5MPa以下，防止备煤粉仓的（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 防爆板破裂</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">36</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">当进入缓冲罐1、2的高压二氧化碳中断时，将自动切换为（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高压氮气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">37</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉管线角阀上设置了（），减少阀门动作时的磨损。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 阀体吹扫气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">38</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">烧嘴冷却水系统泄漏严重时，烧嘴冷却水罐要保持（）状态，防止因泄漏导致烧嘴冷却水罐压力太低，气化炉的飞灰反窜至（），污染水质。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 常补水；烧嘴冷却水系统</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">39</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">运行的烧嘴冷却水泵机封泄漏严重时，要及时启动（），并将运行泵交出检修。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 备用泵</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">40</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">烧嘴冷却水过滤器的（）只允许在过滤器滤网堵塞，需要交出清洗时投用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 旁路</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">41</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉在停车泄压时，泄压速度控制在（）MPa/min， 防止泄压过快损坏气化炉水冷壁。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 0.1</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">42</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">主烧嘴投煤后，要及时将水冷壁汽包副产的（）并入管网，防止汽包憋压，造成（）起跳。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 低低压蒸汽；安全阀</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">43</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">冬季要加强对水冷壁循环水罐泄压管线的巡检，发现冻堵时要及时处理，防止水冷壁罐压力高时无法及时（），造成事故。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 泄压</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">44</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">水冷壁循环水罐建液时，要提前通知（），防止将高压锅炉给水总管压力（），造成其它气化炉高压锅炉给水用户补不上水。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 调度；拉低</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">45</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">水冷壁循环水泵机封更换完毕，试泵时要密切关注水冷壁罐的（），防止因泵检修不合格，机封泄漏将水冷壁罐压力拉低，造成跳车事故。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 压力</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">46</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">水冷壁循环水泵倒泵前，要先对备用泵进行（），防止倒泵时造成水冷壁循环系统进出口温差波动。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 暖泵</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">47</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">燃料气缓冲罐D-2299108置换气严禁直接排放到（），防止高压火炬（）超标，造成爆炸事故。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高压火炬；氧含量</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">48</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">密封水罐安全阀起跳后，中控人员手动控制密封水罐（），同时联系现场人员立即将安全阀的前手阀（），待安全阀回座后，重新投用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 压力；关闭</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">49</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉点火烧嘴开车前，要用（）对气化炉系统进行（），氧含量分析小于0.5%，方可允许点火烧嘴（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 氮气；置换；点火</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">50</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">点火烧嘴点火枪回装后要立即投用中心管（），防止烧嘴视镜通道被污染，造成气化炉点火时，无法检测到火焰。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 吹扫氮气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">51</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">仪表空气供应中断，水冷壁罐补压阀22301PV0407处于全开状态，现场应及时关闭其前后手阀，防止水冷壁罐（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 超压</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">52</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">烧嘴氧气分布器安装不好，会导致（）分布不均，造成烧嘴（），导致水冷壁烧损泄漏。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 氧气；偏烧</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">53</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">低压煤粉通过（）运行的锁斗实现的，进入煤粉给料罐。通过密相气力输送系统，粉煤被加压并通过载气处于流态化状态。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 两个交替</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">54</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">烧嘴循环水冷却器投用循环冷却水时要打开冷却器顶部导淋对其进行（），以防止正常生产时产生气阻现象。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 排气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">55</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">烧嘴冷却水罐通过（）进行补给,气化炉开始升压时，要投用罐顶（），确保烧嘴罐压力始终高于气化炉压力。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高压锅炉给水；高压氮气</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">56</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">水冷壁汽包建液前，确认水冷壁汽包（）和（）管线手阀关闭，避免低压锅炉给水窜至冷凝液系统，造成浪费。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 连排管线；底部排污</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">57</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉（R-2230101)水冷壁内侧覆盖一层抗高温材料碳化硅，从而可以降低热合成气对水冷壁的（）作用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 热冲击</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">58</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">来自脱盐水罐的脱盐水、蒸汽凝液、优质再生水经（）（P-2299104A/B/C）加压后，供给下游用户使用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 脱盐水泵</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">59</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">被冷凝液闪蒸罐2闪蒸后的蒸汽凝液经（）（P-2299106A/B）输送至（），用以维持其液位。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 冷凝液泵；脱盐水缓冲罐</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">60</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">当有一台激冷循环水泵发生故障时，联系工艺、设备、电气人员到场后，进行倒泵操作，倒泵时注意出口（）的稳定，严禁大幅度操作</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 激冷水流量</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">61</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉锁斗人孔打开后，（）检查、拆锥、冲洗，连续作业，（）内完成工艺交出。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 内窥镜；12小时</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">62</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">（）、（）在原事故等级的基础上提高一个级别对待，并按相应事故级别程序组织分析。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 误操作事故；重复发生的事故</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">63</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">在所有冷却水管路上，最高点都设置（），目的是将系统中的气体排净。如不将气体排净，存在管路中的气体会使流动阻力增大，严重时造成水不能流动，这种现象称为（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 排气阀；气阻</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">64</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">在捞渣机处于运行状态时，渣锁斗下游的球阀组开启与捞渣机连通，当渣锁斗下游的球阀组打开时，渣锁斗中的渣流至捞渣机中，产生的（），通过捞渣机上放空气出口管线将送至框架高点（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 解吸气；安全排放</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">65</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">除了来自渣锁斗的渣水，来自激冷循环水过滤器（）的固体颗粒也将排放至捞渣机中。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: F-2250101A/B</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">66</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">低压脱盐水主要用于循环水罐、脱盐水缓冲罐、密封水泵供水及作为高、低压机泵的密封水使用，若中断则会造成（）且造成机泵机封（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 系统补水困难；损坏</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">67</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">变换系统开车后，产出合格高温凝液，现场确认凝液已送至界区，打开界区总阀，使用凝液可降低（）的使用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 高压脱盐水/优质再生水</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">68</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">《安全生产法》规定，生产经营单位采用新工艺、新技术、新材料或者使用新设备时，应对从业人员进行（ ）的安全生产教育和培训。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 专门</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">69</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">风险分级包括（ ）、（ ）、（ ）、（ ）、（ ）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 不可承受风险；高度风险；中度风险；一般风险；轻微风险</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">70</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">职工伤亡事故是指职工在劳动过程中发生的人身伤害、（）事故。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 急性中毒</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">71</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">（ ）因素引起的职业性皮肤病占多数。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 化学性</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">72</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">所有事故、伤害和环境污染都是可以避免的，任何事故都是（ ）的疏忽。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 管理</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">73</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">在发生危险化学品泄漏事故现场，疏散人员可通过旗帜、树枝或利用手帕等迅速辨明风向，并向（ ）撤离。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 侧上风向</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">74</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">灭火器压力表指针在（ ）区域为压力过大，必须加强检查，但可以使用。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 黄色</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">75</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">化学品的生产、储存、使用单位，应当在生产、储存和使用场所设置（ ）、（ ）装置。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 通讯；报警</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">76</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">禁止用人单位招用未满（ ）的未成年人</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 十六周岁</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">77</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">国家规定每年（）月的最后一周是职业病防治宣传周。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 4.0</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">78</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">监护人每年接受（ ）次监护人再培训。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1次</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">79</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">属于压力容器的安全附件的有：（）、（）、（）</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 安全阀；压力表；爆破片</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">80</span>
+<span class="question-type">填空题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">下列塔板中,操作弹性最大的是（）。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 填料塔</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">81</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">公司目前实行作业许可的作业种类有哪些？至少说出８类</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 动火作业、进入受限空间作业、高处作业、动土作业、临时用电作业、起重作业、抽堵盲板作业、设备检维修作业、联锁解除／投用作业、射线作业</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">82</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">什么叫临时用电？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 正式运行的电源上所接的非永久性用电</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">83</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">受限空间作业执行原则：</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: （1）没有批准的受限空间作业票不作业。（2）受限空间作业的任务、地点（位号）、时间与受限空间作业票不符不作业。（3）监护人不在场不作业。（4）安全措施未落实不作业。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">84</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">什么叫高处作业？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 在距坠落基准面2m及2m以上有可能坠落的高处进行的作业。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">85</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化单元CO2的用途有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 气化CO2用途分为:其一经预热器1用中压蒸汽预热后通入气化炉作为气化炉环隙吹扫气用，其二是经预热器2用低低压蒸汽预热后作为222煤粉给料单元的加压输送疏松载气用。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">86</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤制油气化装置气化炉气化单元主要由哪几部分构成？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 气化炉气化单元由组合烧嘴、气化炉、烧嘴循环冷却水系统、水冷壁循环水系统和气化炉外壳夹套冷却水系统构成。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">87</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤制油气化装置主要包括哪八个工序？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 气化装置主要包括煤粉加压输送、气化、除渣、合成气洗涤、黑水闪蒸、黑水处理、气化介质供应及公用工程等八个工序。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">88</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">排渣单元一个循环分为几步？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 分为收渣、泄压、排渣、冲洗、充压等。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">89</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">为什么气化单元要有一定的外排水量去污水处理？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 一定量的水去污水处理是为了保证系统水质的清洁度，保持酸碱平衡和水质指标，用部分新鲜水补入，防止水质持续恶化。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">90</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">低压闪蒸来水进真空闪蒸的目的是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 低压闪蒸来水主要的作用是为了蒸发掉部分水蒸汽，进一步释放出溶解的气体，释放热量、降低温度，属于蒸发操作。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">91</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">文丘里洗涤器压差升高的处理方法是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1)调整激冷水量，控制激冷液位；2）调整气化炉负荷；3）调整进入文丘里洗涤器的水量。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">92</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">高压锅炉给水用户有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 烧嘴冷却水罐、水冷壁罐、事故激冷水罐。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">93</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">低压锅炉给水用户有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 夹套冷却水罐、水冷壁汽包。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">94</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉加入高压蒸汽的作用？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 改变火焰形态、保护烧嘴、参与气化反应。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">95</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">高压燃料气用户有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 点火烧嘴、烧嘴支撑吹扫气。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">96</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">高压冷氮用户有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 气化炉缓冲罐4、氧气管线均压氮气、中压闪蒸罐。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">97</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">目前，工业中防止煤自燃的方法有那些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1、控制煤仓温度小于60℃；2、缩短煤在煤仓的贮存时间；3、向煤内喷洒水,将煤堆压紧、压实；4、向煤仓内通氮气或二氧化碳维持惰性环境。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">98</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉仓过滤器（F-2220101）出口管线上安装的氧含量检测仪表22201AT0101报警原因是什么?</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 原因：1)仪表出现故障；2)煤粉仓筒体漏；3)煤粉仓疏松气量过低导致空气反串放空管线。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">99</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉尘发生爆炸应具备的条件有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）粉尘本身必须是可燃性的；2）粉尘必须具有相当大的相对表面积；3）粉尘必须悬浮在空气中与空气形成爆炸极限范围以内的混合物；4）有足够的点火能量。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">100</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉锁斗无法泄压的原因是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1)锁斗充压阀泄漏或故障；2)泄压阀有故障；3)泄压管线堵塞；</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">101</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">主烧嘴运行时，火检系统故障的表象?</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 火焰检测强度22301CT0101<10%，同时火焰检测信号22301BS0101消失。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">102</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">渣循环水泵不打量的处理方法？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1、倒至备用泵运行，对渣循环水泵入口滤网用冲洗水冲洗或拆检疏通；2、泵交出检修；3、对渣循环水泵出入口管线进行疏通；</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">103</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉压力22501PIC0302压力控制器有哪些作用？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: （1）调整合成气系统压力至设定值。（2）点火烧嘴跳车后，气化炉和粗合成气系统通过斜坡函数降压。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">104</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">设置气化炉出口合成气温度高联锁主烧嘴跳车的目的？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 气化炉合成气出口温度高于240℃，主烧嘴跳车，防止气化炉温度高造成设备损坏。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">105</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">四根煤粉管线为什么不能同时打循环？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 防止煤仓超压损坏设备或造成防爆板破裂。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">106</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">粉煤仓CS-2220101置换过程中注意事项？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 中控人员严密监控煤仓压力22201PI0109压力，不超过3.5kPa，防止煤仓超压，损坏设备或造成防爆板破裂。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">107</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">为什么粉煤给料罐进出口管线所有的两位阀和调节阀，在缓冲罐2置换前处于关闭状态？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 防止缓冲罐2高压气体出口阀打开时，直接进入粉煤给料罐，导致压差过高损坏通气锥。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">108</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">煤粉锁斗顺控分为那几个阶段？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 进料阶段、升压阶段、下料阶段、泄压阶段。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">109</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">气化炉向变换导气条件？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）气化炉运行正常，变换具备接气条件；2）粗煤气取样分析合格，温度180℃以上。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">110</span>
+<span class="question-type">简答题</span>
+<span class="difficulty">难度: 1</span>
+</div>
+<div class="question-text">防爆板如何正确投用？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 开车时打开防爆板旁路，关闭前后阀，正常生产时关闭旁路，打开进出口阀。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">111</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">烧嘴冷却水罐压力控制为什么必须始终大于气化炉压力？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1、防止停车泄压后煤气、灰反窜，堵塞平衡管线；2、防止烧嘴冷却通道泄漏后，合成气反串入烧嘴冷却水系统。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">112</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">现场CO超标报警的原因及处理方法</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 原因：a、管线或设备泄漏；b、煤粉自燃。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">113</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">离心泵打不上量的原因有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 离心泵打不上量的原因有：(1)泵的进口管道堵塞，泄漏；(2)泵的进口压力过低；(3)泵进口阀开度太小或阀芯脱落；(4)泵内有空气；(5)泵本身机械故障；(6)泵出口阀芯脱落；⑺电网电压低。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">114</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">闪蒸黑水管线堵塞的原因是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 原因：(1)开、停车频繁，管内壁突然受热、受压，脱落大量垢片，(2)仪表调节阀不动作，或不到位、卡住，(3)停车后未对管线排放，管线内灰渣积存，(4)管线内壁结垢严重，</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">115</span>
+<span class="question-type">未识别的题型</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">闪蒸黑水管线堵塞怎么处理？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 处理：(1)停车后高压清洗，(2)联系仪表检查处理，(3)停车后清洗管线，(4)停车后清洗管线</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">116</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">真空闪蒸罐液位不正常的原因是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 原因：（1）液位计假指示或故障（2）黑水进量不正常(3)底部排放管线堵塞(4)进口黑水管线堵或角阀堵(5)闪蒸泵故障</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">117</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">什么是工艺联锁？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 指根据工艺介质、润滑介质、冷却介质等工艺参数，如温度、压力、流量、液位设置的联锁以及由工艺操作需要设置的联锁。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">118</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">什么是设备联锁。</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 指设备在运行期间本体所产生的温度、振动、位移等联锁以及电气保护设定值等。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">119</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">DCS 系统通讯故障（含黑屏）故障现象？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: DCS系统发生故障时会发生中控室DCS画面数据传输中断、显示数值固定不变、操作界面锁定无法操作、显示器跳车操作界面、操作界面黑屏等问题，使操作站失去监控和操作的功能。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">120</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">气化炉如何隔离交出检修水冷壁？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）检查、确认气化炉已安全停炉并和前后工段安全隔离2）检查、确认气化炉系统卸压并置换合格3）投用蒸汽抽引，拔烧嘴，进行通风置换降温4）水冷壁系统进行排污并用氮气吹扫干燥</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">121</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">影响气化效果的煤的性质，包括那些方面？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）影响气化效果的煤的性质包括反应活性、黏结性、结渣性、热稳定性、机械强度及粒度分布。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">122</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">对改造施工中的管线，阀门设备操作应注意什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）改造施工中的设备，管线要加强检查，防止出现跑串现象，对关键的阀门要堵盲板，暂不能堵的要用铁丝将手轮封好，并在日记上交待清楚；2）要了解清楚岗位履行改动后的工艺设备，未经允许不准拆卸盲板和封阀铁丝。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">123</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">气化炉热损异常上涨的原因？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1、系统负荷波动，造成偏差波动大，烧嘴偏烧。2、煤质变化，未及时调整，导致烧嘴过氧燃烧。3、正常运行期间水冷壁汽包预热蒸汽开度过大。4、水冷壁挂渣脱落。5、水冷壁泵倒泵时，备用泵未提前暖泵。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">124</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">气化黑水高压循环水泵启动前确认哪些工艺条件？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1）确认气化系统已做好接受循环水的准备，联系气化工段，准备接收高压循环水；2）确认高压循环水至气化装置流程；3）确认高温凝液罐的液位达到50%时；</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">125</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">受限空间重点管控措施包括那些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 受限空间内气体分析合格，通风设施完善，进出通道畅通，警示标识齐全，监护人必须在场。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">126</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">粉尘发生爆炸应具备的条件有哪些？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: ⑴粉尘本身必须是可燃性的；⑵粉尘必须具有相当大的相对表面积；⑶粉尘必须悬浮在空气中与空气形成爆炸极限范围以内的混合物；⑷有足够的点火能量。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">127</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">哪些情况不应认定为工伤</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 职工由于下列情形之一造成负伤、致残、死亡的，不应认定为工伤：（1）犯罪或违法；（2）自杀或自残；（3）斗殴；（4）酗酒；（5）蓄意违章；（6）法律、法规规定的其他情形。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">128</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">事故调查处理的“四不放过 ”原则是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: ⑴事故原因分析不清楚不放过；⑵未制定事故防范措施不放过；⑶事故责任者和员工没有受到教育不放过；⑷事故责任者未受到处理不放过。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">129</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">烧嘴冷却水罐压力控制为什么必须始终大于气化炉压力？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 1、防止停车泄压后煤气、灰反窜，堵塞平衡管线；2、防止烧嘴冷却通道泄漏后，合成气反串入烧嘴冷却水系统。</div>
+</div>
+<div class="question">
+<div class="question-header">
+<span class="question-number">130</span>
+<span class="question-type">问答题</span>
+<span class="difficulty">难度: 4</span>
+</div>
+<div class="question-text">气化炉投料前进行N2置换的目的是什么？</div>
+<div class="options">
+</div>
+<div class="correct">正确答案: 置换的目的是将容器及管道内的氧气置换到低于爆炸极限，防止投料时产生的煤气与氧气混合而发生爆炸。当氧气含量低于0.5％时才算合格。</div>
+</div>
+<div class="footer">
+<p>导出时间: 2026-03-14 12:51</p>
+<p>导出题目数量: 130</p>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="12dp"
+    android:background="@drawable/bg_card_background"
+    android:layout_marginBottom="4dp">
+
+    <View
+        android:id="@+id/model_link_status_indicator"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:background="@drawable/status_indicator_unknown"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/model_link_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型名称"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"/>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp">
+
+            <TextView
+                android:id="@+id/model_link_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="gpt-4"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+
+            <TextView
+                android:id="@+id/model_link_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="在线"
+                android:textSize="12sp"
+                android:textColor="@color/success_color"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/model_link_latency"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="150ms"
+        android:textSize="12sp"
+        android:textColor="@color/text_tertiary"
+        android:layout_marginEnd="8dp"/>
+
+    <TextView
+        android:id="@+id/model_link_cost"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="$0.0030"
+        android:textSize="12sp"
+        android:textColor="@color/text_tertiary"/>
+
+</LinearLayout>

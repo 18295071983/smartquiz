@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <!-- 导出设置标题 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="导出选项"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/black"
+        android:layout_marginBottom="16dp" />
+
+    <!-- 包含分类选项 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchIncludeCategories"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            app:trackTint="@color/purple_300"
+            app:thumbTint="@color/purple_600" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="包含分类"
+            android:textSize="16sp"
+            android:textColor="@color/black"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 包含难度选项 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchIncludeDifficulty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            app:trackTint="@color/purple_300"
+            app:thumbTint="@color/purple_600" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="包含难度"
+            android:textSize="16sp"
+            android:textColor="@color/black"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 包含解析选项 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchIncludeExplanation"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            app:trackTint="@color/purple_300"
+            app:thumbTint="@color/purple_600" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="包含解析"
+            android:textSize="16sp"
+            android:textColor="@color/black"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 自动调整列宽选项（仅Excel导出适用） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchAutoSizeColumns"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="false"
+            app:trackTint="@color/purple_300"
+            app:thumbTint="@color/purple_600" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="自动调整列宽（Excel）"
+            android:textSize="16sp"
+            android:textColor="@color/black"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 导出说明 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="导出说明：\n1. Excel格式支持最完整的题目信息\n2. PDF和图片格式适合打印和分享\n3. Markdown和HTML格式适合网页展示\n4. CSV格式适合与其他系统交互" 
+        android:textSize="14sp"
+        android:textColor="@color/gray"
+        android:layout_marginTop="16dp"
+        android:lineSpacingExtra="4dp" />
+
+</LinearLayout>

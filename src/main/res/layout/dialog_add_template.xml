@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <EditText
+        android:id="@+id/template_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="模板名称"
+        android:inputType="text"
+        android:textColor="@color/on_surface"
+        android:layout_marginBottom="16dp"/>
+
+    <Spinner
+        android:id="@+id/format_spinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:entries="@array/export_formats"/>
+
+    <Spinner
+        android:id="@+id/type_spinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:entries="@array/template_types"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/cancel_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="取消"
+            android:layout_marginEnd="12dp"
+            app:backgroundTint="@color/surface_variant"
+            android:textColor="@color/on_surface"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/save_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="保存"
+            app:backgroundTint="@color/primary"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false" />
+
+    </LinearLayout>
+
+</LinearLayout>

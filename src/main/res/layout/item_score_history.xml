@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface"
+    android:padding="12dp"
+    android:elevation="1dp"
+    android:layout_marginBottom="8dp"
+    android:backgroundTint="?attr/colorSurface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- 分数 -->
+        <LinearLayout
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="?attr/colorPrimary"
+            android:elevation="2dp"
+            android:layout_marginEnd="16dp">
+
+            <TextView
+                android:id="@+id/textViewScore"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="85"
+                android:textSize="28sp"
+                android:fontFamily="sans-serif-bold"
+                android:textColor="?attr/colorOnPrimary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="分数"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnPrimary"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <!-- 详细信息 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/textViewDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="2026-02-19 14:30"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginEnd="8dp" />
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="16dp"
+                    android:background="?attr/colorOutline"
+                    android:layout_marginHorizontal="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="练习模式"
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/textViewDetails"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="10/12 正确 | 5:30 用时 | 消防安全"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

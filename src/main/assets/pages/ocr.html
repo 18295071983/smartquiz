@@ -1,0 +1,97 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR识别 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>OCR识别</h1>
+            </div>
+        </header>
+        
+        <main>
+            <div class="ocr-container">
+                <div class="ocr-preview">
+                    <div class="preview-placeholder">
+                        <i class="fas fa-camera"></i>
+                        <p>点击上传图片或拍�?/p>
+                    </div>
+                    <div class="ocr-actions">
+                        <button class="btn-primary">
+                            <i class="fas fa-camera"></i> 拍照
+                        </button>
+                        <button class="btn-secondary">
+                            <i class="fas fa-upload"></i> 上传图片
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="ocr-result">
+                    <h3>识别结果</h3>
+                    <div class="result-content">
+                        <p class="result-text">点击上方按钮上传图片进行OCR识别</p>
+                    </div>
+                    <div class="result-actions">
+                        <button class="btn-primary">
+                            <i class="fas fa-copy"></i> 复制文本
+                        </button>
+                        <button class="btn-secondary">
+                            <i class="fas fa-save"></i> 保存结果
+                        </button>
+                        <button class="btn-secondary">
+                            <i class="fas fa-file-alt"></i> 导出为文�?                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="ocr-history">
+                <h3>识别历史</h3>
+                <div class="history-list">
+                    <div class="history-item">
+                        <div class="history-info">
+                            <span class="history-time">2026-03-15 14:30</span>
+                            <span class="history-status">成功</span>
+                        </div>
+                        <div class="history-content">
+                            <p>这是一段OCR识别的示例文本，用于测试识别功能�?/p>
+                        </div>
+                        <div class="history-actions">
+                            <button class="action-btn view"><i class="fas fa-eye"></i> 查看</button>
+                            <button class="action-btn delete"><i class="fas fa-trash"></i> 删除</button>
+                        </div>
+                    </div>
+                    
+                    <div class="history-item">
+                        <div class="history-info">
+                            <span class="history-time">2026-03-14 10:20</span>
+                            <span class="history-status">成功</span>
+                        </div>
+                        <div class="history-content">
+                            <p>Another example of OCR recognized text. This demonstrates the capability of the OCR system.</p>
+                        </div>
+                        <div class="history-actions">
+                            <button class="action-btn view"><i class="fas fa-eye"></i> 查看</button>
+                            <button class="action-btn delete"><i class="fas fa-trash"></i> 删除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

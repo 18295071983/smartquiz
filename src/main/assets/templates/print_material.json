@@ -1,0 +1,36 @@
+{
+  "name": "打印",
+  "description": "打印材料模板，适合打印使用",
+  "format": "HTML",
+  "fields": [
+    "questionText",
+    "optionA",
+    "optionB",
+    "optionC",
+    "optionD",
+    "correctAnswer",
+    "explanation",
+    "questionType",
+    "difficulty",
+    "category"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "optionA": "选项A",
+    "optionB": "选项B",
+    "optionC": "选项C",
+    "optionD": "选项D",
+    "correctAnswer": "正确答案",
+    "explanation": "解析",
+    "questionType": "题型",
+    "difficulty": "难度",
+    "category": "分类"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "groupByCategory": true,
+    "includeCategories": true
+  },
+  "template": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>打印材料</title>\n<style>\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\nbody {\n  font-family: 'Microsoft YaHei', Arial, sans-serif;\n  line-height: 1.5;\n  color: #000;\n  background-color: #fff;\n  padding: 20px;\n  font-size: 12pt;\n}\n.container {\n  max-width: 210mm;\n  margin: 0 auto;\n  page-break-inside: avoid;\n}\nh1 {\n  color: #000;\n  margin-bottom: 20px;\n  text-align: center;\n  font-size: 16pt;\n  border-bottom: 1px solid #000;\n  padding-bottom: 10px;\n}\n.info {\n  font-size: 10pt;\n  color: #666;\n  margin-bottom: 20px;\n  text-align: right;\n}\n.category-section {\n  margin-bottom: 30px;\n  page-break-inside: avoid;\n}\n.category-section h2 {\n  color: #000;\n  margin-bottom: 15px;\n  padding-bottom: 5px;\n  border-bottom: 1px solid #ccc;\n  font-size: 14pt;\n}\n.question {\n  margin-bottom: 25px;\n  padding: 15px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  page-break-inside: avoid;\n}\n.question-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: 10px;\n}\n.question h3 {\n  color: #000;\n  margin-bottom: 10px;\n  font-size: 12pt;\n  font-weight: bold;\n}\n.question-text {\n  font-size: 11pt;\n  margin-bottom: 10px;\n  line-height: 1.5;\n}\n.options {\n  margin: 10px 0;\n  padding-left: 20px;\n}\n.options p {\n  margin: 5px 0;\n  padding: 2px 0;\n  font-size: 10pt;\n}\n.correct-answer {\n  margin-top: 10px;\n  padding: 8px;\n  background-color: #f0f0f0;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  color: #000;\n  font-weight: 600;\n  font-size: 10pt;\n}\n.explanation {\n  margin-top: 10px;\n  padding: 10px;\n  background-color: #f9f9f9;\n  border-left: 3px solid #ccc;\n  border-radius: 4px;\n  color: #333;\n  font-size: 10pt;\n}\n.footer {\n  margin-top: 30px;\n  padding-top: 15px;\n  border-top: 1px solid #ccc;\n  text-align: center;\n  color: #666;\n  font-size: 9pt;\n}\n@media print {\n  body {\n    padding: 0;\n  }\n  .container {\n    max-width: 100%;\n  }\n  .footer {\n    page-break-after: avoid;\n  }\n}\n</style>\n</head>\n<body>\n<div class=\"container\">\n<h1>打印材料</h1>\n<div class=\"info\">\n<p>导出时间: {{exportTime}}</p>\n<p>题目数量: {{questionCount}}</p>\n</div>\n{{questions}}\n<div class=\"footer\">\n<p>打印材料导出完成</p>\n</div>\n</div>\n</body>\n</html>"
+}
