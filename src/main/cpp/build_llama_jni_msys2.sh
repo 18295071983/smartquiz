@@ -31,11 +31,29 @@ GLSLC="$NDK_DIR/shader-tools/windows-x86_64/glslc.exe"
 # 将glslc所在目录添加到PATH（CMake查找glslc需要）
 export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
-# OpenCL: 在Android上不使用ICD Loader，直接使用设备厂商的驱动
-# 厂商驱动位于 /vendor/lib64/libOpenCL.so，运行时动态加载
+# OpenCL: 在Android上使用设备厂商的驱动（运行时动态加载）
+# 厂商驱动位于 /vendor/lib64/libOpenCL.so
 OPENCL_LIB=""
 OPENCL_LIB_PATHS=()
-OPENCL_ENABLED=0
+OPENCL_ENABLED=1
+
+# Python3: OpenCL内核嵌入需要Python
+# 优先使用系统Python，其次使用NDK中的Python
+PYTHON3="/c/Users/xiaocong/AppData/Local/Programs/Python/Python312/python.exe"
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Users/xiaocong/AppData/Local/Programs/Python/Python311/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Python312/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Python311/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/d/Android/Sdk/ndk/26.1.10909125/prebuilt/windows-x86_64/bin/python3.exe"
+fi
+
+export PYTHONPATH=""
 
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
@@ -50,6 +68,12 @@ if [ ! -f "$NINJA" ]; then
     exit 1
 fi
 
+if [ ! -f "$PYTHON3" ]; then
+    log_error "Python3 not found! OpenCL kernel embedding requires Python3."
+    log_error "请安装Python3或设置PYTHON3环境变量"
+    exit 1
+fi
+
 # 禁用Vulkan（Adreno 750对Vulkan计算支持有限，使用OpenCL代替）
 VULKAN_ENABLED=0
 log_info "Vulkan已禁用（使用OpenCL代替）"
@@ -59,6 +83,7 @@ log_info "OpenCL已启用（使用设备厂商驱动，运行时动态加载）"
 
 log_info "使用CMake: $CMAKE"
 log_info "使用Ninja: $NINJA"
+log_info "使用Python3: $PYTHON3"
 log_info "Vulkan支持: $VULKAN_ENABLED"
 log_info "OpenCL支持: $OPENCL_ENABLED"
 
