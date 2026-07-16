@@ -124,8 +124,8 @@ target_link_libraries(
 )
 
 if(GGML_OPENCL)
-    target_link_options(llama-jni PRIVATE "-Wl,--allow-shlib-undefined")
-    message(STATUS "OpenCL: Added -Wl,--allow-shlib-undefined for runtime dynamic linking")
+    target_link_options(llama-jni PRIVATE "-undefined" "dynamic_lookup")
+    message(STATUS "OpenCL: Added -undefined dynamic_lookup for runtime dynamic linking")
 endif()
 
 set_target_properties(
