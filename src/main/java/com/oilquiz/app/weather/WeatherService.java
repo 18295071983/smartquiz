@@ -21,6 +21,13 @@ public class WeatherService {
     private static final long CACHE_DURATION_HOURLY = 15 * 60 * 1000;
     private static final long CACHE_DURATION_INDICES = 60 * 60 * 1000;
 
+    /**
+     * 将坐标截断到小数点后2位作为缓存 key，避免浮点精度导致的 key 不一致
+     */
+    private static String locationKey(double lat, double lon) {
+        return String.format(java.util.Locale.US, "%.2f_%.2f", lat, lon);
+    }
+
     private final Context context;
     private final AIWeatherManager weatherManager;
     private final WeatherCacheManager cacheManager;
@@ -58,7 +65,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon) {
-        String cacheKey = "weather_now_" + lat + "_" + lon;
+        String cacheKey = "weather_now_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_NOW)) {
@@ -73,7 +80,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getForecastByLocation(double lat, double lon) {
-        String cacheKey = "weather_forecast_" + lat + "_" + lon;
+        String cacheKey = "weather_forecast_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_FORECAST)) {
@@ -88,7 +95,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getHourlyByLocation(double lat, double lon) {
-        String cacheKey = "weather_hourly_" + lat + "_" + lon;
+        String cacheKey = "weather_hourly_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_HOURLY)) {
@@ -103,7 +110,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getAirQualityByLocation(double lat, double lon) {
-        String cacheKey = "weather_air_" + lat + "_" + lon;
+        String cacheKey = "weather_air_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_AIR)) {
@@ -118,7 +125,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getAlertsByLocation(double lat, double lon) {
-        String cacheKey = "weather_alerts_" + lat + "_" + lon;
+        String cacheKey = "weather_alerts_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_ALERTS)) {
@@ -133,7 +140,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getIndicesByLocation(double lat, double lon) {
-        String cacheKey = "weather_indices_" + lat + "_" + lon;
+        String cacheKey = "weather_indices_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_INDICES)) {
@@ -233,6 +240,16 @@ public class WeatherService {
         cacheManager.removeCache("weather_air_" + city);
         cacheManager.removeCache("weather_alerts_" + city);
         cacheManager.removeCache("weather_indices_" + city);
+    }
+
+    public void clearCacheForLocation(double lat, double lon) {
+        String key = locationKey(lat, lon);
+        cacheManager.removeCache("weather_now_" + key);
+        cacheManager.removeCache("weather_forecast_" + key);
+        cacheManager.removeCache("weather_hourly_" + key);
+        cacheManager.removeCache("weather_air_" + key);
+        cacheManager.removeCache("weather_alerts_" + key);
+        cacheManager.removeCache("weather_indices_" + key);
     }
 
     public long getCacheSize() {
