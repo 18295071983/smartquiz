@@ -177,10 +177,14 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DGGML_RPC=OFF \
     -DGGML_OPENCL_EMBED_KERNELS=ON \
     -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
+    -DGGML_OPENCL_TARGET_VERSION="300" \
+    -DOpenCL_INCLUDE_DIR="$SCRIPT_DIR/opencl/headers" \
     -DOpenCL_INCLUDE_DIRS="$SCRIPT_DIR/opencl/headers" \
     -DOpenCL_FOUND=$OPENCL_ENABLED \
     -DOpenCL_VERSION_STRING="3.0" \
     -DOpenCL_LIBRARIES="" \
+    -DOpenCL_LIBRARY="" \
+    -DPython3_EXECUTABLE="$PYTHON3" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"
     exit 1
@@ -222,7 +226,7 @@ fi
 
 # 复制所有依赖库到jniLibs目录
 ARM64_BIN_DIR="$ARM64_BUILD_DIR/bin"
-for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so; do
+for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so libggml-opencl.so; do
     if [ -f "$ARM64_BIN_DIR/$lib" ]; then
         cp "$ARM64_BIN_DIR/$lib" "$JNI_LIBS_DIR/arm64-v8a/"
         log_info "ARM64依赖库已复制: $lib"
@@ -230,6 +234,16 @@ for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so; do
         log_warn "ARM64依赖库未找到: $lib (搜索路径: $ARM64_BIN_DIR)"
     fi
 done
+
+# 检查是否生成了OpenCL库
+if [ -f "$ARM64_BIN_DIR/libggml-opencl.so" ]; then
+    log_info "=== OpenCL库已成功生成 ==="
+    ls -lh "$ARM64_BIN_DIR/libggml-opencl.so"
+else
+    log_warn "=== OpenCL库未生成 ==="
+    log_info "可用的库文件:"
+    ls -lh "$ARM64_BIN_DIR/" 2>/dev/null || log_info "目录为空"
+fi
 
 # ============================================
 # 编译x86_64架构
