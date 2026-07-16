@@ -3,7 +3,10 @@ package com.oilquiz.app.ui.widget;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.HorizontalScrollView;
@@ -18,9 +21,13 @@ import com.oilquiz.app.resource.PermissionResourceProvider;
 import com.oilquiz.app.weather.WeatherService;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class WeatherBannerView extends LinearLayout {
+
+    private static final String TAG = "WeatherBannerView";
+    private static final long MIN_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
     private TextView weatherIcon;
     private TextView weatherCity;
@@ -43,6 +50,8 @@ public class WeatherBannerView extends LinearLayout {
     private double cachedLat = 0;
     private double cachedLon = 0;
     private String cachedFxLink = "";
+    private long lastRefreshTime = 0;
+    private String cachedAddress = "";
 
     public WeatherBannerView(Context context) {
         super(context);
@@ -97,8 +106,53 @@ public class WeatherBannerView extends LinearLayout {
 
     private void setupListeners() {
         refreshButton.setOnClickListener(v -> requestLocationAndRefresh());
-
         closeButton.setOnClickListener(v -> setVisibility(View.GONE));
+    }
+
+    /**
+     * Activity onResume 时调用，超过最小刷新间隔则自动刷新
+     */
+    public void onResume() {
+        long now = System.currentTimeMillis();
+        if (lastRefreshTime == 0 || (now - lastRefreshTime) > MIN_REFRESH_INTERVAL_MS) {
+            requestLocationAndLoad();
+        }
+    }
+
+    /**
+     * 强制刷新，忽略时间间隔限制
+     */
+    public void forceRefresh() {
+        requestLocationAndRefresh();
+    }
+
+    private boolean isNetworkAvailable() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            NetworkInfo info = cm.getActiveNetworkInfo();
+            return info != null && info.isConnected();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 根据坐标获取可读地址（坐标→地址转换）
+     */
+    public String getCachedAddress() {
+        return cachedAddress;
+    }
+
+    /**
+     * 设置外部传入的城市名进行天气查询（地址转换入口）
+     */
+    public void loadWeatherByCityName(String cityName) {
+        if (cityName == null || cityName.trim().isEmpty()) return;
+        currentCity = cityName.trim();
+        cachedLat = 0;
+        cachedLon = 0;
+        loadWeatherWithCity(currentCity);
     }
 
     public void onBannerClicked() {
@@ -201,6 +255,14 @@ public class WeatherBannerView extends LinearLayout {
     }
 
     private void locateAndLoadWeather() {
+        if (!isNetworkAvailable()) {
+            post(() -> {
+                if (weatherDesc != null) weatherDesc.setText("无网络连接");
+                if (weatherCity != null) weatherCity.setText(currentCity);
+            });
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText("定位中...");
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在定位...");
@@ -225,12 +287,25 @@ public class WeatherBannerView extends LinearLayout {
                         if (lat != 0 && lon != 0) {
                             cachedLat = lat;
                             cachedLon = lon;
+                            // 坐标转地址：缓存可读地址
+                            try {
+                                String address = String.valueOf(map.get("address"));
+                                if (address != null && !address.equals("null") && !address.isEmpty()) {
+                                    cachedAddress = address;
+                                } else {
+                                    cachedAddress = currentCity;
+                                }
+                            } catch (Exception e) {
+                                cachedAddress = currentCity;
+                            }
                             post(() -> loadWeatherByLocation(lat, lon));
                             return;
                         }
                     }
                 }
-            } catch (Exception ignored) {
+                Log.w(TAG, "Location returned no valid coordinates, falling back to city: " + currentCity);
+            } catch (Exception e) {
+                Log.e(TAG, "Location failed: " + e.getMessage(), e);
             }
 
             post(() -> loadWeatherWithCity(currentCity));
@@ -238,6 +313,14 @@ public class WeatherBannerView extends LinearLayout {
     }
 
     private void locateAndRefreshWeather() {
+        if (!isNetworkAvailable()) {
+            post(() -> {
+                if (weatherDesc != null) weatherDesc.setText("无网络连接");
+                if (weatherCity != null) weatherCity.setText(currentCity);
+            });
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText("定位中...");
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在定位...");
@@ -262,12 +345,24 @@ public class WeatherBannerView extends LinearLayout {
                         if (lat != 0 && lon != 0) {
                             cachedLat = lat;
                             cachedLon = lon;
+                            try {
+                                String address = String.valueOf(map.get("address"));
+                                if (address != null && !address.equals("null") && !address.isEmpty()) {
+                                    cachedAddress = address;
+                                } else {
+                                    cachedAddress = currentCity;
+                                }
+                            } catch (Exception e) {
+                                cachedAddress = currentCity;
+                            }
                             post(() -> refreshWeatherByLocation(lat, lon));
                             return;
                         }
                     }
                 }
-            } catch (Exception ignored) {
+                Log.w(TAG, "Refresh location returned no valid coordinates, falling back to city: " + currentCity);
+            } catch (Exception e) {
+                Log.e(TAG, "Refresh location failed: " + e.getMessage(), e);
             }
 
             post(() -> refreshWeatherWithCity(currentCity));
@@ -286,57 +381,89 @@ public class WeatherBannerView extends LinearLayout {
     }
 
     private void loadWeatherWithCity(String city) {
+        if (!isNetworkAvailable()) {
+            if (weatherDesc != null) weatherDesc.setText("无网络连接");
+            if (weatherCity != null) weatherCity.setText(city);
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText(city);
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
 
         weatherService.getCurrentWeather(city).thenAccept(weather -> {
+            lastRefreshTime = System.currentTimeMillis();
             post(() -> updateUI(weather));
         }).exceptionally(e -> {
+            Log.e(TAG, "Failed to load weather for city " + city + ": " + e.getMessage(), e);
             post(() -> {
-                if (weatherDesc != null) weatherDesc.setText("获取失败");
+                if (weatherDesc != null) weatherDesc.setText("获取失败，点击重试");
             });
             return null;
         });
     }
 
     private void loadWeatherByLocation(double lat, double lon) {
+        if (!isNetworkAvailable()) {
+            if (weatherDesc != null) weatherDesc.setText("无网络连接");
+            if (weatherCity != null) weatherCity.setText(currentCity);
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText(currentCity);
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
 
         weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
+            lastRefreshTime = System.currentTimeMillis();
             post(() -> updateUI(weather));
         }).exceptionally(e -> {
+            Log.e(TAG, "Failed to load weather by location: " + e.getMessage(), e);
             post(() -> loadWeatherWithCity(currentCity));
             return null;
         });
     }
 
     private void refreshWeatherWithCity(String city) {
+        if (!isNetworkAvailable()) {
+            if (weatherDesc != null) weatherDesc.setText("无网络连接");
+            if (weatherCity != null) weatherCity.setText(city);
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText(city);
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在刷新...");
 
         weatherService.clearCacheForCity(city);
         weatherService.getCurrentWeather(city).thenAccept(weather -> {
+            lastRefreshTime = System.currentTimeMillis();
             post(() -> updateUI(weather));
         }).exceptionally(e -> {
+            Log.e(TAG, "Failed to refresh weather for city " + city + ": " + e.getMessage(), e);
             post(() -> {
-                if (weatherDesc != null) weatherDesc.setText("刷新失败");
+                if (weatherDesc != null) weatherDesc.setText("刷新失败，点击重试");
             });
             return null;
         });
     }
 
     private void refreshWeatherByLocation(double lat, double lon) {
+        if (!isNetworkAvailable()) {
+            if (weatherDesc != null) weatherDesc.setText("无网络连接");
+            if (weatherCity != null) weatherCity.setText(currentCity);
+            return;
+        }
+
         if (weatherCity != null) weatherCity.setText(currentCity);
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在刷新...");
 
         weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
+            lastRefreshTime = System.currentTimeMillis();
             post(() -> updateUI(weather));
         }).exceptionally(e -> {
+            Log.e(TAG, "Failed to refresh weather by location: " + e.getMessage(), e);
             post(() -> refreshWeatherWithCity(currentCity));
             return null;
         });
@@ -416,7 +543,8 @@ public class WeatherBannerView extends LinearLayout {
                         }
                     });
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to load forecast: " + e.getMessage(), e);
             }
         }).start();
     }

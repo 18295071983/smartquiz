@@ -113,6 +113,12 @@ public class MainActivity extends BaseActivity {
             return;
         }
         
+        // 天气横幅：超过5分钟自动刷新
+        WeatherBannerView weatherBanner = findViewById(R.id.weather_banner);
+        if (weatherBanner != null) {
+            weatherBanner.onResume();
+        }
+
         // 实时查询并更新AI服务状态
         updateAiStatus();
         // 实时查询并更新题库统计信息
