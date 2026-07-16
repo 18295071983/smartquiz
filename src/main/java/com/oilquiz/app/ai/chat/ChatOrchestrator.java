@@ -7,6 +7,9 @@ import com.oilquiz.app.ai.chat.event.StreamingEvent;
 import com.oilquiz.app.ai.chat.event.StreamingSubscriber;
 import com.oilquiz.app.ai.chat.mode.ModeHandler;
 import com.oilquiz.app.ai.chat.mode.NormalModeHandler;
+import com.oilquiz.app.ai.chat.mode.DeepThinkingModeHandler;
+import com.oilquiz.app.ai.chat.mode.CreativeWritingModeHandler;
+import com.oilquiz.app.ai.chat.mode.AgentModeHandler;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AgentService;
 
@@ -67,6 +70,11 @@ public class ChatOrchestrator {
     
     private void initModeHandlers() {
         modeHandlers.put(ChatModeManager.ChatMode.NORMAL, new NormalModeHandler(aiService));
+        modeHandlers.put(ChatModeManager.ChatMode.DEEP_THINKING, new DeepThinkingModeHandler(aiService));
+        modeHandlers.put(ChatModeManager.ChatMode.CREATIVE, new CreativeWritingModeHandler(aiService));
+        if (activity != null) {
+            modeHandlers.put(ChatModeManager.ChatMode.AGENT, new AgentModeHandler(activity, aiService, agentService));
+        }
         Log.i(TAG, "Mode handlers initialized: " + modeHandlers.size());
     }
     
