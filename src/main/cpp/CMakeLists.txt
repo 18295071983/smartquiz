@@ -5,13 +5,6 @@ project(llama-jni)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
-set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
-set(CMAKE_EXE_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
-set(CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE} -Wl,--allow-shlib-undefined")
-
-set(ANDROID_STL c++_static CACHE STRING "Android STL type" FORCE)
-
 # ggml requires non-finite math arithmetics (NaN/Inf handling)
 # -ffast-math enables -ffinite-math-only which breaks ggml compilation
 # Use -O3 without -ffast-math, and explicitly disable finite-math-only
@@ -20,7 +13,6 @@ add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 option(GGML_OPENCL "Enable OpenCL backend" ON)
 option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
-option(GGML_HEXAGON "Enable Hexagon DSP backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 
@@ -52,13 +44,12 @@ endif()
 
 set(GGML_VULKAN ${GGML_VULKAN} CACHE BOOL "Enable Vulkan backend" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "Enable CUDA backend" FORCE)
-set(GGML_HEXAGON OFF CACHE BOOL "Enable Hexagon DSP backend" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "Enable dynamic backend loading" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
 
 set(LLAMA_CPP_PATH "${CMAKE_SOURCE_DIR}/llama.cpp")
 set(OPENCL_HEADERS_DIR "${CMAKE_SOURCE_DIR}/opencl/headers")
-set(OPENCL_STUB_LIB "${CMAKE_SOURCE_DIR}/opencl/build/${ANDROID_ABI}/libOpenCL.so")
+set(OPENCL_ICD_LIB "${CMAKE_SOURCE_DIR}/opencl/build/lib/libOpenCL.so")
 
 if(GGML_VULKAN)
     message(STATUS "Vulkan backend: ENABLED (glslc: ${GLSLC_EXECUTABLE})")
@@ -66,19 +57,31 @@ else()
     message(STATUS "Vulkan backend: DISABLED (use -DGGML_VULKAN=ON to enable; requires Vulkan SDK with glslc)")
 endif()
 
-if(GGML_OPENCL AND (ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64"))
-    message(STATUS "OpenCL backend enabled (using dynamic loading)")
+if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
+    message(STATUS "OpenCL backend enabled (using local ICD loader)")
     set(GGML_OPENCL ON CACHE BOOL "Enable OpenCL backend" FORCE)
     set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
     set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels in binary" FORCE)
     
     if(EXISTS "${OPENCL_HEADERS_DIR}/CL/cl.h")
         message(STATUS "OpenCL: Using local headers at ${OPENCL_HEADERS_DIR}")
+        # FindOpenCL.cmake uses singular forms as inputs
+        set(OpenCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
+        set(OPENCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
         set(OpenCL_INCLUDE_DIRS "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dirs" FORCE)
         set(OpenCL_FOUND TRUE CACHE BOOL "OpenCL found" FORCE)
         set(OpenCL_VERSION_STRING "3.0" CACHE STRING "OpenCL version" FORCE)
-        set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
-        message(STATUS "OpenCL: Using dynamic loading - no DT_NEEDED entry will be created")
+        if(EXISTS "${OPENCL_ICD_LIB}")
+            message(STATUS "OpenCL: Using local ICD loader at ${OPENCL_ICD_LIB}")
+            set(OpenCL_LIBRARIES "${OPENCL_ICD_LIB}" CACHE FILEPATH "OpenCL libraries" FORCE)
+            set(OpenCL_LIBRARY "${OPENCL_ICD_LIB}" CACHE FILEPATH "OpenCL library" FORCE)
+            message(STATUS "OpenCL: ICD loader found, will link directly")
+        else()
+            message(WARNING "OpenCL ICD loader not found!")
+            message(WARNING "OpenCL: Will use dynamic loading as fallback")
+            set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
+            set(OpenCL_LIBRARY "" CACHE FILEPATH "OpenCL library" FORCE)
+        endif()
     else()
         message(WARNING "OpenCL headers not found!")
         set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
@@ -87,15 +90,13 @@ if(GGML_OPENCL AND (ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x8
     message(STATUS "OpenCL: Adreno-optimized kernels enabled")
     message(STATUS "OpenCL: Embedded kernels enabled (no runtime compilation)")
 elseif(GGML_OPENCL)
-    message(STATUS "OpenCL disabled for unsupported architecture: ${ANDROID_ABI}")
+    message(STATUS "OpenCL disabled for non-ARM64 architecture: ${ANDROID_ABI}")
     set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
 else()
     message(STATUS "OpenCL backend disabled")
 endif()
 
 add_subdirectory(${LLAMA_CPP_PATH} build-llama)
-
-target_link_libraries(ggml PRIVATE -Wl,--no-as-needed -lc++ -Wl,--as-needed)
 
 include_directories(
     ${LLAMA_CPP_PATH}
@@ -111,7 +112,7 @@ add_library(
     llama-jni
     SHARED
     native-lib.cpp
-    vulkan_gpu.cpp
+    llama-bridge.cpp
 )
 
 target_link_libraries(
@@ -124,13 +125,6 @@ target_link_libraries(
     atomic
     dl
 )
-
-if(GGML_OPENCL AND NOT OpenCL_LIBRARIES)
-    target_link_options(llama-jni PRIVATE "-Wl,--allow-shlib-undefined")
-    target_link_options(llama PRIVATE "-Wl,--allow-shlib-undefined")
-    target_link_options(ggml PRIVATE "-Wl,--allow-shlib-undefined")
-    target_link_options(ggml-opencl PRIVATE "-Wl,--allow-shlib-undefined")
-endif()
 
 set_target_properties(
     llama-jni
