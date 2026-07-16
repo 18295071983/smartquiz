@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/et_ocr_result"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:inputType="textMultiLine"
+        android:gravity="top"
+        android:padding="12dp"
+        android:background="@android:drawable/editbox_background_normal"
+        android:hint="识别结果将显示在这里" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="提示：您可以编辑识别结果后再导入" 
+        android:textSize="12sp"
+        android:textColor="@color/gray"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>

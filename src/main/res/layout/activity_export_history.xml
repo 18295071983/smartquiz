@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background_color">
+
+    <!-- 顶部标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="@color/purple_600"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp">
+
+        <Button
+            android:id="@+id/buttonBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/ic_chevron_right"
+            android:rotation="180"
+            android:layout_marginRight="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="导出历史"
+            android:textSize="20sp"
+            android:textColor="@color/white"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <!-- 内容区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- 历史记录列表 -->
+        <ListView
+            android:id="@+id/listViewHistory"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@color/gray"
+            android:dividerHeight="1dp" />
+
+        <!-- 空状态 -->
+        <TextView
+            android:id="@+id/textEmptyHistory"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="暂无导出历史"
+            android:textSize="16sp"
+            android:textColor="@color/gray"
+            android:gravity="center"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</LinearLayout>

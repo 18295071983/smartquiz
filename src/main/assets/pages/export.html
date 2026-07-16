@@ -1,0 +1,114 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据导出 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="export-section">
+                <h2>数据导出</h2>
+                
+                <div class="export-options">
+                    <div class="export-card">
+                        <div class="export-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <h3>CSV格式</h3>
+                        <p>导出为CSV格式文件</p>
+                        <div class="export-settings">
+                            <label>
+                                <input type="checkbox" id="export-questions-csv" checked>
+                                题目数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-wrong-csv" checked>
+                                错题数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-study-csv">
+                                学习计划
+                            </label>
+                        </div>
+                        <button id="export-csv-btn" class="btn-primary">导出</button>
+                    </div>
+                    
+                    <div class="export-card">
+                        <div class="export-icon">
+                            <i class="fas fa-file-excel"></i>
+                        </div>
+                        <h3>Excel格式</h3>
+                        <p>导出为Excel格式文件</p>
+                        <div class="export-settings">
+                            <label>
+                                <input type="checkbox" id="export-questions-excel" checked>
+                                题目数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-wrong-excel" checked>
+                                错题数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-study-excel">
+                                学习计划
+                            </label>
+                        </div>
+                        <button id="export-excel-btn" class="btn-primary">导出</button>
+                    </div>
+                    
+                    <div class="export-card">
+                        <div class="export-icon">
+                            <i class="fas fa-file-json"></i>
+                        </div>
+                        <h3>JSON格式</h3>
+                        <p>导出为JSON格式文件</p>
+                        <div class="export-settings">
+                            <label>
+                                <input type="checkbox" id="export-questions-json" checked>
+                                题目数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-wrong-json" checked>
+                                错题数据
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-study-json" checked>
+                                学习计划
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-settings-json" checked>
+                                设置数据
+                            </label>
+                        </div>
+                        <button id="export-json-btn" class="btn-primary">导出</button>
+                    </div>
+                </div>
+                
+                <div class="export-history">
+                    <h3>导出历史</h3>
+                    <div id="export-history-list" class="history-list">
+                        <!-- 导出历史将通过JavaScript动态添�?-->
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

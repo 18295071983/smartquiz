@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".PDFEditorActivity">
+
+    <!-- 顶部工具栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/purple_700"
+        android:padding="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="返回"
+            android:textColor="@android:color/white"
+            android:background="@android:color/transparent"
+            app:backgroundTint="@android:color/transparent"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="PDF编辑器"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:gravity="center"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_save"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="保存"
+            android:textColor="@android:color/white"
+            android:background="@android:color/transparent"
+            app:backgroundTint="@android:color/transparent"/>
+    </LinearLayout>
+
+    <!-- 进度条 -->
+    <LinearLayout
+        android:id="@+id/progress_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/progress_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"/>
+
+        <TextView
+            android:id="@+id/progress_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="加载中..."
+            android:gravity="center"
+            android:layout_marginTop="8dp"/>
+    </LinearLayout>
+
+    <!-- WebView用于显示PDF -->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+    <!-- 编辑控制栏 -->
+    <LinearLayout
+        android:id="@+id/edit_controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/gray_100"
+        android:padding="16dp">
+
+        <!-- 文本注释输入 -->
+        <EditText
+            android:id="@+id/edit_text_annotation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入注释内容"
+            android:inputType="textMultiLine"
+            android:lines="3"
+            android:background="@android:drawable/editbox_background"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- 编辑按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_add_text_annotation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="添加文本注释"
+                app:backgroundTint="@color/teal_600"
+                android:textColor="@android:color/white"
+                android:layout_marginEnd="8dp"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_add_drawing_annotation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="手绘注释"
+                app:backgroundTint="@color/teal_600"
+                android:textColor="@android:color/white"
+                android:layout_marginStart="8dp"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="编辑文本"
+            app:backgroundTint="@color/teal_600"
+            android:textColor="@android:color/white"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+            android:layout_marginTop="16dp"/>
+    </LinearLayout>
+
+</LinearLayout>

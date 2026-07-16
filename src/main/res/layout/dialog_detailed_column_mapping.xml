@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="请为每个字段选择对应的列"
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 题型列映射（必选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="题型 *："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerTypeColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 难度列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="难度："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerDifficultyColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 题目内容列映射（必选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="题目内容 *："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerContentColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 可选项列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="可选项："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerOptionsColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 选项A列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选项A："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerOptionAColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 选项B列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选项B："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerOptionBColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 选项C列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选项C："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerOptionCColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 选项D列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选项D："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerOptionDColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 答案列映射（必选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="答案 *："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerAnswerColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- 解析列映射（可选项） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="解析："
+                android:textSize="14sp"
+                android:layout_marginRight="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <Spinner
+                android:id="@+id/spinnerExplanationColumn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="提示：带 * 的字段为必选项"
+            android:textSize="12sp"
+            android:textColor="@android:color/holo_blue_dark"
+            android:layout_marginTop="16dp" />
+
+    </LinearLayout>
+
+</ScrollView>

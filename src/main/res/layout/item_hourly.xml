@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:gravity="center"
+    android:minWidth="72dp">
+
+    <TextView
+        android:id="@+id/tv_hour"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="现在"
+        android:textSize="12sp"
+        android:textColor="#94A3B8"
+        android:textStyle="bold"/>
+
+    <ImageView
+        android:id="@+id/tv_hour_icon"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/wi_unknown"
+        android:scaleType="fitCenter"
+        android:layout_marginTop="8dp"/>
+
+    <TextView
+        android:id="@+id/tv_hour_temp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="25°"
+        android:textSize="16sp"
+        android:textColor="#1E293B"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp"/>
+
+</LinearLayout>

@@ -1,0 +1,86 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI助手 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>AI助手</h1>
+            </div>
+        </header>
+        
+        <main class="ai-chat-container">
+            <div class="chat-messages">
+                <div class="message ai-message">
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <p>你好！我是SmartQuiz的AI助手，有什么可以帮助你的吗�?/p>
+                        <span class="message-time">14:30</span>
+                    </div>
+                </div>
+                
+                <div class="message user-message">
+                    <div class="message-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="message-content">
+                        <p>如何提高英语听力水平�?/p>
+                        <span class="message-time">14:31</span>
+                    </div>
+                </div>
+                
+                <div class="message ai-message">
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <p>提高英语听力水平的方法有�?/p>
+                        <ol>
+                            <li>每天坚持听英语，至少30分钟</li>
+                            <li>选择适合自己水平的材�?/li>
+                            <li>边听边做笔记</li>
+                            <li>尝试跟读，模仿发�?/li>
+                            <li>使用英语播客、电影、新闻等多种资源</li>
+                        </ol>
+                        <span class="message-time">14:32</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-area">
+                <input type="text" placeholder="输入你的问题...">
+                <button class="send-button">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            
+            <div class="quick-questions">
+                <h3>快速问�?/h3>
+                <div class="quick-question-list">
+                    <button class="quick-question-btn">如何记忆英语单词�?/button>
+                    <button class="quick-question-btn">数学公式如何快速掌握？</button>
+                    <button class="quick-question-btn">如何制定学习计划�?/button>
+                    <button class="quick-question-btn">考试前如何有效复习？</button>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

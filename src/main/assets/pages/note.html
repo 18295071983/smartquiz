@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学习笔记 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="note-section">
+                <h2>学习笔记</h2>
+                
+                <div class="note-actions">
+                    <button id="add-note-btn" class="btn-primary">
+                        <i class="fas fa-plus"></i> 新建笔记
+                    </button>
+                    <div class="note-search">
+                        <input type="text" id="note-search" placeholder="搜索笔记...">
+                        <button id="search-note-btn">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="note-list" id="note-list">
+                    <!-- 笔记列表将通过JavaScript动态添�?-->
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <!-- 笔记编辑模态框 -->
+    <div id="note-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">新建笔记</h3>
+                <button id="close-modal" class="close-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="note-title" placeholder="笔记标题">
+                <textarea id="note-content" placeholder="笔记内容"></textarea>
+                <input type="date" id="note-date">
+            </div>
+            <div class="modal-footer">
+                <button id="save-note-btn" class="btn-primary">保存</button>
+                <button id="cancel-note-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

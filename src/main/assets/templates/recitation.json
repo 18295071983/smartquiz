@@ -1,0 +1,67 @@
+{
+  "name": "背诵",
+  "description": "背诵内容模板，适合记忆背诵",
+  "format": "HTML",
+  "fields": [
+    "questionText",
+    "correctAnswer",
+    "explanation"
+  ],
+  "fieldMappings": {
+    "questionText": "题目",
+    "correctAnswer": "正确答案",
+    "explanation": "解析"
+  },
+  "config": {
+    "includeAnswers": true,
+    "includeExplanations": true,
+    "groupByCategory": false,
+    "includeCategories": false
+  },
+  "template": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>背诵内容</title>\n<style>\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\nbody {\n  font-family: 'Microsoft YaHei', Arial, sans-serif;\n  line-height: 1.6;\n  color: #333;\n  background-color: #f5f5f5;\n  padding: 20px;\n}\n.container {\n  max-width: 800px;\n  margin: 0 auto;\n  background-color: #fff;\n  border-radius: 8px;\n  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n  padding: 30px;\n}\nh1 {\n  color: #2c3e50;\n  margin-bottom: 30px;\n  text-align: center;\n  padding-bottom: 15px;\n  border-bottom: 2px solid #3498db;\n}\n.info {\n  background-color: #f8f9fa;\n  padding: 20px;\n  border-radius: 8px;\n  margin-bottom: 30px;\n  border: 1px solid #e9ecef;\n}\n.flashcard {
+  margin-bottom: 30px;\n  padding: 30px;\n  border: 1px solid #e0e0e0;\n  border-radius: 8px;\n  background-color: #fafafa;\n  transition: all 0.3s ease;\n  page-break-inside: avoid;
+}\n.flashcard:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);\n  transform: translateY(-2px);\n}\n.question-side {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.question-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  line-height: 1.6;
+  color: #2c3e50;
+}
+.answer-side {
+  margin-top: 20px;
+}
+.correct-answer {
+  font-size: 16px;
+  font-weight: 600;
+  color: #27ae60;
+  margin-bottom: 15px;
+  padding: 15px;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+}
+.explanation {
+  font-size: 14px;
+  color: #7f8c8d;
+  padding: 15px;
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+.footer {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}
+</style>\n</head>\n<body>\n<div class=\"container\">\n<h1>背诵内容</h1>\n<div class=\"info\">\n<p>导出时间: {{exportTime}}</p>\n<p>题目数量: {{questionCount}}</p>\n</div>\n{{questions}}\n<div class=\"footer\">\n<p>背诵内容导出完成</p>\n</div>\n</div>\n</body>\n</html>"
+}

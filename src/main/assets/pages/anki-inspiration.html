@@ -1,0 +1,1670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智能学习系统 - 参考Anki设计</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* ==================== 全局变量与主题系统 ==================== */
+        :root {
+            /* 默认主题 - 彩虹渐变 */
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --accent: #4cc9f0;
+            --success: #2ec4b6;
+            --warning: #f72585;
+            --danger: #e63946;
+            --bg-main: #f8f9fa;
+            --bg-card: #ffffff;
+            --bg-header: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --text-dark: #212529;
+            --text-light: #6c757d;
+            --border: #e9ecef;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --radius: 12px;
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        /* 深色主题 */
+        [data-theme="dark"] {
+            --primary: #6c5ce7;
+            --secondary: #a29bfe;
+            --accent: #74b9ff;
+            --success: #00b894;
+            --warning: #fd79a8;
+            --danger: #ff6b6b;
+            --bg-main: #1a1a2e;
+            --bg-card: #16213e;
+            --bg-header: linear-gradient(135deg, #0f0c29 0%, #302b63 100%);
+            --text-dark: #e9ecef;
+            --text-light: #adb5bd;
+            --border: #495057;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 护眼主题 */
+        [data-theme="eye-care"] {
+            --primary: #5f6caf;
+            --secondary: #4a5568;
+            --accent: #90cdf4;
+            --success: #38a169;
+            --warning: #d53f8c;
+            --danger: #c53030;
+            --bg-main: #f0f4f8;
+            --bg-card: #ffffff;
+            --bg-header: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            --text-dark: #2d3748;
+            --text-light: #718096;
+            --border: #e2e8f0;
+            --shadow: 0 4px 12px rgba(45, 55, 72, 0.1);
+        }
+
+        /* 海洋主题 */
+        [data-theme="ocean"] {
+            --primary: #0891b2;
+            --secondary: #0e7490;
+            --accent: #06b6d4;
+            --success: #10b981;
+            --warning: #f43f5e;
+            --danger: #dc2626;
+            --bg-main: #f0f9ff;
+            --bg-card: #ffffff;
+            --bg-header: linear-gradient(135deg, #0c4a6e 0%, #075985 100%);
+            --text-dark: #0c4a6e;
+            --text-light: #64748b;
+            --border: #e0f2fe;
+            --shadow: 0 4px 12px rgba(8, 145, 178, 0.15);
+        }
+
+        /* 森林主题 */
+        [data-theme="forest"] {
+            --primary: #16a34a;
+            --secondary: #15803d;
+            --accent: #4ade80;
+            --success: #65a30d;
+            --warning: #ea580c;
+            --danger: #dc2626;
+            --bg-main: #f0fdf4;
+            --bg-card: #ffffff;
+            --bg-header: linear-gradient(135deg, #14532d 0%, #166534 100%);
+            --text-dark: #14532d;
+            --text-light: #57534e;
+            --border: #dcfce7;
+            --shadow: 0 4px 12px rgba(22, 163, 74, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Microsoft YaHei', sans-serif;
+            background: var(--bg-main);
+            min-height: 100vh;
+            color: var(--text-dark);
+            line-height: 1.6;
+            padding: 20px;
+            transition: var(--transition);
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 90vh;
+            transition: var(--transition);
+        }
+
+        /* ==================== 头部导航 ==================== */
+        .header {
+            background: var(--bg-header);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+
+        .header-controls {
+            position: absolute;
+            right: 15px;
+            top: 15px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .theme-switcher {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: var(--transition);
+        }
+
+        .theme-switcher:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.05);
+        }
+
+        .nav-tabs {
+            display: flex;
+            background: var(--bg-main);
+            border-bottom: 2px solid var(--border);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .nav-tab {
+            flex: 1;
+            min-width: 100px;
+            padding: 15px 10px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text-light);
+            transition: var(--transition);
+            position: relative;
+            white-space: nowrap;
+        }
+
+        .nav-tab:hover {
+            background: rgba(67, 97, 238, 0.1);
+            color: var(--primary);
+        }
+
+        .nav-tab.active {
+            color: var(--primary);
+            background: var(--bg-card);
+        }
+
+        .nav-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--primary);
+            border-radius: 2px 2px 0 0;
+        }
+
+        /* ==================== 内容区域 ==================== */
+        .content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: var(--bg-main);
+        }
+
+        .view {
+            display: none;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+        }
+
+        .card-header {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-header::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        /* ==================== 按钮样式 ==================== */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.95rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--secondary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(67, 97, 238, 0.3);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #25a094;
+            transform: translateY(-2px);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-warning:hover:not(:disabled) {
+            background: #d61e71;
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #b91c1c;
+            transform: translateY(-2px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-outline:hover:not(:disabled) {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        /* ==================== 文件上传区域 ==================== */
+        .upload-area {
+            border: 2px dashed var(--primary);
+            border-radius: var(--radius);
+            padding: 40px;
+            text-align: center;
+            background: rgba(67, 97, 238, 0.05);
+            cursor: pointer;
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .upload-area:hover {
+            background: rgba(67, 97, 238, 0.1);
+            border-color: var(--secondary);
+        }
+
+        .upload-area.dragover {
+            background: rgba(67, 97, 238, 0.15);
+            border-color: var(--secondary);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* ==================== 表单元素 ==================== */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: var(--transition);
+            background: var(--bg-card);
+            color: var(--text-dark);
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        }
+
+        /* ==================== 步骤指示器 ==================== */
+        .stepper {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .stepper::before {
+            content: '';
+            position: absolute;
+            top: 15px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--border);
+            z-index: 0;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            margin: 0 auto 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            transition: var(--transition);
+        }
+
+        .step.active .step-circle {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step.completed .step-circle {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+
+        .step-label {
+            font-size: 0.75rem;
+            color: var(--text-light);
+            font-weight: 600;
+        }
+
+        .step.active .step-label {
+            color: var(--primary);
+        }
+
+        /* ==================== 表格预览 ==================== */
+        .table-preview {
+            overflow-x: auto;
+            margin-top: 15px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 300px;
+            background: var(--bg-card);
+        }
+
+        .table-preview table {
+            width: 100%;
+            font-size: 0.85rem;
+            border-collapse: collapse;
+        }
+
+        .table-preview th,
+        .table-preview td {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .table-preview th {
+            background: var(--bg-main);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .table-preview tr:hover {
+            background: rgba(67, 97, 238, 0.05);
+        }
+
+        /* ==================== 标签系统 ==================== */
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .tag {
+            background: var(--accent);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tag.removable {
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .tag.removable:hover {
+            background: var(--warning);
+            transform: scale(1.05);
+        }
+
+        .tag .remove {
+            font-weight: bold;
+            margin-left: 4px;
+        }
+
+        /* ==================== 题目列表 ==================== */
+        .question-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .question-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .question-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .question-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+
+        .question-type {
+            background: var(--primary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .question-text {
+            font-weight: 600;
+            margin-bottom: 8px;
+            line-height: 1.5;
+            color: var(--text-dark);
+        }
+
+        .question-options {
+            color: var(--text-light);
+            font-size: 0.9rem;
+            margin-left: 15px;
+        }
+
+        .question-answer {
+            margin-top: 8px;
+            padding: 8px;
+            background: rgba(46, 196, 182, 0.1);
+            border-left: 3px solid var(--success);
+            border-radius: 4px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .question-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .question-actions .btn {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        /* ==================== 搜索与筛选 ==================== */
+        .search-box {
+            position: relative;
+            margin-bottom: 15px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 40px 12px 15px;
+            border: 2px solid var(--border);
+            border-radius: 25px;
+            font-size: 1rem;
+            transition: var(--transition);
+            background: var(--bg-card);
+            color: var(--text-dark);
+        }
+
+        .search-box input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-light);
+        }
+
+        /* ==================== 统计卡片 ==================== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--primary);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+
+        /* ==================== 提示信息 ==================== */
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: var(--transition);
+        }
+
+        .alert-info {
+            background: rgba(67, 97, 238, 0.1);
+            border-left: 4px solid var(--primary);
+            color: var(--secondary);
+        }
+
+        .alert-success {
+            background: rgba(46, 196, 182, 0.1);
+            border-left: 4px solid var(--success);
+            color: #1a7a70;
+        }
+
+        .alert-warning {
+            background: rgba(247, 37, 133, 0.1);
+            border-left: 4px solid var(--warning);
+            color: #b0185e;
+        }
+
+        .alert-danger {
+            background: rgba(220, 38, 38, 0.1);
+            border-left: 4px solid var(--danger);
+            color: #991b1b;
+        }
+
+        /* ==================== 模态框 ==================== */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal.active {
+            display: flex;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            animation: slideUp 0.3s ease;
+            border: 1px solid var(--border);
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: var(--primary);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-light);
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+
+        .modal-close:hover {
+            background: var(--bg-main);
+            color: var(--text-dark);
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        textarea.form-input {
+            min-height: 120px;
+            resize: vertical;
+            font-family: monospace;
+        }
+
+        /* ==================== 无数据状态 ==================== */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-light);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        /* ==================== 导出选项网格 ==================== */
+        .export-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .export-option {
+            padding: 15px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+            background: var(--bg-card);
+        }
+
+        .export-option:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .export-option .icon {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+
+        .export-option .title {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .export-option .desc {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+
+        /* ==================== 设置面板 ==================== */
+        .settings-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+
+        .theme-option {
+            display: inline-block;
+            padding: 8px 12px;
+            margin: 5px;
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.9rem;
+        }
+
+        .theme-option:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .theme-option.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        /* ==================== 批量控制栏 ==================== */
+        .batch-controls {
+            display: none;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            align-items: center;
+            gap: 15px;
+        }
+
+        .batch-controls.active {
+            display: flex;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from { transform: translateY(-100%); }
+            to { transform: translateY(0); }
+        }
+
+        /* ==================== 响应式设计 ==================== */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 1.4rem;
+            }
+
+            .header-controls {
+                position: static;
+                margin-top: 10px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .container {
+                min-height: 95vh;
+            }
+
+            .nav-tabs {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                z-index: 100;
+                border-top: 2px solid var(--border);
+                border-bottom: none;
+            }
+
+            .content {
+                padding: 15px;
+                padding-bottom: 70px;
+                background: var(--bg-main);
+            }
+
+            .card {
+                padding: 15px;
+            }
+
+            .btn-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .modal-content {
+                max-width: 100%;
+                margin: 0;
+                border-radius: 0;
+                max-height: 100vh;
+            }
+
+            .stepper {
+                overflow-x: auto;
+                padding-bottom: 10px;
+            }
+
+            .step-label {
+                font-size: 0.7rem;
+            }
+
+            .step-circle {
+                width: 25px;
+                height: 25px;
+                font-size: 0.85rem;
+            }
+
+            .batch-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .nav-tabs {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+            }
+
+            .content {
+                padding: 25px;
+            }
+        }
+
+        /* ==================== 加载动画 ==================== */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ==================== 自定义滚动条 ==================== */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-main);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <div class="header-controls">
+                <button class="theme-switcher" onclick="showThemeSelector()" title="切换主题">🎨 主题</button>
+                <button class="theme-switcher" onclick="saveData()" title="手动保存">💾 保存</button>
+                <button class="theme-switcher" onclick="downloadImportTemplate()" title="下载模板">📋 模板</button>
+            </div>
+            <h1>📚 智能学习系统</h1>
+            <p>支持Excel/CSV导入 · 自动分类 · 题库管理 · 多种导出格式</p>
+        </div>
+
+        <!-- 导航 -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="switchTab('import')">📥 导入</button>
+            <button class="nav-tab" onclick="switchTab('browse')">📖 浏览</button>
+            <button class="nav-tab" onclick="switchTab('manage')">⚙️ 管理</button>
+            <button class="nav-tab" onclick="switchTab('export')">📤 导出</button>
+            <button class="nav-tab" onclick="switchTab('anki')">🧠 Anki</button>
+        </div>
+
+        <!-- 批量控制栏 -->
+        <div class="batch-controls" id="batchControls">
+            <div>
+                <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)">
+                <label for="selectAll">全选</label>
+            </div>
+            <span id="selectedCount">已选择 0 项</span>
+            <button class="btn btn-warning" onclick="batchDeleteSelected()">🗑️ 批量删除</button>
+            <button class="btn btn-outline" onclick="exitBatchMode()">取消</button>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="content">
+            <!-- 导入视图 -->
+            <div id="import-view" class="view active">
+                <div class="stepper" id="stepper">
+                    <div class="step active">
+                        <div class="step-circle">1</div>
+                        <div class="step-label">选文件</div>
+                    </div>
+                    <div class="step">
+                        <div class="step-circle">2</div>
+                        <div class="step-label">预览</div>
+                    </div>
+                    <div class="step">
+                        <div class="step-circle">3</div>
+                        <div class="step-label">完成</div>
+                    </div>
+                </div>
+
+                <!-- 步骤1: 文件选择 -->
+                <div id="step1" class="card">
+                    <div class="card-header">步骤 1: 选择文件</div>
+                    <div class="alert alert-info">
+                        ⚠️ <strong>必须包含表头</strong>（第一行标题行）。支持.xlsx, .xls, .csv格式。
+                    </div>
+                    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                        <div class="upload-icon">📁</div>
+                        <div><strong>点击选择文件</strong> 或将文件拖拽到此处</div>
+                        <div class="format-hint">
+                            支持 <strong>.xlsx</strong>、<strong>.xls</strong>、<strong>.csv</strong> 格式
+                        </div>
+                    </div>
+                    <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event)">
+                    
+                    <div class="btn-group" style="margin-top: 20px;">
+                        <button class="btn btn-outline" onclick="loadDemoData()">📂 加载演示数据</button>
+                        <button class="btn btn-outline" onclick="downloadImportTemplate()">📋 下载导入模板</button>
+                    </div>
+                </div>
+
+                <!-- 步骤2: 数据预览 -->
+                <div id="step2" class="card" style="display: none;">
+                    <div class="card-header">步骤 2: 数据预览</div>
+                    <div id="dataPreview" class="table-preview"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline" onclick="prevStep()">上一步</button>
+                        <button class="btn btn-primary" onclick="nextStep()">下一步</button>
+                    </div>
+                </div>
+
+                <!-- 步骤3: 完成 -->
+                <div id="step3" class="card" style="display: none;">
+                    <div class="card-header">步骤 3: 导入完成</div>
+                    <div class="alert alert-success">
+                        ✅ 数据导入成功！
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalQuestions">0</div>
+                            <div class="stat-label">总题目数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="importedQuestions">0</div>
+                            <div class="stat-label">导入题目数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="skippedQuestions">0</div>
+                            <div class="stat-label">跳过题目数</div>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline" onclick="prevStep()">上一步</button>
+                        <button class="btn btn-primary" onclick="switchTab('browse')">查看题目</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 浏览视图 -->
+            <div id="browse-view" class="view">
+                <div class="card">
+                    <div class="card-header">题目浏览</div>
+                    <div class="search-box">
+                        <input type="text" placeholder="搜索题目..." onkeyup="searchQuestions(this.value)">
+                        <div class="search-icon">
+                            <i class="fas fa-search"></i>
+                        </div>
+                    </div>
+                    <div class="question-list" id="questionList">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📝</div>
+                            <h3>暂无题目</h3>
+                            <p>请先导入题目数据</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 管理视图 -->
+            <div id="manage-view" class="view">
+                <div class="card">
+                    <div class="card-header">题库管理</div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="clearAllData()">🗑️ 清空所有数据</button>
+                        <button class="btn btn-outline" onclick="exportAllData()">📤 导出所有数据</button>
+                        <button class="btn btn-outline" onclick="importFromBackup()">📥 从备份导入</button>
+                    </div>
+                    <div class="stats-grid" style="margin-top: 20px;">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalStats">0</div>
+                            <div class="stat-label">总题目数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="typeStats">0</div>
+                            <div class="stat-label">题型数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="backupStats">0</div>
+                            <div class="stat-label">备份数</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导出视图 -->
+            <div id="export-view" class="view">
+                <div class="card">
+                    <div class="card-header">导出数据</div>
+                    <div class="export-grid">
+                        <div class="export-option" onclick="exportAs('csv')">
+                            <div class="icon">📊</div>
+                            <div class="title">CSV格式</div>
+                            <div class="desc">逗号分隔值</div>
+                        </div>
+                        <div class="export-option" onclick="exportAs('json')">
+                            <div class="icon">📄</div>
+                            <div class="title">JSON格式</div>
+                            <div class="desc">结构化数据</div>
+                        </div>
+                        <div class="export-option" onclick="exportAs('anki')">
+                            <div class="icon">🧠</div>
+                            <div class="title">Anki格式</div>
+                            <div class="desc">Anki记忆卡片</div>
+                        </div>
+                        <div class="export-option" onclick="exportAs('excel')">
+                            <div class="icon">📅</div>
+                            <div class="title">Excel格式</div>
+                            <div class="desc">.xlsx文件</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Anki视图 -->
+            <div id="anki-view" class="view">
+                <div class="card">
+                    <div class="card-header">Anki记忆卡片</div>
+                    <div class="alert alert-info">
+                        📚 Anki是一款强大的记忆软件，可以帮助你更有效地学习和记忆知识点。
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">卡片样式</label>
+                        <select class="form-select" id="cardStyle">
+                            <option value="basic">基础卡片</option>
+                            <option value="cloze">填空卡片</option>
+                            <option value="reverse">正反面卡片</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">导出选项</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="checkbox" id="includeImages" checked>
+                            <label for="includeImages">包含图片</label>
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                            <input type="checkbox" id="includeAudio" checked>
+                            <label for="includeAudio">包含音频</label>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="generateAnkiCards()">🎯 生成Anki卡片</button>
+                        <button class="btn btn-outline" onclick="downloadAnkiTemplate()">📋 下载模板</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主题选择模态框 -->
+    <div class="modal" id="themeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>选择主题</h3>
+                <button class="modal-close" onclick="closeThemeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-panel">
+                    <h4>主题选项</h4>
+                    <div style="margin-top: 15px;">
+                        <div class="theme-option active" onclick="setTheme('default')">默认主题</div>
+                        <div class="theme-option" onclick="setTheme('dark')">深色主题</div>
+                        <div class="theme-option" onclick="setTheme('eye-care')">护眼主题</div>
+                        <div class="theme-option" onclick="setTheme('ocean')">海洋主题</div>
+                        <div class="theme-option" onclick="setTheme('forest')">森林主题</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeThemeModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./js/script.js"></script>
+    <script>
+        // 全局变量
+        let currentStep = 1;
+        let selectedQuestions = [];
+        let questions = [];
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadQuestions();
+            updateStats();
+        });
+
+        // 切换标签页
+        function switchTab(tabId) {
+            // 隐藏所有视图
+            document.querySelectorAll('.view').forEach(view => {
+                view.classList.remove('active');
+            });
+            
+            // 显示选中的视图
+            document.getElementById(`${tabId}-view`).classList.add('active');
+            
+            // 更新导航标签
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // 如果切换到浏览视图，加载题目
+            if (tabId === 'browse') {
+                loadQuestions();
+            }
+            
+            // 如果切换到管理视图，更新统计信息
+            if (tabId === 'manage') {
+                updateStats();
+            }
+        }
+
+        // 显示主题选择器
+        function showThemeSelector() {
+            document.getElementById('themeModal').classList.add('active');
+        }
+
+        // 关闭主题选择器
+        function closeThemeModal() {
+            document.getElementById('themeModal').classList.remove('active');
+        }
+
+        // 设置主题
+        function setTheme(theme) {
+            document.body.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            
+            // 更新主题选项的活跃状态
+            document.querySelectorAll('.theme-option').forEach(option => {
+                option.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        // 处理文件选择
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // 这里可以添加文件处理逻辑
+                alert(`文件选择成功: ${file.name}`);
+                nextStep();
+            }
+        }
+
+        // 加载演示数据
+        function loadDemoData() {
+            // 模拟演示数据
+            questions = [
+                {
+                    id: 1,
+                    type: '选择题',
+                    content: 'HTML中，以下哪个标签用于创建超链接？',
+                    options: ['A. <link>', 'B. <a>', 'C. <href>', 'D. <url>'],
+                    answer: 'B'
+                },
+                {
+                    id: 2,
+                    type: '判断题',
+                    content: 'CSS中的flexbox布局可以实现响应式设计。',
+                    options: [],
+                    answer: '√'
+                },
+                {
+                    id: 3,
+                    type: '填空题',
+                    content: 'JavaScript中，______方法用于向数组末尾添加元素。',
+                    options: [],
+                    answer: 'push'
+                }
+            ];
+            
+            // 保存到本地存储
+            localStorage.setItem('questions', JSON.stringify(questions));
+            
+            nextStep();
+        }
+
+        // 下一步
+        function nextStep() {
+            if (currentStep < 3) {
+                // 隐藏当前步骤
+                document.getElementById(`step${currentStep}`).style.display = 'none';
+                
+                // 增加步骤
+                currentStep++;
+                
+                // 显示下一步
+                document.getElementById(`step${currentStep}`).style.display = 'block';
+                
+                // 更新步骤指示器
+                updateStepper();
+                
+                // 如果是最后一步，更新统计信息
+                if (currentStep === 3) {
+                    document.getElementById('totalQuestions').textContent = questions.length;
+                    document.getElementById('importedQuestions').textContent = questions.length;
+                    document.getElementById('skippedQuestions').textContent = 0;
+                }
+            }
+        }
+
+        // 上一步
+        function prevStep() {
+            if (currentStep > 1) {
+                // 隐藏当前步骤
+                document.getElementById(`step${currentStep}`).style.display = 'none';
+                
+                // 减少步骤
+                currentStep--;
+                
+                // 显示上一步
+                document.getElementById(`step${currentStep}`).style.display = 'block';
+                
+                // 更新步骤指示器
+                updateStepper();
+            }
+        }
+
+        // 更新步骤指示器
+        function updateStepper() {
+            const steps = document.querySelectorAll('.step');
+            steps.forEach((step, index) => {
+                const stepNum = index + 1;
+                if (stepNum < currentStep) {
+                    step.classList.add('completed');
+                    step.classList.remove('active');
+                } else if (stepNum === currentStep) {
+                    step.classList.add('active');
+                    step.classList.remove('completed');
+                } else {
+                    step.classList.remove('active', 'completed');
+                }
+            });
+        }
+
+        // 加载题目
+        function loadQuestions() {
+            const storedQuestions = localStorage.getItem('questions');
+            if (storedQuestions) {
+                questions = JSON.parse(storedQuestions);
+                renderQuestions();
+            } else {
+                // 显示空状态
+                document.getElementById('questionList').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <h3>暂无题目</h3>
+                        <p>请先导入题目数据</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 渲染题目
+        function renderQuestions() {
+            const questionList = document.getElementById('questionList');
+            
+            if (questions.length === 0) {
+                questionList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <h3>暂无题目</h3>
+                        <p>请先导入题目数据</p>
+                    </div>
+                `;
+                return;
+            }
+
+            questionList.innerHTML = questions.map(question => `
+                <div class="question-item">
+                    <div class="question-header">
+                        <span class="question-type">${question.type}</span>
+                        <span class="question-id">ID: ${question.id}</span>
+                    </div>
+                    <div class="question-text">${question.content}</div>
+                    ${question.options.length > 0 ? `
+                        <div class="question-options">
+                            ${question.options.map(option => `<div>${option}</div>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div class="question-answer">正确答案: ${question.answer}</div>
+                    <div class="question-actions">
+                        <button class="btn btn-outline" onclick="editQuestion(${question.id})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion(${question.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 搜索题目
+        function searchQuestions(keyword) {
+            const filteredQuestions = questions.filter(question => 
+                question.content.toLowerCase().includes(keyword.toLowerCase()) ||
+                question.answer.toLowerCase().includes(keyword.toLowerCase())
+            );
+            
+            const questionList = document.getElementById('questionList');
+            
+            if (filteredQuestions.length === 0) {
+                questionList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <h3>未找到匹配的题目</h3>
+                        <p>请尝试其他关键词</p>
+                    </div>
+                `;
+                return;
+            }
+
+            questionList.innerHTML = filteredQuestions.map(question => `
+                <div class="question-item">
+                    <div class="question-header">
+                        <span class="question-type">${question.type}</span>
+                        <span class="question-id">ID: ${question.id}</span>
+                    </div>
+                    <div class="question-text">${question.content}</div>
+                    ${question.options.length > 0 ? `
+                        <div class="question-options">
+                            ${question.options.map(option => `<div>${option}</div>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div class="question-answer">正确答案: ${question.answer}</div>
+                    <div class="question-actions">
+                        <button class="btn btn-outline" onclick="editQuestion(${question.id})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion(${question.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 编辑题目
+        function editQuestion(id) {
+            alert(`编辑题目 ID: ${id}`);
+            // 这里可以添加编辑逻辑
+        }
+
+        // 删除题目
+        function deleteQuestion(id) {
+            if (confirm('确定要删除这个题目吗？')) {
+                questions = questions.filter(question => question.id !== id);
+                localStorage.setItem('questions', JSON.stringify(questions));
+                loadQuestions();
+                updateStats();
+            }
+        }
+
+        // 批量删除选中的题目
+        function batchDeleteSelected() {
+            if (selectedQuestions.length === 0) {
+                alert('请先选择要删除的题目');
+                return;
+            }
+            
+            if (confirm(`确定要删除选中的 ${selectedQuestions.length} 个题目吗？`)) {
+                questions = questions.filter(question => !selectedQuestions.includes(question.id));
+                localStorage.setItem('questions', JSON.stringify(questions));
+                loadQuestions();
+                updateStats();
+                exitBatchMode();
+            }
+        }
+
+        // 切换全选
+        function toggleSelectAll(checked) {
+            selectedQuestions = checked ? questions.map(q => q.id) : [];
+            updateSelectedCount();
+        }
+
+        // 更新选中计数
+        function updateSelectedCount() {
+            document.getElementById('selectedCount').textContent = `已选择 ${selectedQuestions.length} 项`;
+        }
+
+        // 退出批量模式
+        function exitBatchMode() {
+            document.getElementById('batchControls').classList.remove('active');
+            selectedQuestions = [];
+            updateSelectedCount();
+        }
+
+        // 下载导入模板
+        function downloadImportTemplate() {
+            alert('下载导入模板');
+            // 这里可以添加下载逻辑
+        }
+
+        // 保存数据
+        function saveData() {
+            localStorage.setItem('questions', JSON.stringify(questions));
+            alert('数据保存成功！');
+        }
+
+        // 清空所有数据
+        function clearAllData() {
+            if (confirm('确定要清空所有数据吗？此操作不可恢复！')) {
+                localStorage.removeItem('questions');
+                questions = [];
+                loadQuestions();
+                updateStats();
+                alert('所有数据已清空');
+            }
+        }
+
+        // 导出所有数据
+        function exportAllData() {
+            alert('导出所有数据');
+            // 这里可以添加导出逻辑
+        }
+
+        // 从备份导入
+        function importFromBackup() {
+            alert('从备份导入');
+            // 这里可以添加导入逻辑
+        }
+
+        // 导出为指定格式
+        function exportAs(format) {
+            alert(`导出为 ${format} 格式`);
+            // 这里可以添加导出逻辑
+        }
+
+        // 生成Anki卡片
+        function generateAnkiCards() {
+            alert('生成Anki卡片');
+            // 这里可以添加生成逻辑
+        }
+
+        // 下载Anki模板
+        function downloadAnkiTemplate() {
+            alert('下载Anki模板');
+            // 这里可以添加下载逻辑
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            const totalQuestions = questions.length;
+            const uniqueTypes = [...new Set(questions.map(q => q.type))].length;
+            const backupCount = localStorage.getItem('backups') ? JSON.parse(localStorage.getItem('backups')).length : 0;
+            
+            document.getElementById('totalStats').textContent = totalQuestions;
+            document.getElementById('typeStats').textContent = uniqueTypes;
+            document.getElementById('backupStats').textContent = backupCount;
+        }
+
+        // 初始化主题
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'default';
+            document.body.setAttribute('data-theme', savedTheme);
+        }
+
+        // 初始化
+        initTheme();
+    </script>
+</body>
+</html>

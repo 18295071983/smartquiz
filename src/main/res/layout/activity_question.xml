@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.QuestionActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="0dp">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="@string/question_management"
+            app:titleTextColor="@color/text_primary"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/surface"
+        android:elevation="4dp">
+
+        <androidx.appcompat.widget.SearchView
+            android:id="@+id/searchView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:queryHint="搜索题目"
+            android:layout_marginEnd="8dp"
+            android:background="@color/surface_variant"/>
+
+        <Spinner
+            android:id="@+id/spinner_question_type"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@color/surface_variant"/>
+
+        <Spinner
+            android:id="@+id/spinner_difficulty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@color/surface_variant"/>
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/questionListView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/surface"
+        android:elevation="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_toggle_view"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="切换视图"
+            android:textAllCaps="false"
+            android:textColor="@color/on_secondary"
+            app:backgroundTint="@color/secondary"
+            app:cornerRadius="12dp"
+            android:layout_marginEnd="4dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_toggle_answer"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="显示答案"
+            android:textAllCaps="false"
+            android:textColor="@color/on_secondary"
+            app:backgroundTint="@color/secondary"
+            app:cornerRadius="12dp"
+            android:layout_marginEnd="4dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_refresh"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/refresh_data"
+            android:textAllCaps="false"
+            android:textColor="@color/on_primary"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="12dp"
+            android:layout_marginEnd="4dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_frontend_view"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/frontend_render"
+            android:textAllCaps="false"
+            android:textColor="@color/on_primary"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="12dp"
+            android:layout_marginEnd="4dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_clear_all"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/delete"
+            android:textAllCaps="false"
+            android:textColor="@color/on_error"
+            app:backgroundTint="@color/error"
+            app:cornerRadius="12dp"/>
+
+    </LinearLayout>
+
+</LinearLayout>

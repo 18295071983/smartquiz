@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.WrongQuestionActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="0dp">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="错题本"
+            app:titleTextColor="@color/on_surface"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            
+            <!-- 统计卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/secondary_container"
+                app:cardCornerRadius="16dp"
+                android:layout_marginBottom="20dp">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="20dp">
+                    
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_error"
+                        android:tint="@color/on_secondary_container"
+                        android:layout_marginEnd="16dp" />
+                    
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="错题统计"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_secondary_container"
+                            android:layout_marginBottom="4dp" />
+                        
+                        <TextView
+                            android:id="@+id/statsTextView"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="共 0 道错题"
+                            android:textSize="14sp"
+                            android:textColor="@color/on_secondary_container" />
+                        
+                    </LinearLayout>
+                    
+                </LinearLayout>
+                
+            </com.google.android.material.card.MaterialCardView>
+            
+            <!-- 操作按钮 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="20dp">
+                
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardViewReviewAll"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    app:cardElevation="2dp"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="12dp"
+                    android:layout_marginEnd="8dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="20dp">
+                        
+                        <ImageView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:src="@drawable/ic_quiz"
+                            android:tint="@color/primary"
+                            android:layout_marginBottom="8dp" />
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="复习全部"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_surface" />
+                        
+                    </LinearLayout>
+                    
+                </com.google.android.material.card.MaterialCardView>
+                
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardViewClearAll"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    app:cardElevation="2dp"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="12dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="20dp">
+                        
+                        <ImageView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:src="@drawable/ic_error"
+                            android:tint="@color/error"
+                            android:layout_marginBottom="8dp" />
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="清空全部"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_surface" />
+                        
+                    </LinearLayout>
+                    
+                </com.google.android.material.card.MaterialCardView>
+                
+            </LinearLayout>
+            
+            <!-- 错题列表标题 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="错题列表"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/on_surface"
+                android:layout_marginBottom="12dp" />
+            
+        </LinearLayout>
+        
+    </ScrollView>
+
+    <!-- 错题列表 -->
+    <ListView
+        android:id="@+id/lv_wrong_questions"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="12dp"
+        android:clipToPadding="false" />
+
+</LinearLayout>

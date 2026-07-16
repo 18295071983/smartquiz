@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+
+        <TextView
+            android:id="@+id/tool_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:layout_marginEnd="4dp" />
+
+        <TextView
+            android:id="@+id/tool_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@color/tool_call_label"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tool_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="@color/tool_call_label" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tool_params"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/tool_call_background"
+        android:padding="10dp"
+        android:textColor="@color/tool_call_text"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/tool_result_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="4dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📊 执行结果"
+            android:textSize="11sp"
+            android:textColor="@color/tool_call_label"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:id="@+id/tool_result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/tool_call_result_background"
+            android:padding="10dp"
+            android:textColor="@color/tool_call_text"
+            android:textSize="13sp"
+            android:maxLines="5"
+            android:ellipsize="end" />
+
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/tool_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="0"
+        android:visibility="gone" />
+
+</LinearLayout>

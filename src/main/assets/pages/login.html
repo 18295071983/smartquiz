@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .login-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+        
+        .login-header p {
+            color: var(--text-medium);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-light);
+            color: var(--text-dark);
+            font-size: 1rem;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+        
+        .form-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .remember-me {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .remember-me input {
+            width: auto;
+        }
+        
+        .forgot-password {
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .forgot-password:hover {
+            text-decoration: underline;
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-bottom: 20px;
+        }
+        
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .register-link {
+            text-align: center;
+        }
+        
+        .register-link a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .social-login {
+            margin: 30px 0;
+            text-align: center;
+        }
+        
+        .social-login h3 {
+            color: var(--text-medium);
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .social-login h3::before,
+        .social-login h3::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 30%;
+            height: 1px;
+            background: var(--border);
+        }
+        
+        .social-login h3::before {
+            left: 0;
+        }
+        
+        .social-login h3::after {
+            right: 0;
+        }
+        
+        .social-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        .social-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--bg-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .social-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .error-message {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c00;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <main class="login-container">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>SmartQuiz</h1>
+                    <p>登录您的账户</p>
+                </div>
+                
+                <div class="error-message" id="errorMessage"></div>
+                
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">用户名</label>
+                        <input type="text" id="username" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">密码</label>
+                        <input type="password" id="password" required>
+                    </div>
+                    
+                    <div class="form-options">
+                        <div class="remember-me">
+                            <input type="checkbox" id="remember">
+                            <label for="remember">记住我</label>
+                        </div>
+                        <a href="#" class="forgot-password">忘记密码？</a>
+                    </div>
+                    
+                    <button type="submit" class="login-btn">登录</button>
+                </form>
+                
+                <div class="social-login">
+                    <h3>或使用以下方式登录</h3>
+                    <div class="social-buttons">
+                        <div class="social-btn">
+                            <i class="fab fa-weixin"></i>
+                        </div>
+                        <div class="social-btn">
+                            <i class="fab fa-qq"></i>
+                        </div>
+                        <div class="social-btn">
+                            <i class="fab fa-weibo"></i>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="register-link">
+                    还没有账户？ <a href="register.html">立即注册</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="./js/script.js"></script>
+    <script src="./js/pages/login.js"></script>
+</body>
+</html>

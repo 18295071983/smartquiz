@@ -1,0 +1,5 @@
+package com.oilquiz.app.ai.gpu;
+
+public enum GpuSeries {
+    ADRENO_700, ADRENO_600, ADRENO_500, IMMORTALIS_G700, MALI_G700, MALI_G600, MALI_G500, XCLIPSE_900, VIVANTE, UNKNOWN
+}

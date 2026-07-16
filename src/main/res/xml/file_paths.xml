@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 外部存储路径 -->
+    <external-files-path name="external_files" path="." />
+    <!-- 缓存路径 -->
+    <cache-path name="cache_files" path="." />
+    <!-- 内部存储路径 -->
+    <files-path name="files_files" path="." />
+    <!-- 外部存储公共路径 -->
+    <external-path name="external_storage" path="." />
+</paths>

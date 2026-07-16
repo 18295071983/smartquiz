@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <!-- 标题 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🌐 在线模型"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:paddingVertical="8dp"/>
+
+    <!-- 在线模型列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_online_models"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+    <!-- 添加按钮 -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_add_online"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="+ 添加 API 配置"
+        android:textSize="13sp"
+        app:icon="@drawable/ic_add"
+        app:iconSize="18dp"
+        app:cornerRadius="20dp"/>
+
+</LinearLayout>

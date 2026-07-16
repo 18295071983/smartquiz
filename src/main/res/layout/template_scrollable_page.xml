@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:overScrollMode="always"
+    android:scrollbars="vertical"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 页面标题区域 -->
+        <TextView
+            android:id="@+id/page_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.App.Headline3"
+            android:textColor="@color/text_primary"
+            android:paddingBottom="8dp" />
+
+        <!-- 副标题区域 -->
+        <TextView
+            android:id="@+id/page_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.App.Body2"
+            android:textColor="@color/text_secondary"
+            android:paddingBottom="16dp" />
+
+        <!-- 内容区域 -->
+        <LinearLayout
+            android:id="@+id/content_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 动态内容将在这里添加 -->
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="button_height_small">36dp</dimen>
+    <dimen name="spacing_8">8dp</dimen>
+    <dimen name="spacing_12">12dp</dimen>
+    <dimen name="spacing_16">16dp</dimen>
+    <dimen name="radio_button_margin_bottom">8dp</dimen>
+    <dimen name="card_corner_radius_small">8dp</dimen>
+    <dimen name="elevation_small">4dp</dimen>
+    <dimen name="elevation_medium">8dp</dimen>
+    <dimen name="divider_height">1dp</dimen>
+</resources>

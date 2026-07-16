@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/textViewHeaders"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="检测到的表头："
+        android:textSize="14sp"
+        android:lineSpacingExtra="4sp"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="默认映射将使用检测到的表头信息进行导入。如果检测到的映射不正确，请选择手动配置。"
+        android:textSize="14sp"
+        android:lineSpacingExtra="4sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="如果未检测到表头，系统将尝试使用默认列顺序进行导入。"
+        android:textSize="14sp"
+        android:lineSpacingExtra="4sp" />
+
+</LinearLayout>

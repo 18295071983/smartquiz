@@ -1,0 +1,71 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导入文件 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SmartQuiz</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+        </header>
+        
+        <main>
+            <section class="import-section">
+                <h2>导入文件</h2>
+                
+                <div class="import-options">
+                    <div class="import-card">
+                        <div class="import-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <h3>CSV文件</h3>
+                        <p>导入CSV格式的题目数�?/p>
+                        <input type="file" id="csv-file" accept=".csv">
+                        <button id="import-csv-btn" class="btn-primary">导入</button>
+                    </div>
+                    
+                    <div class="import-card">
+                        <div class="import-icon">
+                            <i class="fas fa-file-excel"></i>
+                        </div>
+                        <h3>Excel文件</h3>
+                        <p>导入Excel格式的题目数�?/p>
+                        <input type="file" id="excel-file" accept=".xlsx, .xls">
+                        <button id="import-excel-btn" class="btn-primary">导入</button>
+                    </div>
+                    
+                    <div class="import-card">
+                        <div class="import-icon">
+                            <i class="fas fa-file-json"></i>
+                        </div>
+                        <h3>JSON文件</h3>
+                        <p>导入JSON格式的题目数�?/p>
+                        <input type="file" id="json-file" accept=".json">
+                        <button id="import-json-btn" class="btn-primary">导入</button>
+                    </div>
+                </div>
+                
+                <div class="import-history">
+                    <h3>导入历史</h3>
+                    <div id="import-history-list" class="history-list">
+                        <!-- 导入历史将通过JavaScript动态添�?-->
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

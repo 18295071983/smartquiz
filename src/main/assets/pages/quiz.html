@@ -1,0 +1,88 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开始测�?- SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>开始测�?/h1>
+            </div>
+        </header>
+        
+        <main>
+            <div class="quiz-info">
+                <div class="quiz-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 33%;"></div>
+                    </div>
+                    <p>�?1 �?/ �?3 �?/p>
+                </div>
+                <div class="quiz-timer">
+                    <i class="fas fa-clock"></i>
+                    <span>00:00</span>
+                </div>
+            </div>
+            
+            <div class="quiz-question">
+                <div class="question-header">
+                    <span class="question-type">选择�?/span>
+                    <span class="question-difficulty medium">中等</span>
+                </div>
+                <div class="question-content">
+                    <h3>1. 以下哪种CSS选择器的优先级最高？</h3>
+                    <ul class="options">
+                        <li>
+                            <input type="radio" id="option1" name="answer" value="A">
+                            <label for="option1">A. 类选择�?(.class)</label>
+                        </li>
+                        <li>
+                            <input type="radio" id="option2" name="answer" value="B">
+                            <label for="option2">B. ID选择�?(#id)</label>
+                        </li>
+                        <li>
+                            <input type="radio" id="option3" name="answer" value="C">
+                            <label for="option3">C. 标签选择�?(tag)</label>
+                        </li>
+                        <li>
+                            <input type="radio" id="option4" name="answer" value="D">
+                            <label for="option4">D. 伪类选择�?(:hover)</label>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="quiz-navigation">
+                <button class="btn-secondary" disabled>上一�?/button>
+                <button class="btn-primary">下一�?/button>
+            </div>
+            
+            <div class="quiz-controls">
+                <button class="btn-secondary">
+                    <i class="fas fa-flag"></i> 标记此题
+                </button>
+                <button class="btn-secondary">
+                    <i class="fas fa-list"></i> 题目列表
+                </button>
+                <button class="btn-secondary">
+                    <i class="fas fa-pause"></i> 暂停
+                </button>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>

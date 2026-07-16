@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <!-- 导入设置标题 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="导入选项"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="?attr/colorOnSurface"
+        android:layout_marginBottom="16dp" />
+
+    <!-- 自动修正空单元格 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/checkBoxAutoCorrect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="false"
+            app:trackTint="@color/secondary"
+            app:thumbTint="@color/primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="自动修正空单元格"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 跳过空题目 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/checkBoxSkipEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="false"
+            app:trackTint="@color/secondary"
+            app:thumbTint="@color/primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="跳过空题目"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginLeft="12dp" />
+
+    </LinearLayout>
+
+    <!-- 默认题型 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认题型"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="4dp" />
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/editTextQuestionType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="未识别的题型"
+            android:textColor="?attr/colorOnSurface"
+            android:inputType="text"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp" />
+    </LinearLayout>
+
+    <!-- 默认难度 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认难度"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginBottom="4dp" />
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/editTextDifficulty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="难度未识别"
+            android:textColor="?attr/colorOnSurface"
+            android:inputType="text"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp" />
+    </LinearLayout>
+
+    <!-- 默认题目 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认题目"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="4dp" />
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/editTextQuestion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="数据题目为空"
+            android:textColor="?attr/colorOnSurface"
+            android:inputType="text"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp" />
+    </LinearLayout>
+
+    <!-- 默认选项 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认选项"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="4dp" />
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/editTextOption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="选项为空"
+            android:textColor="?attr/colorOnSurface"
+            android:inputType="text"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp" />
+    </LinearLayout>
+
+    <!-- 默认答案 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认答案"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="4dp" />
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/editTextAnswer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="答案为空"
+            android:textColor="?attr/colorOnSurface"
+            android:inputType="text"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp" />
+    </LinearLayout>
+
+</LinearLayout>

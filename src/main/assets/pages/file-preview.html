@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件预览 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* 文件预览样式 */
+        .file-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .file-item {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            transition: var(--transition);
+            cursor: pointer;
+        }
+        
+        .file-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            border-color: var(--primary);
+        }
+        
+        .file-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+        
+        .file-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .file-info {
+            font-size: 0.8rem;
+            color: var(--text-light);
+        }
+        
+        .preview-container {
+            margin-top: 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            background: var(--bg-card);
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .preview-content {
+            text-align: center;
+        }
+        
+        .preview-placeholder {
+            font-size: 3rem;
+            color: var(--text-light);
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <button class="back-button" onclick="navigateTo('index.html')">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1>文件预览</h1>
+            </div>
+        </header>
+        
+        <main>
+            <div class="card">
+                <div class="card-header">文件列表</div>
+                <div class="file-list" id="fileList">
+                    <!-- 文件项将通过JavaScript动态生成 -->
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">预览内容</div>
+                <div class="preview-container" id="previewContainer">
+                    <div class="preview-content">
+                        <div class="preview-placeholder">📄</div>
+                        <p>选择文件以预览内容</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+    <script>
+        // 模拟文件数据
+        const files = [
+            {
+                id: 1,
+                name: '数学公式.pdf',
+                type: 'pdf',
+                size: '2.5MB',
+                modified: '2026-03-15'
+            },
+            {
+                id: 2,
+                name: '英语单词表.xlsx',
+                type: 'excel',
+                size: '1.8MB',
+                modified: '2026-03-14'
+            },
+            {
+                id: 3,
+                name: '历史知识点.md',
+                type: 'markdown',
+                size: '0.5MB',
+                modified: '2026-03-13'
+            },
+            {
+                id: 4,
+                name: '物理实验报告.docx',
+                type: 'word',
+                size: '3.2MB',
+                modified: '2026-03-12'
+            },
+            {
+                id: 5,
+                name: '化学元素周期表.png',
+                type: 'image',
+                size: '1.2MB',
+                modified: '2026-03-11'
+            },
+            {
+                id: 6,
+                name: '编程代码.py',
+                type: 'code',
+                size: '0.8MB',
+                modified: '2026-03-10'
+            }
+        ];
+
+        // 获取文件图标
+        function getFileIcon(type) {
+            const icons = {
+                pdf: 'fas fa-file-pdf',
+                excel: 'fas fa-file-excel',
+                markdown: 'fas fa-file-alt',
+                word: 'fas fa-file-word',
+                image: 'fas fa-file-image',
+                code: 'fas fa-file-code'
+            };
+            return icons[type] || 'fas fa-file';
+        }
+
+        // 渲染文件列表
+        function renderFileList() {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = files.map(file => `
+                <div class="file-item" onclick="previewFile(${file.id})">
+                    <div class="file-icon">
+                        <i class="${getFileIcon(file.type)}"></i>
+                    </div>
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-info">
+                        <div>${file.size}</div>
+                        <div>${file.modified}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 预览文件
+        function previewFile(fileId) {
+            const file = files.find(f => f.id === fileId);
+            const previewContainer = document.getElementById('previewContainer');
+            
+            previewContainer.innerHTML = `
+                <div class="preview-content">
+                    <div class="file-icon" style="font-size: 4rem;">
+                        <i class="${getFileIcon(file.type)}"></i>
+                    </div>
+                    <h3>${file.name}</h3>
+                    <p>文件类型: ${getFileType(file.type)}</p>
+                    <p>文件大小: ${file.size}</p>
+                    <p>修改日期: ${file.modified}</p>
+                    <div style="margin-top: 20px;">
+                        <button class="btn btn-primary" onclick="downloadFile(${file.id})">
+                            <i class="fas fa-download"></i> 下载文件
+                        </button>
+                        <button class="btn btn-outline" onclick="shareFile(${file.id})">
+                            <i class="fas fa-share-alt"></i> 分享文件
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 获取文件类型描述
+        function getFileType(type) {
+            const types = {
+                pdf: 'PDF文档',
+                excel: 'Excel表格',
+                markdown: 'Markdown文档',
+                word: 'Word文档',
+                image: '图片文件',
+                code: '代码文件'
+            };
+            return types[type] || '未知类型';
+        }
+
+        // 下载文件
+        function downloadFile(fileId) {
+            const file = files.find(f => f.id === fileId);
+            alert(`下载文件: ${file.name}`);
+        }
+
+        // 分享文件
+        function shareFile(fileId) {
+            const file = files.find(f => f.id === fileId);
+            alert(`分享文件: ${file.name}`);
+        }
+
+        // 页面加载完成后渲染文件列表
+        document.addEventListener('DOMContentLoaded', function() {
+            renderFileList();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导航测试 - SmartQuiz</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>导航测试</h1>
+            <button class="back-button" onclick="navigateTo('index.html')">
+                <i class="fas fa-arrow-left"></i> 返回首页
+            </button>
+        </header>
+        
+        <main>
+            <section class="test-section">
+                <h2>页面导航测试</h2>
+                
+                <div class="test-categories">
+                    <div class="test-category">
+                        <h3>学习管理</h3>
+                        <div class="test-buttons">
+                            <button class="test-btn" onclick="navigateTo('question.html')">
+                                <i class="fas fa-question-circle"></i> 题目管理
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('quiz.html')">
+                                <i class="fas fa-pencil-alt"></i> 开始测�?                            </button>
+                            <button class="test-btn" onclick="navigateTo('study-plan.html')">
+                                <i class="fas fa-calendar-alt"></i> 学习计划
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('wrong-question.html')">
+                                <i class="fas fa-times-circle"></i> 错题�?                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="test-category">
+                        <h3>工具</h3>
+                        <div class="test-buttons">
+                            <button class="test-btn" onclick="navigateTo('ocr.html')">
+                                <i class="fas fa-eye"></i> OCR识别
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('ai-chat.html')">
+                                <i class="fas fa-robot"></i> AI助手
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('import.html')">
+                                <i class="fas fa-file-import"></i> 导入文件
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('export.html')">
+                                <i class="fas fa-file-export"></i> 数据导出
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('note.html')">
+                                <i class="fas fa-sticky-note"></i> 学习笔记
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('backup.html')">
+                                <i class="fas fa-database"></i> 数据备份
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="test-category">
+                        <h3>设置</h3>
+                        <div class="test-buttons">
+                            <button class="test-btn" onclick="navigateTo('user.html')">
+                                <i class="fas fa-user"></i> 用户管理
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('theme.html')">
+                                <i class="fas fa-palette"></i> 主题设置
+                            </button>
+                            <button class="test-btn" onclick="navigateTo('language.html')">
+                                <i class="fas fa-language"></i> 语言设置
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="test-category">
+                        <h3>测试</h3>
+                        <div class="test-buttons">
+                            <button class="test-btn" onclick="navigateTo('environment.html')">
+                                <i class="fas fa-microchip"></i> 环境检�?                            </button>
+                            <button class="test-btn" onclick="navigateTo('test.html')">
+                                <i class="fas fa-vial"></i> 测试按钮
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 SmartQuiz</p>
+        </footer>
+    </div>
+    
+    <script src="./js/script.js"></script>
+</body>
+</html>
+
