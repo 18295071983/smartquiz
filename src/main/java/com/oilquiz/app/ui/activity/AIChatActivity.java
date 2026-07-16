@@ -3137,471 +3137,49 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void registerAIStatusObserver() {
-        if (aiService == null) return;
-        aiStatusObserver = new AIService.DetailedStatusObserver() {
-            @Override
-            public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
-                runOnUiThread(() -> handleAIStatusChange(stage, message, progress, elapsedMs));
-            }
-            @Override
-            public void onError(String errorMessage) {
-                runOnUiThread(() -> handleAIServiceError(errorMessage));
-            }
-            @Override
-            public void onInitialized(String modelName, long loadTimeMs) {
-                runOnUiThread(() -> handleAIServiceInitialized(modelName, loadTimeMs));
-            }
-        };
-        aiService.registerDetailedStatusObserver(aiStatusObserver);
+        serviceStatusManager.registerObserver();
     }
 
     private void unregisterAIStatusObserver() {
-        if (aiService != null && aiStatusObserver != null) {
-            aiService.unregisterDetailedStatusObserver(aiStatusObserver);
-            aiStatusObserver = null;
-        }
+        serviceStatusManager.unregisterObserver();
     }
 
     private void handleAIStatusChange(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
-        // 如果使用在线模型，忽略本地模型状态变化
-        if (shouldUseOnlineModel()) {
-            return;
-        }
-        
-        updateServiceStatusDisplay(stage, message, progress, elapsedMs);
-        
-        if (!isLoadingModel) return;
-        
-        String stageName = getStageDisplayName(stage);
-        
-        // 更新聊天界面中的加载进度消息
-        updateLoadingProgressMessage(stageName, message, progress, elapsedMs);
-        
-        updateLoadingUI(message, null, progress);
+        // Delegate to ServiceStatusManager
     }
     
     private void updateServiceStatusDisplay(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
-        if (serviceStatusIcon == null || serviceStatusText == null) return;
-        
-        // 检查是否使用在线模型
-        if (shouldUseOnlineModel()) {
-            stopLoadingTimer();
-            if (serviceStatusProgress != null) {
-                serviceStatusProgress.setVisibility(View.GONE);
-            }
-            
-            String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
-            String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
-            serviceStatusIcon.setText("☁️");
-            serviceStatusText.setText("云端推理就绪 · " + displayName);
-            return;
-        }
-        
-        String stageIcon = getStageIcon(stage);
-        String stageName = getStageDisplayName(stage);
-        String displayMessage = message != null ? message : stageName;
-        
-        boolean isLoading = stage == AIServiceState.ServiceStage.NATIVE_LIBRARY_LOADING
-            || stage == AIServiceState.ServiceStage.MODEL_FILE_PREPARING
-            || stage == AIServiceState.ServiceStage.MODEL_LOADING
-            || stage == AIServiceState.ServiceStage.GPU_INITIALIZATION
-            || stage == AIServiceState.ServiceStage.CPU_FALLBACK
-            || stage == AIServiceState.ServiceStage.CHAT_CONTEXT_CREATING;
-        
-        if (isLoading) {
-            startLoadingTimer(stage, message, progress);
-            
-            if (serviceStatusProgress != null) {
-                serviceStatusProgress.setVisibility(View.VISIBLE);
-                serviceStatusProgress.setProgress(progress);
-            }
-        } else {
-            stopLoadingTimer();
-            
-            if (serviceStatusProgress != null) {
-                serviceStatusProgress.setVisibility(View.GONE);
-            }
-        }
-        
-        // 为本地模型添加标识
-        if (stage == AIServiceState.ServiceStage.INITIALIZED) {
-            stageIcon = "📱";
-            displayMessage = "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
-        }
-        
-        serviceStatusIcon.setText(stageIcon);
-        serviceStatusText.setText(displayMessage);
+        // Delegate to ServiceStatusManager
     }
     
     private void startLoadingTimer(AIServiceState.ServiceStage stage, String message, int progress) {
-        if (uiHandler == null) return;
-        stopLoadingTimer();
-        
-        final String stageIcon = getStageIcon(stage);
-        final String baseMessage = message != null ? message : getStageDisplayName(stage);
-        
-        loadingTimerRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (aiService == null || aiService.getServiceState() == null) {
-                    return;
-                }
-                
-                long currentElapsed = aiService.getServiceState().getElapsedTimeMs();
-                String displayMessage = baseMessage;
-                if (currentElapsed > 0) {
-                    displayMessage = String.format("%s (已耗时: %.1fs)", baseMessage, currentElapsed / 1000.0);
-                }
-                
-                if (serviceStatusIcon != null) {
-                    serviceStatusIcon.setText(stageIcon);
-                }
-                if (serviceStatusText != null) {
-                    serviceStatusText.setText(displayMessage);
-                }
-                
-                if (aiService.getServiceState().isLoading()) {
-                    uiHandler.postDelayed(this, LOADING_TIMER_INTERVAL_MS);
-                }
-            }
-        };
-        
-        uiHandler.post(loadingTimerRunnable);
+        // Delegate to ServiceStatusManager
     }
     
     private void stopLoadingTimer() {
-        if (uiHandler != null && loadingTimerRunnable != null) {
-            uiHandler.removeCallbacks(loadingTimerRunnable);
-            loadingTimerRunnable = null;
-        }
+        // Delegate to ServiceStatusManager
     }
 
     private void handleAIServiceError(String errorMessage) {
-        isLoadingModel = false;
-        loadingProgressMessageIndex = -1;
-        lastLoadingProgressShown = -1;
-        hideLoading();
-        addErrorMessage("AI服务初始化失败", errorMessage, true);
-        showToast("模型加载失败");
+        // Delegate to ServiceStatusManager
     }
 
     private void handleAIServiceInitialized(String modelName, long loadTimeMs) {
-        isLoadingModel = false;
-        loadingProgressMessageIndex = -1;
-        lastLoadingProgressShown = -1;
-        hideLoading();
-        String successMsg = String.format("✓ 模型加载完成\n模型: %s\n耗时: %.1f秒", 
-            modelName != null ? modelName : "未知", loadTimeMs / 1000.0);
-        addSystemMessage(successMsg, ChatMessage.SystemMessageType.SUCCESS);
-        showToast("模型加载成功");
-        updateModelNameDisplay();
-        updateServiceStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, "AI服务已就绪", 100, 0);
+        // Delegate to ServiceStatusManager
     }
     
     private void updateInitialServiceStatus() {
-        // 检查是否使用在线模型
-        if (shouldUseOnlineModel()) {
-            if (serviceStatusIcon != null && serviceStatusText != null) {
-                String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
-                String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
-                serviceStatusIcon.setText("☁️");
-                serviceStatusText.setText("云端推理就绪 · " + displayName);
-            }
-            if (serviceStatusProgress != null) {
-                serviceStatusProgress.setVisibility(View.GONE);
-            }
-            return;
-        }
-        
-        if (aiService == null) return;
-        AIServiceState state = aiService.getServiceState();
-        if (state == null) {
-            updateServiceStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED, "AI服务未初始化", 0, 0);
-            return;
-        }
-        AIServiceState.ServiceStage stage = state.getCurrentStage();
-        String message = state.getStageDescription();
-        if (message == null || message.isEmpty()) {
-            message = getStageDisplayName(stage);
-        }
-        updateServiceStatusDisplay(stage, message, state.getProgressPercent(), 0);
+        serviceStatusManager.updateInitialStatus();
     }
 
     private void showServiceStatusDetails() {
-        // 检查是否使用在线模型
-        if (shouldUseOnlineModel()) {
-            android.view.View dialogView = getLayoutInflater().inflate(R.layout.dialog_service_status_detail, null);
-
-            TextView statusValue = dialogView.findViewById(R.id.detail_status_value);
-            TextView descValue = dialogView.findViewById(R.id.detail_desc_value);
-            TextView progressValue = dialogView.findViewById(R.id.detail_progress_value);
-            TextView libValue = dialogView.findViewById(R.id.detail_lib_value);
-            TextView modelValue = dialogView.findViewById(R.id.detail_model_value);
-            TextView optValue = dialogView.findViewById(R.id.detail_opt_value);
-            
-            // 隐藏本地模型特有的行
-            View memRow = dialogView.findViewById(R.id.detail_mem_row);
-            View memDivider = dialogView.findViewById(R.id.detail_mem_divider);
-            View speedRow = dialogView.findViewById(R.id.detail_speed_row);
-            View speedDivider = dialogView.findViewById(R.id.detail_speed_divider);
-            View tokenRow = dialogView.findViewById(R.id.detail_token_row);
-            View errorRow = dialogView.findViewById(R.id.detail_error_row);
-            
-            if (memRow != null) memRow.setVisibility(android.view.View.GONE);
-            if (memDivider != null) memDivider.setVisibility(android.view.View.GONE);
-            if (speedRow != null) speedRow.setVisibility(android.view.View.GONE);
-            if (speedDivider != null) speedDivider.setVisibility(android.view.View.GONE);
-            if (tokenRow != null) tokenRow.setVisibility(android.view.View.GONE);
-            if (errorRow != null) errorRow.setVisibility(android.view.View.GONE);
-            
-            com.google.android.material.card.MaterialCardView modelInfoCard = dialogView.findViewById(R.id.detail_model_info_card);
-            TextView modelInfoText = dialogView.findViewById(R.id.detail_model_info_text);
-
-            String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
-            String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
-            
-            statusValue.setText("☁️ 云端推理");
-            descValue.setText("使用远程AI模型进行推理");
-            progressValue.setText("100%");
-            libValue.setText("-");
-            modelValue.setText(displayName);
-            optValue.setText("云端服务");
-            
-            // 添加在线模型详细信息
-            if (modelInfoCard != null && modelInfoText != null) {
-                StringBuilder info = new StringBuilder();
-                info.append("推理类型: 云端在线推理\n");
-                info.append("模型名称: ").append(displayName).append("\n");
-                info.append("推理优势: 强大的模型能力、无需本地资源\n");
-                if (inferenceRouter != null) {
-                    info.append("是否可用: ").append(inferenceRouter.isCurrentModelAvailable() ? "是" : "否").append("\n");
-                }
-                modelInfoText.setText(info.toString());
-                modelInfoCard.setVisibility(android.view.View.VISIBLE);
-            }
-            
-            String fullDetails = "☁️ 云端推理服务\n\n" +
-                "当前状态: 云端推理就绪\n" +
-                "模型名称: " + displayName + "\n" +
-                "推理类型: 在线/云端\n" +
-                "优势: 强大的模型能力、无需本地资源\n";
-
-            new AlertDialog.Builder(this)
-                .setTitle("AI服务状态详情（云端）")
-                .setView(dialogView)
-                .setPositiveButton("复制详情", (dialog, which) -> {
-                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
-                    showToast("已复制到剪贴板");
-                })
-                .setNegativeButton("关闭", null)
-                .show();
-            return;
-        }
-        
-        // 本地模型逻辑
-        if (aiService == null) {
-            showToast("AI服务未初始化");
-            return;
-        }
-
-        AIServiceState state = aiService.getServiceState();
-        android.view.View dialogView = getLayoutInflater().inflate(R.layout.dialog_service_status_detail, null);
-
-        TextView statusValue = dialogView.findViewById(R.id.detail_status_value);
-        TextView descValue = dialogView.findViewById(R.id.detail_desc_value);
-        TextView progressValue = dialogView.findViewById(R.id.detail_progress_value);
-        View errorRow = dialogView.findViewById(R.id.detail_error_row);
-        TextView errorValue = dialogView.findViewById(R.id.detail_error_value);
-
-        TextView libValue = dialogView.findViewById(R.id.detail_lib_value);
-        TextView modelValue = dialogView.findViewById(R.id.detail_model_value);
-        TextView optValue = dialogView.findViewById(R.id.detail_opt_value);
-        View memRow = dialogView.findViewById(R.id.detail_mem_row);
-        View memDivider = dialogView.findViewById(R.id.detail_mem_divider);
-        TextView memValue = dialogView.findViewById(R.id.detail_mem_value);
-        View speedRow = dialogView.findViewById(R.id.detail_speed_row);
-        View speedDivider = dialogView.findViewById(R.id.detail_speed_divider);
-        TextView speedValue = dialogView.findViewById(R.id.detail_speed_value);
-        View tokenRow = dialogView.findViewById(R.id.detail_token_row);
-        TextView tokenValue = dialogView.findViewById(R.id.detail_token_value);
-
-        com.google.android.material.card.MaterialCardView modelInfoCard = dialogView.findViewById(R.id.detail_model_info_card);
-        TextView modelInfoText = dialogView.findViewById(R.id.detail_model_info_text);
-
-        if (state != null) {
-            AIServiceState.ServiceStage stage = state.getCurrentStage();
-            statusValue.setText("📱 " + getStageDisplayName(stage));
-            descValue.setText(state.getStageMessage() != null ? state.getStageMessage() : "无");
-            progressValue.setText(state.getProgressPercent() + "%");
-            if (state.isError() && state.getErrorMessage() != null) {
-                errorRow.setVisibility(android.view.View.VISIBLE);
-                errorValue.setText(state.getErrorMessage());
-            }
-        } else {
-            statusValue.setText("未知");
-            descValue.setText("-");
-            progressValue.setText("-");
-        }
-
-        boolean libLoaded = com.oilquiz.app.ai.jni.LlamaHelper.isLibraryLoaded();
-        libValue.setText(libLoaded ? "✓ 已加载" : "✗ 未加载");
-        libValue.setTextColor(libLoaded ? 0xFF4CAF50 : 0xFFF44336);
-
-        String modelName = aiService.getCurrentModelName();
-        modelValue.setText(modelName != null ? modelName : "未选择");
-
-        AIConfig.OptimizationMode optMode = aiService.getOptimizationMode();
-        optValue.setText(optMode != null ? optMode.displayName : "平衡模式");
-
-        try {
-            float memUsage = com.oilquiz.app.ai.jni.LlamaHelper.getMemoryUsage();
-            if (memUsage > 0) {
-                memRow.setVisibility(android.view.View.VISIBLE);
-                memDivider.setVisibility(android.view.View.VISIBLE);
-                memValue.setText(String.format("%.1f MB", memUsage));
-            }
-        } catch (Exception e) { }
-
-        try {
-            float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
-            if (speed > 0) {
-                speedRow.setVisibility(android.view.View.VISIBLE);
-                speedDivider.setVisibility(android.view.View.VISIBLE);
-                speedValue.setText(String.format("%.2f token/s", speed));
-            }
-        } catch (Exception e) { }
-
-        try {
-            int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
-            if (tokenCount > 0) {
-                tokenRow.setVisibility(android.view.View.VISIBLE);
-                tokenValue.setText(String.valueOf(tokenCount));
-            }
-        } catch (Exception e) { }
-
-        try {
-            String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
-            if (modelInfo != null && !modelInfo.isEmpty() && !modelInfo.startsWith("Error:")) {
-                modelInfoCard.setVisibility(android.view.View.VISIBLE);
-                modelInfoText.setText(modelInfo);
-            }
-        } catch (Exception e) { }
-
-        String fullDetails = buildFullDetailsText();
-
-        new AlertDialog.Builder(this)
-            .setTitle("AI服务状态详情（本地）")
-            .setView(dialogView)
-            .setPositiveButton("复制详情", (dialog, which) -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
-                showToast("已复制到剪贴板");
-            })
-            .setNegativeButton("关闭", null)
-            .show();
-    }
-
-    private String buildFullDetailsText() {
-        StringBuilder details = new StringBuilder();
-        details.append("🤖 AI服务状态详情\n\n");
-
-        AIServiceState state = aiService.getServiceState();
-        if (state != null) {
-            AIServiceState.ServiceStage stage = state.getCurrentStage();
-            details.append("📊 当前状态: ").append(getStageDisplayName(stage)).append("\n");
-            details.append("📝 状态描述: ").append(state.getStageMessage() != null ? state.getStageMessage() : "无").append("\n");
-            details.append("📈 进度: ").append(state.getProgressPercent()).append("%\n");
-            if (state.getCurrentModelName() != null) {
-                details.append("📦 当前模型: ").append(state.getCurrentModelName()).append("\n");
-            }
-            if (state.isError() && state.getErrorMessage() != null) {
-                details.append("❌ 错误信息: ").append(state.getErrorMessage()).append("\n");
-            }
-        } else {
-            details.append("📊 当前状态: 未知\n");
-        }
-
-        details.append("\n🔧 运行信息\n");
-        details.append("Native库: ").append(com.oilquiz.app.ai.jni.LlamaHelper.isLibraryLoaded() ? "✓ 已加载" : "✗ 未加载").append("\n");
-
-        String modelName = aiService.getCurrentModelName();
-        details.append("模型名称: ").append(modelName != null ? modelName : "未选择").append("\n");
-
-        AIConfig.OptimizationMode optMode = aiService.getOptimizationMode();
-        details.append("优化模式: ").append(optMode != null ? optMode.displayName : "平衡模式").append("\n");
-
-        try {
-            float memUsage = com.oilquiz.app.ai.jni.LlamaHelper.getMemoryUsage();
-            if (memUsage > 0) details.append("内存使用: ").append(String.format("%.1f MB", memUsage)).append("\n");
-        } catch (Exception e) { }
-
-        try {
-            float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
-            if (speed > 0) details.append("推理速度: ").append(String.format("%.2f token/s", speed)).append("\n");
-        } catch (Exception e) { }
-
-        try {
-            int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
-            if (tokenCount > 0) details.append("Token计数: ").append(tokenCount).append("\n");
-        } catch (Exception e) { }
-
-        try {
-            String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
-            if (modelInfo != null && !modelInfo.isEmpty() && !modelInfo.startsWith("Error:")) {
-                details.append("\n📋 模型信息\n").append(modelInfo).append("\n");
-            }
-        } catch (Exception e) { }
-
-        return details.toString();
-    }
-
-    private String getStageIcon(AIServiceState.ServiceStage stage) {
-        if (stage == null) return "⚙️";
-        switch (stage) {
-            case UNINITIALIZED: return "⏳";
-            case NATIVE_LIBRARY_LOADING: return "📦";
-            case MODEL_FILE_PREPARING: return "📁";
-            case MODEL_LOADING: return "📥";
-            case GPU_INITIALIZATION: return "🎮";
-            case CPU_FALLBACK: return "💻";
-            case CHAT_CONTEXT_CREATING: return "🔧";
-            case INITIALIZED: return "✓";
-            case ERROR: return "✗";
-            default: return "⚙️";
-        }
-    }
-
-    private String getStageDisplayName(AIServiceState.ServiceStage stage) {
-        if (stage == null) return "处理中";
-        switch (stage) {
-            case UNINITIALIZED: return "未初始化";
-            case NATIVE_LIBRARY_LOADING: return "加载原生库";
-            case MODEL_FILE_PREPARING: return "准备模型文件";
-            case MODEL_LOADING: return "加载模型";
-            case GPU_INITIALIZATION: return "初始化GPU";
-            case CPU_FALLBACK: return "切换到CPU模式";
-            case CHAT_CONTEXT_CREATING: return "创建对话上下文";
-            case INITIALIZED: return "已就绪";
-            case ERROR: return "错误";
-            default: return "处理中";
-        }
+        serviceStatusManager.showStatusDetails();
     }
 
     private void updateLoadingUI(String message, String submessage, int progress) {
-        if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.VISIBLE);
-        
-        // 在恢复过程中，实时更新进度消息
-        if (isRecovering && submessage != null) {
-            recoveryProgressUpdateCount++;
-            // 避免频繁更新，每5个进度阶段更新一次消息
-            if (recoveryProgressUpdateCount % 5 == 0 || progress >= 100) {
-                updateRecoveryProgressMessage(message, progress);
-            }
-        }
+        // Delegate to ServiceStatusManager
     }
-    
-    // 用于跟踪上次显示的进度，避免重复消息
+
     private int lastRecoveryProgressShown = -1;
     private int lastLoadingProgressShown = -1;
     

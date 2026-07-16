@@ -16,6 +16,10 @@ option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 
+set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
+set(GGML_OPENCL_TARGET_VERSION "300" CACHE STRING "OpenCL API version" FORCE)
+
 # --- Vulkan auto-detection ---
 # Check for glslc (needed for SPIR-V shader compilation).
 # If not found, gracefully disable Vulkan instead of failing the build.
@@ -58,36 +62,29 @@ else()
 endif()
 
 if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
-    message(STATUS "OpenCL backend enabled (using local ICD loader)")
-    set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
-    set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels in binary" FORCE)
+    message(STATUS "OpenCL backend enabled (using device vendor driver at runtime)")
     
     if(EXISTS "${OPENCL_HEADERS_DIR}/CL/cl.h")
         message(STATUS "OpenCL: Using local headers at ${OPENCL_HEADERS_DIR}")
-        # FindOpenCL.cmake uses singular forms as inputs
+        
         set(OpenCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
         set(OPENCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
         set(OpenCL_INCLUDE_DIRS "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dirs" FORCE)
         set(OpenCL_FOUND TRUE CACHE BOOL "OpenCL found" FORCE)
         set(OpenCL_VERSION_STRING "3.0" CACHE STRING "OpenCL version" FORCE)
-        if(EXISTS "${OPENCL_ICD_LIB}")
-            message(STATUS "OpenCL: Using local ICD loader at ${OPENCL_ICD_LIB}")
-            set(OpenCL_LIBRARIES "${OPENCL_ICD_LIB}" CACHE FILEPATH "OpenCL libraries" FORCE)
-            set(OpenCL_LIBRARY "${OPENCL_ICD_LIB}" CACHE FILEPATH "OpenCL library" FORCE)
-            message(STATUS "OpenCL: ICD loader found, will link directly")
-        else()
-            message(WARNING "OpenCL ICD loader not found!")
-            message(WARNING "OpenCL: Will use dynamic loading as fallback")
-            set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
-            set(OpenCL_LIBRARY "" CACHE FILEPATH "OpenCL library" FORCE)
-        endif()
+        set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
+        set(OpenCL_LIBRARY "" CACHE FILEPATH "OpenCL library" FORCE)
+        
+        message(STATUS "OpenCL: Dynamic runtime loading enabled (no linking)")
+        message(STATUS "OpenCL: Device vendor driver will be loaded at runtime from /vendor/lib64/libOpenCL.so")
     else()
-        message(WARNING "OpenCL headers not found!")
+        message(WARNING "OpenCL headers not found at ${OPENCL_HEADERS_DIR}!")
         set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
     endif()
     
     message(STATUS "OpenCL: Adreno-optimized kernels enabled")
     message(STATUS "OpenCL: Embedded kernels enabled (no runtime compilation)")
+    message(STATUS "OpenCL: Target version ${GGML_OPENCL_TARGET_VERSION}")
 elseif(GGML_OPENCL)
     message(STATUS "OpenCL disabled for non-ARM64 architecture: ${ANDROID_ABI}")
     set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
@@ -117,6 +114,7 @@ add_library(
 target_link_libraries(
     llama-jni
     llama
+    ggml-opencl
     log
     android
     z
@@ -124,6 +122,11 @@ target_link_libraries(
     atomic
     dl
 )
+
+if(GGML_OPENCL)
+    target_link_options(llama-jni PRIVATE "-Wl,--allow-shlib-undefined")
+    message(STATUS "OpenCL: Added -Wl,--allow-shlib-undefined for runtime dynamic linking")
+endif()
 
 set_target_properties(
     llama-jni
