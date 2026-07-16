@@ -2310,86 +2310,12 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Native 状态自动恢复 =====================
 
     private void setupNativeStateRecoveryListener() {
-        if (aiService == null) return;
-        aiService.setNativeStateRecoveryListener(new AIService.NativeStateRecoveryListener() {
-            @Override
-            public void onRecoveryStarted(int attemptCount) {
-                runOnUiThread(() -> {
-                    isRecovering = true;
-                    recoveryProgressUpdateCount = 0;
-                    lastRecoveryProgressShown = -1;
-                    showLoading("正在恢复AI模型...", "第 " + attemptCount + " 次尝试");
-                    addSystemMessage("🔄 正在重新加载模型（第 " + attemptCount + " 次）...", 
-                        ChatMessage.SystemMessageType.WARNING);
-                });
-            }
-
-            @Override
-            public void onRecoverySuccess(long recoveryTimeMs) {
-                runOnUiThread(() -> {
-                    isRecovering = false;
-                    hideLoading();
-                    addSystemMessage("✅ 模型恢复成功，耗时 " + (recoveryTimeMs / 1000.0f) + " 秒", 
-                        ChatMessage.SystemMessageType.SUCCESS);
-                    showToast("模型已恢复");
-                    
-                    // 恢复成功，重新发送待处理消息
-                    if (pendingMessageForRecovery != null) {
-                        String msg = pendingMessageForRecovery;
-                        pendingMessageForRecovery = null;
-                        processChatMessage(msg);
-                    }
-                });
-            }
-
-            @Override
-            public void onRecoveryFailed(int attemptCount, int maxAttempts, String reason) {
-                runOnUiThread(() -> {
-                    isRecovering = false;
-                    hideLoading();
-                    
-                    if (attemptCount >= MAX_RECOVERY_FAILURES_NOTIFY) {
-                        addErrorMessage(
-                            "模型恢复失败", 
-                            "已连续 " + attemptCount + " 次恢复失败，" + reason + "。\n建议：请尝试重新选择模型或重启应用。",
-                            true
-                        );
-                        showToast("模型恢复失败，请重启应用");
-                    } else {
-                        addSystemMessage("❌ 模型恢复失败（第 " + attemptCount + " 次）: " + reason, 
-                            ChatMessage.SystemMessageType.ERROR);
-                        showToast("恢复失败: " + reason);
-                    }
-                    
-                    pendingMessageForRecovery = null;
-                });
-            }
-        });
+        recoveryHandler.setupListener();
     }
 
     private void triggerAutoRecovery(String pendingMessage) {
-        if (isRecovering) {
-            showToast("模型正在恢复中，请稍候");
-            return;
-        }
-        
-        if (aiService == null) {
-            addSystemMessage("AI服务未初始化，无法恢复");
-            return;
-        }
-        
-        pendingMessageForRecovery = pendingMessage;
-        aiService.autoRecoverNativeState(pendingMessage, new AIService.NativeStateRecoveryCallback() {
-            @Override
-            public void onRecoverySuccess(String msg) {
-                // 实际处理在监听器中完成
-            }
-
-            @Override
-            public void onRecoveryFailed(String reason) {
-                // 实际处理在监听器中完成
-            }
-        });
+        recoveryHandler.setPendingMessage(pendingMessage);
+        recoveryHandler.triggerAutoRecovery();
     }
 
     private boolean shouldUseOnlineModel() {
@@ -2587,16 +2513,7 @@ public class AIChatActivity extends BaseActivity {
     // ===================== UI Init =====================
 
     private void initAttachmentList() {
-        if (attachmentList == null) return;
-        attachmentList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        attachmentAdapter = new AttachmentAdapter(this, currentAttachments, new AttachmentAdapter.OnAttachmentClickListener() {
-            @Override public void onImageClick(ChatMessage.Attachment a, int p) { openUri(a.url); }
-            @Override public void onFileClick(ChatMessage.Attachment a, int p) { showToast("文件: " + a.name); }
-            @Override public void onAttachmentRemove(ChatMessage.Attachment a, int p) {
-                if (attachmentAdapter != null) { attachmentAdapter.removeAttachment(p); if (attachmentAdapter.isEmpty()) attachmentList.setVisibility(View.GONE); }
-            }
-        });
-        attachmentList.setAdapter(attachmentAdapter);
+        // Handled by ChatInputManager
     }
 
     private void openUri(String url) {
@@ -2604,130 +2521,26 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void initHistoryList() {
-        if (historyList == null) return;
-        historyList.setLayoutManager(new LinearLayoutManager(this));
+        // Handled by ChatHistoryController
     }
 
     private void refreshHistoryAdapter() {
-        if (historyList == null || chatHistory == null) return;
-        chatHistoryAdapter = new ChatHistoryAdapter(this, chatHistory, new ChatHistoryAdapter.OnHistoryItemClickListener() {
-            @Override public void onItemClick(ChatHistoryItem item, int p) { if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer)); }
-            @Override public void onItemLongClick(ChatHistoryItem item, int p) {}
-            @Override public void onItemDelete(ChatHistoryItem item, int p) { clearChat(); refreshHistoryAdapter(); showToast("已删除"); }
-            @Override public void onItemShare(ChatHistoryItem item, int p) { showToast("分享功能开发中"); }
-            @Override public void onItemExport(ChatHistoryItem item, int p) { showToast("导出功能开发中"); }
-            @Override public void onClearAllHistory() { clearChat(); }
-        });
-        historyList.setAdapter(chatHistoryAdapter);
+        historyController.refresh(chatHistory);
     }
 
     // ===================== Weather Banner =====================
 
     private void loadWeatherBanner() {
-        if (weatherManager == null || weatherBanner == null) return;
-        
-        // 显示加载状态
-        if (weatherCity != null) weatherCity.setText("正在获取天气...");
-        if (weatherTemp != null) weatherTemp.setText("--°C");
-        if (weatherDesc != null) weatherDesc.setText("加载中...");
-        
-        new Thread(() -> {
-            try {
-                String result = weatherManager.getCurrentWeather("北京").get();
-                if (result != null && !result.isEmpty() && !result.contains("失败")) {
-                    runOnUiThread(() -> {
-                        try {
-                            // 解析天气数据
-                            org.json.JSONObject weatherJson = parseWeatherResponse(result);
-                            
-                            if (weatherJson != null) {
-                                String cityName = weatherJson.optString("city", "北京");
-                                String tempStr = weatherJson.optString("temperature", "--");
-                                String condition = weatherJson.optString("condition", "--");
-                                
-                                if (weatherIcon != null) {
-                                    String icon = weatherJson.optString("icon", "");
-                                    weatherIcon.setText(icon.isEmpty() ? "" : icon);
-                                }
-                                if (weatherCity != null) weatherCity.setText(cityName);
-                                if (weatherTemp != null) weatherTemp.setText(tempStr + "°C");
-                                if (weatherDesc != null) weatherDesc.setText(condition);
-                                
-                                // 保存城市信息用于后续查询
-                                weatherBannerCity = cityName;
-                                
-                                weatherBanner.setVisibility(View.VISIBLE);
-                                weatherBannerVisible = true;
-                            } else {
-                                // 解析失败，隐藏横幅
-                                weatherBanner.setVisibility(View.GONE);
-                                weatherBannerVisible = false;
-                            }
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error parsing weather response", e);
-                            weatherBanner.setVisibility(View.GONE);
-                            weatherBannerVisible = false;
-                        }
-                    });
-                } else {
-                    // 获取天气失败，隐藏横幅
-                    runOnUiThread(() -> {
-                        weatherBanner.setVisibility(View.GONE);
-                        weatherBannerVisible = false;
-                    });
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error loading weather banner", e);
-                runOnUiThread(() -> {
-                    weatherBanner.setVisibility(View.GONE);
-                    weatherBannerVisible = false;
-                });
-            }
-        }).start();
+        weatherBannerController.loadWeather();
     }
     
     // 解析天气响应
     private org.json.JSONObject parseWeatherResponse(String weatherText) {
-        try {
-            org.json.JSONObject result = new org.json.JSONObject();
-            
-            if (weatherText == null || weatherText.isEmpty()) {
-                return null;
-            }
-            
-            // 检查是否包含错误信息
-            if (weatherText.contains("失败") || weatherText.contains("错误")) {
-                return null;
-            }
-            
-            String[] lines = weatherText.split("\n");
-            for (String line : lines) {
-                line = line.trim();
-                if (line.startsWith("城市:")) {
-                    result.put("city", line.substring(3).trim());
-                } else if (line.startsWith("天气:")) {
-                    result.put("condition", line.substring(3).trim());
-                } else if (line.startsWith("温度:")) {
-                    String temp = line.substring(3).trim().replace("°C", "").replace("°", "");
-                    result.put("temperature", temp);
-                } else if (line.startsWith("图标:")) {
-                    result.put("icon", line.substring(3).trim());
-                }
-            }
-            
-            // 如果没有解析到城市名称，使用默认值
-            if (!result.has("city")) {
-                result.put("city", "北京");
-            }
-            
-            return result;
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing weather response", e);
-            return null;
-        }
+        // Handled by WeatherBannerController
+        return null;
     }
 
-    private void refreshWeatherBanner() { loadWeatherBanner(); }
+    private void refreshWeatherBanner() { weatherBannerController.loadWeather(); }
 
     // ===================== Attachments =====================
 
