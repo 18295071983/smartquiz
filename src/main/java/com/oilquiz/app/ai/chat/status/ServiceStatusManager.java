@@ -1,0 +1,591 @@
+package com.oilquiz.app.ai.chat.status;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.os.Handler;
+import android.util.Log;
+import android.view.View;
+import android.widget.TextView;
+
+import com.oilquiz.app.R;
+import com.oilquiz.app.ai.refactor.AIConfig;
+import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceState;
+import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.inference.InferenceRouter;
+
+import java.util.List;
+
+/**
+ * 管理 AI 服务状态栏的显示、加载计时器、状态详情对话框。
+ * 从 AIChatActivity 中提取的独立模块。
+ */
+public class ServiceStatusManager {
+
+    private static final String TAG = "ServiceStatusManager";
+    private static final long LOADING_TIMER_INTERVAL_MS = 1000;
+
+    public interface Callback {
+        void onAddSystemMessage(String message, ChatMessage.SystemMessageType type);
+        void onAddErrorMessage(String title, String detail, boolean withRetry);
+        void onShowToast(String message);
+        void onShouldUseOnlineModel();
+        void onUpdateModelNameDisplay();
+        void onHideLoading();
+    }
+
+    private final Activity activity;
+    private final Handler uiHandler;
+    private final Callback callback;
+
+    // View references
+    private TextView serviceStatusIcon;
+    private TextView serviceStatusText;
+    private android.widget.ProgressBar serviceStatusProgress;
+    private TextView serviceStatusElapsed;
+    private View thinkingIndicator;
+
+    // State
+    private AIService aiService;
+    private InferenceRouter inferenceRouter;
+    private AIService.DetailedStatusObserver aiStatusObserver;
+    private Runnable loadingTimerRunnable;
+    private boolean isLoadingModel = false;
+    private int loadingProgressMessageIndex = -1;
+    private int lastLoadingProgressShown = -1;
+    private int lastRecoveryProgressShown = -1;
+    private int recoveryProgressUpdateCount = 0;
+    private List<ChatMessage> chatHistory;
+
+    public ServiceStatusManager(Activity activity, Handler uiHandler, Callback callback) {
+        this.activity = activity;
+        this.uiHandler = uiHandler;
+        this.callback = callback;
+    }
+
+    public void bindViews(View serviceStatusBar, TextView serviceStatusIcon,
+                          TextView serviceStatusText, android.widget.ProgressBar serviceStatusProgress,
+                          TextView serviceStatusElapsed, View thinkingIndicator) {
+        this.serviceStatusIcon = serviceStatusIcon;
+        this.serviceStatusText = serviceStatusText;
+        this.serviceStatusProgress = serviceStatusProgress;
+        this.serviceStatusElapsed = serviceStatusElapsed;
+        this.thinkingIndicator = thinkingIndicator;
+    }
+
+    public void setServices(AIService aiService, InferenceRouter inferenceRouter, List<ChatMessage> chatHistory) {
+        this.aiService = aiService;
+        this.inferenceRouter = inferenceRouter;
+        this.chatHistory = chatHistory;
+    }
+
+    public void registerObserver() {
+        if (aiService == null) return;
+        aiStatusObserver = new AIService.DetailedStatusObserver() {
+            @Override
+            public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+                activity.runOnUiThread(() -> handleStatusChange(stage, message, progress, elapsedMs));
+            }
+            @Override
+            public void onError(String errorMessage) {
+                activity.runOnUiThread(() -> handleError(errorMessage));
+            }
+            @Override
+            public void onInitialized(String modelName, long loadTimeMs) {
+                activity.runOnUiThread(() -> handleInitialized(modelName, loadTimeMs));
+            }
+        };
+        aiService.registerDetailedStatusObserver(aiStatusObserver);
+    }
+
+    public void unregisterObserver() {
+        if (aiService != null && aiStatusObserver != null) {
+            aiService.unregisterDetailedStatusObserver(aiStatusObserver);
+            aiStatusObserver = null;
+        }
+    }
+
+    public void updateInitialStatus() {
+        if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
+            updateOnlineModelStatus();
+            return;
+        }
+
+        if (aiService == null) return;
+        AIServiceState state = aiService.getServiceState();
+        if (state == null) {
+            updateStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED, "AI服务未初始化", 0, 0);
+            return;
+        }
+        AIServiceState.ServiceStage stage = state.getCurrentStage();
+        String message = state.getStageDescription();
+        if (message == null || message.isEmpty()) {
+            message = getStageDisplayName(stage);
+        }
+        updateStatusDisplay(stage, message, state.getProgressPercent(), 0);
+    }
+
+    public void showStatusDetails() {
+        if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
+            showOnlineModelDetails();
+            return;
+        }
+
+        if (aiService == null) {
+            callback.onShowToast("AI服务未初始化");
+            return;
+        }
+
+        AIServiceState state = aiService.getServiceState();
+        View dialogView = activity.getLayoutInflater().inflate(R.layout.dialog_service_status_detail, null);
+
+        TextView statusValue = dialogView.findViewById(R.id.detail_status_value);
+        TextView descValue = dialogView.findViewById(R.id.detail_desc_value);
+        TextView progressValue = dialogView.findViewById(R.id.detail_progress_value);
+        View errorRow = dialogView.findViewById(R.id.detail_error_row);
+        TextView errorValue = dialogView.findViewById(R.id.detail_error_value);
+        TextView libValue = dialogView.findViewById(R.id.detail_lib_value);
+        TextView modelValue = dialogView.findViewById(R.id.detail_model_value);
+        TextView optValue = dialogView.findViewById(R.id.detail_opt_value);
+        View memRow = dialogView.findViewById(R.id.detail_mem_row);
+        View memDivider = dialogView.findViewById(R.id.detail_mem_divider);
+        TextView memValue = dialogView.findViewById(R.id.detail_mem_value);
+        View speedRow = dialogView.findViewById(R.id.detail_speed_row);
+        View speedDivider = dialogView.findViewById(R.id.detail_speed_divider);
+        TextView speedValue = dialogView.findViewById(R.id.detail_speed_value);
+        View tokenRow = dialogView.findViewById(R.id.detail_token_row);
+        TextView tokenValue = dialogView.findViewById(R.id.detail_token_value);
+        com.google.android.material.card.MaterialCardView modelInfoCard = dialogView.findViewById(R.id.detail_model_info_card);
+        TextView modelInfoText = dialogView.findViewById(R.id.detail_model_info_text);
+
+        if (state != null) {
+            AIServiceState.ServiceStage stage = state.getCurrentStage();
+            statusValue.setText("\uD83D\uDCF1 " + getStageDisplayName(stage));
+            descValue.setText(state.getStageMessage() != null ? state.getStageMessage() : "无");
+            progressValue.setText(state.getProgressPercent() + "%");
+            if (state.isError() && state.getErrorMessage() != null) {
+                errorRow.setVisibility(View.VISIBLE);
+                errorValue.setText(state.getErrorMessage());
+            }
+        } else {
+            statusValue.setText("未知");
+            descValue.setText("-");
+            progressValue.setText("-");
+        }
+
+        boolean libLoaded = com.oilquiz.app.ai.jni.LlamaHelper.isLibraryLoaded();
+        libValue.setText(libLoaded ? "\u2713 已加载" : "\u2717 未加载");
+        libValue.setTextColor(libLoaded ? 0xFF4CAF50 : 0xFFF44336);
+
+        String modelName = aiService.getCurrentModelName();
+        modelValue.setText(modelName != null ? modelName : "未选择");
+
+        AIConfig.OptimizationMode optMode = aiService.getOptimizationMode();
+        optValue.setText(optMode != null ? optMode.displayName : "平衡模式");
+
+        try {
+            float memUsage = com.oilquiz.app.ai.jni.LlamaHelper.getMemoryUsage();
+            if (memUsage > 0) {
+                memRow.setVisibility(View.VISIBLE);
+                memDivider.setVisibility(View.VISIBLE);
+                memValue.setText(String.format("%.1f MB", memUsage));
+            }
+        } catch (Exception ignored) { }
+
+        try {
+            float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
+            if (speed > 0) {
+                speedRow.setVisibility(View.VISIBLE);
+                speedDivider.setVisibility(View.VISIBLE);
+                speedValue.setText(String.format("%.2f token/s", speed));
+            }
+        } catch (Exception ignored) { }
+
+        try {
+            int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
+            if (tokenCount > 0) {
+                tokenRow.setVisibility(View.VISIBLE);
+                tokenValue.setText(String.valueOf(tokenCount));
+            }
+        } catch (Exception ignored) { }
+
+        try {
+            String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
+            if (modelInfo != null && !modelInfo.isEmpty() && !modelInfo.startsWith("Error:")) {
+                modelInfoCard.setVisibility(View.VISIBLE);
+                modelInfoText.setText(modelInfo);
+            }
+        } catch (Exception ignored) { }
+
+        String fullDetails = buildFullDetailsText();
+
+        new AlertDialog.Builder(activity)
+            .setTitle("AI服务状态详情（本地）")
+            .setView(dialogView)
+            .setPositiveButton("复制详情", (dialog, which) -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) activity.getSystemService(Activity.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
+                callback.onShowToast("已复制到剪贴板");
+            })
+            .setNegativeButton("关闭", null)
+            .show();
+    }
+
+    public void setLoadingModel(boolean loading) {
+        this.isLoadingModel = loading;
+        if (!loading) {
+            loadingProgressMessageIndex = -1;
+            lastLoadingProgressShown = -1;
+        }
+    }
+
+    public boolean isLoadingModel() {
+        return isLoadingModel;
+    }
+
+    public void updateRecoveryProgress(String message, int progress) {
+        if (progress == lastRecoveryProgressShown) return;
+        lastRecoveryProgressShown = progress;
+        recoveryProgressUpdateCount++;
+        if (recoveryProgressUpdateCount % 5 == 0 || progress >= 100) {
+            updateRecoveryProgressMessage(message, progress);
+        }
+    }
+
+    public void showThinkingIndicator() {
+        if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.VISIBLE);
+    }
+
+    public void hideThinkingIndicator() {
+        if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.GONE);
+    }
+
+    public void cleanup() {
+        stopLoadingTimer();
+        unregisterObserver();
+    }
+
+    // --- Private methods ---
+
+    private void handleStatusChange(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+        if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
+            return;
+        }
+
+        updateStatusDisplay(stage, message, progress, elapsedMs);
+
+        if (!isLoadingModel) return;
+
+        String stageName = getStageDisplayName(stage);
+        updateLoadingProgressMessage(stageName, message, progress, elapsedMs);
+        showThinkingIndicator();
+    }
+
+    private void handleError(String errorMessage) {
+        isLoadingModel = false;
+        loadingProgressMessageIndex = -1;
+        lastLoadingProgressShown = -1;
+        hideThinkingIndicator();
+        callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
+        callback.onShowToast("模型加载失败");
+    }
+
+    private void handleInitialized(String modelName, long loadTimeMs) {
+        isLoadingModel = false;
+        loadingProgressMessageIndex = -1;
+        lastLoadingProgressShown = -1;
+        hideThinkingIndicator();
+        String successMsg = String.format("\u2713 模型加载完成\n模型: %s\n耗时: %.1f秒",
+            modelName != null ? modelName : "未知", loadTimeMs / 1000.0);
+        callback.onAddSystemMessage(successMsg, ChatMessage.SystemMessageType.SUCCESS);
+        callback.onShowToast("模型加载成功");
+        callback.onUpdateModelNameDisplay();
+        updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, "AI服务已就绪", 100, 0);
+    }
+
+    private void updateStatusDisplay(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+        if (serviceStatusIcon == null || serviceStatusText == null) return;
+
+        if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
+            updateOnlineModelStatus();
+            return;
+        }
+
+        String stageIcon = getStageIcon(stage);
+        String stageName = getStageDisplayName(stage);
+        String displayMessage = message != null ? message : stageName;
+
+        boolean isLoading = stage == AIServiceState.ServiceStage.NATIVE_LIBRARY_LOADING
+            || stage == AIServiceState.ServiceStage.MODEL_FILE_PREPARING
+            || stage == AIServiceState.ServiceStage.MODEL_LOADING
+            || stage == AIServiceState.ServiceStage.GPU_INITIALIZATION
+            || stage == AIServiceState.ServiceStage.CPU_FALLBACK
+            || stage == AIServiceState.ServiceStage.CHAT_CONTEXT_CREATING;
+
+        if (isLoading) {
+            startLoadingTimer(stage, message, progress);
+            if (serviceStatusProgress != null) {
+                serviceStatusProgress.setVisibility(View.VISIBLE);
+                serviceStatusProgress.setProgress(progress);
+            }
+        } else {
+            stopLoadingTimer();
+            if (serviceStatusProgress != null) {
+                serviceStatusProgress.setVisibility(View.GONE);
+            }
+        }
+
+        if (stage == AIServiceState.ServiceStage.INITIALIZED) {
+            stageIcon = "\uD83D\uDCF1";
+            displayMessage = "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
+        }
+
+        serviceStatusIcon.setText(stageIcon);
+        serviceStatusText.setText(displayMessage);
+    }
+
+    private void updateOnlineModelStatus() {
+        stopLoadingTimer();
+        if (serviceStatusProgress != null) {
+            serviceStatusProgress.setVisibility(View.GONE);
+        }
+
+        String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
+        String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
+        if (serviceStatusIcon != null) serviceStatusIcon.setText("\u2601\uFE0F");
+        if (serviceStatusText != null) serviceStatusText.setText("云端推理就绪 · " + displayName);
+    }
+
+    private void startLoadingTimer(AIServiceState.ServiceStage stage, String message, int progress) {
+        if (uiHandler == null) return;
+        stopLoadingTimer();
+
+        final String stageIcon = getStageIcon(stage);
+        final String baseMessage = message != null ? message : getStageDisplayName(stage);
+
+        loadingTimerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (aiService == null || aiService.getServiceState() == null) return;
+
+                long currentElapsed = aiService.getServiceState().getElapsedTimeMs();
+                String displayMessage = baseMessage;
+                if (currentElapsed > 0) {
+                    displayMessage = String.format("%s (已耗时: %.1fs)", baseMessage, currentElapsed / 1000.0);
+                }
+
+                if (serviceStatusIcon != null) serviceStatusIcon.setText(stageIcon);
+                if (serviceStatusText != null) serviceStatusText.setText(displayMessage);
+
+                if (aiService.getServiceState().isLoading()) {
+                    uiHandler.postDelayed(this, LOADING_TIMER_INTERVAL_MS);
+                }
+            }
+        };
+
+        uiHandler.post(loadingTimerRunnable);
+    }
+
+    private void stopLoadingTimer() {
+        if (uiHandler != null && loadingTimerRunnable != null) {
+            uiHandler.removeCallbacks(loadingTimerRunnable);
+            loadingTimerRunnable = null;
+        }
+    }
+
+    private void updateRecoveryProgressMessage(String message, int progress) {
+        if (chatHistory == null) return;
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            ChatMessage msg = chatHistory.get(i);
+            if (msg.type == ChatMessage.MessageType.SYSTEM &&
+                msg.content != null &&
+                msg.content.contains("\uD83D\uDD04 正在重新加载模型")) {
+                String newContent = msg.content.replaceAll("\\[\\d+%\\]", "[" + progress + "%]");
+                if (!newContent.contains("[")) {
+                    newContent = msg.content + " [" + progress + "%]";
+                }
+                msg.content = newContent;
+                break;
+            }
+        }
+    }
+
+    private void updateLoadingProgressMessage(String stageName, String message, int progress, long elapsedMs) {
+        if (chatHistory == null) return;
+        if (progress == lastLoadingProgressShown) return;
+        lastLoadingProgressShown = progress;
+
+        if (loadingProgressMessageIndex < 0 || loadingProgressMessageIndex >= chatHistory.size()) {
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage msg = chatHistory.get(i);
+                if (msg.type == ChatMessage.MessageType.SYSTEM &&
+                    msg.content != null &&
+                    msg.content.contains("\u23F3")) {
+                    loadingProgressMessageIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (loadingProgressMessageIndex >= 0 && loadingProgressMessageIndex < chatHistory.size()) {
+            ChatMessage msg = chatHistory.get(loadingProgressMessageIndex);
+            String progressStr = progress > 0 ? String.format("[%d%%]", progress) : "";
+            String timeStr = String.format("%.1f秒", elapsedMs / 1000.0);
+            String icon = progress >= 100 ? "\u2705" : "\u23F3";
+            msg.content = String.format("%s %s %s\n已耗时: %s", icon, stageName, progressStr, timeStr);
+        }
+    }
+
+    private void showOnlineModelDetails() {
+        View dialogView = activity.getLayoutInflater().inflate(R.layout.dialog_service_status_detail, null);
+
+        TextView statusValue = dialogView.findViewById(R.id.detail_status_value);
+        TextView descValue = dialogView.findViewById(R.id.detail_desc_value);
+        TextView progressValue = dialogView.findViewById(R.id.detail_progress_value);
+        TextView libValue = dialogView.findViewById(R.id.detail_lib_value);
+        TextView modelValue = dialogView.findViewById(R.id.detail_model_value);
+        TextView optValue = dialogView.findViewById(R.id.detail_opt_value);
+
+        View memRow = dialogView.findViewById(R.id.detail_mem_row);
+        View memDivider = dialogView.findViewById(R.id.detail_mem_divider);
+        View speedRow = dialogView.findViewById(R.id.detail_speed_row);
+        View speedDivider = dialogView.findViewById(R.id.detail_speed_divider);
+        View tokenRow = dialogView.findViewById(R.id.detail_token_row);
+        View errorRow = dialogView.findViewById(R.id.detail_error_row);
+
+        if (memRow != null) memRow.setVisibility(View.GONE);
+        if (memDivider != null) memDivider.setVisibility(View.GONE);
+        if (speedRow != null) speedRow.setVisibility(View.GONE);
+        if (speedDivider != null) speedDivider.setVisibility(View.GONE);
+        if (tokenRow != null) tokenRow.setVisibility(View.GONE);
+        if (errorRow != null) errorRow.setVisibility(View.GONE);
+
+        com.google.android.material.card.MaterialCardView modelInfoCard = dialogView.findViewById(R.id.detail_model_info_card);
+        TextView modelInfoText = dialogView.findViewById(R.id.detail_model_info_text);
+
+        String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
+        String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
+
+        statusValue.setText("\u2601\uFE0F 云端推理");
+        descValue.setText("使用远程AI模型进行推理");
+        progressValue.setText("100%");
+        libValue.setText("-");
+        modelValue.setText(displayName);
+        optValue.setText("云端服务");
+
+        if (modelInfoCard != null && modelInfoText != null) {
+            StringBuilder info = new StringBuilder();
+            info.append("推理类型: 云端在线推理\n");
+            info.append("模型名称: ").append(displayName).append("\n");
+            info.append("推理优势: 强大的模型能力、无需本地资源\n");
+            if (inferenceRouter != null) {
+                info.append("是否可用: ").append(inferenceRouter.isCurrentModelAvailable() ? "是" : "否").append("\n");
+            }
+            modelInfoText.setText(info.toString());
+            modelInfoCard.setVisibility(View.VISIBLE);
+        }
+
+        String fullDetails = "\u2601\uFE0F 云端推理服务\n\n" +
+            "当前状态: 云端推理就绪\n" +
+            "模型名称: " + displayName + "\n" +
+            "推理类型: 在线/云端\n" +
+            "优势: 强大的模型能力、无需本地资源\n";
+
+        new AlertDialog.Builder(activity)
+            .setTitle("AI服务状态详情（云端）")
+            .setView(dialogView)
+            .setPositiveButton("复制详情", (dialog, which) -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) activity.getSystemService(Activity.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
+                callback.onShowToast("已复制到剪贴板");
+            })
+            .setNegativeButton("关闭", null)
+            .show();
+    }
+
+    private String buildFullDetailsText() {
+        StringBuilder details = new StringBuilder();
+        details.append("\uD83E\uDD16 AI服务状态详情\n\n");
+
+        AIServiceState state = aiService.getServiceState();
+        if (state != null) {
+            AIServiceState.ServiceStage stage = state.getCurrentStage();
+            details.append("\uD83D\uDCCA 当前状态: ").append(getStageDisplayName(stage)).append("\n");
+            details.append("\uD83D\uDCDD 状态描述: ").append(state.getStageMessage() != null ? state.getStageMessage() : "无").append("\n");
+            details.append("\uD83D\uDCC8 进度: ").append(state.getProgressPercent()).append("%\n");
+            if (state.getCurrentModelName() != null) {
+                details.append("\uD83D\uDCE6 当前模型: ").append(state.getCurrentModelName()).append("\n");
+            }
+            if (state.isError() && state.getErrorMessage() != null) {
+                details.append("\u274C 错误信息: ").append(state.getErrorMessage()).append("\n");
+            }
+        } else {
+            details.append("\uD83D\uDCCA 当前状态: 未知\n");
+        }
+
+        details.append("\n\uD83D\uDD27 运行信息\n");
+        details.append("Native库: ").append(com.oilquiz.app.ai.jni.LlamaHelper.isLibraryLoaded() ? "\u2713 已加载" : "\u2717 未加载").append("\n");
+
+        String modelName = aiService.getCurrentModelName();
+        details.append("模型名称: ").append(modelName != null ? modelName : "未选择").append("\n");
+
+        AIConfig.OptimizationMode optMode = aiService.getOptimizationMode();
+        details.append("优化模式: ").append(optMode != null ? optMode.displayName : "平衡模式").append("\n");
+
+        try {
+            float memUsage = com.oilquiz.app.ai.jni.LlamaHelper.getMemoryUsage();
+            if (memUsage > 0) details.append("内存使用: ").append(String.format("%.1f MB", memUsage)).append("\n");
+        } catch (Exception ignored) { }
+
+        try {
+            float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
+            if (speed > 0) details.append("推理速度: ").append(String.format("%.2f token/s", speed)).append("\n");
+        } catch (Exception ignored) { }
+
+        try {
+            int tokenCount = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
+            if (tokenCount > 0) details.append("Token计数: ").append(tokenCount).append("\n");
+        } catch (Exception ignored) { }
+
+        try {
+            String modelInfo = com.oilquiz.app.ai.jni.LlamaHelper.getModelInfo();
+            if (modelInfo != null && !modelInfo.isEmpty() && !modelInfo.startsWith("Error:")) {
+                details.append("\n\uD83D\uDCCB 模型信息\n").append(modelInfo).append("\n");
+            }
+        } catch (Exception ignored) { }
+
+        return details.toString();
+    }
+
+    private String getStageIcon(AIServiceState.ServiceStage stage) {
+        if (stage == null) return "\u2699\uFE0F";
+        switch (stage) {
+            case UNINITIALIZED: return "\u23F3";
+            case NATIVE_LIBRARY_LOADING: return "\uD83D\uDCE6";
+            case MODEL_FILE_PREPARING: return "\uD83D\uDCC1";
+            case MODEL_LOADING: return "\uD83D\uDCE5";
+            case GPU_INITIALIZATION: return "\uD83C\uDFAE";
+            case CPU_FALLBACK: return "\uD83D\uDCBB";
+            case CHAT_CONTEXT_CREATING: return "\uD83D\uDD27";
+            case INITIALIZED: return "\u2713";
+            case ERROR: return "\u2717";
+            default: return "\u2699\uFE0F";
+        }
+    }
+
+    private String getStageDisplayName(AIServiceState.ServiceStage stage) {
+        if (stage == null) return "处理中";
+        switch (stage) {
+            case UNINITIALIZED: return "未初始化";
+            case NATIVE_LIBRARY_LOADING: return "加载原生库";
+            case MODEL_FILE_PREPARING: return "准备模型文件";
+            case MODEL_LOADING: return "加载模型";
+            case GPU_INITIALIZATION: return "初始化GPU";
+            case CPU_FALLBACK: return "切换到CPU模式";
+            case CHAT_CONTEXT_CREATING: return "创建对话上下文";
+            case INITIALIZED: return "已就绪";
+            case ERROR: return "错误";
+            default: return "处理中";
+        }
+    }
+}

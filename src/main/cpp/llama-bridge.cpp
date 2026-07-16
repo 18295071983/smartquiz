@@ -29,6 +29,9 @@ static int s_defaultThreadCount = 4;
 static int s_defaultContextSize = 2048;
 static int s_defaultBatchSize = 512;
 
+// Forward declarations
+void release();
+
 bool initializeBackend() {
     static bool initialized = false;
     static std::mutex initMutex;
@@ -221,7 +224,7 @@ void release() {
     LOGI("Resources released");
 }
 
-bool isValid() const {
+bool isValid() {
     return isInitialized && model != nullptr && ctx != nullptr && vocab != nullptr;
 }
 

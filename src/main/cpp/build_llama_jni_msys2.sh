@@ -94,6 +94,45 @@ mkdir -p "$JNI_LIBS_DIR/x86_64"
 # ============================================
 log_info "开始编译ARM64架构..."
 
+# 构建OpenCL ICD Loader（仅ARM64需要，Android运行时通过dlopen动态加载厂商驱动）
+STUB_LIB="$SCRIPT_DIR/opencl/build/lib/libOpenCL.so"
+if [ ! -f "$STUB_LIB" ]; then
+    log_info "构建OpenCL ICD Loader库..."
+
+    ICD_SRC="$SCRIPT_DIR/opencl/OpenCL-ICD-Loader"
+    ICD_BUILD="$SCRIPT_DIR/build/opencl-icd-loader"
+
+    mkdir -p "$ICD_BUILD"
+    cd "$ICD_BUILD" || exit 1
+
+    "$CMAKE" "$ICD_SRC" \
+        -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+        -DANDROID_ABI="arm64-v8a" \
+        -DANDROID_PLATFORM=android-31 \
+        -DANDROID_STL=c++_shared \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=ON \
+        -DOPENCL_ICD_LOADER_HEADERS_DIR="$SCRIPT_DIR/opencl/headers" \
+        -DENABLE_OPENCL_LAYERS=OFF \
+        -DENABLE_OPENCL_LOADER_MANAGED_DISPATCH=OFF \
+        -DENABLE_OPENCL_LAYERINFO=OFF \
+        -G"Ninja" || {
+        log_error "OpenCL ICD Loader CMake配置失败"
+        exit 1
+    }
+
+    "$NINJA" || {
+        log_error "OpenCL ICD Loader编译失败"
+        exit 1
+    }
+
+    mkdir -p "$(dirname "$STUB_LIB")"
+    cp "libOpenCL.so" "$STUB_LIB"
+    log_info "OpenCL ICD Loader库已构建: $STUB_LIB"
+    cd "$SCRIPT_DIR" || exit 1
+fi
+
 ARM64_BUILD_DIR="$SCRIPT_DIR/build/arm64-v8a"
 mkdir -p "$ARM64_BUILD_DIR"
 
