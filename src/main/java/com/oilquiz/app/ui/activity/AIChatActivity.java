@@ -2556,7 +2556,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void handleAttachedFiles(List<Uri> uris) {
-        currentAttachments.clear();
         for (Uri uri : uris) {
             String fileName = getFileNameFromUri(uri);
             String mimeType = getContentResolver().getType(uri);
@@ -2567,15 +2566,9 @@ public class AIChatActivity extends BaseActivity {
                 else if (mimeType.startsWith("audio/")) type = "audio";
                 else if (mimeType.contains("pdf")) type = "pdf";
             }
-            currentAttachments.add(new ChatMessage.Attachment(type, uri.toString(), fileName, getFileSizeFromUri(uri)));
-        }
-        if (attachmentList != null) {
-            initAttachmentList();
-            attachmentList.setVisibility(View.VISIBLE);
+            inputManager.addAttachment(new ChatMessage.Attachment(type, uri.toString(), fileName, getFileSizeFromUri(uri)));
         }
         showToast("已添加 " + uris.size() + " 个附件");
-
-        // 附件添加后自动发送（无需输入文字）
         sendMessageWithAttachments();
     }
 
@@ -2583,32 +2576,18 @@ public class AIChatActivity extends BaseActivity {
      * 发送带附件的消息（无需文字输入）
      */
     private void sendMessageWithAttachments() {
-        if (currentAttachments.isEmpty()) {
-            return;
-        }
+        if (!inputManager.hasAttachments()) return;
+        if (!isAIReady()) { showToast("AI服务未就绪，请稍后重试"); return; }
 
-        // 检查AI服务状态
-        if (!isAIReady()) {
-            showToast("AI服务未就绪，请稍后重试");
-            return;
-        }
+        List<ChatMessage.Attachment> savedAttachments = inputManager.getCurrentAttachments();
+        inputManager.clearAttachments();
 
-        // 保存附件列表并清空当前列表
-        List<ChatMessage.Attachment> savedAttachments = new ArrayList<>(currentAttachments);
-        currentAttachments.clear();
-        resetAttachmentAdapter();
-
-        // 构建默认消息
         String defaultMessage = "请分析这些附件的内容";
-
-        // 创建用户消息
         ChatMessage userMessage = ChatMessage.createUserMessage(defaultMessage, savedAttachments);
         chatHistory.add(userMessage);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         scrollToBottom();
         saveHistoryAsync();
-
-        // 处理带附件的消息
         processMessageWithAttachments(defaultMessage, savedAttachments);
     }
 
