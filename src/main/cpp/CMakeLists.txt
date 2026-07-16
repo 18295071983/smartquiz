@@ -54,7 +54,7 @@ set(GGML_VULKAN ${GGML_VULKAN} CACHE BOOL "Enable Vulkan backend" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "Enable CUDA backend" FORCE)
 set(GGML_HEXAGON OFF CACHE BOOL "Enable Hexagon DSP backend" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "Enable dynamic backend loading" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
 set(LLAMA_CPP_PATH "${CMAKE_SOURCE_DIR}/llama.cpp")
 set(OPENCL_HEADERS_DIR "${CMAKE_SOURCE_DIR}/opencl/headers")

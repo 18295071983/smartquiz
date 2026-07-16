@@ -49,7 +49,7 @@ public class ChatModeManager {
     private final Context context;
     private volatile OnModeChangeListener modeChangeListener;
     private volatile ChatMode currentMode = ChatMode.NORMAL;
-    private volatile boolean autoModeEnabled = true;
+    private volatile boolean autoModeEnabled = false;
     private volatile boolean isGenerating = false;
     private volatile ChatMode pendingMode = null;
 
@@ -65,7 +65,6 @@ public class ChatModeManager {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         String modeId = prefs.getString(PREF_CURRENT_MODE, ChatMode.NORMAL.modeId);
         currentMode = ChatMode.fromModeId(modeId);
-        autoModeEnabled = prefs.getBoolean(PREF_AUTO_MODE_ENABLED, true);
     }
 
     private void saveCurrentMode() {
@@ -96,14 +95,11 @@ public class ChatModeManager {
         return autoModeEnabled;
     }
 
+    /**
+     * 自动模式已禁用，所有模式由用户手动选择
+     */
     public void setAutoModeEnabled(boolean enabled) {
-        this.autoModeEnabled = enabled;
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        prefs.edit().putBoolean(PREF_AUTO_MODE_ENABLED, enabled).apply();
-        if (modeChangeListener != null) {
-            modeChangeListener.onAutoModeChanged(enabled);
-        }
-        AppLogger.aiD(TAG, "Auto mode " + (enabled ? "enabled" : "disabled"));
+        AppLogger.aiD(TAG, "Auto mode is disabled. All modes are manually selected.");
     }
 
     public void setManualMode(ChatMode mode) {
@@ -116,14 +112,14 @@ public class ChatModeManager {
             }
             AppLogger.aiD(TAG, "Mode switch pending: " + mode.displayName);
         } else {
-            switchToMode(mode, false);
+            switchToMode(mode);
         }
     }
 
     public void setGeneratingState(boolean generating) {
         this.isGenerating = generating;
         if (!generating && pendingMode != null) {
-            switchToMode(pendingMode, false);
+            switchToMode(pendingMode);
             pendingMode = null;
         }
     }
@@ -140,7 +136,7 @@ public class ChatModeManager {
         pendingMode = null;
     }
 
-    private void switchToMode(ChatMode mode, boolean isAuto) {
+    private void switchToMode(ChatMode mode) {
         if (mode == currentMode) return;
         
         ChatMode oldMode = currentMode;
@@ -148,101 +144,24 @@ public class ChatModeManager {
         saveCurrentMode();
         
         if (modeChangeListener != null) {
-            modeChangeListener.onModeChanged(mode, isAuto);
+            modeChangeListener.onModeChanged(mode, false);
         }
-        AppLogger.aiD(TAG, "Mode switched: " + oldMode.displayName + " -> " + mode.displayName + (isAuto ? " (auto)" : " (manual)"));
+        AppLogger.aiD(TAG, "Mode switched: " + oldMode.displayName + " -> " + mode.displayName);
     }
 
     /**
-     * AI 智能识别模式
-     * 根据消息内容自动判断适合的模式
+     * 返回当前用户选择的模式。
+     * 模式完全由用户手动选择，不做自动识别。
      */
     public ChatMode determineMode(String userMessage) {
-        if (userMessage == null || userMessage.trim().isEmpty()) {
-            return ChatMode.NORMAL;
-        }
-
-        String lower = userMessage.toLowerCase();
-        int scoreThinking = 0;
-        int scoreCreative = 0;
-        int scoreAgent = 0;
-
-        // 深度思考关键词
-        if (containsAny(lower, "为什么", "为何", "原因", "分析", "解释", "原理", "逻辑",
-                "思考", "推理", "证明", "推导", "论证", "探讨", "研究", "深入",
-                "本质", "核心", "关键", "如何实现", "怎么做到")) {
-            scoreThinking += 3;
-        }
-        if (containsAny(lower, "比较", "对比", "区别", "差异", "优缺点", "哪个更好",
-                "如何选择", "建议", "评估", "判断", "看法", "观点")) {
-            scoreThinking += 2;
-        }
-
-        // 创意写作关键词
-        if (containsAny(lower, "写", "创作", "编写", "撰写", "续写", "改写", "模仿",
-                "帮我写", "写一篇", "写一个", "生成一")) {
-            scoreCreative += 3;
-        }
-        if (containsAny(lower, "故事", "小说", "诗歌", "散文", "文章", "作文", "报告",
-                "演讲", "致辞", "剧本", "歌词", "广告", "文案", "邮件", "书信")) {
-            scoreCreative += 2;
-        }
-        if (containsAny(lower, "浪漫", "科幻", "奇幻", "悬疑", "恐怖", "搞笑",
-                "感人", "励志", "幽默", "童话", "武侠", "爱情")) {
-            scoreCreative += 2;
-        }
-
-        // Agent/任务执行关键词
-        if (containsAny(lower, "执行", "完成", "操作", "帮我做", "处理", "执行任务",
-                "自动化", "批量", "任务")) {
-            scoreAgent += 3;
-        }
-        if (containsAny(lower, "搜索", "查找", "获取", "下载", "导入", "导出",
-                "文件", "数据库", "网络", "天气", "位置", "翻译")) {
-            scoreAgent += 2;
-        }
-
-        // 数学/科学计算类倾向于思考
-        if (containsAny(lower, "计算", "数学", "公式", "方程", "求解", "证明",
-                "物理", "化学", "生物", "推理")) {
-            scoreThinking += 2;
-        }
-
-        // 编程倾向于思考
-        if (containsAny(lower, "代码", "程序", "函数", "算法", "bug", "调试",
-                "优化", "重构", "架构", "设计模式")) {
-            scoreThinking += 2;
-        }
-
-        // 返回得分最高的模式
-        if (scoreAgent > scoreThinking && scoreAgent > scoreCreative && scoreAgent >= 3) {
-            return ChatMode.AGENT;
-        } else if (scoreThinking > scoreCreative && scoreThinking >= 2) {
-            return ChatMode.DEEP_THINKING;
-        } else if (scoreCreative > scoreThinking && scoreCreative >= 2) {
-            return ChatMode.CREATIVE;
-        }
-        return ChatMode.NORMAL;
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        for (String keyword : keywords) {
-            if (text.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
+        return currentMode;
     }
 
     /**
-     * 自动模式判断（仅在自动模式开启时调用）
+     * 自动模式判断 — 已禁用，所有模式由用户手动选择
      */
     public boolean shouldAutoSwitch(String userMessage) {
-        if (!autoModeEnabled) {
-            return false;
-        }
-        ChatMode suggested = determineMode(userMessage);
-        return suggested != currentMode;
+        return false;
     }
 
     public String getModeSystemPrompt(ChatMode mode) {

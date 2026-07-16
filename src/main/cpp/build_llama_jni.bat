@@ -1,6 +1,6 @@
 @echo off
 
-set ANDROID_NDK_ROOT=D:\Android\Sdk\ndk\26.1.10909125
+set ANDROID_NDK_ROOT=D:\Android\Sdk\ndk\25.2.9519653
 set ANDROID_SDK_ROOT=D:\Android\Sdk
 set CMAKE_PATH=%ANDROID_SDK_ROOT%\cmake\3.22.1\bin
 set NINJA_PATH=%ANDROID_SDK_ROOT%\cmake\3.22.1\bin
