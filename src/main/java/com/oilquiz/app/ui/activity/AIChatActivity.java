@@ -2551,208 +2551,27 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void handleAction(ChatMessage.Action action) {
-        switch (action.type) {
-            case COPY:
-                if (action.content != null) {
-                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Message", action.content));
-                    showToast("已复制");
-                }
-                break;
-            case REGENERATE: regenerateLastMessage(); break;
-            case NEW_CHAT: clearChat(); addSystemMessage("已开始新对话"); break;
-            case LIKE: showToast("感谢您的喜欢！"); break;
-            case DISLIKE: showToast("我们会努力改进！"); break;
-            case SHOW_HELP: handleHelpCommand(); break;
-            case VIEW_TOOL_DETAILS:
-                showToolDetailsDialog(action.messageId);
-                break;
-            case EXPORT_SUMMARY:
-                exportSummary(action.messageId);
-                break;
-            case SHOW_GUIDE:
-                showGuideDialog();
-                break;
-            case REPORT_ERROR:
-                String errorMsg = action.content != null ? action.content : "未知错误";
-                addSystemMessage("已收到错误报告: " + errorMsg);
-                showToast("错误已报告，感谢您的反馈！");
-                break;
-        }
+        dialogHelper.handleAction(action, chatHistory);
     }
 
     private void showToolDetailsDialog(String messageId) {
-        if (messageId == null) {
-            showToast("未找到工具调用信息");
-            return;
-        }
-        
-        ChatMessage toolMessage = null;
-        for (ChatMessage msg : chatHistory) {
-            if (messageId.equals(msg.id)) {
-                toolMessage = msg;
-                break;
-            }
-        }
-        
-        if (toolMessage == null || toolMessage.toolCallInfo == null) {
-            showToast("未找到工具调用详情");
-            return;
-        }
-        
-        ChatMessage.ToolCallInfo info = toolMessage.toolCallInfo;
-        StringBuilder details = new StringBuilder();
-        
-        details.append("📋 **工具调用详情**\n\n");
-        details.append("**工具名称**: ").append(info.toolDisplayName != null ? info.toolDisplayName : info.toolName).append("\n");
-        details.append("**工具标识**: ").append(info.toolName).append("\n");
-        details.append("**执行状态**: ").append(info.getStatusText()).append("\n");
-        if (info.executionTimeMs > 0) {
-            details.append("**执行耗时**: ").append(info.executionTimeMs).append("ms\n");
-        }
-        
-        if (info.parameters != null && !info.parameters.isEmpty()) {
-            details.append("\n📝 **输入参数**:\n```json\n").append(formatJson(info.parameters)).append("\n```\n");
-        }
-        
-        if (info.result != null && !info.result.isEmpty()) {
-            String resultPreview = info.result;
-            if (resultPreview.length() > 500) {
-                resultPreview = resultPreview.substring(0, 500) + "\n...(内容已截断)";
-            }
-            details.append("\n📊 **执行结果**:\n").append(resultPreview).append("\n");
-        }
-        
-        new AlertDialog.Builder(this)
-            .setTitle("工具详情: " + (info.toolDisplayName != null ? info.toolDisplayName : info.toolName))
-            .setMessage(details.toString())
-            .setPositiveButton("复制结果", (dialog, which) -> {
-                if (info.result != null) {
-                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Tool Result", info.result));
-                    showToast("已复制结果");
-                }
-            })
-            .setNeutralButton("复制全部", (dialog, which) -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("Tool Details", details.toString()));
-                showToast("已复制全部信息");
-            })
-            .setNegativeButton("关闭", null)
-            .show();
+        dialogHelper.showToolDetailsDialog(messageId, chatHistory);
     }
 
     private void exportSummary(String messageId) {
-        if (messageId == null) {
-            showToast("未找到总结信息");
-            return;
-        }
-        
-        ChatMessage summaryMessage = null;
-        for (ChatMessage msg : chatHistory) {
-            if (messageId.equals(msg.id)) {
-                summaryMessage = msg;
-                break;
-            }
-        }
-        
-        if (summaryMessage == null) {
-            showToast("未找到总结内容");
-            return;
-        }
-        
-        StringBuilder exportContent = new StringBuilder();
-        exportContent.append("# AI 对话总结\n\n");
-        exportContent.append("生成时间: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
-        
-        if (summaryMessage.summaryInfo != null) {
-            ChatMessage.SummaryInfo summaryInfo = summaryMessage.summaryInfo;
-            exportContent.append("步骤数量: ").append(summaryInfo.stepsCount).append("\n");
-            exportContent.append("总耗时: ").append(summaryInfo.totalTimeMs).append("ms\n");
-            if (summaryInfo.keyPoints != null && !summaryInfo.keyPoints.isEmpty()) {
-                exportContent.append("\n## 关键要点\n").append(summaryInfo.keyPoints).append("\n");
-            }
-            if (summaryInfo.nextSteps != null && !summaryInfo.nextSteps.isEmpty()) {
-                exportContent.append("\n## 后续建议\n").append(summaryInfo.nextSteps).append("\n");
-            }
-        }
-        
-        exportContent.append("\n## 总结内容\n\n").append(summaryMessage.content != null ? summaryMessage.content : "");
-        
-        final String finalContent = exportContent.toString();
-        
-        new AlertDialog.Builder(this)
-            .setTitle("导出总结")
-            .setMessage("选择导出方式：\n\n" + 
-                "📋 复制到剪贴板\n" +
-                "📤 分享到其他应用\n" +
-                "📝 预览内容")
-            .setPositiveButton("复制", (dialog, which) -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Summary", finalContent));
-                showToast("已复制到剪贴板");
-            })
-            .setNeutralButton("分享", (dialog, which) -> {
-                Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                shareIntent.setType("text/plain");
-                shareIntent.putExtra(Intent.EXTRA_TITLE, "AI对话总结");
-                shareIntent.putExtra(Intent.EXTRA_TEXT, finalContent);
-                startActivity(Intent.createChooser(shareIntent, "分享总结"));
-            })
-            .setNegativeButton("预览", (dialog, which) -> {
-                showPreviewDialog("总结预览", finalContent);
-            })
-            .show();
+        dialogHelper.exportSummary(messageId, chatHistory);
     }
 
     private void showGuideDialog() {
-        StringBuilder guide = new StringBuilder();
-        guide.append("🤖 **AI助手使用指南**\n\n");
-        guide.append("### 📚 基础功能\n");
-        guide.append("• **提问**: 在输入框输入问题，点击发送\n");
-        guide.append("• **连续对话**: AI会记住上下文，支持多轮对话\n");
-        guide.append("• **停止生成**: 点击停止按钮中断当前回复\n\n");
-        
-        guide.append("### 🔧 快捷操作\n");
-        guide.append("• **复制**: 点击消息下方的复制按钮\n");
-        guide.append("• **重新生成**: 点击重新生成获取不同回复\n");
-        guide.append("• **新对话**: 清除历史，开始新的对话\n\n");
-        
-        guide.append("### 🛠️ 智能工具\n");
-        guide.append("• **天气查询**: 询问天气信息\n");
-        guide.append("• **位置定位**: 获取当前位置\n");
-        guide.append("• **文件操作**: 读取、分析文件\n");
-        guide.append("• **网络搜索**: 搜索网络信息\n\n");
-        
-        guide.append("### 💡 使用技巧\n");
-        guide.append("• 描述问题时尽量详细\n");
-        guide.append("• 可以要求AI解释某个概念\n");
-        guide.append("• 可以让AI总结之前的对话\n");
-        guide.append("• 使用工具帮助完成复杂任务\n");
-        
-        new AlertDialog.Builder(this)
-            .setTitle("AI助手使用指南")
-            .setMessage(guide.toString())
-            .setPositiveButton("我知道了", null)
-            .setNeutralButton("复制指南", (dialog, which) -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Guide", guide.toString()));
-                showToast("已复制使用指南");
-            })
-            .show();
+        dialogHelper.showGuideDialog();
     }
 
     private void showPreviewDialog(String title, String content) {
-        new AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(content)
-            .setPositiveButton("复制", (dialog, which) -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText(title, content));
-                showToast("已复制");
-            })
-            .setNegativeButton("关闭", null)
-            .show();
+        dialogHelper.showPreviewDialog(title, content);
+    }
+
+    private void handleHelpCommand() {
+        dialogHelper.showGuideDialog();
     }
 
     private String formatJson(String jsonStr) {
@@ -2763,12 +2582,6 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             return jsonStr;
         }
-    }
-
-    // ===================== Help & Guide =====================
-
-    private void handleHelpCommand() {
-        addAIMessage("可用功能：\n**应用功能：**生成题目、分析题目、翻译、学习计划、统计、搜索题目、天气、导入/导出题目、数据库操作\n**娱乐功能：**讲笑话、猜谜语、写诗、讲故事、知识问答、名言、游戏");
     }
 
     // ===================== UI Init =====================
@@ -3285,56 +3098,13 @@ public class AIChatActivity extends BaseActivity {
      * 导出当前对话
      */
     private void exportChat() {
-        if (chatHistory == null || chatHistory.isEmpty()) {
-            showToast("没有可导出的对话内容");
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("AI对话导出\n");
-        sb.append("时间: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date())).append("\n");
-        sb.append("===================\n\n");
-        for (ChatMessage msg : chatHistory) {
-            String role = "未知";
-            if (msg.type == ChatMessage.MessageType.USER) role = "用户";
-            else if (msg.type == ChatMessage.MessageType.AI) role = "AI";
-            else if (msg.type == ChatMessage.MessageType.SYSTEM) role = "系统";
-            String time = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date(msg.timestamp));
-            sb.append("[").append(time).append("] ").append(role).append(":\n");
-            sb.append(msg.content != null ? msg.content : "").append("\n\n");
-        }
-        
-        // 复制到剪贴板
-        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        android.content.ClipData clip = android.content.ClipData.newPlainText("AI对话", sb.toString());
-        clipboard.setPrimaryClip(clip);
-        showToast("对话已复制到剪贴板");
+        dialogHelper.exportChat(chatHistory);
     }
 
     /**
      * 显示输入框选项菜单
      */
     private void showInputOptions() {
-        String[] options = {"粘贴", "清空输入", "导出对话"};
-        new AlertDialog.Builder(this)
-            .setTitle("选项")
-            .setItems(options, (dialog, which) -> {
-                switch (which) {
-                    case 0: // 粘贴
-                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        if (clipboard.hasPrimaryClip() && clipboard.getPrimaryClip() != null) {
-                            android.content.ClipData.Item item = clipboard.getPrimaryClip().getItemAt(0);
-                            String text = item.getText() != null ? item.getText().toString() : "";
-                            inputMessage.append(text);
-                        }
-                        break;
-                    case 1: // 清空输入
-                        inputMessage.setText("");
-                        break;
-                    case 2: // 导出对话
-                        exportChat();
-                        break;
-                }
-            })
-            .show();
+        dialogHelper.showInputOptions(inputMessage);
     }
 }
