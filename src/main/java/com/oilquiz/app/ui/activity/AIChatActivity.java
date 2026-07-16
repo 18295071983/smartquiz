@@ -62,6 +62,16 @@ import com.oilquiz.app.util.fileparser.FileContentExtractor;
 import com.oilquiz.app.infra.AppLogger;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.PermissionResourceProvider;
+import com.oilquiz.app.ai.chat.status.ServiceStatusManager;
+import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
+import com.oilquiz.app.ai.chat.history.ChatHistoryController;
+import com.oilquiz.app.ai.chat.weather.WeatherBannerController;
+import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
+import com.oilquiz.app.ai.chat.input.ChatInputManager;
+import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
+import com.oilquiz.app.ai.chat.lifecycle.GenerationLifecycleManager;
+import com.oilquiz.app.ai.chat.streaming.StreamingTokenPipeline;
+import com.oilquiz.app.ai.chat.processor.MessageProcessor;
 import com.oilquiz.app.ui.base.BaseActivity;
 
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -181,6 +191,18 @@ public class AIChatActivity extends BaseActivity {
     private ActivityResultLauncher<String[]> attachFileLauncher;
     private List<Uri> attachedFiles = new ArrayList<>();
     private List<ChatMessage.Attachment> currentAttachments = new ArrayList<>();
+
+    // Modular components
+    private ServiceStatusManager serviceStatusManager;
+    private ChatDialogHelper dialogHelper;
+    private ChatHistoryController historyController;
+    private WeatherBannerController weatherBannerController;
+    private NativeRecoveryHandler recoveryHandler;
+    private ChatInputManager inputManager;
+    private AttachmentProcessor attachmentProcessor;
+    private GenerationLifecycleManager lifecycleManager;
+    private StreamingTokenPipeline streamingPipeline;
+    private MessageProcessor messageProcessor;
 
     private final android.content.ComponentCallbacks2 memoryCallback = new android.content.ComponentCallbacks2() {
         @Override
@@ -394,6 +416,9 @@ public class AIChatActivity extends BaseActivity {
             // 设置 Native 状态恢复监听器
             setupNativeStateRecoveryListener();
 
+            // Initialize modular components
+            initModules();
+
             if (chatHistory.isEmpty()) {
                 addSystemMessage("欢迎使用AI对话功能！请输入您的问题，我会尽力回答。\n输入 '帮助' 查看更多功能。");
             } else {
@@ -407,6 +432,101 @@ public class AIChatActivity extends BaseActivity {
             AppLogger.aiE(TAG, "Error initializing data: " + e.getMessage());
             showToast("数据初始化失败: " + e.getMessage());
         }
+    }
+
+    private void initModules() {
+        // ServiceStatusManager
+        serviceStatusManager = new ServiceStatusManager(this, uiHandler, new ServiceStatusManager.Callback() {
+            @Override public void onAddSystemMessage(String message, ChatMessage.SystemMessageType type) { addSystemMessage(message, type); }
+            @Override public void onAddErrorMessage(String title, String detail, boolean withRetry) { addErrorMessage(title, detail, withRetry); }
+            @Override public void onShowToast(String message) { showToast(message); }
+            @Override public void onShouldUseOnlineModel() {}
+            @Override public void onUpdateModelNameDisplay() { updateModelNameDisplay(); }
+            @Override public void onHideLoading() { hideLoading(); }
+        });
+        serviceStatusManager.bindViews(serviceStatusBar, serviceStatusIcon, serviceStatusText, serviceStatusProgress, serviceStatusElapsed, thinkingIndicator);
+        serviceStatusManager.setServices(aiService, inferenceRouter, chatHistory);
+        serviceStatusManager.registerObserver();
+        serviceStatusManager.updateInitialStatus();
+
+        // ChatDialogHelper
+        dialogHelper = new ChatDialogHelper(this, new ChatDialogHelper.Callback() {
+            @Override public void onShowToast(String message) { showToast(message); }
+            @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
+            @Override public void onAddAIMessage(String content) { addAIMessage(content); }
+            @Override public void onClearChat() { clearChat(); }
+        });
+
+        // ChatHistoryController
+        historyController = new ChatHistoryController(this, new ChatHistoryController.Callback() {
+            @Override public void onClearChat() { clearChat(); }
+            @Override public void onShowToast(String message) { showToast(message); }
+        });
+        historyController.init(drawerLayout, historyList);
+        historyController.refresh(chatHistory);
+
+        // WeatherBannerController
+        weatherBannerController = new WeatherBannerController(this, message -> showToast(message));
+        weatherBannerController.bindViews(weatherBanner, weatherIcon, weatherCity, weatherTemp, weatherDesc, weatherHumidity, weatherWind);
+
+        // NativeRecoveryHandler
+        recoveryHandler = new NativeRecoveryHandler(this, uiHandler, new NativeRecoveryHandler.Callback() {
+            @Override public void onRecoveryStarted(String message) { addSystemMessage(message); }
+            @Override public void onRecoveryProgress(String message, int progress) { serviceStatusManager.updateRecoveryProgress(message, progress); }
+            @Override public void onRecoveryComplete(String message) { addSystemMessage(message); showToast("恢复完成"); }
+            @Override public void onRecoveryFailed(String error) { addErrorMessage("恢复失败", error, true); }
+            @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
+            @Override public void onShowToast(String message) { showToast(message); }
+            @Override public void onTriggerAutoRecovery() { triggerAutoRecovery(recoveryHandler.getPendingMessage()); }
+        });
+        recoveryHandler.setAIService(aiService);
+        recoveryHandler.setupListener();
+
+        // ChatInputManager
+        inputManager = new ChatInputManager(this, new ChatInputManager.Callback() {
+            @Override public void onSendMessage(String text) { sendMessage(); }
+            @Override public void onAttachFile() { handleAttachFile(); }
+            @Override public void onShowToast(String message) { showToast(message); }
+        });
+        inputManager.init(inputMessage, btnSend, btnAttach, attachmentList);
+
+        // AttachmentProcessor
+        attachmentProcessor = new AttachmentProcessor(this);
+
+        // GenerationLifecycleManager
+        lifecycleManager = new GenerationLifecycleManager(this, uiHandler, new GenerationLifecycleManager.Callback() {
+            @Override public void onShowThinkingIndicator() { showLoading("正在思考...", null); }
+            @Override public void onHideThinkingIndicator() { hideLoading(); }
+            @Override public void onShowStopButton() { if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.VISIBLE); }
+            @Override public void onHideStopButton() { if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.GONE); }
+            @Override public void onUpdateMessageContent(int index, String content) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatHistory.get(index).content = content; chatAdapter.notifyItemChanged(index); } }
+            @Override public void onUpdateMessageThinking(int index, String thinkingContent) {}
+            @Override public void onAddAIMessage(ChatMessage message) { chatHistory.add(message); if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1); scrollToBottom(); }
+            @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
+            @Override public void onScrollToBottom() { scrollToBottom(); }
+            @Override public void onSaveHistoryAsync() { saveHistoryAsync(); }
+            @Override public void onShowToast(String message) { showToast(message); }
+        });
+
+        // StreamingTokenPipeline
+        streamingPipeline = new StreamingTokenPipeline(new StreamingTokenPipeline.TokenListener() {
+            @Override public void onContentToken(String token) { lifecycleManager.handleToken(token); }
+            @Override public void onThinkingToken(String token) {}
+            @Override public void onToolCall(String toolCallData) {}
+            @Override public void onGenerationComplete(String fullContent) {}
+        });
+
+        // MessageProcessor
+        messageProcessor = new MessageProcessor(new MessageProcessor.Callback() {
+            @Override public void onCacheHit(String cachedResponse) {}
+            @Override public void onSkillMatched(String skillPrompt) {}
+            @Override public void onLocalModelCall(String prompt) {}
+            @Override public void onOnlineModelCall(String prompt) {}
+            @Override public void onToolExecution(String toolName, String params) {}
+            @Override public void onEntertainmentRequest(String type) {}
+            @Override public void onUnknownCommand(String command) {}
+        });
+        messageProcessor.setServices(aiService, inferenceRouter, cacheManager, skillManager);
     }
 
     @Override
