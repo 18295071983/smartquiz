@@ -15,7 +15,8 @@ public class ChatModeManager {
     public enum ChatMode {
         NORMAL("普通", "normal", "💬"),
         DEEP_THINKING("深度思考", "deep_thinking", "🧠"),
-        CREATIVE("创意写作", "creative", "✍️");
+        CREATIVE("创意写作", "creative", "✍️"),
+        AGENT("Agent", "agent", "🤖");
 
         public final String displayName;
         public final String modeId;
@@ -164,6 +165,7 @@ public class ChatModeManager {
         String lower = userMessage.toLowerCase();
         int scoreThinking = 0;
         int scoreCreative = 0;
+        int scoreAgent = 0;
 
         // 深度思考关键词
         if (containsAny(lower, "为什么", "为何", "原因", "分析", "解释", "原理", "逻辑",
@@ -190,6 +192,16 @@ public class ChatModeManager {
             scoreCreative += 2;
         }
 
+        // Agent/任务执行关键词
+        if (containsAny(lower, "执行", "完成", "操作", "帮我做", "处理", "执行任务",
+                "自动化", "批量", "任务")) {
+            scoreAgent += 3;
+        }
+        if (containsAny(lower, "搜索", "查找", "获取", "下载", "导入", "导出",
+                "文件", "数据库", "网络", "天气", "位置", "翻译")) {
+            scoreAgent += 2;
+        }
+
         // 数学/科学计算类倾向于思考
         if (containsAny(lower, "计算", "数学", "公式", "方程", "求解", "证明",
                 "物理", "化学", "生物", "推理")) {
@@ -203,7 +215,9 @@ public class ChatModeManager {
         }
 
         // 返回得分最高的模式
-        if (scoreThinking > scoreCreative && scoreThinking >= 2) {
+        if (scoreAgent > scoreThinking && scoreAgent > scoreCreative && scoreAgent >= 3) {
+            return ChatMode.AGENT;
+        } else if (scoreThinking > scoreCreative && scoreThinking >= 2) {
             return ChatMode.DEEP_THINKING;
         } else if (scoreCreative > scoreThinking && scoreCreative >= 2) {
             return ChatMode.CREATIVE;
@@ -240,6 +254,10 @@ public class ChatModeManager {
             case CREATIVE:
                 return "你是一个创意写作助手。根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
                        "请确保：\n1. 内容原创，有创意\n2. 语言生动，富有感染力\n3. 结构清晰，逻辑通顺";
+            case AGENT:
+                return "你是一个智能Agent助手。你可以调用各种工具来完成用户的任务。\n" +
+                       "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
+                       "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
             case NORMAL:
             default:
                 return "你是一位友好、专业的AI助手。回答准确简洁，保持礼貌耐心，必要时提供示例。请以自然易懂的方式回应。";

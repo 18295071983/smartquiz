@@ -63,6 +63,7 @@ echo.
     -DGGML_OPENMP=OFF ^
     -DGGML_LLAMAFILE=OFF ^
     -DLLAMA_OPENSSL=OFF ^
+    -DBUILD_SHARED_LIBS=OFF ^
     -B "%BUILD_DIR%" ^
     -S .
 

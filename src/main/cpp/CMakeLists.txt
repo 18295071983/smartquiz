@@ -10,6 +10,8 @@ set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
 set(CMAKE_EXE_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
 set(CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE} -Wl,--allow-shlib-undefined")
 
+set(ANDROID_STL c++_static CACHE STRING "Android STL type" FORCE)
+
 # ggml requires non-finite math arithmetics (NaN/Inf handling)
 # -ffast-math enables -ffinite-math-only which breaks ggml compilation
 # Use -O3 without -ffast-math, and explicitly disable finite-math-only
