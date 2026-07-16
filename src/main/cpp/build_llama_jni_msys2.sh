@@ -31,9 +31,9 @@ GLSLC="$NDK_DIR/shader-tools/windows-x86_64/glslc.exe"
 # 将glslc所在目录添加到PATH（CMake查找glslc需要）
 export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
-# OpenCL: 在Android上使用设备厂商的驱动（运行时动态加载）
-# 厂商驱动位于 /vendor/lib64/libOpenCL.so
-OPENCL_LIB=""
+# OpenCL: 在Android上使用NDK提供的stub库进行编译时链接
+# 运行时会自动加载设备厂商的驱动（/vendor/lib64/libOpenCL.so）
+OPENCL_LIB="$NDK_DIR/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so"
 OPENCL_LIB_PATHS=()
 OPENCL_ENABLED=1
 
@@ -182,8 +182,8 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DOpenCL_INCLUDE_DIRS="$SCRIPT_DIR/opencl/headers" \
     -DOpenCL_FOUND=$OPENCL_ENABLED \
     -DOpenCL_VERSION_STRING="3.0" \
-    -DOpenCL_LIBRARIES="" \
-    -DOpenCL_LIBRARY="" \
+    -DOpenCL_LIBRARIES="$OPENCL_LIB" \
+    -DOpenCL_LIBRARY="$OPENCL_LIB" \
     -DPython3_EXECUTABLE="$PYTHON3" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"

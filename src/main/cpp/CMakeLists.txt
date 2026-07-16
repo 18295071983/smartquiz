@@ -124,8 +124,7 @@ target_link_libraries(
 )
 
 if(GGML_OPENCL)
-    target_link_options(llama-jni PRIVATE "-undefined" "dynamic_lookup")
-    message(STATUS "OpenCL: Added -undefined dynamic_lookup for runtime dynamic linking")
+    message(STATUS "OpenCL: Using NDK stub library for compilation (runtime will load vendor driver)")
 endif()
 
 set_target_properties(
