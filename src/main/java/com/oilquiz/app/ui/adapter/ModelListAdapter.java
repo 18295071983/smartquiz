@@ -61,6 +61,44 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
         notifyDataSetChanged();
     }
 
+    /**
+     * 更新数据（带 DiffUtil）
+     */
+    public void updateDataWithDiff(List<ApiModel> newModels, String newSelectedModelId) {
+        List<ApiModel> oldModels = new ArrayList<>(this.models);
+        this.models = newModels != null ? newModels : new ArrayList<>();
+        this.selectedModelId = newSelectedModelId;
+        
+        androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = 
+            androidx.recyclerview.widget.DiffUtil.calculateDiff(new androidx.recyclerview.widget.DiffUtil.Callback() {
+                @Override
+                public int getOldListSize() {
+                    return oldModels.size();
+                }
+
+                @Override
+                public int getNewListSize() {
+                    return models.size();
+                }
+
+                @Override
+                public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+                    ApiModel oldItem = oldModels.get(oldItemPosition);
+                    ApiModel newItem = models.get(newItemPosition);
+                    return oldItem.id != null && oldItem.id.equals(newItem.id);
+                }
+
+                @Override
+                public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+                    ApiModel oldItem = oldModels.get(oldItemPosition);
+                    ApiModel newItem = models.get(newItemPosition);
+                    return oldItem.isAvailable() == newItem.isAvailable();
+                }
+            });
+        
+        diffResult.dispatchUpdatesTo(this);
+    }
+
     public void setSelectedModel(String modelId) {
         String oldSelected = this.selectedModelId;
         this.selectedModelId = modelId;
@@ -70,6 +108,30 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
                 notifyItemChanged(i);
             }
         }
+    }
+
+    /**
+     * 获取当前选中的模型
+     */
+    public ApiModel getSelectedModel() {
+        for (ApiModel model : models) {
+            if (model.id.equals(selectedModelId)) {
+                return model;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 查找模型
+     */
+    public ApiModel findModelById(String modelId) {
+        for (ApiModel model : models) {
+            if (model.id != null && model.id.equals(modelId)) {
+                return model;
+            }
+        }
+        return null;
     }
 
     class ModelViewHolder extends RecyclerView.ViewHolder {

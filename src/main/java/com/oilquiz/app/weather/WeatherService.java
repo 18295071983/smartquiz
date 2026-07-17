@@ -79,6 +79,25 @@ public class WeatherService {
         });
     }
 
+    /**
+     * 直接用经纬度查天气，不做GeoAPI反解析（省一次API调用）
+     * 城市名由调用方通过Geocoder提供
+     */
+    public CompletableFuture<String> getCurrentWeatherByLocationDirect(double lat, double lon) {
+        String cacheKey = "weather_now_" + locationKey(lat, lon);
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_NOW)) {
+            Log.d(TAG, "Returning cached weather for location " + lat + "," + lon);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        return weatherManager.getCurrentWeatherByLocationDirect(lat, lon).thenApply(result -> {
+            cacheManager.saveCache(cacheKey, result);
+            return result;
+        });
+    }
+
     public CompletableFuture<String> getForecastByLocation(double lat, double lon) {
         String cacheKey = "weather_forecast_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);

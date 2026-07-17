@@ -179,6 +179,25 @@ public class AIWeatherManager implements AITool {
         }
     }
 
+    /**
+     * 直接用经纬度查天气，不做城市名反解析（省一次GeoAPI调用）
+     * 城市名由调用方通过GPS反解析提供
+     */
+    public CompletableFuture<String> getCurrentWeatherByLocationDirect(double lat, double lon) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String apiKey = getHefengApiKey();
+                String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+                String urlString = HEFENG_WEATHER_URL + "?location=" + location;
+                String response = httpGet(urlString, apiKey);
+                return parseHefengWeatherResponse(response, null);
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting weather by location (direct)", e);
+                return "获取天气信息失败: " + e.getMessage();
+            }
+        });
+    }
+
     // OpenWeatherMap 当前天气查询
     private CompletableFuture<String> getOpenWeatherMapCurrentWeather(String city) {
         return CompletableFuture.supplyAsync(() -> {
@@ -344,11 +363,12 @@ public class AIWeatherManager implements AITool {
             String weather = now.get("text").getAsString();
             String icon = now.has("icon") ? now.get("icon").getAsString() : "";
             String temp = now.get("temp").getAsString();
-            String humidity = now.get("humidity").getAsString();
-            String windSpeed = now.get("windSpeed").getAsString();
-            String windDir = now.get("windDir").getAsString();
-            String feelsLike = now.get("feelsLike").getAsString();
-            String visibility = now.get("vis").getAsString();
+            String humidity = now.has("humidity") ? now.get("humidity").getAsString() : "--";
+            String windSpeed = now.has("windSpeed") ? now.get("windSpeed").getAsString() : "--";
+            String windDir = now.has("windDir") ? now.get("windDir").getAsString() : "--";
+            String feelsLike = now.has("feelsLike") ? now.get("feelsLike").getAsString() : "--";
+            String visibility = now.has("vis") ? now.get("vis").getAsString() : "--";
+            String pressure = now.has("pressure") ? now.get("pressure").getAsString() : "--";
 
             StringBuilder weatherInfo = new StringBuilder();
             weatherInfo.append("城市: " + city + "\n");
@@ -362,6 +382,7 @@ public class AIWeatherManager implements AITool {
             weatherInfo.append("风速: " + windSpeed + " km/h\n");
             weatherInfo.append("风向: " + windDir + "\n");
             weatherInfo.append("能见度: " + visibility + " km\n");
+            weatherInfo.append("气压: " + pressure + " hPa\n");
 
             if (jsonObject.has("fxLink") && !jsonObject.get("fxLink").isJsonNull()) {
                 String fxLink = jsonObject.get("fxLink").getAsString();

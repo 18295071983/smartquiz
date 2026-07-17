@@ -298,6 +298,49 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         notifyDataSetChanged();
     }
 
+    /**
+     * 更新数据（带 DiffUtil）
+     */
+    public void updateData(List<Object> newItems) {
+        List<Object> oldItems = new ArrayList<>(this.items);
+        this.items.clear();
+        this.items.addAll(newItems);
+        notifyDataSetChanged(); // 使用 notifyDataSetChanged 因为混合类型
+    }
+
+    /**
+     * 删除单个项目
+     */
+    public void removeItem(int position) {
+        if (position >= 0 && position < items.size()) {
+            items.remove(position);
+            notifyItemRemoved(position);
+        }
+    }
+
+    /**
+     * 获取项目
+     */
+    public Object getItem(int position) {
+        if (position >= 0 && position < items.size()) {
+            return items.get(position);
+        }
+        return null;
+    }
+
+    /**
+     * 获取项目数量
+     */
+    public int getRealItemCount() {
+        int count = 0;
+        for (Object item : items) {
+            if (item instanceof ChatHistoryItem) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     @Override
     public int getItemCount() {
         return items.size();

@@ -2,7 +2,10 @@ package com.oilquiz.app.ui.widget;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.location.Address;
+import android.location.Geocoder;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.util.AttributeSet;
@@ -28,6 +31,13 @@ public class WeatherBannerView extends LinearLayout {
 
     private static final String TAG = "WeatherBannerView";
     private static final long MIN_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+    // 位置缓存（与AI对话页面共用同一个SharedPreferences）
+    private static final String PREFS_NAME = "weather_location_cache";
+    private static final String KEY_LAT = "cached_lat";
+    private static final String KEY_LON = "cached_lon";
+    private static final String KEY_CITY = "cached_city";
+    private static final String KEY_TIMESTAMP = "cached_timestamp";
+    private static final long LOCATION_CACHE_DURATION = 30 * 60 * 1000; // 30分钟
 
     private TextView weatherIcon;
     private TextView weatherCity;
@@ -100,7 +110,10 @@ public class WeatherBannerView extends LinearLayout {
         setupListeners();
 
         if (autoLoad) {
-            requestLocationAndLoad();
+            // 优先使用缓存位置（应用关闭后不丢失）
+            if (!loadFromCachedLocation()) {
+                requestLocationAndLoad();
+            }
         }
     }
 
@@ -115,7 +128,110 @@ public class WeatherBannerView extends LinearLayout {
     public void onResume() {
         long now = System.currentTimeMillis();
         if (lastRefreshTime == 0 || (now - lastRefreshTime) > MIN_REFRESH_INTERVAL_MS) {
+            // 优先使用缓存位置（应用关闭后不丢失）
+            if (loadFromCachedLocation()) return;
             requestLocationAndLoad();
+        }
+    }
+
+    /**
+     * 从缓存位置加载天气，返回true表示使用了缓存
+     */
+    private boolean loadFromCachedLocation() {
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            long timestamp = prefs.getLong(KEY_TIMESTAMP, 0);
+            if (timestamp == 0) return false;
+
+            long age = System.currentTimeMillis() - timestamp;
+            if (age > LOCATION_CACHE_DURATION) {
+                Log.i(TAG, "Location cache expired");
+                return false;
+            }
+
+            double lat = Double.longBitsToDouble(prefs.getLong(KEY_LAT, 0));
+            double lon = Double.longBitsToDouble(prefs.getLong(KEY_LON, 0));
+            String city = prefs.getString(KEY_CITY, "");
+
+            if (lat == 0 && lon == 0) return false;
+
+            Log.i(TAG, "Using cached location: " + city + " (" + lat + "," + lon + ")");
+            currentCity = city;
+            cachedLat = lat;
+            cachedLon = lon;
+            loadWeatherByLocationDirect(lat, lon, city);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "Error reading cached location: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 用经纬度查天气，使用getCurrentWeatherByLocation（含GeoAPI反解析）
+     * 和风GeoAPI可能返回乡镇级地址，比Android Geocoder更精确
+     */
+    private void loadWeatherByLocationDirect(double lat, double lon, String cityName) {
+        if (!isNetworkAvailable()) {
+            if (weatherDesc != null) weatherDesc.setText("无网络连接");
+            if (weatherCity != null) weatherCity.setText(cityName);
+            return;
+        }
+
+        if (weatherCity != null) weatherCity.setText(cityName);
+        if (weatherTemp != null) weatherTemp.setText("--°C");
+        if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
+
+        weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
+            lastRefreshTime = System.currentTimeMillis();
+            post(() -> updateUI(weather));
+        }).exceptionally(e -> {
+            Log.e(TAG, "Failed to load weather by location: " + e.getMessage(), e);
+            post(() -> loadWeatherWithCity(cityName));
+            return null;
+        });
+    }
+
+    /**
+     * 用Android Geocoder反解析城市名（区/县级精确地址）
+     */
+    private String getCityNameFromGeocoder(double lat, double lon) {
+        if (Geocoder.isPresent()) {
+            try {
+                Geocoder geocoder = new Geocoder(getContext(), Locale.CHINA);
+                List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address address = addresses.get(0);
+                    String name = address.getSubLocality(); // 区
+                    if (name == null) name = address.getLocality(); // 市
+                    if (name == null) name = address.getAdminArea(); // 省
+                    if (name != null) {
+                        Log.i(TAG, "Geocoder反解析成功: " + name);
+                        return name;
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Geocoder failed: " + e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 缓存位置到SharedPreferences（持久化，应用关闭后不丢失）
+     */
+    private void saveCachedLocation(double lat, double lon, String city) {
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            prefs.edit()
+                    .putLong(KEY_LAT, Double.doubleToRawLongBits(lat))
+                    .putLong(KEY_LON, Double.doubleToRawLongBits(lon))
+                    .putString(KEY_CITY, city)
+                    .putLong(KEY_TIMESTAMP, System.currentTimeMillis())
+                    .apply();
+            Log.i(TAG, "Location cached: " + city + " (" + lat + "," + lon + ")");
+        } catch (Exception e) {
+            Log.w(TAG, "Error saving cached location: " + e.getMessage());
         }
     }
 
@@ -270,38 +386,29 @@ public class WeatherBannerView extends LinearLayout {
         new Thread(() -> {
             try {
                 LocationTool locationTool = new LocationTool(getContext());
-                java.util.Map<String, Object> params = new java.util.HashMap<>();
-                params.put("action", "get_current");
-                AIToolResult result = locationTool.execute(params);
+                LocationTool.SmartLocationResult result = locationTool.getSmartLocation();
 
-                if (result != null && result.isSuccess()) {
-                    Object resObj = result.getResult();
-                    if (resObj instanceof Map) {
-                        Map<?, ?> map = (Map<?, ?>) resObj;
-                        String city = String.valueOf(map.get("city"));
-                        if (city != null && !city.equals("未知") && !city.equals("null") && !city.isEmpty()) {
-                            currentCity = city;
-                        }
-                        double lat = map.get("latitude") instanceof Number ? ((Number) map.get("latitude")).doubleValue() : 0;
-                        double lon = map.get("longitude") instanceof Number ? ((Number) map.get("longitude")).doubleValue() : 0;
-                        if (lat != 0 && lon != 0) {
-                            cachedLat = lat;
-                            cachedLon = lon;
-                            // 坐标转地址：缓存可读地址
-                            try {
-                                String address = String.valueOf(map.get("address"));
-                                if (address != null && !address.equals("null") && !address.isEmpty()) {
-                                    cachedAddress = address;
-                                } else {
-                                    cachedAddress = currentCity;
-                                }
-                            } catch (Exception e) {
-                                cachedAddress = currentCity;
-                            }
-                            post(() -> loadWeatherByLocation(lat, lon));
-                            return;
-                        }
+                if (result.success && result.location != null) {
+                    double lat = result.location.latitude;
+                    double lon = result.location.longitude;
+                    cachedLat = lat;
+                    cachedLon = lon;
+
+                    // 用Android Geocoder反解析城市名（如"金凤区"）
+                    String cityName = getCityNameFromGeocoder(lat, lon);
+                    if (cityName == null || cityName.isEmpty()) {
+                        cityName = currentCity;
                     }
+                    currentCity = cityName;
+                    cachedAddress = cityName;
+
+                    // 缓存位置（持久化，应用关闭后不丢失）
+                    saveCachedLocation(lat, lon, cityName);
+
+                    // 用经纬度直接查天气（不调GeoAPI反解析，省一次API调用）
+                    final String finalCity = cityName;
+                    post(() -> loadWeatherByLocationDirect(lat, lon, finalCity));
+                    return;
                 }
                 Log.w(TAG, "Location returned no valid coordinates, falling back to city: " + currentCity);
             } catch (Exception e) {
@@ -328,37 +435,28 @@ public class WeatherBannerView extends LinearLayout {
         new Thread(() -> {
             try {
                 LocationTool locationTool = new LocationTool(getContext());
-                java.util.Map<String, Object> params = new java.util.HashMap<>();
-                params.put("action", "get_current");
-                AIToolResult result = locationTool.execute(params);
+                LocationTool.SmartLocationResult result = locationTool.getSmartLocation();
 
-                if (result != null && result.isSuccess()) {
-                    Object resObj = result.getResult();
-                    if (resObj instanceof Map) {
-                        Map<?, ?> map = (Map<?, ?>) resObj;
-                        String city = String.valueOf(map.get("city"));
-                        if (city != null && !city.equals("未知") && !city.equals("null") && !city.isEmpty()) {
-                            currentCity = city;
-                        }
-                        double lat = map.get("latitude") instanceof Number ? ((Number) map.get("latitude")).doubleValue() : 0;
-                        double lon = map.get("longitude") instanceof Number ? ((Number) map.get("longitude")).doubleValue() : 0;
-                        if (lat != 0 && lon != 0) {
-                            cachedLat = lat;
-                            cachedLon = lon;
-                            try {
-                                String address = String.valueOf(map.get("address"));
-                                if (address != null && !address.equals("null") && !address.isEmpty()) {
-                                    cachedAddress = address;
-                                } else {
-                                    cachedAddress = currentCity;
-                                }
-                            } catch (Exception e) {
-                                cachedAddress = currentCity;
-                            }
-                            post(() -> refreshWeatherByLocation(lat, lon));
-                            return;
-                        }
+                if (result.success && result.location != null) {
+                    double lat = result.location.latitude;
+                    double lon = result.location.longitude;
+                    cachedLat = lat;
+                    cachedLon = lon;
+
+                    String cityName = getCityNameFromGeocoder(lat, lon);
+                    if (cityName == null || cityName.isEmpty()) {
+                        cityName = currentCity;
                     }
+                    currentCity = cityName;
+                    cachedAddress = cityName;
+
+                    saveCachedLocation(lat, lon, cityName);
+
+                    // 刷新时清除天气缓存，强制获取最新数据
+                    weatherService.clearCacheForLocation(lat, lon);
+                    final String finalCity = cityName;
+                    post(() -> loadWeatherByLocationDirect(lat, lon, finalCity));
+                    return;
                 }
                 Log.w(TAG, "Refresh location returned no valid coordinates, falling back to city: " + currentCity);
             } catch (Exception e) {

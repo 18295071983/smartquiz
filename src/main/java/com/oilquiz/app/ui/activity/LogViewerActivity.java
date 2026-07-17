@@ -548,6 +548,17 @@ public class LogViewerActivity extends AppCompatActivity {
                         String level = "INFO";
                         String details = "历史日志记录";
                         
+                        // 优先从日志行中解析级别信息 (格式: [时间] [级别] [标签] 消息)
+                        boolean hasExplicitErrorLevel = false;
+                        boolean hasExplicitInfoLevel = false;
+                        if (lines[i].contains("[ERROR]") || lines[i].contains("[WARN]")) {
+                            hasExplicitErrorLevel = true;
+                            level = lines[i].contains("[ERROR]") ? "ERROR" : "WARN";
+                        } else if (lines[i].contains("[INFO]") || lines[i].contains("[DEBUG]")) {
+                            hasExplicitInfoLevel = true;
+                            level = lines[i].contains("[INFO]") ? "INFO" : "DEBUG";
+                        }
+                        
                         // 判断是否是 AI 服务相关日志
                         boolean isAIService = false;
                         String[] aiKeywords = {"AIChatActivity", "AIProcessingService", "AIService", "LlamaJNI", 
@@ -564,13 +575,17 @@ public class LogViewerActivity extends AppCompatActivity {
                             logType = LOG_TYPE_AI_SERVICE;
                         }
                         
-                        // 简单的日志类型判断
-                        if (lines[i].contains("Error") || lines[i].contains("Exception")) {
+                        // 智能日志类型判断 - 优先使用显式级别
+                        boolean hasErrorKeyword = lines[i].contains("Error") || lines[i].contains("Exception");
+                        boolean isErrorNull = lines[i].contains("Error: null") || lines[i].contains("error: null");
+                        boolean hasResultOK = lines[i].contains("Result: OK");
+                        
+                        if (hasExplicitErrorLevel || (hasErrorKeyword && !isErrorNull && !hasResultOK && !hasExplicitInfoLevel)) {
                             logType = LOG_TYPE_ERROR;
-                            level = "ERROR";
+                            if (!hasExplicitErrorLevel) level = "ERROR";
                         } else if (lines[i].contains("Model") || lines[i].contains("model")) {
                             logType = LOG_TYPE_MODEL;
-                        } else if (lines[i].contains("Success") || lines[i].contains("success")) {
+                        } else if (lines[i].contains("Success") || lines[i].contains("success") || hasResultOK) {
                             logType = LOG_TYPE_SUCCESS;
                         }
                         
@@ -826,12 +841,23 @@ public class LogViewerActivity extends AppCompatActivity {
                     int logType = LOG_TYPE_AI_SERVICE; // 默认标记为 AI 服务类型
                     String details = "AI服务日志";
                     
-                    // 分析日志类型
-                    if (logMessage.contains("Error") || logMessage.contains("Exception") || logMessage.contains("error")) {
+                    // 优先使用 logLevel 参数判断日志类型
+                    boolean isRealError = false;
+                    if (!TextUtils.isEmpty(logLevel)) {
+                        if (logLevel.equals("ERROR") || logLevel.equals("WARN")) {
+                            isRealError = true;
+                        }
+                    }
+                    
+                    // 分析日志类型 - 结合 logLevel 和关键字智能判断
+                    boolean hasErrorKeyword = logMessage.contains("Error") || logMessage.contains("Exception") || logMessage.contains("error");
+                    boolean isErrorNull = logMessage.contains("Error: null") || logMessage.contains("error: null");
+                    
+                    if (isRealError || (hasErrorKeyword && !isErrorNull && !logMessage.contains("Result: OK"))) {
                         logType = LOG_TYPE_ERROR;
                     } else if (logMessage.contains("Model") || logMessage.contains("model") || logMessage.contains("Loading model")) {
                         logType = LOG_TYPE_MODEL;
-                    } else if (logMessage.contains("Success") || logMessage.contains("success") || logMessage.contains("completed")) {
+                    } else if (logMessage.contains("Success") || logMessage.contains("success") || logMessage.contains("completed") || logMessage.contains("Result: OK")) {
                         logType = LOG_TYPE_SUCCESS;
                     }
                     

@@ -167,7 +167,7 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
     -DANDROID_ABI="arm64-v8a" \
     -DANDROID_PLATFORM=android-31 \
-    -DANDROID_STL=c++_shared \
+    -DANDROID_STL=c++_static \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
@@ -185,6 +185,7 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DOpenCL_LIBRARIES="$OPENCL_LIB" \
     -DOpenCL_LIBRARY="$OPENCL_LIB" \
     -DPython3_EXECUTABLE="$PYTHON3" \
+    -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"
     exit 1
@@ -224,26 +225,8 @@ if [ $ARM64_LIB_FOUND -eq 0 ]; then
     exit 1
 fi
 
-# 复制所有依赖库到jniLibs目录
-ARM64_BIN_DIR="$ARM64_BUILD_DIR/bin"
-for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so libggml-opencl.so; do
-    if [ -f "$ARM64_BIN_DIR/$lib" ]; then
-        cp "$ARM64_BIN_DIR/$lib" "$JNI_LIBS_DIR/arm64-v8a/"
-        log_info "ARM64依赖库已复制: $lib"
-    else
-        log_warn "ARM64依赖库未找到: $lib (搜索路径: $ARM64_BIN_DIR)"
-    fi
-done
-
-# 检查是否生成了OpenCL库
-if [ -f "$ARM64_BIN_DIR/libggml-opencl.so" ]; then
-    log_info "=== OpenCL库已成功生成 ==="
-    ls -lh "$ARM64_BIN_DIR/libggml-opencl.so"
-else
-    log_warn "=== OpenCL库未生成 ==="
-    log_info "可用的库文件:"
-    ls -lh "$ARM64_BIN_DIR/" 2>/dev/null || log_info "目录为空"
-fi
+# 静态链接模式：只需要libllama-jni.so，所有依赖已嵌入
+log_info "静态链接模式: 所有依赖库已嵌入libllama-jni.so"
 
 # ============================================
 # 编译x86_64架构
@@ -259,7 +242,7 @@ cd "$X64_BUILD_DIR" || exit 1
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
     -DANDROID_ABI="x86_64" \
     -DANDROID_PLATFORM=android-31 \
-    -DANDROID_STL=c++_shared \
+    -DANDROID_STL=c++_static \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
@@ -267,6 +250,7 @@ cd "$X64_BUILD_DIR" || exit 1
     -DGGML_VULKAN=OFF \
     -DGGML_CUDA=OFF \
     -DGGML_RPC=OFF \
+    -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
     -GNinja || {
     log_error "x86_64 CMake配置失败"
     exit 1
@@ -306,16 +290,8 @@ if [ $X64_LIB_FOUND -eq 0 ]; then
     exit 1
 fi
 
-# 复制所有依赖库到jniLibs目录
-X64_BIN_DIR="$X64_BUILD_DIR/bin"
-for lib in libllama.so libggml.so libggml-cpu.so libggml-base.so; do
-    if [ -f "$X64_BIN_DIR/$lib" ]; then
-        cp "$X64_BIN_DIR/$lib" "$JNI_LIBS_DIR/x86_64/"
-        log_info "x86_64依赖库已复制: $lib"
-    else
-        log_warn "x86_64依赖库未找到: $lib (搜索路径: $X64_BIN_DIR)"
-    fi
-done
+# 静态链接模式：只需要libllama-jni.so，所有依赖已嵌入
+log_info "静态链接模式: x86_64所有依赖库已嵌入libllama-jni.so"
 
 # ============================================
 # 编译完成

@@ -45,6 +45,17 @@ public class TokenStatsManager {
         callbacks.remove(callback);
     }
     
+    /**
+     * 更新当前请求的统计（流式过程中使用，仅更新 request 统计，不累加 session）
+     */
+    public void updateRequestStreamingStats(int completionTokens) {
+        requestCompletionTokens.set(completionTokens);
+        notifyStatsUpdated();
+    }
+
+    /**
+     * 请求完成时更新最终统计（累加到 session）
+     */
     public void updateRequestStats(int promptTokens, int completionTokens) {
         requestPromptTokens.set(promptTokens);
         requestCompletionTokens.set(completionTokens);

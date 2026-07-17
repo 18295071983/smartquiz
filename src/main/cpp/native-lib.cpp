@@ -558,6 +558,9 @@ private:
     std::string chatTemplate;
     
 public:
+    // 函数前向声明
+    std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart);
+
     InferenceContext() : model(nullptr), ctx(nullptr), vocab(nullptr), 
                          contextSize(0), threadCount(0), gpuLayers(0), 
                          memoryPoolSize(0), batchSize(32), shouldStop(false),
@@ -824,9 +827,13 @@ public:
         
         int n_batch_actual = batchSize;
         ctx_params.n_batch = n_batch_actual;
+        ctx_params.n_ubatch = n_batch_actual;
+
+        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
+             contextSize, threadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
         
-        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d",
-             contextSize, threadCount, n_batch_actual);
+        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
+             contextSize, threadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
         LOG_MEM("before_llama_init_from_model");
         
         startTime = std::chrono::steady_clock::now();
@@ -1159,20 +1166,23 @@ public:
         if (ctx != nullptr) return true;
         if (model == nullptr) return false;
 
-        LOGI("Creating context on demand: n_ctx=%d, n_threads=%d", contextSize, threadCount);
+        LOGI("Creating context on demand: n_ctx=%d, n_threads=%d, n_batch=%d, gpu_layers=%d",
+             contextSize, threadCount, batchSize, gpuLayers);
         llama_context_params ctx_params = llama_context_default_params();
         ctx_params.n_ctx = contextSize;
         if (threadCount <= 0) threadCount = 4;
         ctx_params.n_threads = threadCount;
         ctx_params.n_threads_batch = threadCount;
-        ctx_params.n_batch = batchSize > 0 ? batchSize : 512;
+        int n_batch_actual = batchSize > 0 ? batchSize : 512;
+        ctx_params.n_batch = n_batch_actual;
+        ctx_params.n_ubatch = n_batch_actual;
 
         ctx = llama_init_from_model(model, ctx_params);
         if (ctx == nullptr) {
             LOGE("Failed to create context on demand");
             return false;
         }
-        LOGI("Context created on demand successfully");
+        LOGI("Context created on demand successfully with n_batch=%d", n_batch_actual);
         return true;
     }
     
@@ -1265,7 +1275,7 @@ public:
     // 流式生成回调接口
     using TokenCallback = std::function<void(const std::string& token, bool isDone, const std::string& error)>;
     
-    bool generateStream(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, TokenCallback callback) {
+    bool generateStream(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
         if (isGenerating.exchange(true)) {
             LOGE("generateStream: already generating, rejecting concurrent call");
             callback("", true, "Generation already in progress");
@@ -1281,7 +1291,7 @@ public:
         currentTokenCount = 0;
         
         LOGI("=== STREAM GENERATE START ===");
-        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d", prompt.size(), maxTokens, temperature, topP, topK);
+        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
         LOG_MEM("generateStream_start");
         
         if (!isValid()) {
@@ -1306,8 +1316,11 @@ public:
         }
         
         try {
-        // 直接使用原始prompt（Java层已经格式化了）
-        const std::string& promptToUse = prompt;
+        std::string promptToUse = prompt;
+        if (enableThinking) {
+            promptToUse += "<think>\n";
+            LOGI("generateStream: enableThinking=true, appended <think>\\n");
+        }
         LOGI("Using prompt directly (Java layer already formatted)");
         
         // Tokenize the prompt
@@ -1390,6 +1403,9 @@ public:
         int n_decode = 0;
         const int TIMEOUT_SECONDS = 120;
         std::string fullText;
+        std::string thinkingText;
+        bool inThinking = enableThinking;
+        bool thinkingEnded = !enableThinking;
         
         auto start = std::chrono::steady_clock::now();
         
@@ -1432,8 +1448,22 @@ public:
                 break;
             }
             
-            fullText += token;
-            callback(token, false, "");
+            if (inThinking && !thinkingEnded) {
+                thinkingText += token;
+                if (token.find("\xe2\x9d\xb4") != std::string::npos ||
+                    token.find("\xe2\x9d\xb5") != std::string::npos) {
+                    thinkingEnded = true;
+                    callback("[THINK_END]", false, "");
+                } else if (thinkingText.size() >= 4 && thinkingText.substr(thinkingText.size() - 2) == "\n\n") {
+                    thinkingEnded = true;
+                    callback("[THINK_END]", false, "");
+                } else {
+                    callback(token, false, "");
+                }
+            } else {
+                fullText += token;
+                callback(token, false, "");
+            }
             
             llama_batch batch = llama_batch_get_one(&new_token_id, 1);
             ret = llama_decode(ctx, batch);
@@ -1476,6 +1506,34 @@ public:
             callback("", true, error);
             return false;
         }
+    }
+
+    // 单次生成路径：接收消息列表，用 llama_chat_apply_template 自动适配模型格式
+    // 不污染多轮对话状态（chatMessages / prev_formatted_len）
+    bool generateStreamFromMessages(const std::vector<std::pair<std::string, std::string>>& messages,
+                                     int maxTokens, float temperature, float topP, int topK,
+                                     bool enableThinking, TokenCallback callback) {
+        LOGI("=== STREAM GENERATE FROM MESSAGES START ===");
+        LOGI("Messages count: %zu, maxTokens: %d, thinking=%d", messages.size(), maxTokens, (int)enableThinking);
+
+        // 用 chat template 格式化消息（addAssistantStart=true，末尾加 assistant 开始标记）
+        std::string prompt = applyChatTemplateForMessages(messages, true);
+        if (prompt.empty()) {
+            std::string error = "Failed to apply chat template for messages";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+        LOGI("Formatted prompt length: %zu", prompt.size());
+
+        // 思考链：在 assistant 开始标记后加 <think>
+        if (enableThinking) {
+            prompt += "<think>\n";
+            LOGI("generateStreamFromMessages: enableThinking=true, appended <think>\\n");
+        }
+
+        // 复用 generateStream 的核心生成逻辑
+        return generateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
     }
     
     // 并行批处理生成
@@ -1604,6 +1662,45 @@ public:
     }
 };
 
+// InferenceContext::applyChatTemplateForMessages 的类外定义
+// 独立版本：对任意消息列表应用 chat template，不依赖成员 chatMessages
+// 用于单次生成路径（generateStreamFromMessages），避免污染多轮对话状态
+std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart) {
+    if (!model || messages.empty()) return "";
+
+    const char* tmpl = llama_model_chat_template(model, nullptr);
+    if (!tmpl) {
+        LOGW("No chat template found in model, falling back to ChatML format");
+        std::string result;
+        for (auto& m : messages) {
+            result += "<|im_start|>" + m.first + "\n" + m.second + "<|im_end|>\n";
+        }
+        if (addAssistantStart) result += "<|im_start|>assistant\n";
+        return result;
+    }
+
+    std::vector<llama_chat_message> msgs;
+    msgs.reserve(messages.size());
+    for (auto& m : messages) {
+        msgs.push_back({m.first.c_str(), m.second.c_str()});
+    }
+
+    int len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), addAssistantStart, nullptr, 0);
+    if (len < 0) {
+        LOGE("applyChatTemplateForMessages failed (len=%d)", len);
+        return "";
+    }
+
+    std::string result(len, '\0');
+    int len2 = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), addAssistantStart, &result[0], result.size());
+    if (len2 < 0 || len2 > (int)result.size()) {
+        LOGE("applyChatTemplateForMessages second call failed (len2=%d, bufSize=%d)", len2, (int)result.size());
+        return "";
+    }
+    result.resize(len2);
+    return result;
+}
+
 } // namespace llama_jni
 
 // ============================================================
@@ -1633,6 +1730,11 @@ private:
     std::string normal_prompt;
     std::vector<llama_token> normal_tokens;
 
+    // 消息文本列表（role, content），用于 llama_chat_apply_template
+    std::vector<std::pair<std::string, std::string>> chatMessages;
+    // 上次格式化的总字符长度，用于增量提取
+    int prev_formatted_len = 0;
+
     struct Turn {
         std::string role;
         std::vector<llama_token> tokens;
@@ -1651,6 +1753,98 @@ private:
             return {};
         }
         return tokens;
+    }
+
+    // 用 llama_chat_apply_template 格式化消息列表，自动适配模型内置的 chat template
+    // addAssistantStart=true 时在末尾添加 assistant 角色开始标记
+    std::string applyChatTemplate(bool addAssistantStart) {
+        if (!model || chatMessages.empty()) return "";
+
+        const char* tmpl = llama_model_chat_template(model, nullptr);
+        if (!tmpl) {
+            LOGW("No chat template found in model, falling back to ChatML format");
+            // fallback: 手动用 ChatML 格式拼接
+            std::string result;
+            for (auto& m : chatMessages) {
+                result += "<|im_start|>" + m.first + "\n" + m.second + "<|im_end|>\n";
+            }
+            if (addAssistantStart) result += "<|im_start|>assistant\n";
+            return result;
+        }
+
+        // 构造 llama_chat_message 数组
+        std::vector<llama_chat_message> msgs;
+        msgs.reserve(chatMessages.size());
+        for (auto& m : chatMessages) {
+            msgs.push_back({m.first.c_str(), m.second.c_str()});
+        }
+
+        // 第一次调用获取所需长度
+        int len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), addAssistantStart, nullptr, 0);
+        if (len < 0) {
+            LOGE("applyChatTemplate failed (len=%d)", len);
+            return "";
+        }
+
+        // 第二次调用获取内容
+        std::string result(len, '\0');
+        int len2 = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), addAssistantStart, &result[0], result.size());
+        if (len2 < 0 || len2 > (int)result.size()) {
+            LOGE("applyChatTemplate second call failed (len2=%d, bufSize=%d)", len2, (int)result.size());
+            return "";
+        }
+        result.resize(len2);
+        return result;
+    }
+
+    // 合并 global+system+normal prompt 为一条 system 消息
+    std::string mergeSystemPrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
+        std::string merged;
+        if (!globalPrompt.empty()) merged += globalPrompt + "\n";
+        if (!systemPrompt.empty()) merged += systemPrompt + "\n";
+        if (!normalPrompt.empty()) merged += normalPrompt;
+        return merged;
+    }
+
+    // 用模板格式化并编码所有消息（用于初始化/清空/裁剪后重建）
+    bool reencodeFromMessages() {
+        if (ctx) {
+            llama_memory_t mem = llama_get_memory(ctx);
+            if (mem) llama_memory_clear(mem, true);
+        }
+        current_pos = 0;
+        total_tokens_in_kv = 0;
+        turns.clear();
+
+        if (chatMessages.empty()) {
+            prev_formatted_len = 0;
+            return true;
+        }
+
+        std::string formatted = applyChatTemplate(false);
+        if (formatted.empty()) {
+            LOGE("reencodeFromMessages: applyChatTemplate returned empty");
+            return false;
+        }
+
+        std::vector<llama_token> tokens = tokenize(formatted, true);
+        if (tokens.empty()) {
+            LOGE("reencodeFromMessages: tokenize returned empty");
+            return false;
+        }
+
+        Turn t;
+        t.role = "system";
+        t.tokens = tokens;
+        t.start_pos = current_pos;
+        if (!encodeTokens(tokens)) {
+            LOGE("reencodeFromMessages: encodeTokens failed");
+            return false;
+        }
+        t.end_pos = current_pos;
+        turns.push_back(t);
+        prev_formatted_len = (int)formatted.size();
+        return true;
     }
 
     bool encodeTokens(const std::vector<llama_token>& tokens) {
@@ -1729,59 +1923,36 @@ public:
         current_pos = 0;
         total_tokens_in_kv = 0;
 
-        if (!globalPrompt.empty()) {
-            std::string formatted = "<|im_start|>global\n" + globalPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing global prompt (len=%zu)", formatted.length());
+        // 用 llama_chat_apply_template 格式化 system prompt，自动适配模型
+        std::string systemContent = mergeSystemPrompts(globalPrompt, systemPrompt, normalPrompt);
+        chatMessages.clear();
+        if (!systemContent.empty()) {
+            chatMessages.push_back({"system", systemContent});
+        }
+
+        if (!chatMessages.empty()) {
+            std::string formatted = applyChatTemplate(false);
+            if (formatted.empty()) {
+                LOGE("Failed to apply chat template for system prompt");
+                return false;
+            }
+            LOGI("Chat template applied: %zu chars (systemContent len=%zu)", formatted.length(), systemContent.length());
+
             stepStartTime = std::chrono::steady_clock::now();
             global_tokens = tokenize(formatted, true);
             stepEndTime = std::chrono::steady_clock::now();
             stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Tokenize global prompt: %zu tokens in %lldms", global_tokens.size(), stepElapsed);
+            LOGI("[PERF] Tokenize system prompt: %zu tokens in %lldms", global_tokens.size(), stepElapsed);
             if (global_tokens.empty()) {
-                LOGE("Failed to tokenize global prompt - tokenize returned empty");
-                return false;
-            }
-            LOGI("Global prompt tokenized: %zu tokens", global_tokens.size());
-            Turn globalTurn;
-            globalTurn.role = "global";
-            globalTurn.tokens = global_tokens;
-            globalTurn.start_pos = current_pos;
-            LOGI("Encoding global prompt tokens...");
-            stepStartTime = std::chrono::steady_clock::now();
-            if (!encodeTokens(global_tokens)) {
-                LOGE("Failed to encode global prompt");
-                return false;
-            }
-            stepEndTime = std::chrono::steady_clock::now();
-            stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Encode global prompt: %lldms", stepElapsed);
-            globalTurn.end_pos = current_pos;
-            turns.push_back(globalTurn);
-            LOGI("Global prompt encoded, kv_tokens=%d", total_tokens_in_kv);
-        } else {
-            LOGI("Global prompt is empty, skipping");
-        }
-
-        if (!systemPrompt.empty()) {
-            std::string formatted = "<|im_start|>system\n" + systemPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing system prompt (len=%zu)", formatted.length());
-            stepStartTime = std::chrono::steady_clock::now();
-            system_tokens = tokenize(formatted, global_tokens.empty());
-            stepEndTime = std::chrono::steady_clock::now();
-            stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Tokenize system prompt: %zu tokens in %lldms", system_tokens.size(), stepElapsed);
-            if (system_tokens.empty()) {
                 LOGE("Failed to tokenize system prompt - tokenize returned empty");
                 return false;
             }
-            LOGI("System prompt tokenized: %zu tokens", system_tokens.size());
             Turn sysTurn;
             sysTurn.role = "system";
-            sysTurn.tokens = system_tokens;
+            sysTurn.tokens = global_tokens;
             sysTurn.start_pos = current_pos;
-            LOGI("Encoding system prompt tokens...");
             stepStartTime = std::chrono::steady_clock::now();
-            if (!encodeTokens(system_tokens)) {
+            if (!encodeTokens(global_tokens)) {
                 LOGE("Failed to encode system prompt");
                 return false;
             }
@@ -1791,42 +1962,11 @@ public:
             sysTurn.end_pos = current_pos;
             system_end_pos = current_pos;
             turns.push_back(sysTurn);
+            prev_formatted_len = (int)formatted.size();
             LOGI("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
-            LOGI("System prompt is empty, skipping");
-        }
-
-        if (!normalPrompt.empty()) {
-            std::string formatted = "<|im_start|>normal\n" + normalPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing normal prompt (len=%zu)", formatted.length());
-            stepStartTime = std::chrono::steady_clock::now();
-            normal_tokens = tokenize(formatted, global_tokens.empty() && system_tokens.empty());
-            stepEndTime = std::chrono::steady_clock::now();
-            stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Tokenize normal prompt: %zu tokens in %lldms", normal_tokens.size(), stepElapsed);
-            if (normal_tokens.empty()) {
-                LOGE("Failed to tokenize normal prompt - tokenize returned empty");
-                return false;
-            }
-            LOGI("Normal prompt tokenized: %zu tokens", normal_tokens.size());
-            Turn normalTurn;
-            normalTurn.role = "normal";
-            normalTurn.tokens = normal_tokens;
-            normalTurn.start_pos = current_pos;
-            LOGI("Encoding normal prompt tokens...");
-            stepStartTime = std::chrono::steady_clock::now();
-            if (!encodeTokens(normal_tokens)) {
-                LOGE("Failed to encode normal prompt");
-                return false;
-            }
-            stepEndTime = std::chrono::steady_clock::now();
-            stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Encode normal prompt: %lldms", stepElapsed);
-            normalTurn.end_pos = current_pos;
-            turns.push_back(normalTurn);
-            LOGI("Normal prompt encoded, kv_tokens=%d", total_tokens_in_kv);
-        } else {
-            LOGI("Normal prompt is empty, skipping");
+            LOGI("All system prompts are empty, skipping");
+            prev_formatted_len = 0;
         }
 
         auto totalEndTime = std::chrono::steady_clock::now();
@@ -1838,45 +1978,27 @@ public:
     }
 
     void shiftContext() {
+        // 找到第一条非 system 消息并删除
         int startIdx = -1;
-        for (size_t i = 0; i < turns.size(); i++) {
-            if (turns[i].role != "global" && turns[i].role != "system") {
+        for (size_t i = 0; i < chatMessages.size(); i++) {
+            if (chatMessages[i].first != "system") {
                 startIdx = (int)i;
                 break;
             }
         }
-        if (startIdx < 0 || startIdx >= (int)turns.size()) return;
+        if (startIdx < 0 || startIdx >= (int)chatMessages.size()) return;
 
-        llama_memory_t mem = llama_get_memory(ctx);
-        if (mem == nullptr) {
-            LOGE("shiftContext: llama_get_memory returned null");
+        std::string removedRole = chatMessages[startIdx].first;
+        chatMessages.erase(chatMessages.begin() + startIdx);
+
+        // 重新格式化并编码所有消息
+        if (!reencodeFromMessages()) {
+            LOGE("shiftContext: reencodeFromMessages failed");
             return;
         }
 
-        Turn& oldest = turns[startIdx];
-        int n_discard = oldest.tokens.size();
-        llama_pos discard_start = oldest.start_pos;
-        llama_pos discard_end = oldest.end_pos;
-
-        llama_memory_seq_rm(mem, 0, discard_start, discard_end);
-
-        int shift_delta = -(discard_end - discard_start);
-        if (discard_end < current_pos) {
-            llama_memory_seq_add(mem, 0, discard_end, current_pos, shift_delta);
-        }
-
-        current_pos += shift_delta;
-        total_tokens_in_kv += shift_delta;
-
-        for (size_t i = startIdx + 1; i < turns.size(); i++) {
-            turns[i].start_pos += shift_delta;
-            turns[i].end_pos += shift_delta;
-        }
-
-        turns.erase(turns.begin() + startIdx);
-
-        LOGI("Context shifted: discarded %d tokens (role=%s), new current_pos=%d, kv_tokens=%d",
-             n_discard, oldest.role.c_str(), current_pos, total_tokens_in_kv);
+        LOGI("Context shifted: removed oldest message (role=%s), re-encoded, kv_tokens=%d",
+             removedRole.c_str(), total_tokens_in_kv);
     }
 
     bool initFromExisting(llama_model* existingModel, const llama_vocab* existingVocab, int ctxSize, int nThreads, const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
@@ -1902,10 +2024,13 @@ public:
         ctx_params.n_ctx = ctxSize;
         ctx_params.n_threads = nThreads;
         ctx_params.n_threads_batch = nThreads;
-        ctx_params.n_batch = 512;
+        int n_batch_actual = 512;
+        // 使用默认 batch size，GPU 模式下会在外层处理
+        ctx_params.n_batch = n_batch_actual;
+        ctx_params.n_ubatch = n_batch_actual;
 
-        LOGI("Calling llama_init_from_model with n_ctx=%d, n_batch=%d", 
-             ctx_params.n_ctx, ctx_params.n_batch);
+        LOGI("Calling llama_init_from_model with n_ctx=%d, n_batch=%d, n_ubatch=%d",
+             ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_ubatch);
         ctx = llama_init_from_model(model, ctx_params);
         if (!ctx) {
             LOGE("Failed to create context from existing model - llama_init_from_model returned null");
@@ -1917,80 +2042,43 @@ public:
         LOGI("Context created from existing model: n_ctx=%d", ctxSize);
         LOG_MEM("chat_ctx_created");
 
-        if (!globalPrompt.empty()) {
-            std::string formatted = "<|im_start|>global\n" + globalPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing global prompt (len=%zu)", formatted.length());
-            global_tokens = tokenize(formatted, true);
-            if (global_tokens.empty()) {
-                LOGE("Failed to tokenize global prompt - tokenize returned empty");
-                return false;
-            }
-            LOGI("Global prompt tokenized: %zu tokens", global_tokens.size());
-            Turn globalTurn;
-            globalTurn.role = "global";
-            globalTurn.tokens = global_tokens;
-            globalTurn.start_pos = current_pos;
-            LOGI("Encoding global prompt tokens...");
-            if (!encodeTokens(global_tokens)) {
-                LOGE("Failed to encode global prompt");
-                return false;
-            }
-            globalTurn.end_pos = current_pos;
-            turns.push_back(globalTurn);
-            LOGI("Global prompt encoded, kv_tokens=%d", total_tokens_in_kv);
-        } else {
-            LOGI("Global prompt is empty, skipping");
+        // 用 llama_chat_apply_template 格式化 system prompt，自动适配模型
+        std::string systemContent = mergeSystemPrompts(globalPrompt, systemPrompt, normalPrompt);
+        chatMessages.clear();
+        if (!systemContent.empty()) {
+            chatMessages.push_back({"system", systemContent});
         }
 
-        if (!systemPrompt.empty()) {
-            std::string formatted = "<|im_start|>system\n" + systemPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing system prompt (len=%zu)", formatted.length());
-            system_tokens = tokenize(formatted, global_tokens.empty());
-            if (system_tokens.empty()) {
+        if (!chatMessages.empty()) {
+            std::string formatted = applyChatTemplate(false);
+            if (formatted.empty()) {
+                LOGE("Failed to apply chat template for system prompt");
+                return false;
+            }
+            LOGI("Chat template applied: %zu chars", formatted.length());
+            global_tokens = tokenize(formatted, true);
+            if (global_tokens.empty()) {
                 LOGE("Failed to tokenize system prompt - tokenize returned empty");
                 return false;
             }
-            LOGI("System prompt tokenized: %zu tokens", system_tokens.size());
+            LOGI("System prompt tokenized: %zu tokens", global_tokens.size());
             Turn sysTurn;
             sysTurn.role = "system";
-            sysTurn.tokens = system_tokens;
+            sysTurn.tokens = global_tokens;
             sysTurn.start_pos = current_pos;
             LOGI("Encoding system prompt tokens...");
-            if (!encodeTokens(system_tokens)) {
+            if (!encodeTokens(global_tokens)) {
                 LOGE("Failed to encode system prompt");
                 return false;
             }
             sysTurn.end_pos = current_pos;
             system_end_pos = current_pos;
             turns.push_back(sysTurn);
+            prev_formatted_len = (int)formatted.size();
             LOGI("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
-            LOGI("System prompt is empty, skipping");
-        }
-
-        if (!normalPrompt.empty()) {
-            std::string formatted = "<|im_start|>normal\n" + normalPrompt + "\n<|im_end|>\n";
-            LOGI("Tokenizing normal prompt (len=%zu)", formatted.length());
-            normal_tokens = tokenize(formatted, global_tokens.empty() && system_tokens.empty());
-            if (normal_tokens.empty()) {
-                LOGE("Failed to tokenize normal prompt - tokenize returned empty");
-                return false;
-            }
-            LOGI("Normal prompt tokenized: %zu tokens", normal_tokens.size());
-            Turn normalTurn;
-            normalTurn.role = "normal";
-            normalTurn.tokens = normal_tokens;
-            normalTurn.start_pos = current_pos;
-            LOGI("Encoding normal prompt tokens...");
-            if (!encodeTokens(normal_tokens)) {
-                LOGE("Failed to encode normal prompt");
-                return false;
-            }
-            normalTurn.end_pos = current_pos;
-            turns.push_back(normalTurn);
-            LOGI("Normal prompt encoded, kv_tokens=%d", total_tokens_in_kv);
-        } else {
-            LOGI("Normal prompt is empty, skipping");
+            LOGI("All system prompts are empty, skipping");
+            prev_formatted_len = 0;
         }
 
         LOGI("NativeChatContext initialized: n_ctx=%d, global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d",
@@ -2048,16 +2136,36 @@ public:
         }
 
         auto stepStartTime = std::chrono::steady_clock::now();
-        std::string formattedUser = "<|im_start|>user\n" + userMessage + "\n<|im_end|>\n<|im_start|>assistant\n";
-        if (enableThinking) {
-            formattedUser = "<|im_start|>user\n" + userMessage + "\n<|im_end|>\n<|im_start|>assistant\n<think>\n";
+        // 用 llama_chat_apply_template 格式化（add_ass=true 在末尾加 assistant 开始标记）
+        chatMessages.push_back({"user", userMessage});
+        std::string formatted = applyChatTemplate(true);
+        if (formatted.empty()) {
+            LOGE("chatSend: applyChatTemplate returned empty");
+            chatMessages.pop_back();
+            isGenerating.store(false);
+            lock.unlock();
+            callback("", true, "Failed to apply chat template");
+            return false;
         }
-        std::vector<llama_token> user_tokens = tokenize(formattedUser, false);
+        // 取增量部分（prev_formatted_len 之后的内容）
+        std::string prompt;
+        if (prev_formatted_len > 0 && (int)formatted.size() >= prev_formatted_len) {
+            prompt = formatted.substr(prev_formatted_len);
+        } else {
+            prompt = formatted;
+        }
+        // 思考链：在 assistant 开始标记后加 <think>
+        if (enableThinking) {
+            prompt += "<think>\n";
+        }
+        std::vector<llama_token> user_tokens = tokenize(prompt, false);
         auto stepEndTime = std::chrono::steady_clock::now();
         auto stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Tokenize user message: %zu tokens in %lldms", user_tokens.size(), stepElapsed);
+        LOGI("[PERF] Tokenize user message: %zu tokens in %lldms (promptLen=%zu, prevLen=%d, formattedLen=%zu)",
+             user_tokens.size(), stepElapsed, prompt.size(), prev_formatted_len, formatted.size());
 
         if (user_tokens.empty()) {
+            chatMessages.pop_back();
             isGenerating.store(false);
             lock.unlock();
             callback("", true, "Failed to tokenize user message");
@@ -2067,17 +2175,30 @@ public:
         stepStartTime = std::chrono::steady_clock::now();
         while (total_tokens_in_kv + (int)user_tokens.size() + maxTokens > n_ctx - 4) {
             if (shouldStop) break;
+            // 检查是否有可裁剪的非 system 消息
             bool hasPrunable = false;
-            for (auto& t : turns) {
-                if (t.role != "global" && t.role != "system") { hasPrunable = true; break; }
+            for (auto& m : chatMessages) {
+                if (m.first != "system") { hasPrunable = true; break; }
             }
             if (!hasPrunable) break;
             shiftContext();
+            // shiftContext 会重新编码所有消息并重置 prev_formatted_len
+            // 重新格式化以获取新的增量
+            formatted = applyChatTemplate(true);
+            if (prev_formatted_len > 0 && (int)formatted.size() >= prev_formatted_len) {
+                prompt = formatted.substr(prev_formatted_len);
+            } else {
+                prompt = formatted;
+            }
+            if (enableThinking) {
+                prompt += "<think>\n";
+            }
+            user_tokens = tokenize(prompt, false);
             if (total_tokens_in_kv + (int)user_tokens.size() + maxTokens <= n_ctx - 4) break;
             if (total_tokens_in_kv + (int)user_tokens.size() >= n_ctx - 4) {
                 bool stillHasPrunable = false;
-                for (auto& t : turns) {
-                    if (t.role != "global" && t.role != "system") { stillHasPrunable = true; break; }
+                for (auto& m : chatMessages) {
+                    if (m.first != "system") { stillHasPrunable = true; break; }
                 }
                 if (stillHasPrunable) shiftContext();
                 else break;
@@ -2088,6 +2209,7 @@ public:
         LOGI("[PERF] Context shift check: %lldms", stepElapsed);
 
         if (total_tokens_in_kv + (int)user_tokens.size() >= n_ctx - 4) {
+            chatMessages.pop_back();
             isGenerating.store(false);
             lock.unlock();
             callback("", true, "Context too long, cannot fit user message");
@@ -2254,6 +2376,11 @@ public:
             assistantTurn.start_pos = current_pos - n_decode;
             assistantTurn.end_pos = current_pos;
             turns.push_back(assistantTurn);
+
+            // 把 assistant 响应加入消息列表，更新 prev_formatted_len
+            chatMessages.push_back({"assistant", fullResponse});
+            std::string formattedAfter = applyChatTemplate(false);
+            prev_formatted_len = (int)formattedAfter.size();
         }
 
         auto totalEndTime = std::chrono::steady_clock::now();
@@ -2274,47 +2401,19 @@ public:
     }
 
     void clearChat() {
-        if (ctx) {
-            llama_memory_t mem = llama_get_memory(ctx);
-            if (mem) llama_memory_clear(mem, true);
+        // 只保留 system 消息
+        std::vector<std::pair<std::string, std::string>> systemMsgs;
+        for (auto& m : chatMessages) {
+            if (m.first == "system") systemMsgs.push_back(m);
         }
-        turns.clear();
-        current_pos = 0;
-        total_tokens_in_kv = 0;
+        chatMessages = systemMsgs;
 
-        if (!global_tokens.empty()) {
-            Turn globalTurn;
-            globalTurn.role = "global";
-            globalTurn.tokens = global_tokens;
-            globalTurn.start_pos = current_pos;
-            encodeTokens(global_tokens);
-            globalTurn.end_pos = current_pos;
-            turns.push_back(globalTurn);
+        // 重新格式化并编码
+        if (!reencodeFromMessages()) {
+            LOGE("clearChat: reencodeFromMessages failed");
         }
 
-        if (!system_tokens.empty()) {
-            Turn sysTurn;
-            sysTurn.role = "system";
-            sysTurn.tokens = system_tokens;
-            sysTurn.start_pos = current_pos;
-            encodeTokens(system_tokens);
-            sysTurn.end_pos = current_pos;
-            system_end_pos = current_pos;
-            turns.push_back(sysTurn);
-        }
-
-        if (!normal_tokens.empty()) {
-            Turn normalTurn;
-            normalTurn.role = "normal";
-            normalTurn.tokens = normal_tokens;
-            normalTurn.start_pos = current_pos;
-            encodeTokens(normal_tokens);
-            normalTurn.end_pos = current_pos;
-            turns.push_back(normalTurn);
-        }
-
-        LOGI("Chat cleared, prompts re-encoded (global=%zu, system=%zu, normal=%zu), kv_tokens=%d",
-             global_tokens.size(), system_tokens.size(), normal_tokens.size(), total_tokens_in_kv);
+        LOGI("Chat cleared, system messages re-encoded, kv_tokens=%d", total_tokens_in_kv);
     }
 
     std::string getInfo() {
@@ -2341,6 +2440,8 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         
         turns.clear();
+        chatMessages.clear();
+        prev_formatted_len = 0;
         system_tokens.clear();
         global_tokens.clear();
         normal_tokens.clear();
@@ -2378,80 +2479,34 @@ public:
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
         LOGI("updatePrompts called");
 
-        if (ctx) {
-            llama_memory_t mem = llama_get_memory(ctx);
-            if (mem) llama_memory_clear(mem, true);
-        }
-        turns.clear();
-        current_pos = 0;
-        total_tokens_in_kv = 0;
-
         global_prompt = globalPrompt;
         normal_prompt = normalPrompt;
         global_tokens.clear();
         system_tokens.clear();
         normal_tokens.clear();
 
-        if (!globalPrompt.empty()) {
-            std::string formatted = "<|im_start|>global\n" + globalPrompt + "\n<|im_end|>\n";
-            global_tokens = tokenize(formatted, true);
-            if (global_tokens.empty()) {
-                LOGE("Failed to tokenize global prompt in updatePrompts");
-                return false;
-            }
-            Turn globalTurn;
-            globalTurn.role = "global";
-            globalTurn.tokens = global_tokens;
-            globalTurn.start_pos = current_pos;
-            if (!encodeTokens(global_tokens)) {
-                LOGE("Failed to encode global prompt in updatePrompts");
-                return false;
-            }
-            globalTurn.end_pos = current_pos;
-            turns.push_back(globalTurn);
+        // 合并 system prompts 并更新消息列表
+        std::string systemContent = mergeSystemPrompts(globalPrompt, systemPrompt, normalPrompt);
+        // 只保留非 system 消息，然后重新添加 system 消息
+        std::vector<std::pair<std::string, std::string>> nonSystemMsgs;
+        for (auto& m : chatMessages) {
+            if (m.first != "system") nonSystemMsgs.push_back(m);
+        }
+        chatMessages.clear();
+        if (!systemContent.empty()) {
+            chatMessages.push_back({"system", systemContent});
+        }
+        for (auto& m : nonSystemMsgs) {
+            chatMessages.push_back(m);
         }
 
-        if (!systemPrompt.empty()) {
-            std::string formatted = "<|im_start|>system\n" + systemPrompt + "\n<|im_end|>\n";
-            system_tokens = tokenize(formatted, global_tokens.empty());
-            if (system_tokens.empty()) {
-                LOGE("Failed to tokenize system prompt in updatePrompts");
-                return false;
-            }
-            Turn sysTurn;
-            sysTurn.role = "system";
-            sysTurn.tokens = system_tokens;
-            sysTurn.start_pos = current_pos;
-            if (!encodeTokens(system_tokens)) {
-                LOGE("Failed to encode system prompt in updatePrompts");
-                return false;
-            }
-            sysTurn.end_pos = current_pos;
-            system_end_pos = current_pos;
-            turns.push_back(sysTurn);
+        // 重新格式化并编码所有消息
+        if (!reencodeFromMessages()) {
+            LOGE("updatePrompts: reencodeFromMessages failed");
+            return false;
         }
 
-        if (!normalPrompt.empty()) {
-            std::string formatted = "<|im_start|>normal\n" + normalPrompt + "\n<|im_end|>\n";
-            normal_tokens = tokenize(formatted, global_tokens.empty() && system_tokens.empty());
-            if (normal_tokens.empty()) {
-                LOGE("Failed to tokenize normal prompt in updatePrompts");
-                return false;
-            }
-            Turn normalTurn;
-            normalTurn.role = "normal";
-            normalTurn.tokens = normal_tokens;
-            normalTurn.start_pos = current_pos;
-            if (!encodeTokens(normal_tokens)) {
-                LOGE("Failed to encode normal prompt in updatePrompts");
-                return false;
-            }
-            normalTurn.end_pos = current_pos;
-            turns.push_back(normalTurn);
-        }
-
-        LOGI("Prompts updated: global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d",
-             global_tokens.size(), system_tokens.size(), normal_tokens.size(), total_tokens_in_kv);
+        LOGI("Prompts updated and re-encoded, kv_tokens=%d", total_tokens_in_kv);
         return true;
     }
 };
@@ -2893,10 +2948,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeHandleMemoryPressure(
     }
 
     if (level >= 80 && s_helperContext != nullptr) {
-        LOGI("Critical memory pressure, releasing helper context");
-        delete s_helperContext;
-        s_helperContext = nullptr;
-        freedTokens = -1;
+        LOGI("Critical memory pressure detected, but preserving model to avoid reinitialization");
+        // 不删除 helper context，只清理 chat context 中的历史轮次
+        // 这样模型可以快速恢复而不是需要重新加载
     }
 
     return freedTokens;
@@ -3285,10 +3339,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
     jfloat temperature,
     jfloat topP,
     jint topK,
+    jboolean enableThinking,
     jobject callback) {
     LOGI("LlamaHelper: Stream generation called");
-    LOGI("LlamaHelper: prompt=%s, maxTokens=%d, temp=%f, topP=%f, topK=%d", 
-         (prompt ? "valid" : "null"), maxTokens, temperature, topP, topK);
+    LOGI("LlamaHelper: prompt=%s, maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d", 
+         (prompt ? "valid" : "null"), maxTokens, temperature, topP, topK, (int)enableThinking);
     
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
         LOGE("LlamaHelper: s_helperContext is null or invalid");
@@ -3400,7 +3455,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
     };
     
     // Start stream generation
-    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, tokenCallback);
+    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
 }
 
 // 辅助函数：将byte[]转换为标准UTF-8字符串（正确处理中文）
@@ -3612,7 +3667,171 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
     };
 
     // Start stream generation
-    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, tokenCallback);
+    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
+}
+
+// 单次生成路径：接收消息列表（roles[] + contents[]），用 applyChatTemplate 自动适配模型格式
+// 参数说明：
+//   roles: 角色字符串数组（"system"/"user"/"assistant"）
+//   contents: 对应的消息内容字节数组（UTF-8 编码，解决中文问题）
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jobjectArray roles,
+    jobjectArray contents,
+    jint maxTokens,
+    jfloat temperature,
+    jfloat topP,
+    jint topK,
+    jboolean enableThinking,
+    jobject callback) {
+    LOGI("LlamaHelper: Stream generation from messages called");
+    LOGI("LlamaHelper: maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d",
+         maxTokens, temperature, topP, topK, (int)enableThinking);
+
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("LlamaHelper: s_helperContext is null or invalid");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Model not initialized");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    if (!s_helperContext->ensureContext()) {
+        LOGE("LlamaHelper: Failed to create context for stream");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Failed to create inference context");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    jsize msgCount = env->GetArrayLength(roles);
+    if (msgCount == 0 || env->GetArrayLength(contents) != msgCount) {
+        LOGE("LlamaHelper: Invalid messages arrays, roles=%d, contents=%d",
+             msgCount, env->GetArrayLength(contents));
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Invalid messages arrays");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    // 组装消息列表
+    std::vector<std::pair<std::string, std::string>> messages;
+    messages.reserve(msgCount);
+    for (jsize i = 0; i < msgCount; i++) {
+        jstring roleStr = (jstring)env->GetObjectArrayElement(roles, i);
+        jbyteArray contentBytes = (jbyteArray)env->GetObjectArrayElement(contents, i);
+
+        std::string role;
+        if (roleStr != nullptr) {
+            const char* roleChars = env->GetStringUTFChars(roleStr, nullptr);
+            if (roleChars != nullptr) {
+                role = roleChars;
+                env->ReleaseStringUTFChars(roleStr, roleChars);
+            }
+            env->DeleteLocalRef(roleStr);
+        }
+
+        std::string content;
+        if (contentBytes != nullptr) {
+            content = bytesToUtf8String(env, contentBytes);
+            env->DeleteLocalRef(contentBytes);
+        }
+
+        if (!role.empty() && !content.empty()) {
+            messages.push_back({role, content});
+        }
+    }
+    LOGI("LlamaHelper: Parsed %zu messages", messages.size());
+
+    if (messages.empty()) {
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("No valid messages");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    // 创建全局引用，防止回调时对象被回收
+    jobject globalCallback = env->NewGlobalRef(callback);
+    jclass callbackClass = env->GetObjectClass(globalCallback);
+    jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
+    env->DeleteLocalRef(callbackClass);
+
+    // 复用 nativeGenerateStreamBytes 的回调包装器（支持中文）
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+        JavaVM* jvm = getJavaVM();
+        JNIEnv* env = nullptr;
+
+        int result = jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+        bool didAttach = false;
+        if (result == JNI_EDETACHED) {
+            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                LOGE("Failed to attach thread to JVM");
+                return;
+            }
+            didAttach = true;
+        } else if (result != JNI_OK) {
+            LOGE("Failed to get JNIEnv");
+            return;
+        }
+
+        try {
+            if (isDone) {
+                if (!error.empty()) {
+                    if (onErrorMethod != nullptr) {
+                        jstring errorStr = utf8StringToJstring(env, error);
+                        env->CallVoidMethod(globalCallback, onErrorMethod, errorStr);
+                        env->DeleteLocalRef(errorStr);
+                    }
+                } else {
+                    if (onCompleteMethod != nullptr) {
+                        jstring resultStr = utf8StringToJstring(env, token);
+                        env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
+                        env->DeleteLocalRef(resultStr);
+                    }
+                }
+            } else if (!token.empty()) {
+                if (onTokenMethod != nullptr) {
+                    jstring tokenStr = utf8StringToJstring(env, token);
+                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                    env->DeleteLocalRef(tokenStr);
+                }
+            }
+        } catch (...) {
+            LOGE("Exception in JNI callback");
+        }
+
+        if (isDone) {
+            env->DeleteGlobalRef(globalCallback);
+            env->DeleteGlobalRef(globalCallbackClass);
+        }
+
+        if (didAttach) {
+            jvm->DetachCurrentThread();
+        }
+    };
+
+    s_helperContext->generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -3853,6 +4072,15 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeIsOpenCLLoaded(
     JNIEnv* /* env */,
     jclass /* clazz */) {
     return s_openclLoaded ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetOpenCLLoaded(
+    JNIEnv* /* env */,
+    jclass /* clazz */,
+    jboolean loaded) {
+    s_openclLoaded = loaded ? JNI_TRUE : JNI_FALSE;
+    __android_log_print(ANDROID_LOG_INFO, "LlamaJNI", "s_openclLoaded set to %d from Java", loaded);
 }
 
 JNIEXPORT jboolean JNICALL

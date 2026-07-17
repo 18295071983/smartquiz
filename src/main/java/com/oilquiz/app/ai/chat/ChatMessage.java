@@ -184,6 +184,9 @@ public class ChatMessage {
     /** 思考内容文本（流式思考过程的纯文本） */
     public String thinkingContent;
 
+    /** 思考区域是否展开（生成中默认展开，生成完成后自动折叠，用户可点击切换） */
+    public boolean thinkingExpanded = true;
+
     /** 附件列表 */
     public List<Attachment> attachments;
 

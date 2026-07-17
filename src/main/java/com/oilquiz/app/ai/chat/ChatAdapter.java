@@ -14,8 +14,9 @@ import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.Animation;
 import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
+import android.animation.ValueAnimator;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -393,32 +394,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         });
 
         if (message.isCompleted()) {
-            holder.actionButtons.setVisibility(View.VISIBLE);
+            if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.VISIBLE);
             
-            holder.btnCopy.setOnClickListener(v -> {
+            if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(v -> {
                 copyToClipboard(v.getContext(), message.content);
                 if (actionClickListener != null) {
                     actionClickListener.onAction(ChatMessage.Action.copy(message.content));
                 }
             });
 
-            holder.btnShare.setOnClickListener(v -> {
+            if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
                 shareText(v.getContext(), message.content);
             });
 
-            holder.btnRegenerate.setOnClickListener(v -> {
+            if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(v -> {
                 if (actionClickListener != null) {
                     actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
                 }
             });
 
-            holder.btnNewChat.setOnClickListener(v -> {
+            if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(v -> {
                 if (actionClickListener != null) {
                     actionClickListener.onAction(ChatMessage.Action.newChat());
                 }
             });
         } else {
-            holder.actionButtons.setVisibility(View.GONE);
+            if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.GONE);
         }
 
         handleLongContent(holder, message);
@@ -427,40 +428,118 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
         if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
             holder.thinkingLabel.setVisibility(View.VISIBLE);
-            
+
             // 清理思考标签并格式化内容
             String cleanedContent = message.thinkingContent
                 .replaceAll("<think[^>]*>", "")
                 .replace("</think>", "")
                 .replace("<think>", "")
                 .trim();
-            
+
             // 如果内容为空，隐藏思考区域
             if (cleanedContent.isEmpty()) {
                 holder.thinkingLabel.setVisibility(View.GONE);
                 holder.thinkingContent.setVisibility(View.GONE);
                 return;
             }
-            
+
             // 设置思考内容，保持换行格式
             holder.thinkingContent.setText(cleanedContent);
-            holder.thinkingContent.setVisibility(View.VISIBLE);
-            
-            // 添加点击展开/折叠功能
+
+            // 根据 message.thinkingExpanded 决定展开/折叠（状态存在数据模型，不依赖 ViewHolder tag）
+            if (message.thinkingExpanded) {
+                holder.thinkingContent.setVisibility(View.VISIBLE);
+                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                updateThinkingLabel(holder, true);
+            } else {
+                holder.thinkingContent.setVisibility(View.GONE);
+                updateThinkingLabel(holder, false);
+            }
+
+            // 点击展开/折叠，带动画效果
             holder.thinkingLabel.setOnClickListener(v -> {
-                if (holder.thinkingContent.getVisibility() == View.VISIBLE) {
-                    holder.thinkingContent.setVisibility(View.GONE);
-                    holder.thinkingLabel.setText("💭 思考过程 (已折叠)");
+                if (message.thinkingExpanded) {
+                    collapseThinkingContent(holder, message);
                 } else {
-                    holder.thinkingContent.setVisibility(View.VISIBLE);
-                    holder.thinkingLabel.setText("💭 思考过程");
+                    expandThinkingContent(holder, message);
                 }
             });
-            
+
         } else {
             holder.thinkingLabel.setVisibility(View.GONE);
             holder.thinkingContent.setVisibility(View.GONE);
         }
+    }
+
+    private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded) {
+        if (expanded) {
+            holder.thinkingLabel.setText("▼ 思考过程");
+        } else {
+            holder.thinkingLabel.setText("▶ 思考过程 (已折叠)");
+        }
+    }
+
+    private void expandThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
+        holder.thinkingContent.setVisibility(View.VISIBLE);
+        final int targetHeight = holder.thinkingContent.getHeight();
+        if (targetHeight == 0) {
+            holder.thinkingContent.measure(
+                View.MeasureSpec.makeMeasureSpec(holder.thinkingContent.getWidth(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            );
+            final int measuredHeight = holder.thinkingContent.getMeasuredHeight();
+            holder.thinkingContent.getLayoutParams().height = 0;
+            holder.thinkingContent.requestLayout();
+
+            ValueAnimator animator = ValueAnimator.ofInt(0, measuredHeight);
+            animator.addUpdateListener(animation -> {
+                holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
+                holder.thinkingContent.requestLayout();
+            });
+            animator.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(android.animation.Animator animation) {
+                    holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    holder.thinkingContent.requestLayout();
+                }
+            });
+            animator.setDuration(250);
+            animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+            animator.start();
+        } else {
+            holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        }
+        message.thinkingExpanded = true;
+        updateThinkingLabel(holder, true);
+    }
+
+    private void collapseThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
+        final int initialHeight = holder.thinkingContent.getHeight();
+        if (initialHeight == 0) {
+            holder.thinkingContent.setVisibility(View.GONE);
+            message.thinkingExpanded = false;
+            updateThinkingLabel(holder, false);
+            return;
+        }
+
+        ValueAnimator animator = ValueAnimator.ofInt(initialHeight, 0);
+        animator.addUpdateListener(animation -> {
+            holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
+            holder.thinkingContent.requestLayout();
+        });
+        animator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                holder.thinkingContent.setVisibility(View.GONE);
+                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            }
+        });
+        animator.setDuration(200);
+        animator.setInterpolator(new android.view.animation.AccelerateInterpolator());
+        animator.start();
+
+        message.thinkingExpanded = false;
+        updateThinkingLabel(holder, false);
     }
 
     private void updateMessageStatus(AIMessageViewHolder holder, ChatMessage message) {
@@ -485,8 +564,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (message.tokensGenerated > 0) {
                 float seconds = message.generationTimeMs > 0 ? message.generationTimeMs / 1000.0f : 0;
                 float speed = message.generationTimeMs > 0 ? (message.tokensGenerated * 1000.0f) / message.generationTimeMs : 0;
-                holder.statusText.setText(String.format("已完成 · %d token · %.1fs · %.1f t/s", 
-                    message.tokensGenerated, seconds, speed));
+                String statusStr = String.format("已完成 · %d token · %.1fs · %.1f t/s",
+                    message.tokensGenerated, seconds, speed);
+                if (message.usingGPU && message.gpuLayers > 0) {
+                    statusStr += " · GPU " + message.gpuLayers + "层";
+                }
+                holder.statusText.setText(statusStr);
                 holder.statusText.setVisibility(View.VISIBLE);
             } else {
                 holder.statusText.setText("已完成");

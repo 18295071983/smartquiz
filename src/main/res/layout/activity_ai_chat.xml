@@ -209,114 +209,188 @@
             android:id="@+id/weather_banner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="10dp"
+            android:orientation="vertical"
             android:background="@drawable/weather_banner_background"
-            android:gravity="center_vertical"
             android:visibility="gone">
 
-            <TextView
-                android:id="@+id/weather_icon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="☀️"
-                android:textSize="28sp" />
-
+            <!-- 摘要行 -->
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:layout_marginStart="12dp">
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/weather_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="☀️"
+                    android:textSize="28sp" />
 
                 <LinearLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="12dp">
 
-                    <TextView
-                        android:id="@+id/weather_city"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="定位中..."
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/weather_banner_text" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/weather_city"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="定位中..."
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/weather_banner_text" />
+
+                        <TextView
+                            android:id="@+id/weather_temp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="--°C"
+                            android:textSize="20sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/weather_banner_text"
+                            android:layout_marginStart="12dp" />
+                    </LinearLayout>
 
                     <TextView
-                        android:id="@+id/weather_temp"
+                        android:id="@+id/weather_desc"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="--°C"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/weather_banner_text"
-                        android:layout_marginStart="12dp" />
+                        android:text="加载中..."
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary"
+                        android:layout_marginTop="2dp" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/weather_desc"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="加载中..."
-                    android:textSize="12sp"
-                    android:textColor="@color/weather_banner_text_secondary"
-                    android:layout_marginTop="2dp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_weather_detail"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    app:backgroundTint="#33FFFFFF"
+                    app:icon="@drawable/ic_expand_more"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:cornerRadius="16dp"
+                    app:iconTint="@color/weather_banner_text"
+                    app:iconSize="18dp"
+                    android:contentDescription="天气详情" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_weather_refresh"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="4dp"
+                    app:backgroundTint="#33FFFFFF"
+                    app:icon="@drawable/ic_refresh"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:cornerRadius="16dp"
+                    app:iconTint="@color/weather_banner_text"
+                    app:iconSize="16dp"
+                    android:contentDescription="刷新天气" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_weather_close"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="4dp"
+                    app:backgroundTint="#33FFFFFF"
+                    app:icon="@drawable/ic_clear"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:cornerRadius="16dp"
+                    app:iconTint="@color/weather_banner_text"
+                    app:iconSize="14dp"
+                    android:contentDescription="关闭天气" />
             </LinearLayout>
 
+            <!-- 详情区域（默认隐藏） -->
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:id="@+id/weather_detail_container"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:gravity="end">
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="10dp"
+                android:visibility="gone">
 
-                <TextView
-                    android:id="@+id/weather_humidity"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="湿度: --%"
-                    android:textSize="11sp"
-                    android:textColor="@color/weather_banner_text_secondary" />
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#33FFFFFF"
+                    android:layout_marginBottom="8dp" />
 
-                <TextView
-                    android:id="@+id/weather_wind"
-                    android:layout_width="wrap_content"
+                <GridLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="风速: -- m/s"
-                    android:textSize="11sp"
-                    android:textColor="@color/weather_banner_text_secondary"
-                    android:layout_marginTop="2dp" />
+                    android:columnCount="2"
+                    android:useDefaultMargins="true">
+
+                    <TextView
+                        android:id="@+id/weather_feels_like"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="体感温度: --°C"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/weather_humidity"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="湿度: --%"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/weather_wind"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="风速: --"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/weather_wind_dir"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="风向: --"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/weather_visibility"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="能见度: -- km"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/weather_pressure"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_columnWeight="1"
+                        android:text="气压: -- hPa"
+                        android:textSize="12sp"
+                        android:textColor="@color/weather_banner_text_secondary" />
+                </GridLayout>
             </LinearLayout>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_weather_refresh"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="8dp"
-                app:backgroundTint="#33FFFFFF"
-                app:icon="@drawable/ic_refresh"
-                app:iconGravity="textStart"
-                app:iconPadding="0dp"
-                app:cornerRadius="16dp"
-                app:iconTint="@color/weather_banner_text"
-                app:iconSize="16dp"
-                android:contentDescription="刷新天气" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_weather_close"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="4dp"
-                app:backgroundTint="#33FFFFFF"
-                app:icon="@drawable/ic_clear"
-                app:iconGravity="textStart"
-                app:iconPadding="0dp"
-                app:cornerRadius="16dp"
-                app:iconTint="@color/weather_banner_text"
-                app:iconSize="14dp"
-                android:contentDescription="关闭天气" />
         </LinearLayout>
 
         <FrameLayout
@@ -469,52 +543,26 @@
                 android:paddingVertical="8dp"
                 android:visibility="gone">
 
+            <!-- 普通对话入口 -->
             <com.google.android.material.chip.Chip
-                android:id="@+id/chip_explain_concept"
+                android:id="@+id/chip_normal_chat"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="解释"
-                app:chipIcon="@drawable/ic_explain"
-                app:chipIconTint="@color/primary"
+                android:text="💬 对话"
                 android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/primary_container"
                 android:textColor="@color/on_primary_container"
                 app:chipStrokeWidth="0dp"/>
 
+            <!-- Agent 功能入口 -->
             <com.google.android.material.chip.Chip
-                android:id="@+id/chip_translate"
+                android:id="@+id/chip_agent_mode"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="翻译"
-                app:chipIcon="@drawable/ic_translate"
-                app:chipIconTint="@color/secondary"
+                android:text="🤖 Agent"
                 android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/secondary_container"
                 android:textColor="@color/on_secondary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_summarize"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="总结"
-                app:chipIcon="@drawable/ic_summary"
-                app:chipIconTint="@color/tertiary"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_code_review"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="代码"
-                app:chipIcon="@drawable/ic_code"
-                app:chipIconTint="@color/primary"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/primary_container"
-                android:textColor="@color/on_primary_container"
                 app:chipStrokeWidth="0dp"/>
 
             <!-- 模式切换按钮 -->
@@ -534,18 +582,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="✍️写作"
-                app:chipIconTint="@color/secondary"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/secondary_container"
-                android:textColor="@color/on_secondary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_rewrite"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="改写"
-                app:chipIcon="@drawable/ic_rewrite"
                 app:chipIconTint="@color/secondary"
                 android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/secondary_container"

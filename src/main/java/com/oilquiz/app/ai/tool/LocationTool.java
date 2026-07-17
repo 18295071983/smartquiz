@@ -698,12 +698,12 @@ public class LocationTool implements AITool {
                 || ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private static class LocationInfo {
-        final double latitude;
-        final double longitude;
-        final float accuracy;
-        final String provider;
-        final long timestamp;
+    public static class LocationInfo {
+        public final double latitude;
+        public final double longitude;
+        public final float accuracy;
+        public final String provider;
+        public final long timestamp;
 
         LocationInfo(double latitude, double longitude, float accuracy, String provider, long timestamp) {
             this.latitude = latitude;
