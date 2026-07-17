@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.agent;
 import android.app.Activity;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.python.PythonToolManager;
 import com.oilquiz.app.ai.refactor.UnifiedContextManager;
@@ -62,9 +63,25 @@ public class UnifiedAgentEngine {
 
     private static final String TAG = "UnifiedAgentEngine";
 
-    private static final String DEFAULT_GLOBAL_PROMPT = "你是一个AI助手，请用中文回答。";
-    private static final String DEFAULT_SYSTEM_PROMPT = "你是一个全能AI助手，具备以下能力：\n1. 普通对话：友好、专业地回答问题\n2. 深度思考：逐步推理，展示思考过程\n3. 创意创作：写作、诗歌、故事等\n4. 任务执行：分析问题、调用工具、完成任务\n\n请根据用户需求灵活选择最合适的响应方式。";
-    private static final String DEFAULT_NORMAL_PROMPT = "根据对话上下文和当前模式，以自然、友好的方式回应用户。";
+    // 使用 ChatModeManager 的统一提示词，保持与普通模式一致
+    private static String getDefaultGlobalPrompt() {
+        return "你是一个AI助手，请用中文回答。";
+    }
+    
+    private static String getDefaultSystemPrompt() {
+        // 优先使用 ChatModeManager 的 Agent 模式提示词
+        try {
+            return ChatModeManager.getModeSystemPromptStatic(ChatModeManager.ChatMode.AGENT);
+        } catch (Exception e) {
+            return "你是一个智能Agent助手。你可以调用各种工具来完成用户的任务。\n" +
+                   "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
+                   "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
+        }
+    }
+    
+    private static String getDefaultNormalPrompt() {
+        return "根据对话上下文和当前模式，以自然、友好的方式回应用户。";
+    }
 
     private static final int MAX_CONTEXT_INIT_RETRIES = 3;
     private static final long CONTEXT_INIT_RETRY_DELAY_MS = 200;
@@ -1447,6 +1464,8 @@ public class UnifiedAgentEngine {
             return;
         }
 
+        // Agent 模式：只发送用户原始消息，不注入 Agent 内部数据到聊天上下文
+        // Agent 的工具调用结果、思考步骤等保留在 Agent 内部的 contextSummary 中
         aiService.chatSend(message, maxTokens, enableThinking, new LlamaHelper.TokenCallback() {
             @Override
             public void onToken(String token) {
@@ -1599,15 +1618,15 @@ public class UnifiedAgentEngine {
                     if (ctxManager != null) {
                         initialized = ctxManager.ensureChatContext(
                             aiService,
-                            DEFAULT_GLOBAL_PROMPT,
-                            DEFAULT_SYSTEM_PROMPT,
-                            DEFAULT_NORMAL_PROMPT
+                            getDefaultGlobalPrompt(),
+                            getDefaultSystemPrompt(),
+                            getDefaultNormalPrompt()
                         );
                     } else {
                         initialized = aiService.initChatContext(
-                            DEFAULT_GLOBAL_PROMPT,
-                            DEFAULT_SYSTEM_PROMPT,
-                            DEFAULT_NORMAL_PROMPT
+                            getDefaultGlobalPrompt(),
+                            getDefaultSystemPrompt(),
+                            getDefaultNormalPrompt()
                         );
                     }
                 } catch (Exception e) {

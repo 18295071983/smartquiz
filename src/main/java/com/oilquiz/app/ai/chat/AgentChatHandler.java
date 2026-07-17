@@ -17,6 +17,9 @@ import com.oilquiz.app.ai.agent.UnifiedAgentEngine;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.agent.software.AgentSoftwareLayer;
+import com.oilquiz.app.ai.agent.software.model.AgentResponse;
+import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.List;
@@ -50,6 +53,7 @@ public class AgentChatHandler {
     private final AgentChatCallback callback;
     private final UnifiedAgentEngine engine;
     private final SmartIntentRecognizer intentRecognizer;
+    private AgentSoftwareLayer softwareLayer;
 
     private InferenceMode currentInferenceMode = InferenceMode.REACT;
 
@@ -64,6 +68,60 @@ public class AgentChatHandler {
         this.callback = callback;
         this.engine = new UnifiedAgentEngine(activity, aiService, inferenceRouter, agentService, useOnlineModel);
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
+        
+        // 初始化新的 AgentSoftwareLayer
+        this.softwareLayer = new AgentSoftwareLayer(activity, aiService);
+        this.softwareLayer.setCallback(new AgentSoftwareLayer.AgentCallback() {
+            @Override
+            public void onStepUpdate(String step, String detail) {
+                AILogger.i(TAG, "Agent step: " + step + " - " + detail);
+                if (callback != null) {
+                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
+                        ChatMessage.AgentStepInfo.AgentStepType.THINKING, 0, 0);
+                    stepInfo.thought = step + ": " + detail;
+                    stepInfo.isCompleted = true;
+                    callback.onAgentStep(stepInfo);
+                }
+            }
+            
+            @Override
+            public void onThinkingUpdate(String thought) {
+                if (callback != null) {
+                    callback.onThinkingToken(thought);
+                }
+            }
+            
+            @Override
+            public void onToolCallStart(String toolName, String args) {
+                if (callback != null) {
+                    callback.onToolCallStart(toolName, args);
+                    callback.onToolCallUI(toolName, args, -1);
+                }
+            }
+            
+            @Override
+            public void onToolCallComplete(String toolName, boolean success, String result) {
+                if (callback != null) {
+                    AgentService.ToolResult toolResult = new AgentService.ToolResult(toolName, result, success);
+                    callback.onToolCallComplete(toolName, toolResult);
+                    callback.onToolCallResultUI(-1, success, result);
+                }
+            }
+            
+            @Override
+            public void onComplete(AgentResponse response) {
+                if (callback != null) {
+                    callback.onComplete(response.finalAnswer);
+                }
+            }
+            
+            @Override
+            public void onError(String error) {
+                if (callback != null) {
+                    callback.onError(error);
+                }
+            }
+        });
 
         engine.setCallback(new UnifiedAgentEngine.AgentCallback() {
             @Override
@@ -384,6 +442,13 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
+        // 使用新的 AgentSoftwareLayer 处理消息
+        if (softwareLayer != null) {
+            softwareLayer.processMessage(message);
+            return;
+        }
+
+        // 降级到旧的处理方式
         SmartIntentRecognizer.IntentResult intent = intentRecognizer.recognize(message);
         AILogger.i(TAG, "Intent: " + intent.intent.id + " conf=" + intent.confidence + " source=" + intent.source);
 

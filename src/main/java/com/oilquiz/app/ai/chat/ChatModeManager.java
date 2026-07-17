@@ -165,11 +165,27 @@ public class ChatModeManager {
     }
 
     public String getModeSystemPrompt(ChatMode mode) {
+        return getModeSystemPromptStatic(mode);
+    }
+    
+    /**
+     * 静态方法 - 获取模式系统提示词（无需 context）
+     * 用于 UnifiedAgentEngine 等不需要实例的场景
+     */
+    public static String getModeSystemPromptStatic(ChatMode mode) {
         switch (mode) {
             case DEEP_THINKING:
-                return "你是一个善于深度思考的AI助手。对于每个问题，你需要进行多角度分析，展示完整的推理过程。回答格式：\n" +
-                       "1. 问题理解\n2. 关键分析\n3. 推理过程\n4. 最终结论\n" +
-                       "请用结构化的方式展示你的思考过程。";
+                return "你是一个擅长深度思考的AI助手。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n" +
+                       "思考阶段要求：\n" +
+                       "1. 拆解问题，明确核心要点\n" +
+                       "2. 从多个角度分析，考虑各种可能性\n" +
+                       "3. 逐步推理，验证逻辑链条\n" +
+                       "4. 排除不合理的假设\n" +
+                       "最终回答要求：\n" +
+                       "1. 结论先行，简洁明确\n" +
+                       "2. 只保留关键论据和核心逻辑\n" +
+                       "3. 必要时可以分点说明\n" +
+                       "4. 用自然易懂的中文表达";
             case CREATIVE:
                 return "你是一个创意写作助手。根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
                        "请确保：\n1. 内容原创，有创意\n2. 语言生动，富有感染力\n3. 结构清晰，逻辑通顺";

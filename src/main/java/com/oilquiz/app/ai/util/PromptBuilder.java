@@ -84,11 +84,7 @@ public class PromptBuilder {
             List<Message> truncated = truncateHistory(effectiveHistory, maxHistoryPairs);
             for (Message msg : truncated) {
                 String role = msg.role();
-                if ("system".equals(role) || "global".equals(role) || "normal".equals(role)) {
-                    sb.append("<|im_start|>").append(role).append("\n").append(msg.content()).append("\n<|im_end|>\n");
-                } else {
-                    sb.append("<|im_start|>").append(role).append("\n").append(msg.content()).append("\n<|im_end|>\n");
-                }
+                sb.append("<|im_start|>").append(role).append("\n").append(msg.content()).append("\n<|im_end|>\n");
             }
 
             if (userQuery != null && !userQuery.isBlank()) {
@@ -98,6 +94,52 @@ public class PromptBuilder {
             sb.append("<|im_start|>assistant\n");
             return sb.toString();
         }
+
+        /**
+         * 只组装消息列表，不进行格式化。
+         * 配合 native 层的 generateStreamFromMessages 使用，由 llama_chat_apply_template 自动适配模型格式。
+         * 将 global+system+thinking+normal 合并为一条 system 消息（与 chatSend 路径的 mergeSystemPrompts 行为一致）。
+         */
+        public List<Message> buildMessages() {
+            List<Message> messages = new ArrayList<>();
+
+            // 合并 global+system+thinking+normal 为一条 system 消息
+            StringBuilder sysContent = new StringBuilder();
+            if (globalPrompt != null && !globalPrompt.isBlank()) {
+                sysContent.append(resolveVariables(globalPrompt)).append("\n");
+            }
+            if (thinkingInstruction != null && !thinkingInstruction.isBlank()) {
+                sysContent.append("[思考指令]\n").append(resolveVariables(thinkingInstruction)).append("\n\n");
+            }
+            if (systemPrompt != null && !systemPrompt.isBlank()) {
+                sysContent.append(resolveVariables(systemPrompt)).append("\n");
+            }
+            if (normalPrompt != null && !normalPrompt.isBlank()) {
+                sysContent.append(resolveVariables(normalPrompt));
+            }
+            if (sysContent.length() > 0) {
+                // 去掉末尾多余的换行
+                String sysStr = sysContent.toString().trim();
+                if (!sysStr.isEmpty()) {
+                    messages.add(new Message("system", sysStr));
+                }
+            }
+
+            // 历史消息
+            List<Message> effectiveHistory = history != null ? history : new ArrayList<>();
+            List<Message> truncated = truncateHistory(effectiveHistory, maxHistoryPairs);
+            for (Message msg : truncated) {
+                messages.add(new Message(msg.role(), msg.content()));
+            }
+
+            // 用户查询
+            if (userQuery != null && !userQuery.isBlank()) {
+                messages.add(new Message("user", resolveVariables(userQuery)));
+            }
+
+            return messages;
+        }
+
 
         private String resolveVariables(String text) {
             if (text == null) return null;

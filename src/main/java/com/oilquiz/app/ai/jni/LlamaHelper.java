@@ -2,6 +2,11 @@ package com.oilquiz.app.ai.jni;
 
 import android.util.Log;
 import com.oilquiz.app.util.AILogger;
+import com.oilquiz.app.ai.util.PromptBuilder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.TimeUnit;
 
 /**
  * LlamaHelper - Llama.cpp Native JNI接口封装
@@ -12,6 +17,7 @@ import com.oilquiz.app.util.AILogger;
  * - 支持流式生成和批处理生成
  * - Native层日志回调集成
  * - GPU/设备能力检测
+ * - 推理锁保护（防止并发冲突）
  * 
  * 主要功能：
  * 1. 模型管理：initModel, release, isModelInitialized
@@ -44,6 +50,11 @@ public class LlamaHelper {
     private static volatile long lastModelInitCheckTime = 0;
     private static volatile boolean cachedModelInitialized = false;
     private static final long MODEL_INIT_CHECK_INTERVAL_MS = 1000;
+
+    // ========== 推理锁 ==========
+    // 用于保护 generate/chatSend 不会并发执行
+    private static final ReentrantReadWriteLock inferenceLock = new ReentrantReadWriteLock();
+    private static final long INFERENCE_LOCK_TIMEOUT_MS = 30000; // 30秒超时
     
     // Native 状态恢复跟踪
     private static volatile int nativeRecoveryAttemptCount = 0;
@@ -117,6 +128,67 @@ public class LlamaHelper {
 
     private static native int nativeInitModel(String modelPath, int nCtx, int nThreads);
 
+    // ========== 推理锁方法 ==========
+    
+    /**
+     * 获取推理写锁（用于 generate/chatSend 等独占操作）
+     * @return true 如果成功获取锁，false 如果超时
+     */
+    public static boolean acquireInferenceWriteLock() {
+        try {
+            return inferenceLock.writeLock().tryLock(INFERENCE_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+    
+    /**
+     * 释放推理写锁
+     */
+    public static void releaseInferenceWriteLock() {
+        try {
+            if (inferenceLock.getWriteHoldCount() > 0) {
+                inferenceLock.writeLock().unlock();
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Error releasing write lock: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 获取推理读锁（用于检查状态等共享操作）
+     * @return true 如果成功获取锁，false 如果超时
+     */
+    public static boolean acquireInferenceReadLock() {
+        try {
+            return inferenceLock.readLock().tryLock(INFERENCE_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+    
+    /**
+     * 释放推理读锁
+     */
+    public static void releaseInferenceReadLock() {
+        try {
+            if (inferenceLock.getReadHoldCount() > 0) {
+                inferenceLock.readLock().unlock();
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Error releasing read lock: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 检查是否有正在进行的推理
+     */
+    public static boolean isInferenceInProgress() {
+        return inferenceLock.getWriteHoldCount() > 0 || inferenceLock.getReadLockCount() > 0;
+    }
+
     // 生成文本（同步）
     public static String generate(String prompt, int maxTokens, float temperature) {
         return generate(prompt, maxTokens, temperature, 0.9f, 40);
@@ -127,18 +199,27 @@ public class LlamaHelper {
             AILogger.w(TAG, "Library not loaded, cannot generate text");
             return "Error: AI model not available";
         }
+        
+        // 获取推理锁，确保不与 chatSend 并发执行
+        if (!acquireInferenceWriteLock()) {
+            AILogger.w(TAG, "Failed to acquire inference lock, generate timeout");
+            return "Error: Inference lock timeout";
+        }
+        
         try {
             return nativeGenerate(prompt, maxTokens, temperature, topP, topK);
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error generating text: " + e.getMessage(), e);
             return "Error: AI generation failed";
+        } finally {
+            releaseInferenceWriteLock();
         }
     }
 
     private static native String nativeGenerate(String prompt, int maxTokens, float temperature, float topP, int topK);
 
     // 生成文本（流式）
-    public static void generateStream(String prompt, int maxTokens, float temperature, float topP, int topK, TokenCallback callback) {
+    public static void generateStream(String prompt, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
         if (!libraryLoaded) {
             AILogger.w(TAG, "Library not loaded, cannot generate stream");
             if (callback != null) {
@@ -147,7 +228,7 @@ public class LlamaHelper {
             return;
         }
         try {
-            nativeGenerateStream(prompt, maxTokens, temperature, topP, topK, callback);
+            nativeGenerateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error generating stream: " + e.getMessage(), e);
             if (callback != null) {
@@ -156,7 +237,44 @@ public class LlamaHelper {
         }
     }
 
-    private static native void nativeGenerateStream(String prompt, int maxTokens, float temperature, float topP, int topK, TokenCallback callback);
+    private static native void nativeGenerateStream(String prompt, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
+
+    // 生成文本（流式）- 接收消息列表，native 层用 llama_chat_apply_template 自动适配模型格式
+    // 不污染多轮对话状态，适合单次生成场景
+    public static void generateStream(List<PromptBuilder.Message> messages, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "Library not loaded, cannot generate stream from messages");
+            if (callback != null) {
+                callback.onError("AI model not available");
+            }
+            return;
+        }
+        if (messages == null || messages.isEmpty()) {
+            AILogger.e(TAG, "Messages list is null or empty");
+            if (callback != null) {
+                callback.onError("Messages list is empty");
+            }
+            return;
+        }
+        // 转换为并行数组：roles（String[]）+ contents（byte[][]，UTF-8 编码避免中文问题）
+        String[] roles = new String[messages.size()];
+        byte[][] contents = new byte[messages.size()][];
+        for (int i = 0; i < messages.size(); i++) {
+            PromptBuilder.Message msg = messages.get(i);
+            roles[i] = msg.role();
+            contents[i] = msg.content() == null ? new byte[0] : msg.content().getBytes(StandardCharsets.UTF_8);
+        }
+        try {
+            nativeGenerateStreamFromMessages(roles, contents, maxTokens, temperature, topP, topK, enableThinking, callback);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error generating stream from messages: " + e.getMessage(), e);
+            if (callback != null) {
+                callback.onError("AI generation failed");
+            }
+        }
+    }
+
+    private static native void nativeGenerateStreamFromMessages(String[] roles, byte[][] contents, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
 
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
@@ -953,7 +1071,23 @@ public class LlamaHelper {
             return false;
         }
     }
-    
+
+    /**
+     * 更新 native 层的 OpenCL 加载状态（System.load 加载后调用）
+     */
+    public static void setOpenCLLoaded(boolean loaded) {
+        if (!libraryLoaded) {
+            return;
+        }
+        try {
+            nativeSetOpenCLLoaded(loaded);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error setting OpenCL loaded: " + e.getMessage(), e);
+        }
+    }
+
+    private static native void nativeSetOpenCLLoaded(boolean loaded);
+
     public static boolean isGPUWorking() {
         if (!libraryLoaded) {
             AILogger.w(TAG, "Library not loaded, cannot check GPU status");

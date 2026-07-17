@@ -97,6 +97,10 @@ public class ChatOrchestrator {
             @Override
             public void onModeChanged(ChatModeManager.ChatMode newMode, boolean isAuto) {
                 Log.i(TAG, "Mode changed: " + newMode.displayName + ", auto=" + isAuto);
+                
+                // 更新聊天上下文提示词（不销毁上下文）
+                updateContextForMode(newMode);
+                
                 if (listener != null) {
                     listener.onModeChanged(newMode, isAuto);
                 }
@@ -115,6 +119,35 @@ public class ChatOrchestrator {
                 Log.i(TAG, "Auto mode changed: " + enabled);
             }
         });
+    }
+    
+    /**
+     * 更新聊天上下文以匹配新模式
+     * 使用 updateChatPrompts 而不是 initChatContext，避免销毁上下文
+     */
+    private void updateContextForMode(ChatModeManager.ChatMode mode) {
+        if (aiService == null || !aiService.isInitialized()) {
+            return;
+        }
+        
+        ChatModeManager.ModeContextPrompts prompts = modeManager.getContextPromptsForMode(mode);
+        
+        new Thread(() -> {
+            try {
+                boolean updated = aiService.updateChatPrompts(
+                    prompts.globalPrompt, 
+                    prompts.systemPrompt, 
+                    prompts.normalPrompt
+                );
+                if (updated) {
+                    Log.i(TAG, "Chat context prompts updated for mode: " + mode.displayName);
+                } else {
+                    Log.w(TAG, "Failed to update chat context prompts for mode: " + mode.displayName);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error updating context for mode: " + e.getMessage());
+            }
+        }).start();
     }
     
     public void setListener(OrchestratorListener listener) {

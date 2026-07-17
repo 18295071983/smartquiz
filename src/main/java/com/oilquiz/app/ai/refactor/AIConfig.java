@@ -53,9 +53,9 @@ public class AIConfig {
     private int topK = 40;
     private String systemPrompt = "请用中文回答。";
     private boolean cacheEnabled = true;
-    private boolean autoModeEnabled = true;
+    private boolean autoModeEnabled = false; // 禁用自动模式切换，所有模式由用户手动选择
     private boolean intentRecognitionEnabled = true;
-    private boolean agentEnabled = false;
+    private boolean agentEnabled = true; // 启用 Agent 模式
     private OptimizationMode optimizationMode = OptimizationMode.BALANCED;
 
     public AIConfig(Context context) {

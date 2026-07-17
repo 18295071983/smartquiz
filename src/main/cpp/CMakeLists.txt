@@ -14,7 +14,7 @@ option(GGML_OPENCL "Enable OpenCL backend" OFF)
 option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
-option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 
 set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
 set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
@@ -49,7 +49,7 @@ endif()
 set(GGML_VULKAN ${GGML_VULKAN} CACHE BOOL "Enable Vulkan backend" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "Enable CUDA backend" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "Enable dynamic backend loading" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
 set(LLAMA_CPP_PATH "${CMAKE_SOURCE_DIR}/llama.cpp")
 set(OPENCL_HEADERS_DIR "${CMAKE_SOURCE_DIR}/opencl/headers")
@@ -73,7 +73,7 @@ if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
         set(OpenCL_FOUND TRUE CACHE BOOL "OpenCL found" FORCE)
         set(OpenCL_VERSION_STRING "3.0" CACHE STRING "OpenCL version" FORCE)
         
-        set(NDK_OPENCL_LIB "$ENV{NDK_DIR}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so")
+        set(NDK_OPENCL_LIB "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so")
         if(EXISTS "${NDK_OPENCL_LIB}")
             set(OpenCL_LIBRARIES "${NDK_OPENCL_LIB}" CACHE FILEPATH "OpenCL libraries" FORCE)
             set(OpenCL_LIBRARY "${NDK_OPENCL_LIB}" CACHE FILEPATH "OpenCL library" FORCE)
@@ -122,7 +122,6 @@ add_library(
 target_link_libraries(
     llama-jni
     llama
-    ggml-opencl
     log
     android
     z
@@ -130,6 +129,10 @@ target_link_libraries(
     atomic
     dl
 )
+
+if(GGML_OPENCL)
+    target_link_libraries(llama-jni ggml-opencl)
+endif()
 
 if(GGML_OPENCL)
     message(STATUS "OpenCL: Using NDK stub library for compilation (runtime will load vendor driver)")
