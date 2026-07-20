@@ -195,3 +195,10 @@ src/main/cpp/native-lib-clean.cpp
 
 # ============ Fonts (large files) ============
 src/main/assets/fonts/
+
+# ============ Security/Crypto ============
+*.pem
+*.key
+*.p12
+*.pfx
+tools/GenKey.class
