@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) — 开发规范
 
-> **版本: 2.0 | 更新日期: 2026-05-16**
+> **版本: 2.1 | 更新日期: 2026-07-18**
 
 ---
 
@@ -106,7 +106,7 @@ d:\quzp\app\
 | 接口 | PascalCase，以 `I` 开头或直接描述 | `IOnAnswerListener`, `QuestionDao` |
 | 抽象类 | PascalCase，以 `Base` 或 `Abstract` 开头 | `BaseActivity`, `BaseFragment`, `BaseAITool` |
 | 枚举 | PascalCase | `QuestionType`, `DifficultyLevel` |
-| 包名 | 全小写，单词直接拼接 | `com.smartquiz.app.viewmodel` |
+| 包名 | 全小写，单词直接拼接 | `com.oilquiz.app.viewmodel` |
 
 ### 4.2 Kotlin 命名规范
 
@@ -539,30 +539,51 @@ public void onJsCall(String action, String data) {
 
 ### 13.1 Room 实体定义
 
-```kotlin
-@Entity(tableName = "questions")
-data class QuestionEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "category_id") val categoryId: String,
-    @ColumnInfo(name = "title") val title: String,
-    @ColumnInfo(name = "type") val type: String,
-    @ColumnInfo(name = "created_at") val createdAt: Long
+```java
+@Entity(
+    tableName = "question",
+    indices = {
+        @Index(value = "category"),
+        @Index(value = "difficulty"),
+        @Index(value = "favorite")
+    }
 )
+public class Question implements java.io.Serializable {
+    @PrimaryKey(autoGenerate = true)
+    private long id;
+    private String questionText;
+    private String optionA;
+    private String optionB;
+    private String optionC;
+    private String optionD;
+    private String correctAnswer;
+    private String category;
+    private int difficulty;
+    private String explanation;
+    private String questionType;
+    private boolean favorite;
+    private long createdAt;
+    private long updatedAt;
+    // ... 其他字段和 getter/setter
+}
 ```
 
 ### 13.2 DAO 接口
 
-```kotlin
+```java
 @Dao
-interface QuestionDao {
-    @Query("SELECT * FROM questions WHERE category_id = :categoryId")
-    fun getByCategory(categoryId: String): Flow<List<QuestionEntity>>
+public interface QuestionDao {
+    @Query("SELECT * FROM question WHERE category = :category")
+    List<Question> getByCategory(String category);
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(questions: List<QuestionEntity>)
+    void insertAll(List<Question> questions);
 
     @Delete
-    suspend fun delete(question: QuestionEntity)
+    void delete(Question question);
+
+    @Query("SELECT * FROM question WHERE id = :id")
+    Question getById(long id);
 }
 ```
 

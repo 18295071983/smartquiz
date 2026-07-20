@@ -715,30 +715,135 @@ src/main/java/com/oilquiz/app/
 
 ```sql
 -- 题目表
-CREATE TABLE questions (
+CREATE TABLE question (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question TEXT NOT NULL,
-    option_a TEXT,
-    option_b TEXT,
-    option_c TEXT,
-    option_d TEXT,
-    correct_answer TEXT,
+    questionText TEXT NOT NULL,
+    optionA TEXT,
+    optionB TEXT,
+    optionC TEXT,
+    optionD TEXT,
+    correctAnswer TEXT,
     category TEXT,
     difficulty INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
+    explanation TEXT,
+    questionType TEXT,
+    favorite INTEGER DEFAULT 0,
+    createdAt INTEGER DEFAULT 0,
+    updatedAt INTEGER DEFAULT 0,
+    source TEXT,
+    tags TEXT,
+    points INTEGER DEFAULT 1,
+    timeLimit INTEGER DEFAULT 0,
+    hint TEXT,
+    analysis TEXT,
+    knowledgePoint TEXT,
+    subCategory TEXT,
+    usageCount INTEGER DEFAULT 0,
+    correctCount INTEGER DEFAULT 0,
+    incorrectCount INTEGER DEFAULT 0,
+    lastUsedAt INTEGER DEFAULT 0,
+    status INTEGER DEFAULT 0,
+    isPublic INTEGER DEFAULT 0,
+    author TEXT,
+    comment TEXT,
+    extraOptions TEXT
 );
 
 -- 用户表
-CREATE TABLE users (
+CREATE TABLE user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL,
+    username TEXT NOT NULL,
     email TEXT,
-    created_at INTEGER
+    phone TEXT,
+    password TEXT,
+    avatar TEXT,
+    isLoggedIn INTEGER DEFAULT 0
 );
 
--- 其他表结构...
+-- 笔记表
+CREATE TABLE note (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    content TEXT,
+    createTime INTEGER,
+    updateTime INTEGER,
+    userId INTEGER,
+    relatedQuestionId INTEGER
+);
+
+-- 错题本表
+CREATE TABLE wrong_question (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    questionId INTEGER,
+    userId INTEGER,
+    wrongCount INTEGER DEFAULT 0,
+    lastWrongTime INTEGER DEFAULT 0,
+    userAnswer TEXT
+);
+
+-- 成绩记录表
+CREATE TABLE score_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    correctCount INTEGER,
+    totalQuestions INTEGER,
+    score INTEGER,
+    startTime INTEGER,
+    endTime INTEGER,
+    category TEXT,
+    difficulty TEXT,
+    quizType TEXT,
+    userId INTEGER
+);
+
+-- 学习计划表
+CREATE TABLE study_plan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    planName TEXT,
+    targetQuestions INTEGER,
+    completedQuestions INTEGER,
+    startDate INTEGER,
+    endDate INTEGER,
+    userId INTEGER,
+    status TEXT
+);
+
+-- 对话历史表
+CREATE TABLE chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    message TEXT,
+    sender TEXT,
+    timestamp INTEGER
+);
+
+-- 模板表
+CREATE TABLE template (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    description TEXT,
+    filePath TEXT,
+    createdAt INTEGER,
+    updatedAt INTEGER,
+    enabled INTEGER DEFAULT 1
+);
+
+-- 收藏题目表
+CREATE TABLE favorite_question (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    questionId INTEGER,
+    userId INTEGER,
+    favoriteTime INTEGER
+);
+
+-- 日志表
+CREATE TABLE log_entry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    action TEXT,
+    detail TEXT,
+    timestamp INTEGER,
+    level TEXT
+);
 ```
 
 ### B. API 接口文档

@@ -115,6 +115,8 @@ public class SystemResourceTool implements AITool {
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
+        normalizeParameters(parameters);
+        
         try {
             String action = (String) parameters.get("action");
             if (action == null) {
@@ -464,6 +466,17 @@ public class SystemResourceTool implements AITool {
             result.put("app", appName);
             result.put("package", packageName);
             return new AIToolResult(result, parameters);
+        }
+    }
+    
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        
+        if (parameters.containsKey("app_name") && !parameters.containsKey("app")) {
+            parameters.put("app", parameters.get("app_name"));
+        }
+        if (parameters.containsKey("phone_number") && !parameters.containsKey("phone")) {
+            parameters.put("phone", parameters.get("phone_number"));
         }
     }
     

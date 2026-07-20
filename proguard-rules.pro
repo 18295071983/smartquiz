@@ -20,6 +20,22 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
+# Keep QWeather SDK
+-keep public class com.qweather.sdk.QWeather {
+    public *;
+}
+-keep public class com.qweather.sdk.basic.**{ *; }
+-keepclassmembers class com.qweather.sdk.basic** { *; }
+-keep public class com.qweather.sdk.parameter.**{ *; }
+-keepclassmembers class com.qweather.sdk.parameter** { *; }
+-keep public class com.qweather.sdk.response.**{ *; }
+-keepclassmembers class com.qweather.sdk.response** { *; }
+-keep interface com.qweather.sdk.Callback{  *; }
+-keep interface com.qweather.sdk.TokenGenerator{  *; }
+-keep public class com.qweather.sdk.JWTGenerator {
+    public *;
+}
+
 # Keep Room database entities
 -keep class com.smartquiz.app.database.** { *; }
 -keep @androidx.room.Entity class *

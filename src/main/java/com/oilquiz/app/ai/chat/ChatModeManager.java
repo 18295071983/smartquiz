@@ -169,33 +169,47 @@ public class ChatModeManager {
     }
     
     /**
+     * 统一基础提示词 - 适用于所有模式
+     */
+    public static String getBaseSystemPrompt() {
+        return "你是一个智能AI助手，擅长理解用户需求并提供准确、有帮助的回答。\n" +
+               "请用自然易懂的中文与用户对话，回答准确简洁，保持礼貌耐心。";
+    }
+
+    /**
      * 静态方法 - 获取模式系统提示词（无需 context）
      * 用于 UnifiedAgentEngine 等不需要实例的场景
      */
     public static String getModeSystemPromptStatic(ChatMode mode) {
+        // 所有模式都使用统一基础提示词
+        return getBaseSystemPrompt();
+    }
+
+    /**
+     * 获取模式特定指令（用于注入到上下文）
+     */
+    public static String getModeSpecificInstruction(ChatMode mode) {
         switch (mode) {
             case DEEP_THINKING:
-                return "你是一个擅长深度思考的AI助手。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n" +
+                return "你现在进入深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n" +
                        "思考阶段要求：\n" +
                        "1. 拆解问题，明确核心要点\n" +
                        "2. 从多个角度分析，考虑各种可能性\n" +
                        "3. 逐步推理，验证逻辑链条\n" +
-                       "4. 排除不合理的假设\n" +
                        "最终回答要求：\n" +
                        "1. 结论先行，简洁明确\n" +
-                       "2. 只保留关键论据和核心逻辑\n" +
-                       "3. 必要时可以分点说明\n" +
-                       "4. 用自然易懂的中文表达";
+                       "2. 只保留关键论据和核心逻辑";
             case CREATIVE:
-                return "你是一个创意写作助手。根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
+                return "你现在进入创意写作模式。请根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
                        "请确保：\n1. 内容原创，有创意\n2. 语言生动，富有感染力\n3. 结构清晰，逻辑通顺";
             case AGENT:
-                return "你是一个智能Agent助手。你可以调用各种工具来完成用户的任务。\n" +
+                return "你现在进入Agent模式。你可以调用各种工具来完成用户的任务。\n" +
                        "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
+                       "当需要使用工具时，严格按照 TOOLS_CALL/TOOLS_END 格式输出。\n" +
                        "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
             case NORMAL:
             default:
-                return "你是一位友好、专业的AI助手。回答准确简洁，保持礼貌耐心，必要时提供示例。请以自然易懂的方式回应。";
+                return "";
         }
     }
 
@@ -216,6 +230,24 @@ public class ChatModeManager {
         String systemPrompt = getModeSystemPrompt(mode);
         String normalPrompt = "";
         return new ModeContextPrompts(globalPrompt, systemPrompt, normalPrompt);
+    }
+
+    /**
+     * 生成模式切换指令，用于注入到上下文中
+     * 保留上下文的同时改变模型行为
+     */
+    public static String getModeSwitchInstruction(ChatMode oldMode, ChatMode newMode) {
+        String instruction = getModeSpecificInstruction(newMode);
+        if (instruction == null || instruction.isEmpty()) {
+            return ""; // 普通模式不需要特殊指令
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("[系统指令 - 模式切换]\n\n");
+        sb.append("对话模式已从「").append(oldMode.displayName).append("」切换到「").append(newMode.displayName).append("」。\n\n");
+        sb.append(instruction);
+        sb.append("\n\n请确认已理解，继续与用户对话。");
+        return sb.toString();
     }
 
     public ModeContextPrompts getUnifiedContextPrompts() {

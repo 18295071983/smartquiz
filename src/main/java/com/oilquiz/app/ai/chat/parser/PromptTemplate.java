@@ -17,13 +17,25 @@ public class PromptTemplate {
         "1. **思考过程**：用 <思考开始> 和 </思考开始> 标签包裹你的思考过程\n" +
         "   例如：<思考开始>让我分析一下这个问题...</思考开始>\n\n" +
         "2. **工具调用**：当需要调用工具时，用 <工具调用> 和 </工具调用> 标签包裹JSON格式的调用参数\n" +
-        "   例如：<工具调用>{\"name\": \"get_weather\", \"parameters\": {\"city\": \"北京\"}}</工具调用>\n\n" +
+        "   格式：<工具调用>{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}</工具调用>\n\n" +
         "3. **结构化数据**：返回结构化数据时，用 <数据类型=\"xxx\"> 和 </数据> 标签包裹JSON数据\n" +
         "   例如：<数据类型=\"天气\">{\"city\": \"北京\", \"temp\": 25, \"weather\": \"晴\"}</数据>\n\n" +
         "4. **普通回复**：直接输出文本，无需特殊标记\n\n" +
         "5. **错误信息**：出错时用 <错误> 和 </错误> 标签包裹错误描述\n" +
         "   例如：<错误>抱歉，我无法处理这个请求</错误>\n\n" +
         "请始终遵循以上格式输出，这样我可以更好地理解和展示你的回复。";
+    
+    private static final String OPENAI_TOOL_CALL_PROMPT = 
+        "你是一个智能助手，可以使用工具来完成任务。\n\n" +
+        "【可用工具】\n{tools}\n\n" +
+        "【输出格式】\n" +
+        "如果你需要使用工具，请严格按照以下 JSON 格式输出：\n" +
+        "```json\n" +
+        "{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n" +
+        "```\n" +
+        "如果不需要工具，直接回答用户问题。\n\n" +
+        "【用户消息】\n{message}\n\n" +
+        "【助手回复】\n";
 
     // ========== 场景提示词 ==========
 
@@ -156,5 +168,21 @@ public class PromptTemplate {
         sb.append("当前问题：\n");
         sb.append(userMessage);
         return sb.toString();
+    }
+    
+    /**
+     * 获取 OpenAI 标准格式的工具调用提示词
+     */
+    public static String getOpenAIToolCallPrompt(String tools, String message) {
+        return OPENAI_TOOL_CALL_PROMPT
+            .replace("{tools}", tools != null ? tools : "")
+            .replace("{message}", message != null ? message : "");
+    }
+    
+    /**
+     * 构建带工具列表的完整提示（OpenAI 标准格式）
+     */
+    public static String buildWithTools(String userMessage, String tools) {
+        return getOpenAIToolCallPrompt(tools, userMessage);
     }
 }

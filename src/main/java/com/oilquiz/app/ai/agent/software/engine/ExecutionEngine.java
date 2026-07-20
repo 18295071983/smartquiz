@@ -1,10 +1,14 @@
 package com.oilquiz.app.ai.agent.software.engine;
 
+import android.content.Context;
+
 import com.oilquiz.app.ai.agent.software.model.ExecutionResult;
 import com.oilquiz.app.ai.agent.software.model.Task;
 import com.oilquiz.app.ai.agent.software.model.TaskPlan;
 import com.oilquiz.app.ai.agent.software.model.TaskResult;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.Map;
@@ -22,6 +26,7 @@ public class ExecutionEngine {
     
     private static final String TAG = "ExecutionEngine";
     private final AIService aiService;
+    private final AIToolManager toolManager;
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     
@@ -30,8 +35,9 @@ public class ExecutionEngine {
         void onToolCallComplete(String toolName, boolean success, String result);
     }
     
-    public ExecutionEngine(AIService aiService) {
+    public ExecutionEngine(Context context, AIService aiService) {
         this.aiService = aiService;
+        this.toolManager = AIToolManager.getInstance(context);
     }
     
     /**
@@ -141,78 +147,23 @@ public class ExecutionEngine {
     
     /**
      * 根据工具名称执行工具
+     * 使用 AIToolManager 中注册的真实工具名称
      */
     private String executeToolByName(String toolName, Map<String, Object> params) throws Exception {
-        switch (toolName.toLowerCase()) {
-            case "weather":
-                return executeWeatherTool(params);
-            case "search":
-                return executeSearchTool(params);
-            case "calculator":
-                return executeCalculatorTool(params);
-            case "database":
-                return executeDatabaseTool(params);
-            case "file":
-                return executeFileTool(params);
-            case "translate":
-                return executeTranslateTool(params);
-            default:
-                throw new IllegalArgumentException("Unknown tool: " + toolName);
+        AILogger.i(TAG, "Executing tool: " + toolName + " with params: " + params);
+        
+        AIToolResult result = toolManager.executeTool(toolName, params);
+        
+        if (result != null && result.isSuccess()) {
+            Object resultObj = result.getResult();
+            String resultStr = resultObj != null ? resultObj.toString() : null;
+            AILogger.i(TAG, "Tool result: " + (resultStr != null ? resultStr.substring(0, Math.min(100, resultStr.length())) : "null"));
+            return resultStr != null ? resultStr : "工具执行成功但返回空结果";
+        } else {
+            String errorMsg = result != null ? result.getErrorMessage() : "工具执行失败";
+            AILogger.e(TAG, "Tool execution failed: " + errorMsg);
+            throw new Exception(errorMsg);
         }
-    }
-    
-    /**
-     * 执行天气工具
-     */
-    private String executeWeatherTool(Map<String, Object> params) {
-        String city = (String) params.getOrDefault("city", "北京");
-        // 这里应该调用实际的天气工具
-        return "天气查询结果: " + city + " 今天晴天，气温25°C";
-    }
-    
-    /**
-     * 执行搜索工具
-     */
-    private String executeSearchTool(Map<String, Object> params) {
-        String query = (String) params.getOrDefault("query", "");
-        // 这里应该调用实际的搜索工具
-        return "搜索结果: 关于 '" + query + "' 的信息";
-    }
-    
-    /**
-     * 执行计算工具
-     */
-    private String executeCalculatorTool(Map<String, Object> params) {
-        String expression = (String) params.getOrDefault("expression", "0");
-        // 这里应该调用实际的计算工具
-        return "计算结果: " + expression + " = 42";
-    }
-    
-    /**
-     * 执行数据库工具
-     */
-    private String executeDatabaseTool(Map<String, Object> params) {
-        String query = (String) params.getOrDefault("query", "");
-        // 这里应该调用实际的数据库工具
-        return "数据库查询结果: " + query;
-    }
-    
-    /**
-     * 执行文件工具
-     */
-    private String executeFileTool(Map<String, Object> params) {
-        String path = (String) params.getOrDefault("path", "");
-        // 这里应该调用实际的文件工具
-        return "文件处理结果: " + path;
-    }
-    
-    /**
-     * 执行翻译工具
-     */
-    private String executeTranslateTool(Map<String, Object> params) {
-        String text = (String) params.getOrDefault("text", "");
-        // 这里应该调用实际的翻译工具
-        return "翻译结果: " + text;
     }
     
     /**

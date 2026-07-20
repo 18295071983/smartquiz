@@ -51,6 +51,8 @@ public class SmartResearchTool implements AITool {
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
+        normalizeParameters(parameters);
+        
         String action = (String) parameters.get("action");
         if (action == null) {
             action = "research";
@@ -269,6 +271,14 @@ public class SmartResearchTool implements AITool {
         }
         
         return researchResult;
+    }
+    
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        
+        if (parameters.containsKey("topic") && !parameters.containsKey("query")) {
+            parameters.put("query", parameters.get("topic"));
+        }
     }
     
     private Map<String, Object> generateFinalSummary(List<Map<String, Object>> contents, String query) {

@@ -130,8 +130,30 @@ public class InferenceQueue {
         float topP = task.params.topP;
         int topK = task.params.topK;
 
-        AILogger.i(TAG, "Inference params: maxTokens=" + maxTokens + 
+        AILogger.i(TAG, "Inference params: maxTokens=" + maxTokens +
             ", temperature=" + temperature + ", topP=" + topP + ", topK=" + topK);
+
+        // 检查上下文空间是否足够
+        int promptTokens = LlamaHelper.countTokens(task.prompt);
+        int remainingTokens = LlamaHelper.getContextRemainingTokens();
+        int requiredTokens = promptTokens + maxTokens;
+
+        AILogger.i(TAG, "Context check: promptTokens=" + promptTokens +
+                ", remaining=" + remainingTokens + ", required=" + requiredTokens);
+
+        if (remainingTokens < requiredTokens) {
+            AILogger.w(TAG, "Not enough context space, clearing context for inference");
+            LlamaHelper.clearContextForInference();
+
+            // 再次检查
+            remainingTokens = LlamaHelper.getContextRemainingTokens();
+            if (remainingTokens < requiredTokens) {
+                AILogger.w(TAG, "Still not enough context after clear, reducing maxTokens");
+                // 减少输出 token 数以适应可用空间
+                maxTokens = Math.max(128, remainingTokens - promptTokens - 256);
+                AILogger.i(TAG, "Reduced maxTokens to " + maxTokens);
+            }
+        }
 
         // 调用 LLM 进行推理（硬件层）
         String result = LlamaHelper.generate(task.prompt, maxTokens, temperature, topP, topK);
@@ -392,8 +414,27 @@ class StreamingInferenceManager {
                 throw new RuntimeException("AI model not initialized");
             }
 
+            // 检查上下文空间是否足够
+            int promptTokens = LlamaHelper.countTokens(prompt);
+            int remainingTokens = LlamaHelper.getContextRemainingTokens();
+            int requiredTokens = promptTokens + params.nPredict;
+            
+            AILogger.i(TAG, "Context check: promptTokens=" + promptTokens + 
+                    ", remaining=" + remainingTokens + ", required=" + requiredTokens);
+            
+            if (remainingTokens < requiredTokens) {
+                AILogger.w(TAG, "Not enough context space, clearing context for inference");
+                LlamaHelper.clearContextForInference();
+                
+                // 再次检查
+                remainingTokens = LlamaHelper.getContextRemainingTokens();
+                if (remainingTokens < requiredTokens) {
+                    AILogger.w(TAG, "Still not enough context after clear, proceeding anyway");
+                }
+            }
+
             // 使用 LLM 进行流式生成（硬件层）
-            LlamaHelper.generateStream(prompt, params.nPredict, params.temperature, 
+            LlamaHelper.generateStream(prompt, params.nPredict, params.temperature,
                 params.topP, params.topK, false, new LlamaHelper.TokenCallback() {
                 private final StringBuilder fullResponse = new StringBuilder();
                 private int tokenCount = 0;

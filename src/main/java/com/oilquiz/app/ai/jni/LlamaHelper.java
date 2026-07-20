@@ -1037,6 +1037,40 @@ public class LlamaHelper {
         return (float) used / total * 100;
     }
 
+    /**
+     * 检查是否有足够的上下文空间用于单次推理
+     * 
+     * @param promptTokens 输入 token 数
+     * @param maxOutputTokens 预期输出 token 数
+     * @return true 如果有足够的空间
+     */
+    public static boolean hasEnoughContextSpace(int promptTokens, int maxOutputTokens) {
+        if (!libraryLoaded) return false;
+        try {
+            long handle = chatContextHandle;
+            if (handle == 0) return false;
+            return nativeHasEnoughContextSpace(handle, promptTokens, maxOutputTokens);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error checking context space: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * 清理 KV cache 以释放上下文空间
+     * 用于在上下文接近满时清理以继续推理
+     */
+    public static void clearContextForInference() {
+        if (!libraryLoaded) return;
+        try {
+            long handle = chatContextHandle;
+            if (handle == 0) return;
+            nativeClearContextForInference(handle);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error clearing context: " + e.getMessage(), e);
+        }
+    }
+
     private static native long nativeChatCreate(String modelPath, int ctxSize, int nThreads, String globalPrompt, String systemPrompt, String normalPrompt);
     private static native void nativeChatSend(long handle, String message, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
     private static native void nativeChatStop(long handle);
@@ -1048,6 +1082,8 @@ public class LlamaHelper {
     private static native int nativeGetContextSize(long handle);
     private static native int nativeGetContextUsedTokens(long handle);
     private static native int nativeGetContextRemainingTokens(long handle);
+    private static native boolean nativeHasEnoughContextSpace(long handle, int promptTokens, int maxOutputTokens);
+    private static native void nativeClearContextForInference(long handle);
     private static native void nativeCleanupCallback();
 
     public static int handleMemoryPressure(int level) {
@@ -1100,6 +1136,29 @@ public class LlamaHelper {
             return false;
         }
     }
+
+    /**
+     * 获取 GPU 单次最大分配大小（字节）
+     * 这是 OpenCL 的 CL_DEVICE_MAX_MEM_ALLOC_SIZE 值
+     * 移动 GPU 通常是总显存的 1/4
+     */
+    public static long getGpuMaxMemAllocSize() {
+        if (!libraryLoaded) return 0;
+        try {
+            return nativeGetGpuMaxMemAllocSize();
+        } catch (UnsatisfiedLinkError e) {
+            return 0;
+        }
+    }
+
+    /**
+     * 获取 GPU 单次最大分配大小（MB）
+     */
+    public static long getGpuMaxMemAllocSizeMB() {
+        return getGpuMaxMemAllocSize() / (1024 * 1024);
+    }
+
+    private static native long nativeGetGpuMaxMemAllocSize();
     
     public static String getOpenCLInfo() {
         if (!libraryLoaded) {

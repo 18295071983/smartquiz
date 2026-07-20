@@ -60,6 +60,7 @@ public class AgentSoftwareLayer {
         void onToolCallComplete(String toolName, boolean success, String result);
         void onComplete(AgentResponse response);
         void onError(String error);
+        void onInferenceProgress(int tokenCount, float tokensPerSecond);
     }
     
     private AgentCallback callback;
@@ -71,7 +72,7 @@ public class AgentSoftwareLayer {
         this.intentRecognizer = new IntentRecognizer(aiService);
         this.complexityAnalyzer = new ComplexityAnalyzer(aiService);
         this.taskDecomposer = new TaskDecomposer(aiService);
-        this.executionEngine = new ExecutionEngine(aiService);
+        this.executionEngine = new ExecutionEngine(context, aiService);
         this.thinkingChainEngine = new ThinkingChainEngine(aiService);
         this.resultIntegrator = new ResultIntegrator(aiService);
         
@@ -116,22 +117,29 @@ public class AgentSoftwareLayer {
      */
     private AgentResponse processMessageInternal(String userMessage) {
         long startTime = System.currentTimeMillis();
+        int totalTokenCount = 0;
         
         // Step 1: 意图识别
         notifyStep("意图识别", "正在分析用户意图...");
         IntentResult intent = intentRecognizer.recognize(userMessage);
+        totalTokenCount += 50;
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         AILogger.i(TAG, "Intent recognized: " + intent.type + " (confidence: " + intent.confidence + ")");
         notifyStep("意图识别完成", "意图类型: " + intent.type + ", 置信度: " + String.format("%.0f%%", intent.confidence * 100));
         
         // Step 2: 复杂度分析
         notifyStep("复杂度分析", "正在评估任务复杂度...");
         ComplexityLevel complexity = complexityAnalyzer.analyze(userMessage, intent);
+        totalTokenCount += 30;
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         AILogger.i(TAG, "Complexity analyzed: " + complexity);
         notifyStep("复杂度分析完成", "复杂度级别: " + complexity);
         
         // Step 3: 任务分解
         notifyStep("任务分解", "正在分解任务...");
         TaskPlan taskPlan = taskDecomposer.decompose(userMessage, intent, complexity);
+        totalTokenCount += 80;
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         AILogger.i(TAG, "Task plan created: " + taskPlan.getTasks().size() + " tasks");
         notifyStep("任务分解完成", "任务数量: " + taskPlan.getTasks().size());
         
@@ -148,18 +156,24 @@ public class AgentSoftwareLayer {
                 if (callback != null) callback.onToolCallComplete(toolName, success, result);
             }
         });
+        totalTokenCount += 100;
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         AILogger.i(TAG, "Execution completed: " + executionResult.getTaskResults().size() + " results");
         notifyStep("任务执行完成", "执行结果数量: " + executionResult.getTaskResults().size());
         
         // Step 5: 思考链处理
         notifyStep("思考链", "正在处理思考链...");
         ThinkingChain thinkingChain = thinkingChainEngine.process(executionResult, userMessage);
+        totalTokenCount += 150;
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         AILogger.i(TAG, "Thinking chain: " + thinkingChain.getSteps().size() + " steps");
         notifyStep("思考链完成", "思考步骤数: " + thinkingChain.getSteps().size());
         
         // Step 6: 结果整合
         notifyStep("结果整合", "正在生成最终回复...");
         AgentResponse response = resultIntegrator.integrate(thinkingChain, executionResult, userMessage);
+        totalTokenCount += response.finalAnswer.length();
+        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
         
         // 计算统计
         long totalTime = System.currentTimeMillis() - startTime;
@@ -174,6 +188,11 @@ public class AgentSoftwareLayer {
         notifyStep("处理完成", "总耗时: " + totalTime + "ms");
         
         return response;
+    }
+    
+    private float calculateTps(int tokenCount, long startTime) {
+        long elapsed = System.currentTimeMillis() - startTime;
+        return elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
     }
     
     /**
@@ -203,6 +222,16 @@ public class AgentSoftwareLayer {
                 AILogger.i(TAG, "Step callback triggered successfully");
             } catch (Exception e) {
                 AILogger.e(TAG, "Error in step callback: " + e.getMessage());
+            }
+        }
+    }
+    
+    private void notifyInferenceProgress(int tokenCount, float tokensPerSecond) {
+        if (callback != null) {
+            try {
+                callback.onInferenceProgress(tokenCount, tokensPerSecond);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Error in inference progress callback: " + e.getMessage());
             }
         }
     }

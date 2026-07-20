@@ -232,20 +232,44 @@ public class ModelImportActivity extends AppCompatActivity {
                         findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
                         importStatusTextView.setText("导入状态: 成功");
                         importMessageTextView.setText("模型导入成功，已添加到模型列表");
-                        
-                        // 自动切换到新导入的模型
-                        try {
-                            AIService aiService = AIService.getInstance(ModelImportActivity.this);
-                            boolean switchSuccess = aiService.switchModelSafe(modelName);
-                            if (switchSuccess) {
-                                Toast.makeText(ModelImportActivity.this, "已自动切换到新模型: " + modelName, Toast.LENGTH_SHORT).show();
-                            } else {
-                                Toast.makeText(ModelImportActivity.this, "模型切换失败", Toast.LENGTH_SHORT).show();
+
+                        // 自动切换到新导入的模型（使用热切换）
+                        AIService aiService = AIService.getInstance(ModelImportActivity.this);
+                        aiService.hotSwitchModel(modelName, new AIService.HotSwitchCallback() {
+                            @Override
+                            public void onSwitchStarted(String fromModel, String toModel) {
+                                runOnUiThread(() -> {
+                                    Toast.makeText(ModelImportActivity.this,
+                                        "正在切换到新模型: " + toModel, Toast.LENGTH_SHORT).show();
+                                });
                             }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            Toast.makeText(ModelImportActivity.this, "模型切换出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                        }
+
+                            @Override
+                            public void onSwitchProgress(int progress, String message) {
+                                // 进度更新
+                            }
+
+                            @Override
+                            public void onSwitchCompleted(boolean success, String model) {
+                                runOnUiThread(() -> {
+                                    if (success) {
+                                        Toast.makeText(ModelImportActivity.this,
+                                            "已自动切换到新模型: " + model, Toast.LENGTH_SHORT).show();
+                                    } else {
+                                        Toast.makeText(ModelImportActivity.this,
+                                            "模型切换失败", Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                            }
+
+                            @Override
+                            public void onSwitchFailed(String reason) {
+                                runOnUiThread(() -> {
+                                    Toast.makeText(ModelImportActivity.this,
+                                        "模型切换失败: " + reason, Toast.LENGTH_SHORT).show();
+                                });
+                            }
+                        });
                         
                         updateModelStatus();
                     } else {

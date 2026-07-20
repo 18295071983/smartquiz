@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) — 模块功能设计文档
 
-**版本: 2.0 | 更新日期: 2026-05-16**
+**版本: 2.1 | 更新日期: 2026-07-18**
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## 1. 题库管理模块
 
-> 核心路径：`com.smartquiz.quiz` / `com.smartquiz.question`
+> 核心路径：`com.oilquiz.app.model` / `com.oilquiz.app.database`
 
 ### 1.1 手动创建题目
 
@@ -150,7 +150,7 @@
 
 ## 2. 答题模块
 
-> 核心路径：`com.smartquiz.quizmode`
+> 核心路径：`com.oilquiz.app.ui.activity` / `com.oilquiz.app.viewmodel`
 
 ### 2.1 挑战模式（Challenge Mode）
 
@@ -242,7 +242,7 @@
 
 ## 3. AI 智能模块
 
-> 核心路径：`com.smartquiz.ai`
+> 核心路径：`com.oilquiz.app.ai`
 
 ### 3.1 Agent 智能体系统
 
@@ -489,7 +489,7 @@
 
 ## 4. 学习模块
 
-> 核心路径：`com.smartquiz.study`
+> 核心路径：`com.oilquiz.app.model` / `com.oilquiz.app.viewmodel`
 
 ### 4.1 学习计划
 
@@ -550,7 +550,7 @@
 
 ## 5. 笔记模块
 
-> 核心路径：`com.smartquiz.note`
+> 核心路径：`com.oilquiz.app.model` / `com.oilquiz.app.database`
 
 ### 5.1 富文本笔记
 
@@ -604,7 +604,7 @@
 
 ## 6. OCR 文字识别模块
 
-> 核心路径：`com.smartquiz.ocr`
+> 核心路径：`com.oilquiz.app.ui.activity` / `com.oilquiz.app.manager`
 
 ### 6.1 识别引擎
 
@@ -653,7 +653,7 @@
 
 ## 7. 文件管理模块
 
-> 核心路径：`com.smartquiz.file`
+> 核心路径：`com.oilquiz.app.util` / `com.oilquiz.app.ai.tool`
 
 ### 7.1 导入支持格式
 
@@ -724,7 +724,7 @@
 
 ## 8. 备份管理模块
 
-> 核心路径：`com.smartquiz.backup`
+> 核心路径：`com.oilquiz.app.manager`
 
 ### 8.1 自动备份
 
@@ -774,7 +774,7 @@
 
 ## 9. 设置模块
 
-> 核心路径：`com.smartquiz.settings`
+> 核心路径：`com.oilquiz.app.ui.activity` / `com.oilquiz.app.manager`
 
 ### 9.1 主题设置
 
@@ -880,7 +880,7 @@
 
 ## 10. 天气模块
 
-> 核心路径：`com.smartquiz.weather`
+> 核心路径：`com.oilquiz.app.weather` / `com.oilquiz.app.ai.tool`
 
 ### 10.1 天气显示组件
 
@@ -915,7 +915,7 @@
 
 ## 11. WebView 混合界面模块
 
-> 核心路径：`com.smartquiz.webview`
+> 核心路径：`com.oilquiz.app` / `assets/pages/`
 
 ### 11.1 JS-Native 桥接
 

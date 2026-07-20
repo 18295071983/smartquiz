@@ -193,14 +193,16 @@ public class WeatherBannerManager {
     public static class WeatherInfo {
         public String icon = "🌤️";
         public String city = "未知";
-        public String temp = "--°C";
+        public String temp = "--";
         public String description = "暂无数据";
-        public String humidity = "--%";
-        public String wind = "-- m/s";
+        public String humidity = "--";
+        public String wind = "--";
+        public String windDir = "--";
         public String tempRange = "";
         public String forecast = "";
         public String feelsLike = "--";
         public String visibility = "--";
+        public String pressure = "--";
         public String fxLink = "";
     }
 

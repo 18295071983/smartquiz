@@ -1,7 +1,15 @@
 package com.oilquiz.app.ai.chat.parser;
 
+import com.oilquiz.app.ai.tool.openai.ToolCall;
+
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * ModelOutputParser - 模型输出解析器
@@ -9,7 +17,7 @@ import org.json.JSONObject;
  * 功能：
  * 1. 解析模型输出的结构化标记
  * 2. 识别不同类型的内容（文本、思考、工具调用、结构化数据）
- * 3. 提取 JSON 数据
+ * 3. 提取 JSON 数据（支持 OpenAI 标准格式）
  * 4. 处理流式输出的边界情况
  */
 public class ModelOutputParser {
@@ -37,6 +45,12 @@ public class ModelOutputParser {
     private static final String DATA_END标记 = "</数据>";
     private static final String ERROR标记 = "<错误>";
     private static final String ERROR_END标记 = "</错误>";
+    
+    // OpenAI 格式正则
+    private static final Pattern OPENAI_TOOL_CALL_PATTERN = 
+        Pattern.compile("\"tool_calls\"\\s*:\\s*\\[(.+?)\\]", Pattern.DOTALL);
+    private static final Pattern JSON_BLOCK_PATTERN = 
+        Pattern.compile("```json\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL);
 
     /**
      * 解析结果
@@ -217,6 +231,93 @@ public class ModelOutputParser {
             .replaceAll("</数据>", "")
             .replaceAll("<错误>", "")
             .replaceAll("</错误>", "")
+            .replaceAll("```json", "")
+            .replaceAll("```", "")
             .trim();
+    }
+    
+    /**
+     * 检查是否包含 OpenAI 标准格式的工具调用
+     */
+    public static boolean hasOpenAIToolCall(String text) {
+        if (text == null) return false;
+        return text.contains("tool_calls") && text.contains("name") && text.contains("arguments");
+    }
+    
+    /**
+     * 从响应中提取 OpenAI 格式的工具调用
+     * @return 工具调用列表，如果没有则返回空列表
+     */
+    public static List<ToolCall> parseOpenAIToolCalls(String response) {
+        List<ToolCall> toolCalls = new ArrayList<>();
+        
+        if (response == null || response.trim().isEmpty()) {
+            return toolCalls;
+        }
+        
+        try {
+            // 提取 JSON 内容
+            String jsonStr = extractJsonFromResponse(response);
+            if (jsonStr == null) {
+                return toolCalls;
+            }
+            
+            JSONObject json = new JSONObject(jsonStr);
+            
+            if (!json.has("tool_calls")) {
+                return toolCalls;
+            }
+            
+            JSONArray toolCallsArray = json.getJSONArray("tool_calls");
+            for (int i = 0; i < toolCallsArray.length(); i++) {
+                JSONObject toolCallJson = toolCallsArray.getJSONObject(i);
+                toolCalls.add(ToolCall.fromJSONObject(toolCallJson));
+            }
+            
+        } catch (JSONException e) {
+            // 尝试直接解析 tool_calls 数组
+            try {
+                Matcher matcher = OPENAI_TOOL_CALL_PATTERN.matcher(response);
+                if (matcher.find()) {
+                    JSONArray toolCallsArray = new JSONArray("[" + matcher.group(1) + "]");
+                    for (int i = 0; i < toolCallsArray.length(); i++) {
+                        JSONObject toolCallJson = toolCallsArray.getJSONObject(i);
+                        toolCalls.add(ToolCall.fromJSONObject(toolCallJson));
+                    }
+                }
+            } catch (JSONException ex) {
+                // 解析失败，返回空列表
+            }
+        }
+        
+        return toolCalls;
+    }
+    
+    /**
+     * 从响应中提取 JSON 内容
+     */
+    private static String extractJsonFromResponse(String response) {
+        // 尝试匹配 ```json ... ```
+        Matcher matcher = JSON_BLOCK_PATTERN.matcher(response);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        
+        // 尝试直接查找 JSON 对象
+        int startIndex = response.indexOf("{");
+        int endIndex = response.lastIndexOf("}");
+        if (startIndex >= 0 && endIndex > startIndex) {
+            return response.substring(startIndex, endIndex + 1);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 获取第一个工具调用（简化方法）
+     */
+    public static ToolCall getFirstToolCall(String response) {
+        List<ToolCall> toolCalls = parseOpenAIToolCalls(response);
+        return toolCalls.isEmpty() ? null : toolCalls.get(0);
     }
 }

@@ -54,15 +54,15 @@ public class AppConfigManager {
     static {
         DEFAULT_CONFIG = new JSONObject();
         try {
-            // 模型配置
+            // 模型配置（使用安全的默认值）
             DEFAULT_CONFIG.put("model", new JSONObject()
                 .put("defaultModel", "")
                 .put("autoLoadLastModel", true)
                 .put("maxMemoryMB", 2048)
                 .put("useMmap", true)
-                .put("gpuLayers", 20)
-                .put("threadCount", 4)
-                .put("batchSize", 512));
+                .put("gpuLayers", 20)  // 最大 30 层
+                .put("threadCount", 3)  // 安全的线程数
+                .put("batchSize", 128));  // 安全的批处理大小
 
             // UI配置
             DEFAULT_CONFIG.put("ui", new JSONObject()

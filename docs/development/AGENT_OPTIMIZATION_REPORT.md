@@ -31,7 +31,7 @@
 
 - ✅ **技能系统**: SkillManager + DynamicSkillExecutor
 - ✅ **意图识别**: IntelligentIntentRecognizer
-- ✅ **工具系统**: AIToolsManager
+- ✅ **工具系统**: AIToolManager
 - ✅ **Token管理**: RequestContext with tracking
 
 #### 2️⃣ **C++层 - agent_inference.cpp**
@@ -120,8 +120,9 @@ std::string result = context->generateAgentResponse(inputContent, params, nullEx
 // ✅ 优化后：真正的工具执行桥接
 public class AgentToolExecutor {
     public String executeToolSync(String toolName, String params) {
-        // 调用AIToolsManager执行工具
-        CompletableFuture<String> future = toolsManager.executeTool(toolName, params);
+        // 调用AIToolManager执行工具
+        Map<String, Object> paramsMap = parseParams(params);
+        AIToolResult result = toolManager.executeTool(toolName, paramsMap);
         String result = future.orTimeout(TOOL_TIMEOUT_MS, MILLISECONDS).get();
         
         // 缓存结果
@@ -241,8 +242,8 @@ InferenceParams adaptSamplingParams(const InferenceParams& baseParams, int itera
 
 ```java
 // 在AIChatActivity或Application中初始化
-AIToolsManager toolsManager = new AIToolsManager(context);
-AgentToolExecutor toolExecutor = new AgentToolExecutor(toolsManager);
+AIToolManager toolManager = AIToolManager.getInstance(context);
+AgentToolExecutor toolExecutor = new AgentToolExecutor(toolManager);
 
 // 传入AIAgentEngine
 AIAgentEngine agentEngine = new AIAgentEngine(context);

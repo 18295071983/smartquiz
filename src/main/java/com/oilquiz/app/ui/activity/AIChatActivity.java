@@ -42,7 +42,8 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
 import com.oilquiz.app.ai.service.AIProcessingService;
-import com.oilquiz.app.ai.tool.AIToolsManager;
+import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIEntertainmentManager;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
@@ -90,6 +91,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
@@ -154,7 +157,7 @@ public class AIChatActivity extends BaseActivity {
     private ChatHistoryAdapter chatHistoryAdapter;
     private AttachmentAdapter attachmentAdapter;
     private FileContentExtractor fileContentExtractor;
-    private AIToolsManager aiToolsManager;
+    private AIToolManager aiToolManager;
     private AIEntertainmentManager aiEntertainmentManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
@@ -388,7 +391,7 @@ public class AIChatActivity extends BaseActivity {
             fileContentExtractor = new FileContentExtractor(this);
             initAttachFileLauncher();
 
-            aiToolsManager = new AIToolsManager(this);
+            aiToolManager = AIToolManager.getInstance(this);
 
             if (aiConfig.isAgentEnabled()) {
                 agentService = AgentService.getInstance(this);
@@ -807,16 +810,27 @@ public class AIChatActivity extends BaseActivity {
 
         // 普通对话入口
         if (chipNormalChat != null) chipNormalChat.setOnClickListener(v -> {
-            ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.NORMAL);
-            updateModeButtonText();
-            showToast("已切换到普通对话模式");
+            animateModeSwitch(() -> {
+                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
+                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.NORMAL);
+                updateModeButtonText();
+                // 注入模式切换指令到上下文
+                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.NORMAL);
+                showToast("已切换到普通对话模式");
+            });
         });
-        
+
         // Agent 功能入口
         if (chipAgentMode != null) chipAgentMode.setOnClickListener(v -> {
-            ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.AGENT);
-            updateModeButtonText();
-            addSystemMessage("🤖 Agent模式已启用\n\n功能特性：\n• 智能意图识别\n• 复杂任务分解\n• 工具调用执行\n• 思考链推理\n\n请发送消息开始使用。");
+            // 添加模式切换动画
+            animateModeSwitch(() -> {
+                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
+                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.AGENT);
+                updateModeButtonText();
+                // 注入模式切换指令到上下文
+                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.AGENT);
+                addSystemMessage("🤖 Agent模式已启用\n\n功能特性：\n• 智能意图识别\n• 复杂任务分解\n• 工具调用执行\n• 思考链推理\n\n请发送消息开始使用。");
+            });
         });
         if (chipWeather != null) chipWeather.setOnClickListener(v -> {
             // 点击天气卡片：弹出/隐藏天气横幅
@@ -838,15 +852,23 @@ public class AIChatActivity extends BaseActivity {
         Chip chipCreative = findViewById(R.id.chip_creative);
         
         if (chipDeepThink != null) chipDeepThink.setOnClickListener(v -> {
-            ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.DEEP_THINKING);
-            updateModeButtonText();
-            showToast("已切换到深度思考模式");
+            animateModeSwitch(() -> {
+                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
+                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.DEEP_THINKING);
+                updateModeButtonText();
+                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.DEEP_THINKING);
+                showToast("已切换到深度思考模式");
+            });
         });
-        
+
         if (chipCreative != null) chipCreative.setOnClickListener(v -> {
-            ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.CREATIVE);
-            updateModeButtonText();
-            showToast("已切换到创意写作模式");
+            animateModeSwitch(() -> {
+                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
+                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.CREATIVE);
+                updateModeButtonText();
+                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.CREATIVE);
+                showToast("已切换到创意写作模式");
+            });
         });
 
         // 空状态快捷操作
@@ -1486,7 +1508,7 @@ public class AIChatActivity extends BaseActivity {
             }
             
             // 使用标准的工具调用方式
-            executeTool(AIToolsManager.Tool.GET_WEATHER, params);
+            executeTool("ai_weather", params);
         } else {
             executeToolByPrefix(prefix, params);
         }
@@ -1507,16 +1529,16 @@ public class AIChatActivity extends BaseActivity {
 
     private void executeToolByPrefix(String prefix, String params) {
         String toolName = null;
-        if ("翻译".equals(prefix)) toolName = AIToolsManager.Tool.TRANSLATE_TEXT;
-        else if ("生成题目".equals(prefix)) toolName = AIToolsManager.Tool.GENERATE_QUESTIONS;
-        else if ("分析题目".equals(prefix)) toolName = AIToolsManager.Tool.ANALYZE_QUESTION;
-        else if ("学习计划".equals(prefix)) toolName = AIToolsManager.Tool.CREATE_STUDY_PLAN;
-        else if ("统计".equals(prefix)) toolName = AIToolsManager.Tool.GET_STATISTICS;
-        else if ("搜索题目".equals(prefix)) toolName = AIToolsManager.Tool.SEARCH_QUESTIONS;
-        else if ("导入题目".equals(prefix)) toolName = AIToolsManager.Tool.IMPORT_QUESTIONS;
-        else if ("导出题目".equals(prefix)) toolName = AIToolsManager.Tool.EXPORT_QUESTIONS;
-        else if ("数据库操作".equals(prefix)) toolName = AIToolsManager.Tool.DATABASE_OPERATIONS;
-        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = AIToolsManager.Tool.GET_WEATHER;
+        if ("翻译".equals(prefix)) toolName = "translation";
+        else if ("生成题目".equals(prefix)) toolName = "database";
+        else if ("分析题目".equals(prefix)) toolName = "python_calculate";
+        else if ("学习计划".equals(prefix)) toolName = "python_execute";
+        else if ("统计".equals(prefix)) toolName = "python_calculate";
+        else if ("搜索题目".equals(prefix)) toolName = "network_search";
+        else if ("导入题目".equals(prefix)) toolName = "file_reader";
+        else if ("导出题目".equals(prefix)) toolName = "database";
+        else if ("数据库操作".equals(prefix)) toolName = "database";
+        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = "ai_weather";
 
         if (toolName != null) executeTool(toolName, params);
         else processChatMessage(prefix + " " + params);
@@ -1611,10 +1633,11 @@ public class AIChatActivity extends BaseActivity {
                         if (!aiService.initializeSafe()) { handleGenerationError("AI服务初始化失败"); return; }
                     }
 
-                    // 确保聊天上下文已创建
+                    // 确保聊天上下文已创建（使用当前模式的正确提示词）
                     if (!LlamaHelper.isChatContextActive()) {
-                        AppLogger.ai(TAG, "Chat context not active, attempting to create...");
-                        boolean ctxCreated = aiService.initChatContext("", "", "");
+                        AppLogger.ai(TAG, "Chat context not active, attempting to create with proper prompts...");
+                        String systemPrompt = ChatModeManager.getModeSystemPromptStatic(currentMode);
+                        boolean ctxCreated = aiService.initChatContext("你是一个AI助手，请用中文回答。", systemPrompt, "");
                         if (!ctxCreated) {
                             AppLogger.w(TAG, "Failed to create chat context, will retry in chatSend");
                         }
@@ -2403,14 +2426,38 @@ public class AIChatActivity extends BaseActivity {
         }
 
         @Override
-        public void onAgentStepUpdateUI(int position, String thought, String action, 
+        public void onAgentStepUpdateUI(int position, String thought, String action,
                                         String observation, boolean isCompleted) {
             // Agent 步骤更新 UI：更新步骤结果
             runOnUiThread(() -> {
                 int pos = findLastSpecialMessage(ChatMessage.MessageType.AGENT_STEP);
-                updateAgentStepResult(pos >= 0 ? pos : chatHistory.size() - 1, 
+                updateAgentStepResult(pos >= 0 ? pos : chatHistory.size() - 1,
                     thought, action, observation, isCompleted);
                 scrollToBottom();
+            });
+        }
+
+        @Override
+        public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
+            // 更新推理速度显示 - 与普通模式使用相同的方式
+            runOnUiThread(() -> {
+                // 更新底部统计栏
+                updateStreamingTokenStats(tokenCount, tokensPerSecond);
+
+                // 更新当前消息的推理进度 - 与普通模式相同
+                if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
+                    ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                    if (msg.inferenceProgress == null) {
+                        msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.GENERATING);
+                    }
+                    msg.inferenceProgress.processedTokens = tokenCount;
+                    msg.inferenceProgress.tokensPerSecond = tokensPerSecond;
+
+                    // 使用与普通模式相同的payload更新UI
+                    if (chatAdapter != null) {
+                        chatAdapter.notifyItemChanged(currentStreamingMessageIndex, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+                    }
+                }
             });
         }
     }
@@ -2582,14 +2629,16 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Mode / Tool Execution =====================
 
     private void executeTool(String toolName, String parameters) {
-        aiToolsManager.executeTool(toolName, parameters).thenAccept(result -> runOnUiThread(() -> {
-            addAIMessage(result);
-        })).exceptionally(throwable -> {
-            runOnUiThread(() -> {
-                addSystemMessage("工具执行出错: " + throwable.getMessage());
-            });
-            return null;
-        });
+        Map<String, Object> params = parseParameters(parameters);
+        new Thread(() -> {
+            try {
+                AIToolResult result = aiToolManager.executeTool(toolName, params);
+                String resultStr = result.isSuccess() ? String.valueOf(result.getResult()) : result.getErrorMessage();
+                runOnUiThread(() -> addAIMessage(resultStr));
+            } catch (Exception e) {
+                runOnUiThread(() -> addSystemMessage("工具执行出错: " + e.getMessage()));
+            }
+        }).start();
     }
 
     private void executeEntertainment(String type, String parameters) {
@@ -2601,6 +2650,23 @@ public class AIChatActivity extends BaseActivity {
             });
             return null;
         });
+    }
+    
+    private Map<String, Object> parseParameters(String parameters) {
+        Map<String, Object> params = new HashMap<>();
+        if (parameters == null || parameters.isEmpty()) {
+            return params;
+        }
+        String[] pairs = parameters.split(",");
+        for (String pair : pairs) {
+            String[] keyValue = pair.split(":", 2);
+            if (keyValue.length == 2) {
+                String key = keyValue[0].trim();
+                String value = keyValue[1].trim();
+                params.put(key, value);
+            }
+        }
+        return params;
     }
 
     private void updateModelNameDisplay() {
@@ -2627,6 +2693,10 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void initAgentChatHandler() {
+        // 确保 agentService 已初始化
+        if (agentService == null) {
+            agentService = AgentService.getInstance(this);
+        }
         if (aiConfig == null || !aiConfig.isAgentEnabled() || agentService == null) {
             return;
         }
@@ -2663,6 +2733,10 @@ public class AIChatActivity extends BaseActivity {
      */
     private void initAgentChatHandlerIfNeeded() {
         if (agentChatHandler == null) {
+            // 确保 agentService 已初始化
+            if (agentService == null) {
+                agentService = AgentService.getInstance(this);
+            }
             initAgentChatHandler();
         }
     }
@@ -2717,6 +2791,32 @@ public class AIChatActivity extends BaseActivity {
     }
     
     /**
+     * 模式切换动画
+     * 淡出当前内容 -> 执行切换 -> 淡入新内容
+     */
+    private void animateModeSwitch(Runnable switchAction) {
+        if (messageList == null) {
+            switchAction.run();
+            return;
+        }
+        
+        // 淡出当前内容
+        messageList.animate()
+            .alpha(0.3f)
+            .setDuration(150)
+            .withEndAction(() -> {
+                // 执行模式切换
+                switchAction.run();
+                // 淡入新内容
+                messageList.animate()
+                    .alpha(1f)
+                    .setDuration(200)
+                    .start();
+            })
+            .start();
+    }
+
+    /**
      * 更新模式按钮显示文本
      */
     private void updateModeButtonText() {
@@ -2724,6 +2824,41 @@ public class AIChatActivity extends BaseActivity {
             ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode();
             String btnText = currentMode.icon + currentMode.displayName + " ▼";
             btnModeSelect.setText(btnText);
+        }
+    }
+
+    /**
+     * 注入模式切换指令到上下文
+     * 保留对话历史，通过指令改变模型行为
+     */
+    private void injectModeSwitchInstruction(ChatModeManager.ChatMode oldMode, ChatModeManager.ChatMode newMode) {
+        if (oldMode == newMode) return;
+
+        String instruction = ChatModeManager.getModeSwitchInstruction(oldMode, newMode);
+        AppLogger.ai(TAG, "Injecting mode switch instruction: " + oldMode.displayName + " -> " + newMode.displayName);
+
+        // 如果使用本地模型，通过chatSend注入指令
+        if (aiService != null && aiService.isInitialized() && LlamaHelper.isChatContextActive()) {
+            // 注入到上下文，但不生成回复
+            new Thread(() -> {
+                try {
+                    // 使用空回调，只注入指令不生成回复
+                    aiService.chatSend("[系统指令] " + instruction, 1, false, new LlamaHelper.TokenCallback() {
+                        @Override
+                        public void onToken(String token) { /* 忽略 */ }
+                        @Override
+                        public void onComplete(String fullText) {
+                            AppLogger.ai(TAG, "Mode switch instruction injected successfully");
+                        }
+                        @Override
+                        public void onError(String error) {
+                            AppLogger.w(TAG, "Failed to inject mode switch instruction: " + error);
+                        }
+                    });
+                } catch (Exception e) {
+                    AppLogger.aiE(TAG, "Error injecting mode switch instruction: " + e.getMessage());
+                }
+            }).start();
         }
     }
     

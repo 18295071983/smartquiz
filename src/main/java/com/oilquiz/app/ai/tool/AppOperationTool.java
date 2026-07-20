@@ -120,6 +120,10 @@ public class AppOperationTool implements AITool {
                     return handleNavigate(parameters);
                 case "list_pages":
                     return handleListPages();
+                case "go_home":
+                    return handleGoHome();
+                case "go_back":
+                    return handleGoBack();
                 case "get_info":
                     return handleGetInfo();
                 case "open_settings":
@@ -257,6 +261,40 @@ public class AppOperationTool implements AITool {
         }
     }
 
+    private AIToolResult handleGoHome() {
+        try {
+            Intent intent = new Intent(context, com.oilquiz.app.MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            context.startActivity(intent);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("message", "已返回主页");
+            return new AIToolResult(result, new HashMap<>());
+        } catch (Exception e) {
+            return new AIToolResult("返回主页失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
+    private AIToolResult handleGoBack() {
+        try {
+            android.app.ActivityManager activityManager = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (activityManager != null) {
+                android.app.ActivityManager.AppTask task = activityManager.getAppTasks().get(0);
+                if (task != null) {
+                    task.moveToFront();
+                }
+            }
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("message", "已返回上一页");
+            return new AIToolResult(result, new HashMap<>());
+        } catch (Exception e) {
+            return new AIToolResult("返回上一页失败: " + e.getMessage(), new HashMap<>());
+        }
+    }
+    
     private AIToolResult handleGetInfo() {
         Map<String, Object> result = new HashMap<>();
         result.put("app_name", "答题宝");

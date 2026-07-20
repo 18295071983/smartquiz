@@ -468,37 +468,22 @@ public class LocationTool implements AITool {
             }
 
             String location = String.format(java.util.Locale.US, "%.2f,%.2f", longitude, latitude);
-            String urlString = "https://m278m2y7ak.re.qweatherapi.com/v2/city/lookup?location=" + location + "&key=" + apiKey;
-            java.net.URL url = new java.net.URL(urlString);
-            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Accept-Encoding", "gzip, deflate");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
+            String urlString = "https://m278m2y7ak.re.qweatherapi.com/geo/v2/city/lookup?location=" + location + "&key=" + apiKey;
 
-            java.io.InputStream inputStream;
-            String encoding = connection.getContentEncoding();
-            if ("gzip".equalsIgnoreCase(encoding)) {
-                inputStream = new java.util.zip.GZIPInputStream(connection.getInputStream());
-            } else if ("deflate".equalsIgnoreCase(encoding)) {
-                inputStream = new java.util.zip.InflaterInputStream(connection.getInputStream());
-            } else {
-                inputStream = connection.getInputStream();
-            }
+            okhttp3.Request request = com.oilquiz.app.ai.util.NetworkUtil.createApiRequestBuilder(urlString).build();
 
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(inputStream, java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            reader.close();
+            try (okhttp3.Response response = com.oilquiz.app.ai.util.NetworkUtil.getClient().newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    throw new Exception("HTTP " + response.code());
+                }
 
-            org.json.JSONObject jsonObject = new org.json.JSONObject(response.toString());
-            if ("200".equals(jsonObject.optString("code"))) {
-                org.json.JSONArray locationArray = jsonObject.optJSONArray("location");
-                if (locationArray != null && locationArray.length() > 0) {
-                    return locationArray.getJSONObject(0).optString("name", null);
+                String responseBody = response.body() != null ? response.body().string() : "";
+                org.json.JSONObject jsonObject = new org.json.JSONObject(responseBody);
+                if ("200".equals(jsonObject.optString("code"))) {
+                    org.json.JSONArray locationArray = jsonObject.optJSONArray("location");
+                    if (locationArray != null && locationArray.length() > 0) {
+                        return locationArray.getJSONObject(0).optString("name", null);
+                    }
                 }
             }
         } catch (Exception e) {

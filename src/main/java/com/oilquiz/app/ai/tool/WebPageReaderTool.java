@@ -6,10 +6,11 @@ import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.URL;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import com.oilquiz.app.ai.util.NetworkUtil;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -306,30 +307,17 @@ public class WebPageReaderTool implements AITool {
     }
     
     private String fetchWebpage(String urlString) throws Exception {
-        URL url = new URL(urlString);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(15000);
-        connection.setReadTimeout(15000);
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
-        connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-        
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new Exception("HTTP Error: " + responseCode);
+        Request request = NetworkUtil.createRequestBuilder(urlString)
+                .get()
+                .build();
+
+        try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new Exception("HTTP Error: " + response.code());
+            }
+            
+            return response.body() != null ? response.body().string() : "";
         }
-        
-        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
-        StringBuilder content = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            content.append(line).append("\n");
-        }
-        reader.close();
-        connection.disconnect();
-        
-        return content.toString();
     }
     
     private Map<String, Object> parseWebpage(String content, String url) {
