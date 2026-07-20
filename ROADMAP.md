@@ -127,7 +127,7 @@ private String getApiKey() {
 - [DeviceCapabilityDetector.java](file:///d:/quzp/app/src/main/java/com/oilquiz/app/ai/config/DeviceCapabilityDetector.java) ← **删除**（已弃用）
 
 **近乎重复的类名去重**:
-- `AIToolsManager.java` vs `AIToolManager.java` → 重命名`AIToolsManager` 为 `AIToolRegistry`
+- ✅ `AIToolsManager.java` 已删除，统一使用 `AIToolManager.java`
 
 **模型参数去重** — 三处相同数据:
 
@@ -160,7 +160,7 @@ private String getApiKey() {
 | 文件行数 | 14 个文件 > 500 行 | 所有文件 ≤ 400 行 |
 | 方法行数 | 部分超过 100 行 | ≤ 50 行 |
 | 注释规范 | 代码中有大量无注释区域 | 所有公共 API 有 JavaDoc |
-| 命名一致性 | `AIToolsManager` / `AIToolManager` 混淆 | 统一命名规范 |
+| 命名一致性 | ✅ `AIToolsManager` 已删除，统一使用 `AIToolManager` | 统一命名规范 |
 
 ---
 

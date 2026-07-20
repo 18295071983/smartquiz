@@ -12,13 +12,13 @@ public class AIConfig {
      */
     public enum OptimizationMode {
         /** 极速模式：最小资源占用，最快响应，适合低端设备 */
-        TURBO(0, "极速模式", 4096, 64, 256, 4, false),
+        TURBO(0, "极速模式", 4096, 64, 256, 2, false),
         /** 均衡模式：资源与质量平衡，默认模式 */
-        BALANCED(1, "均衡模式", 8192, 128, 512, 6, true),
+        BALANCED(1, "均衡模式", 8192, 128, 512, 3, true),
         /** 性能模式：更大上下文，更好回复质量 */
-        PERFORMANCE(2, "性能模式", 12288, 256, 1024, 8, true),
+        PERFORMANCE(2, "性能模式", 12288, 256, 1024, 4, true),
         /** 极限模式：最大资源利用，适合高端设备 */
-        ULTIMATE(3, "极限模式", 16384, 512, 2048, 8, true);
+        ULTIMATE(3, "极限模式", 16384, 512, 2048, 4, true);
 
         public final int id;
         public final String displayName;

@@ -34,6 +34,7 @@ public class ChatMessage {
         TOOL_CALL,
         TOOL_RESULT,
         AGENT_STEP,
+        AGENT_SUMMARY,
         AGENT_REFLECTION,
         SUMMARY,
         ERROR
@@ -208,6 +209,12 @@ public class ChatMessage {
     /** Agent步骤信息 */
     public AgentStepInfo agentStepInfo;
 
+    /** Agent汇总信息 */
+    public AgentSummaryInfo agentSummaryInfo;
+
+    /** Agent进度信息 */
+    public AgentProgressInfo agentProgressInfo;
+
     /** 错误信息 */
     public String errorDetail;
 
@@ -359,6 +366,10 @@ public class ChatMessage {
         public int iteration;
         public int totalIterations;
         public boolean isCompleted;
+        public String reasoningMode;
+        public String detail;
+        public long executionTimeMs;
+        public int tokenCount;
 
         public enum AgentStepType {
             THINKING,
@@ -366,7 +377,11 @@ public class ChatMessage {
             ACTING,
             OBSERVING,
             REFLECTING,
-            PAUSED
+            TOOL_CALLING,
+            REASONING,
+            LOOPING,
+            PAUSED,
+            COMPLETED
         }
 
         public AgentStepInfo(AgentStepType stepType, int iteration, int totalIterations) {
@@ -380,10 +395,14 @@ public class ChatMessage {
             switch (stepType) {
                 case THINKING: return "💭 思考";
                 case PLANNING: return "📋 规划";
-                case ACTING: return "⚙️ 行动";
+                case ACTING: return "⚙️ 执行";
                 case OBSERVING: return "👁️ 观察";
                 case REFLECTING: return "🔄 反思";
+                case TOOL_CALLING: return "🔧 工具调用";
+                case REASONING: return "🧠 推理";
+                case LOOPING: return "🔁 循环";
                 case PAUSED: return "⏸️ 已暂停";
+                case COMPLETED: return "✅ 完成";
                 default: return "📌 步骤";
             }
         }
@@ -395,8 +414,121 @@ public class ChatMessage {
                 case ACTING: return "⚙️";
                 case OBSERVING: return "👁️";
                 case REFLECTING: return "🔄";
+                case TOOL_CALLING: return "🔧";
+                case REASONING: return "🧠";
+                case LOOPING: return "🔁";
                 case PAUSED: return "⏸️";
+                case COMPLETED: return "✅";
                 default: return "📌";
+            }
+        }
+
+        public String getStepColor() {
+            switch (stepType) {
+                case THINKING: return "#8B5CF6";
+                case PLANNING: return "#3B82F6";
+                case ACTING: return "#10B981";
+                case OBSERVING: return "#F59E0B";
+                case REFLECTING: return "#EC4899";
+                case TOOL_CALLING: return "#6366F1";
+                case REASONING: return "#8B5CF6";
+                case LOOPING: return "#14B8A6";
+                case PAUSED: return "#6B7280";
+                case COMPLETED: return "#10B981";
+                default: return "#6B7280";
+            }
+        }
+    }
+
+    /**
+     * Agent 执行汇总信息
+     */
+    public static class AgentSummaryInfo {
+        public long totalTimeMs;
+        public int totalSteps;
+        public int toolCallCount;
+        public int totalTokens;
+        public boolean isSuccess;
+        public String summary;
+
+        public AgentSummaryInfo(long totalTimeMs, int totalSteps, int toolCallCount,
+                               int totalTokens, boolean isSuccess) {
+            this.totalTimeMs = totalTimeMs;
+            this.totalSteps = totalSteps;
+            this.toolCallCount = toolCallCount;
+            this.totalTokens = totalTokens;
+            this.isSuccess = isSuccess;
+        }
+
+        public String getFormattedTime() {
+            if (totalTimeMs < 1000) {
+                return totalTimeMs + "ms";
+            } else if (totalTimeMs < 60000) {
+                return String.format("%.1fs", totalTimeMs / 1000.0);
+            } else {
+                return String.format("%dm %ds", totalTimeMs / 60000, (totalTimeMs % 60000) / 1000);
+            }
+        }
+
+        public String getFormattedTokens() {
+            if (totalTokens < 1000) {
+                return String.valueOf(totalTokens);
+            } else {
+                return String.format("%.1fk", totalTokens / 1000.0);
+            }
+        }
+    }
+
+    /**
+     * Agent 执行进度信息 - 实时显示 Agent 执行状态
+     */
+    public static class AgentProgressInfo {
+        /** 当前步骤 */
+        public int currentStep;
+        /** 总步骤数 */
+        public int totalSteps;
+        /** 工具调用次数 */
+        public int toolCallCount;
+        /** 总执行时间（毫秒） */
+        public long totalTimeMs;
+        /** 总 Token 数 */
+        public int totalTokens;
+        /** 当前阶段：思考、执行、观察 */
+        public String currentPhase;
+        /** 当前工具名称（如果正在执行工具） */
+        public String currentToolName;
+        /** 工具执行时间（毫秒） */
+        public long toolExecutionTimeMs;
+
+        public AgentProgressInfo() {
+            this.currentStep = 0;
+            this.totalSteps = 0;
+            this.toolCallCount = 0;
+            this.totalTimeMs = 0;
+            this.totalTokens = 0;
+            this.currentPhase = "思考";
+        }
+
+        public AgentProgressInfo(int currentStep, int totalSteps) {
+            this.currentStep = currentStep;
+            this.totalSteps = totalSteps;
+            this.currentPhase = "思考";
+        }
+
+        public String getProgressText() {
+            if (totalSteps > 0) {
+                return "步骤 " + currentStep + "/" + totalSteps + " - " + currentPhase;
+            }
+            return currentPhase;
+        }
+
+        public String getFormattedTime() {
+            if (totalTimeMs < 1000) {
+                return totalTimeMs + "ms";
+            } else if (totalTimeMs < 60000) {
+                return String.format("%.1fs", totalTimeMs / 1000.0);
+            } else {
+                return String.format("%dm %ds", totalTimeMs / 60000, (totalTimeMs % 60000) / 1000);
             }
         }
     }
@@ -894,6 +1026,8 @@ public class ChatMessage {
         this.systemType = builder.systemType;
         this.toolCallInfo = builder.toolCallInfo;
         this.agentStepInfo = builder.agentStepInfo;
+        this.agentSummaryInfo = builder.agentSummaryInfo;
+        this.agentProgressInfo = builder.agentProgressInfo;
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
         this.inferenceProgress = builder.inferenceProgress;
@@ -1085,6 +1219,17 @@ public class ChatMessage {
                 .content(stepInfo.getStepTypeLabel())
                 .agentStepInfo(stepInfo)
                 .status(stepInfo.isCompleted ? MessageStatus.COMPLETED : MessageStatus.IN_PROGRESS)
+                .build();
+    }
+
+    /**
+     * 创建 Agent 汇总消息
+     */
+    public static ChatMessage createAgentSummaryMessage(AgentSummaryInfo summaryInfo) {
+        return new Builder(MessageType.AGENT_SUMMARY)
+                .content("Agent 执行汇总")
+                .agentSummaryInfo(summaryInfo)
+                .status(MessageStatus.COMPLETED)
                 .build();
     }
 
@@ -1345,6 +1490,8 @@ public class ChatMessage {
             .systemType(this.systemType)
             .toolCallInfo(this.toolCallInfo)
             .agentStepInfo(this.agentStepInfo)
+            .agentSummaryInfo(this.agentSummaryInfo)
+            .agentProgressInfo(this.agentProgressInfo)
             .agentReflectionInfo(this.agentReflectionInfo)
             .summaryInfo(this.summaryInfo)
             .taskProgress(this.taskProgress)
@@ -1374,6 +1521,8 @@ public class ChatMessage {
         private SystemMessageType systemType = SystemMessageType.INFO;
         private ToolCallInfo toolCallInfo;
         private AgentStepInfo agentStepInfo;
+        private AgentSummaryInfo agentSummaryInfo;
+        private AgentProgressInfo agentProgressInfo;
         private AgentReflectionInfo agentReflectionInfo;
         private SummaryInfo summaryInfo;
         private String errorDetail;
@@ -1486,6 +1635,16 @@ public class ChatMessage {
 
         public Builder agentStepInfo(AgentStepInfo agentStepInfo) {
             this.agentStepInfo = agentStepInfo;
+            return this;
+        }
+
+        public Builder agentSummaryInfo(AgentSummaryInfo agentSummaryInfo) {
+            this.agentSummaryInfo = agentSummaryInfo;
+            return this;
+        }
+
+        public Builder agentProgressInfo(AgentProgressInfo agentProgressInfo) {
+            this.agentProgressInfo = agentProgressInfo;
             return this;
         }
 

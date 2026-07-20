@@ -59,11 +59,123 @@ typedef int cl_bool;
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// ========== UTF-8 安全工具 ==========
+
+/**
+ * 验证 UTF-8 序列是否完整
+ * 返回完整的 UTF-8 字符串，移除末尾不完整的字节
+ */
+static std::string sanitizeUtf8(const std::string& input) {
+    if (input.empty()) return input;
+
+    std::string result;
+    result.reserve(input.size());
+
+    size_t i = 0;
+    while (i < input.size()) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+
+        // ASCII 字符 (0xxxxxxx)
+        if (c < 0x80) {
+            result += input[i];
+            i++;
+            continue;
+        }
+
+        // 2 字节序列 (110xxxxx 10xxxxxx)
+        if ((c & 0xE0) == 0xC0) {
+            if (i + 1 >= input.size()) {
+                LOGW("Incomplete 2-byte UTF-8 sequence at end, dropping");
+                break;
+            }
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            if ((c2 & 0xC0) != 0x80) {
+                LOGW("Invalid 2-byte UTF-8 continuation byte, dropping");
+                i++;
+                continue;
+            }
+            result += input[i];
+            result += input[i + 1];
+            i += 2;
+            continue;
+        }
+
+        // 3 字节序列 (1110xxxx 10xxxxxx 10xxxxxx)
+        if ((c & 0xF0) == 0xE0) {
+            if (i + 2 >= input.size()) {
+                LOGW("Incomplete 3-byte UTF-8 sequence at end, dropping");
+                break;
+            }
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            unsigned char c3 = static_cast<unsigned char>(input[i + 2]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) {
+                LOGW("Invalid 3-byte UTF-8 continuation bytes, dropping");
+                i++;
+                continue;
+            }
+            result += input[i];
+            result += input[i + 1];
+            result += input[i + 2];
+            i += 3;
+            continue;
+        }
+
+        // 4 字节序列 (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+        if ((c & 0xF8) == 0xF0) {
+            if (i + 3 >= input.size()) {
+                LOGW("Incomplete 4-byte UTF-8 sequence at end, dropping");
+                break;
+            }
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            unsigned char c3 = static_cast<unsigned char>(input[i + 2]);
+            unsigned char c4 = static_cast<unsigned char>(input[i + 3]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80 || (c4 & 0xC0) != 0x80) {
+                LOGW("Invalid 4-byte UTF-8 continuation bytes, dropping");
+                i++;
+                continue;
+            }
+            result += input[i];
+            result += input[i + 1];
+            result += input[i + 2];
+            result += input[i + 3];
+            i += 4;
+            continue;
+        }
+
+        // 无效字节，跳过
+        LOGW("Invalid UTF-8 byte: 0x%02x, skipping", c);
+        i++;
+    }
+
+    return result;
+}
+
+/**
+ * 安全的 NewStringUTF 包装器
+ * 验证 UTF-8 有效性，防止 JNI 崩溃
+ */
+static jstring safeNewStringUTF(JNIEnv* env, const char* str) {
+    if (str == nullptr) {
+        return env->NewStringUTF("");
+    }
+    std::string sanitized = sanitizeUtf8(std::string(str));
+    return env->NewStringUTF(sanitized.c_str());
+}
+
+/**
+ * 安全的 NewStringUTF 包装器（std::string 版本）
+ */
+static jstring safeNewStringUTF(JNIEnv* env, const std::string& str) {
+    std::string sanitized = sanitizeUtf8(str);
+    return env->NewStringUTF(sanitized.c_str());
+}
+
 static volatile bool s_openclLoaded = false;
 static volatile bool s_gpuTested = false;
 static volatile bool s_gpuWorking = false;
 static void* s_oclHandle = nullptr;
 static size_t s_detectedGpuMemory = 0;
+static size_t s_detectedMaxMemAllocSize = 0; // GPU 单次最大分配大小
 
 // Native层回调引用追踪
 static jobject g_activeCallback = nullptr;
@@ -622,6 +734,51 @@ public:
         this->memoryPoolSize = s_defaultMemoryPoolSize;
         this->batchSize = s_defaultBatchSize;
         
+        // ========== 资源限制保护 ==========
+        // 限制线程数：Android 设备建议不超过 4 线程，避免内存竞争和 OOM
+        const int MAX_THREADS = 4;
+        const int MIN_THREADS = 1;
+        if (this->threadCount > MAX_THREADS) {
+            LOGW("Thread count %d exceeds max %d, clamping", this->threadCount, MAX_THREADS);
+            this->threadCount = MAX_THREADS;
+        }
+        if (this->threadCount < MIN_THREADS) {
+            LOGW("Thread count %d below min %d, clamping", this->threadCount, MIN_THREADS);
+            this->threadCount = MIN_THREADS;
+        }
+        
+        // 限制 GPU 层数：Android 设备建议不超过 30 层
+        const int MAX_GPU_LAYERS = 30;
+        if (this->gpuLayers > MAX_GPU_LAYERS) {
+            LOGW("GPU layers %d exceeds max %d, clamping", this->gpuLayers, MAX_GPU_LAYERS);
+            this->gpuLayers = MAX_GPU_LAYERS;
+        }
+        
+        // 限制上下文大小：确保不超过安全上限，预留推理空间
+        const int MAX_CONTEXT_SIZE = 8192;
+        const int MIN_CONTEXT_SIZE = 2048;
+        const int INFERENCE_RESERVE = 512;
+        if (contextSize > MAX_CONTEXT_SIZE) {
+            LOGW("Context size %d exceeds max %d, clamping", contextSize, MAX_CONTEXT_SIZE);
+            contextSize = MAX_CONTEXT_SIZE;
+        }
+        if (contextSize < MIN_CONTEXT_SIZE) {
+            LOGW("Context size %d below min %d, clamping", contextSize, MIN_CONTEXT_SIZE);
+            contextSize = MIN_CONTEXT_SIZE;
+        }
+        
+        // 限制批处理大小
+        const int MAX_BATCH_SIZE = 256;
+        const int MIN_BATCH_SIZE = 32;
+        if (this->batchSize > MAX_BATCH_SIZE) {
+            LOGW("Batch size %d exceeds max %d, clamping", this->batchSize, MAX_BATCH_SIZE);
+            this->batchSize = MAX_BATCH_SIZE;
+        }
+        if (this->batchSize < MIN_BATCH_SIZE) {
+            LOGW("Batch size %d below min %d, clamping", this->batchSize, MIN_BATCH_SIZE);
+            this->batchSize = MIN_BATCH_SIZE;
+        }
+        
         LOGI("=== LOAD MODEL START ===");
         LOG_MEM("loadModel_start");
         LOGI("Loading model: %s", modelPath.c_str());
@@ -639,10 +796,10 @@ public:
         this->modelPath = modelPath;
         this->contextSize = contextSize;
         if (this->threadCount <= 0) {
-            this->threadCount = 4;
+            this->threadCount = 2; // 默认 2 线程，更安全
         }
         if (this->batchSize <= 0) {
-            this->batchSize = 512;
+            this->batchSize = 128; // 默认 128，更安全
         }
         
         llama_model_params model_params = llama_model_default_params();
@@ -818,19 +975,43 @@ public:
 
         llama_context_params ctx_params = llama_context_default_params();
         ctx_params.n_ctx = contextSize;
-        
+
+        // 确保线程数在安全范围内
         if (threadCount <= 0) {
-            threadCount = 4;
+            threadCount = 2; // 默认 2 线程，更安全
+        }
+        if (threadCount > MAX_THREADS) {
+            threadCount = MAX_THREADS;
         }
         ctx_params.n_threads = threadCount;
-        ctx_params.n_threads_batch = threadCount;
-        
+
+        // 批处理线程数：使用更多线程加速 prefill
+        // GPU 模式下，batch 处理可以用更多线程
+        int batchThreadCount = (this->gpuLayers > 0) ?
+            std::min(threadCount + 2, (int)std::thread::hardware_concurrency()) : threadCount;
+        ctx_params.n_threads_batch = batchThreadCount;
+
+        // 批处理大小：GPU 模式下使用更大的 batch
         int n_batch_actual = batchSize;
+        if (this->gpuLayers > 0 && n_batch_actual < 256) {
+            n_batch_actual = 256; // GPU 模式下至少 256
+            LOGI("GPU mode: increasing batch size to %d for better throughput", n_batch_actual);
+        }
+        if (n_batch_actual > MAX_BATCH_SIZE) {
+            n_batch_actual = MAX_BATCH_SIZE;
+        }
+        if (n_batch_actual < MIN_BATCH_SIZE) {
+            n_batch_actual = MIN_BATCH_SIZE;
+        }
         ctx_params.n_batch = n_batch_actual;
         ctx_params.n_ubatch = n_batch_actual;
 
-        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
-             contextSize, threadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
+        // 启用 Flash Attention 加速
+        ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+        LOGI("Flash Attention enabled for faster inference");
+
+        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_threads_batch=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
+             contextSize, threadCount, batchThreadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
         
         LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
              contextSize, threadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
@@ -1131,6 +1312,56 @@ public:
             llama_free(ctx);
             ctx = nullptr;
         }
+    }
+
+    /**
+     * 检查是否有足够的上下文空间用于单次推理
+     *
+     * @param promptTokens 输入 token 数
+     * @param maxOutputTokens 预期输出 token 数
+     * @return true 如果有足够的空间，false 如果需要清理上下文
+     */
+    bool hasEnoughContextSpace(int promptTokens, int maxOutputTokens) {
+        if (ctx == nullptr) {
+            return false;
+        }
+
+        int requiredTokens = promptTokens + maxOutputTokens;
+        int availableTokens = contextSize - currentTokenCount;
+
+        LOGI("Context check: used=%d, required=%d, available=%d, contextSize=%d",
+             currentTokenCount, requiredTokens, availableTokens, contextSize);
+
+        if (requiredTokens > availableTokens) {
+            LOGW("Not enough context space: need %d tokens, only %d available",
+                 requiredTokens, availableTokens);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 清理 KV cache 以释放上下文空间
+     * 保留最近的对话历史
+     */
+    void clearContextForInference() {
+        if (ctx == nullptr) {
+            return;
+        }
+
+        LOGI("Clearing context, used tokens before: %d", currentTokenCount);
+
+        // 清理 KV cache
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem != nullptr) {
+            llama_memory_clear(mem, true);
+        }
+
+        // 重置 token 计数
+        currentTokenCount = 0;
+
+        LOGI("Context cleared, freed tokens");
     }
 
     void release() {
@@ -2476,6 +2707,55 @@ public:
 
     int getContextRemainingTokens() const { return n_ctx > 0 ? n_ctx - total_tokens_in_kv : 0; }
 
+    /**
+     * 检查是否有足够的上下文空间用于单次推理
+     */
+    bool hasEnoughContextSpace(int promptTokens, int maxOutputTokens) {
+        if (ctx == nullptr) {
+            return false;
+        }
+
+        int requiredTokens = promptTokens + maxOutputTokens;
+        int availableTokens = n_ctx - total_tokens_in_kv;
+
+        LOGI("Context check: used=%d, required=%d, available=%d, n_ctx=%d",
+             total_tokens_in_kv, requiredTokens, availableTokens, n_ctx);
+
+        if (requiredTokens > availableTokens) {
+            LOGW("Not enough context space: need %d tokens, only %d available",
+                 requiredTokens, availableTokens);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 清理 KV cache 以释放上下文空间
+     */
+    void clearContextForInference() {
+        if (ctx == nullptr) {
+            return;
+        }
+
+        LOGI("Clearing context, used tokens before: %d", total_tokens_in_kv);
+
+        // 清理 KV cache
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem != nullptr) {
+            llama_memory_clear(mem, true);
+        }
+
+        // 重置计数器
+        total_tokens_in_kv = 0;
+        current_pos = 0;
+        turns.clear();
+        chatMessages.clear();
+        prev_formatted_len = 0;
+
+        LOGI("Context cleared, freed all tokens");
+    }
+
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
         LOGI("updatePrompts called");
 
@@ -2781,7 +3061,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
                     }
                 } else {
                     if (onComplete != nullptr) {
-                        jstring jToken = cbEnv->NewStringUTF(token.c_str());
+                        jstring jToken = safeNewStringUTF(cbEnv, token);
                         cbEnv->CallVoidMethod(globalCallback, onComplete, jToken);
                         cbEnv->DeleteLocalRef(jToken);
                     }
@@ -2797,7 +3077,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
                 if (globalCbClass != nullptr) cbEnv->DeleteGlobalRef(globalCbClass);
             } else {
                 if (onToken != nullptr) {
-                    jstring jToken = cbEnv->NewStringUTF(token.c_str());
+                    jstring jToken = safeNewStringUTF(cbEnv, token);
                     cbEnv->CallVoidMethod(globalCallback, onToken, jToken);
                     cbEnv->DeleteLocalRef(jToken);
                 }
@@ -2828,7 +3108,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
             jmethodID onErrorMethod = env->GetMethodID(cbClassErr, "onError", "(Ljava/lang/String;)V");
             if (onErrorMethod != nullptr) {
                 std::string errorStr = "Native层异常: " + std::string(e.what());
-                jstring jErr = env->NewStringUTF(errorStr.c_str());
+                jstring jErr = safeNewStringUTF(env, errorStr);
                 env->CallVoidMethod(callback, onErrorMethod, jErr);
                 env->DeleteLocalRef(jErr);
             }
@@ -3420,20 +3700,20 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
             if (isDone) {
                 if (!error.empty()) {
                     if (onErrorMethod != nullptr) {
-                        jstring errorStr = env->NewStringUTF(error.c_str());
+                        jstring errorStr = safeNewStringUTF(env, error);
                         env->CallVoidMethod(globalCallback, onErrorMethod, errorStr);
                         env->DeleteLocalRef(errorStr);
                     }
                 } else {
                     if (onCompleteMethod != nullptr) {
-                        jstring resultStr = env->NewStringUTF(token.c_str());
+                        jstring resultStr = safeNewStringUTF(env, token);
                         env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
                         env->DeleteLocalRef(resultStr);
                     }
                 }
             } else if (!token.empty()) {
                 if (onTokenMethod != nullptr) {
-                    jstring tokenStr = env->NewStringUTF(token.c_str());
+                    jstring tokenStr = safeNewStringUTF(env, token);
                     env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
                     env->DeleteLocalRef(tokenStr);
                 }
@@ -4031,6 +4311,13 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetTotalDeviceMemory(
     return 0;
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetGpuMaxMemAllocSize(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    return (jlong)s_detectedMaxMemAllocSize;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextSize(
     JNIEnv* env,
@@ -4065,6 +4352,31 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextRemainingTokens(
         return chatCtx->getContextRemainingTokens();
     }
     return 0;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeHasEnoughContextSpace(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle,
+    jint promptTokens,
+    jint maxOutputTokens) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->hasEnoughContextSpace(promptTokens, maxOutputTokens) ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeClearContextForInference(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        chatCtx->clearContextForInference();
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -4406,6 +4718,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeDetectGPUInfo(
                                     if (globalMemSize > 0) {
                                         s_detectedGpuMemory = std::max(s_detectedGpuMemory, globalMemSize);
                                         LOGI("Stored detected GPU memory: %zu bytes (%zu MB)", s_detectedGpuMemory, s_detectedGpuMemory / 1024 / 1024);
+                                    }
+
+                                    if (maxMemAllocSize > 0) {
+                                        s_detectedMaxMemAllocSize = std::max(s_detectedMaxMemAllocSize, (size_t)maxMemAllocSize);
+                                        LOGI("Stored detected max mem alloc size: %zu bytes (%zu MB)", s_detectedMaxMemAllocSize, s_detectedMaxMemAllocSize / 1024 / 1024);
                                     }
                                     
                                     std::ostringstream oss;

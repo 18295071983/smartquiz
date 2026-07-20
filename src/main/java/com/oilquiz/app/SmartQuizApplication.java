@@ -192,23 +192,25 @@ public class SmartQuizApplication extends Application {
     private void preloadAIServiceInternal() {
         try {
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
-            
+
             // 调用 getInstance 仅获取单例并同步状态，不在此处阻塞加载模型
             AIService aiService = AIService.getInstance(this);
-            
+
             if (!aiService.isInitialized()) {
                 com.oilquiz.app.util.AILogger.i(TAG, "模型未初始化，尝试加载已导入的模型…");
                 String[] availableModels = aiService.getAvailableModels();
                 if (availableModels != null && availableModels.length > 0) {
                     String modelName = availableModels[0];
                     com.oilquiz.app.util.AILogger.i(TAG, "找到可用模型: " + modelName);
+
+                    // 直接加载模型（预加载在后台异步进行，不会阻塞本次加载）
                     boolean success = aiService.switchModel(modelName);
                     com.oilquiz.app.util.AILogger.i(TAG, "模型加载结果: " + success);
                 } else {
                     com.oilquiz.app.util.AILogger.i(TAG, "未找到已导入的 .gguf 模型，跳过预加载（assets 中无内置模型）");
                 }
             }
-            
+
             com.oilquiz.app.util.AILogger.i(TAG, "AI服务预加载完成，当前初始化状态: " + aiService.isInitialized());
             com.oilquiz.app.util.AILogger.i(TAG, "AI服务状态: " + aiService.getStatusInfo());
         } catch (Exception e) {

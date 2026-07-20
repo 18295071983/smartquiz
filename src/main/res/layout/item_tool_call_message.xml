@@ -3,8 +3,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="8dp"
+    android:background="@drawable/tool_call_card_background">
 
+    <!-- 头部：工具名 + 状态 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -16,15 +18,16 @@
             android:id="@+id/tool_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:layout_marginEnd="4dp" />
+            android:text="🔧"
+            android:textSize="16sp"
+            android:layout_marginEnd="6dp" />
 
         <TextView
             android:id="@+id/tool_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="13sp"
+            android:textSize="14sp"
             android:textColor="@color/tool_call_label"
             android:textStyle="bold" />
 
@@ -33,35 +36,125 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="11sp"
-            android:textColor="@color/tool_call_label" />
+            android:textColor="@color/tool_call_status_default" />
 
+        <ProgressBar
+            android:id="@+id/tool_progress_small"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tool_params"
+    <!-- 执行信息行 -->
+    <LinearLayout
+        android:id="@+id/tool_info_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/tool_call_background"
-        android:padding="10dp"
-        android:textColor="@color/tool_call_text"
-        android:textSize="13sp"
-        android:visibility="gone" />
+        android:orientation="horizontal"
+        android:layout_marginBottom="6dp"
+        android:visibility="gone">
 
+        <TextView
+            android:id="@+id/tool_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="@color/tool_call_info"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tool_tokens"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="@color/tool_call_info" />
+    </LinearLayout>
+
+    <!-- 参数区域（可折叠） -->
+    <LinearLayout
+        android:id="@+id/tool_params_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="4dp">
+
+        <LinearLayout
+            android:id="@+id/tool_params_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="6dp"
+            android:background="@drawable/tool_call_expandable_bg"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tool_params_arrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▼"
+                android:textSize="10sp"
+                android:textColor="@color/tool_call_label"
+                android:layout_marginEnd="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📋 参数"
+                android:textSize="12sp"
+                android:textColor="@color/tool_call_label" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tool_params"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/tool_call_background"
+            android:padding="10dp"
+            android:textColor="@color/tool_call_text"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 结果区域（可折叠） -->
     <LinearLayout
         android:id="@+id/tool_result_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="4dp"
         android:visibility="gone">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/tool_result_header"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="📊 执行结果"
-            android:textSize="11sp"
-            android:textColor="@color/tool_call_label"
-            android:layout_marginBottom="2dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="6dp"
+            android:background="@drawable/tool_result_expandable_bg"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tool_result_arrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▼"
+                android:textSize="10sp"
+                android:textColor="@color/tool_result_label"
+                android:layout_marginEnd="4dp" />
+
+            <TextView
+                android:id="@+id/tool_result_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="@color/tool_result_label" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tool_result"
@@ -70,20 +163,10 @@
             android:background="@drawable/tool_call_result_background"
             android:padding="10dp"
             android:textColor="@color/tool_call_text"
-            android:textSize="13sp"
-            android:maxLines="5"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:maxLines="8"
             android:ellipsize="end" />
-
     </LinearLayout>
-
-    <ProgressBar
-        android:id="@+id/tool_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:layout_marginTop="4dp"
-        android:max="100"
-        android:progress="0"
-        android:visibility="gone" />
 
 </LinearLayout>

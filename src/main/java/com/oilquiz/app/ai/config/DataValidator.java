@@ -209,21 +209,21 @@ public class DataValidator {
             return ValidationResult.error("模型配置为空", "NULL_CONFIG");
         }
 
-        // 校验GPU层数
+        // 校验GPU层数（最大 30 层）
         int gpuLayers = config.optInt("gpuLayers", -1);
-        if (gpuLayers < -1 || gpuLayers > 100) {
-            return ValidationResult.error("GPU层数无效", "INVALID_GPU_LAYERS");
+        if (gpuLayers < -1 || gpuLayers > 30) {
+            return ValidationResult.error("GPU层数无效（最大30层）", "INVALID_GPU_LAYERS");
         }
 
-        // 校验线程数
+        // 校验线程数（最大 4 线程）
         int threadCount = config.optInt("threadCount", -1);
-        if (threadCount < 1 || threadCount > 32) {
-            return ValidationResult.error("线程数无效", "INVALID_THREAD_COUNT");
+        if (threadCount < 1 || threadCount > 4) {
+            return ValidationResult.error("线程数无效（最大4线程）", "INVALID_THREAD_COUNT");
         }
 
         // 校验批大小
         int batchSize = config.optInt("batchSize", -1);
-        if (batchSize < 1 || batchSize > 2048) {
+        if (batchSize < 1 || batchSize > 256) {
             return ValidationResult.error("批大小无效", "INVALID_BATCH_SIZE");
         }
 

@@ -199,8 +199,26 @@ public class AgentModeHandler implements ModeHandler {
             }
             
             @Override
-            public void onAgentStepUpdateUI(int position, String thought, String action, 
+            public void onAgentStepUpdateUI(int position, String thought, String action,
                                             String observation, boolean isCompleted) {
+            }
+
+            @Override
+            public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
+                if (!activeMessageIds.contains(messageId)) return;
+
+                // 更新本地token统计
+                long elapsed = System.currentTimeMillis() - startTime;
+                float currentTps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
+
+                AILogger.d(TAG, "Inference progress: tokens=" + tokenCount
+                    + ", tps=" + String.format("%.1f", currentTps)
+                    + ", elapsed=" + elapsed + "ms");
+
+                // 传递推理进度到上层回调
+                if (callback != null) {
+                    callback.onInferenceProgress(messageId, tokenCount, tokensPerSecond);
+                }
             }
         };
     }

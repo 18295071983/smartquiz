@@ -43,13 +43,7 @@ public class WeatherBannerView extends LinearLayout {
     private TextView weatherCity;
     private TextView weatherTemp;
     private TextView weatherDesc;
-    private TextView weatherHumidity;
-    private TextView weatherWind;
-    private TextView weatherTempRange;
-    private TextView weatherForecast;
-    private TextView weatherFeelsLike;
-    private TextView weatherVisibility;
-    private HorizontalScrollView hsvForecast;
+    private View btnWeatherDetail;
     private View refreshButton;
     private View closeButton;
 
@@ -85,13 +79,7 @@ public class WeatherBannerView extends LinearLayout {
         weatherCity = findViewById(R.id.weather_city);
         weatherTemp = findViewById(R.id.weather_temp);
         weatherDesc = findViewById(R.id.weather_desc);
-        weatherHumidity = findViewById(R.id.weather_humidity);
-        weatherWind = findViewById(R.id.weather_wind);
-        weatherTempRange = findViewById(R.id.weather_temp_range);
-        weatherForecast = findViewById(R.id.weather_forecast);
-        weatherFeelsLike = findViewById(R.id.weather_feels_like);
-        weatherVisibility = findViewById(R.id.weather_visibility);
-        hsvForecast = findViewById(R.id.hsv_forecast);
+        btnWeatherDetail = findViewById(R.id.btn_weather_detail);
         refreshButton = findViewById(R.id.btn_weather_refresh);
         closeButton = findViewById(R.id.btn_weather_close);
 
@@ -120,6 +108,31 @@ public class WeatherBannerView extends LinearLayout {
     private void setupListeners() {
         refreshButton.setOnClickListener(v -> requestLocationAndRefresh());
         closeButton.setOnClickListener(v -> setVisibility(View.GONE));
+        btnWeatherDetail.setOnClickListener(v -> toggleDetail());
+    }
+
+    private void toggleDetail() {
+        navigateToWeatherDetail();
+    }
+
+    private void navigateToWeatherDetail() {
+        String city = currentCity;
+        if (weatherCity != null) {
+            city = weatherCity.getText().toString();
+        }
+        
+        if (city == null || city.isEmpty() || city.equals("定位中...")) {
+            return;
+        }
+
+        android.content.Intent intent = new android.content.Intent(getContext(),
+                com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
+        intent.putExtra("city", city);
+        if (cachedLat != 0 && cachedLon != 0) {
+            intent.putExtra("lat", cachedLat);
+            intent.putExtra("lon", cachedLon);
+        }
+        getContext().startActivity(intent);
     }
 
     /**
@@ -182,7 +195,7 @@ public class WeatherBannerView extends LinearLayout {
         if (weatherTemp != null) weatherTemp.setText("--°C");
         if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
 
-        weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
+        weatherService.getCurrentWeatherByLocation(lat, lon, cityName).thenAccept(weather -> {
             lastRefreshTime = System.currentTimeMillis();
             post(() -> updateUI(weather));
         }).exceptionally(e -> {
@@ -278,29 +291,13 @@ public class WeatherBannerView extends LinearLayout {
                 if (onBannerClickedListener != null) {
                     onBannerClickedListener.onBannerClicked(city);
                 } else {
-                    navigateToWeatherDetail(city);
+                    navigateToWeatherDetail();
                 }
             }
         }
     }
 
-    private void navigateToWeatherDetail(String city) {
-        android.content.Intent intent;
-        if (cachedFxLink != null && !cachedFxLink.isEmpty()) {
-            intent = new android.content.Intent(getContext(), com.oilquiz.app.ui.activity.WeatherWebViewActivity.class);
-            intent.putExtra("url", cachedFxLink);
-            intent.putExtra("title", city + " - 天气详情");
-        } else {
-            intent = new android.content.Intent(getContext(),
-                com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
-            intent.putExtra("city", city);
-            if (cachedLat != 0 && cachedLon != 0) {
-                intent.putExtra("lat", cachedLat);
-                intent.putExtra("lon", cachedLon);
-            }
-        }
-        getContext().startActivity(intent);
-    }
+
 
     public void requestLocationAndLoad() {
         AppResourceManager resources = AppResourceManager.getInstance(getContext());
@@ -584,67 +581,10 @@ public class WeatherBannerView extends LinearLayout {
             }
             weatherCity.setText(displayCity);
         }
-        if (weatherTemp != null) weatherTemp.setText(info.temp);
+        if (weatherTemp != null) {
+            weatherTemp.setText(info.temp + "°C");
+        }
         if (weatherDesc != null) weatherDesc.setText(info.description);
-        if (weatherHumidity != null) weatherHumidity.setText("湿度: " + info.humidity);
-        if (weatherWind != null) weatherWind.setText("风速: " + info.wind);
-        if (weatherFeelsLike != null) weatherFeelsLike.setText("体感: " + info.feelsLike + "°C");
-        if (weatherVisibility != null) weatherVisibility.setText("能见度: " + info.visibility + " km");
-        if (weatherTempRange != null && info.tempRange != null && !info.tempRange.isEmpty()) {
-            weatherTempRange.setText(info.tempRange);
-            weatherTempRange.setVisibility(View.VISIBLE);
-        }
-        if (weatherForecast != null && info.forecast != null && !info.forecast.isEmpty()) {
-            weatherForecast.setText(info.forecast);
-            weatherForecast.setVisibility(View.VISIBLE);
-            weatherForecast.setSelected(true);
-            startMarquee(weatherForecast);
-        }
-
-        loadForecastForBanner();
-    }
-
-    private void startMarquee(final TextView textView) {
-        textView.post(() -> {
-            textView.setSelected(true);
-            textView.requestFocus();
-        });
-    }
-
-    private void loadForecastForBanner() {
-        if (currentCity == null || currentCity.equals("定位中...")) return;
-
-        new Thread(() -> {
-            try {
-                String forecastText;
-                if (cachedLat != 0 && cachedLon != 0) {
-                    forecastText = weatherService.getForecastByLocation(cachedLat, cachedLon).get();
-                } else {
-                    forecastText = weatherService.getForecast(currentCity).get();
-                }
-
-                if (forecastText != null) {
-                    WeatherBannerManager.WeatherInfo forecastInfo = parseForecast(forecastText);
-                    post(() -> {
-                        if (forecastInfo.tempRange != null && !forecastInfo.tempRange.isEmpty()) {
-                            if (weatherTempRange != null) {
-                                weatherTempRange.setText(forecastInfo.tempRange);
-                                weatherTempRange.setVisibility(View.VISIBLE);
-                            }
-                        }
-                        if (forecastInfo.forecast != null && !forecastInfo.forecast.isEmpty()) {
-                            if (weatherForecast != null) {
-                                weatherForecast.setText(forecastInfo.forecast);
-                                weatherForecast.setVisibility(View.VISIBLE);
-                                startMarquee(weatherForecast);
-                            }
-                        }
-                    });
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to load forecast: " + e.getMessage(), e);
-            }
-        }).start();
     }
 
     private WeatherBannerManager.WeatherInfo parseForecast(String forecastText) {
@@ -759,15 +699,19 @@ public class WeatherBannerView extends LinearLayout {
                 } else if (line.startsWith("图标:")) {
                     iconCode = line.substring(3).trim();
                 } else if (line.startsWith("温度:")) {
-                    info.temp = line.substring(3).trim();
+                    info.temp = line.substring(3).trim().replace("°C", "").replace("°", "");
                 } else if (line.startsWith("湿度:")) {
-                    info.humidity = line.substring(3).trim();
+                    info.humidity = line.substring(3).trim().replace("%", "");
                 } else if (line.startsWith("风速:")) {
-                    info.wind = line.substring(3).trim();
+                    info.wind = line.substring(3).trim().replace(" km/h", "").replace("m/s", "");
+                } else if (line.startsWith("风向:")) {
+                    info.windDir = line.substring(3).trim();
                 } else if (line.startsWith("体感温度:")) {
                     info.feelsLike = line.substring(5).trim().replace("°C", "").replace("°", "");
                 } else if (line.startsWith("能见度:")) {
                     info.visibility = line.substring(4).trim().replace(" km", "");
+                } else if (line.startsWith("气压:")) {
+                    info.pressure = line.substring(3).trim().replace(" hPa", "");
                 } else if (line.startsWith("链接:")) {
                     info.fxLink = line.substring(3).trim();
                 }

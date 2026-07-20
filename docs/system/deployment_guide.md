@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) — Android APK 部署指南
 
-> **版本: 2.0 | 更新日期: 2026-05-16**
+> **版本: 2.1 | 更新日期: 2026-07-18**
 
 ---
 
@@ -394,11 +394,11 @@ keytool -printcert -jarfile app\build\outputs\apk\release\答题宝-release-2.0.
 -keep class retrofit2.** { *; }
 
 # Gson
--keep class com.smartquiz.app.model.** { *; }
--keepclassmembers class com.smartquiz.app.model.** { *; }
+-keep class com.oilquiz.app.model.** { *; }
+-keepclassmembers class com.oilquiz.app.model.** { *; }
 
 # WebView JS Bridge
--keepclassmembers class com.smartquiz.app.webview.** {
+-keepclassmembers class com.oilquiz.app.** {
     @android.webkit.JavascriptInterface <methods>;
 }
 ```

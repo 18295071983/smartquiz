@@ -39,11 +39,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_TASK = 4;
     private static final int VIEW_TYPE_TOOL_CALL = 5;
     private static final int VIEW_TYPE_AGENT_STEP = 6;
-    private static final int VIEW_TYPE_ERROR = 7;
-    private static final int VIEW_TYPE_TOOL_RESULT = 8;
-    private static final int VIEW_TYPE_AGENT_REFLECTION = 9;
-    private static final int VIEW_TYPE_SUMMARY = 10;
-    private static final int VIEW_TYPE_INFERENCE_PROGRESS = 11;
+    private static final int VIEW_TYPE_AGENT_SUMMARY = 7;
+    private static final int VIEW_TYPE_ERROR = 8;
+    private static final int VIEW_TYPE_TOOL_RESULT = 9;
+    private static final int VIEW_TYPE_AGENT_REFLECTION = 10;
+    private static final int VIEW_TYPE_SUMMARY = 11;
+    private static final int VIEW_TYPE_INFERENCE_PROGRESS = 12;
 
     public static final String PAYLOAD_CONTENT_UPDATE = "content_update";
     public static final String PAYLOAD_STATUS_UPDATE = "status_update";
@@ -213,6 +214,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return VIEW_TYPE_TOOL_CALL;
             case AGENT_STEP:
                 return VIEW_TYPE_AGENT_STEP;
+            case AGENT_SUMMARY:
+                return VIEW_TYPE_AGENT_SUMMARY;
             case ERROR:
                 return VIEW_TYPE_ERROR;
             case TOOL_RESULT:
@@ -245,6 +248,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
             case VIEW_TYPE_AGENT_STEP:
                 return new AgentStepViewHolder(inflater.inflate(R.layout.item_agent_step_message, parent, false));
+            case VIEW_TYPE_AGENT_SUMMARY:
+                return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
                 return new ErrorMessageViewHolder(inflater.inflate(R.layout.item_error_message, parent, false));
             case VIEW_TYPE_TOOL_RESULT:
@@ -286,6 +291,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_AGENT_STEP:
                 bindAgentStepMessage((AgentStepViewHolder) holder, message);
                 break;
+            case VIEW_TYPE_AGENT_SUMMARY:
+                bindAgentSummaryMessage((AgentSummaryViewHolder) holder, message);
+                break;
             case VIEW_TYPE_ERROR:
                 bindErrorMessage((ErrorMessageViewHolder) holder, message);
                 break;
@@ -320,6 +328,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     ((UserMessageViewHolder) holder).messageText.setText(message.content);
                 }
             } else if (PAYLOAD_STATUS_UPDATE.equals(payload)) {
+                if (holder instanceof AIMessageViewHolder) {
+                    updateMessageStatus((AIMessageViewHolder) holder, message);
+                }
+            } else if (PAYLOAD_INFERENCE_PROGRESS.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
                     updateMessageStatus((AIMessageViewHolder) holder, message);
                 }
@@ -952,38 +964,133 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ChatMessage.AgentStepInfo stepInfo = message.agentStepInfo;
         if (stepInfo == null) return;
 
+        // 设置步骤图标
         holder.stepIcon.setText(stepInfo.getStepIcon());
-        holder.stepTypeLabel.setText(stepInfo.getStepTypeLabel());
-        holder.stepTypeLabel.setBackgroundColor(getStepTypeColor(holder.itemView.getContext(), stepInfo.stepType));
 
-        if (stepInfo.totalIterations > 0) {
-            holder.stepIteration.setText(stepInfo.iteration + "/" + stepInfo.totalIterations);
-            holder.stepIteration.setVisibility(View.VISIBLE);
-        } else {
-            holder.stepIteration.setVisibility(View.GONE);
+        // 构建自然语言描述
+        StringBuilder description = new StringBuilder();
+        
+        // 根据步骤类型和内容构建详细描述
+        switch (stepInfo.stepType) {
+            case THINKING:
+                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                    description.append("💭 ").append(stepInfo.thought);
+                } else {
+                    description.append("💭 正在分析问题...");
+                }
+                break;
+            case PLANNING:
+                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                    // 显示具体的意图分析结果
+                    description.append("📋 已识别到用户意图：").append(stepInfo.thought);
+                    if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
+                        description.append("\n计划执行：").append(stepInfo.action);
+                    }
+                } else {
+                    description.append("📋 正在分析用户意图...");
+                }
+                break;
+            case ACTING:
+                if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
+                    description.append("⚙️ 正在执行：").append(stepInfo.action);
+                    if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
+                        description.append("\n执行结果：").append(stepInfo.observation);
+                    }
+                } else {
+                    description.append("⚙️ 正在执行操作...");
+                }
+                break;
+            case OBSERVING:
+                if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
+                    description.append("👁️ 执行结果：").append(stepInfo.observation);
+                    if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                        description.append("\n分析：").append(stepInfo.thought);
+                    }
+                } else {
+                    description.append("👁️ 正在分析执行结果...");
+                }
+                break;
+            case REFLECTING:
+                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                    description.append("🔄 反思：").append(stepInfo.thought);
+                    if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
+                        description.append("\n改进建议：").append(stepInfo.action);
+                    }
+                } else {
+                    description.append("🔄 正在反思...");
+                }
+                break;
+            case TOOL_CALLING:
+                if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
+                    description.append("🔧 调用工具：").append(stepInfo.action);
+                    if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
+                        description.append("\n工具返回：").append(stepInfo.observation);
+                    }
+                } else {
+                    description.append("🔧 正在调用工具...");
+                }
+                break;
+            case REASONING:
+                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                    description.append("🧠 推理过程：").append(stepInfo.thought);
+                    if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
+                        description.append("\n推理结论：").append(stepInfo.detail);
+                    }
+                } else {
+                    description.append("🧠 正在推理分析...");
+                }
+                break;
+            case LOOPING:
+                description.append("🔁 循环处理中...");
+                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
+                    description.append("\n").append(stepInfo.detail);
+                }
+                if (stepInfo.iteration > 0 && stepInfo.totalIterations > 0) {
+                    description.append("\n进度：").append(stepInfo.iteration).append("/").append(stepInfo.totalIterations);
+                }
+                break;
+            case PAUSED:
+                description.append("⏸️ 已暂停，等待用户输入");
+                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
+                    description.append("\n").append(stepInfo.detail);
+                }
+                break;
+            case COMPLETED:
+                description.append("✅ 任务完成");
+                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
+                    description.append("\n").append(stepInfo.detail);
+                }
+                break;
+            default:
+                description.append("📌 正在处理...");
+                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
+                    description.append("\n").append(stepInfo.thought);
+                }
         }
 
-        if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-            holder.stepThought.setVisibility(View.VISIBLE);
-            holder.stepThought.setText("💭 " + stepInfo.thought);
+        holder.stepDescription.setText(description.toString());
+
+        // 显示推理模式（小标签）
+        if (stepInfo.reasoningMode != null && !stepInfo.reasoningMode.isEmpty()) {
+            holder.stepReasoningMode.setText(stepInfo.reasoningMode);
+            holder.stepReasoningMode.setVisibility(View.VISIBLE);
         } else {
-            holder.stepThought.setVisibility(View.GONE);
+            holder.stepReasoningMode.setVisibility(View.GONE);
         }
 
-        if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-            holder.stepAction.setVisibility(View.VISIBLE);
-            holder.stepAction.setText("⚙️ " + stepInfo.action);
+        // 显示详细信息（如果有额外的detail且不在主要描述中）
+        if (stepInfo.detail != null && !stepInfo.detail.isEmpty() && 
+            description.toString().contains(stepInfo.detail)) {
+            // detail已经在描述中显示了，不再重复
+            holder.stepDetail.setVisibility(View.GONE);
+        } else if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
+            holder.stepDetail.setVisibility(View.VISIBLE);
+            holder.stepDetail.setText(stepInfo.detail);
         } else {
-            holder.stepAction.setVisibility(View.GONE);
+            holder.stepDetail.setVisibility(View.GONE);
         }
 
-        if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-            holder.stepObservation.setVisibility(View.VISIBLE);
-            holder.stepObservation.setText("👁️ " + stepInfo.observation);
-        } else {
-            holder.stepObservation.setVisibility(View.GONE);
-        }
-
+        // 显示进度条
         if (!stepInfo.isCompleted) {
             holder.stepProgress.setVisibility(View.VISIBLE);
             holder.stepProgress.setIndeterminate(true);
@@ -1020,6 +1127,26 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } else {
             holder.btnRetrySuggestion.setVisibility(View.GONE);
         }
+    }
+
+    private void bindAgentSummaryMessage(AgentSummaryViewHolder holder, ChatMessage message) {
+        ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
+        if (summary == null) return;
+
+        // 设置状态
+        if (summary.isSuccess) {
+            holder.summaryStatus.setText("✅ 成功");
+            holder.summaryStatus.setTextColor(holder.itemView.getContext().getColor(R.color.agent_summary_success));
+        } else {
+            holder.summaryStatus.setText("❌ 失败");
+            holder.summaryStatus.setTextColor(holder.itemView.getContext().getColor(R.color.agent_summary_error));
+        }
+
+        // 设置统计信息
+        holder.summaryTime.setText(summary.getFormattedTime());
+        holder.summarySteps.setText(String.valueOf(summary.totalSteps));
+        holder.summaryTools.setText(String.valueOf(summary.toolCallCount));
+        holder.summaryTokens.setText(summary.getFormattedTokens());
     }
 
     private void bindSummaryMessage(SummaryMessageViewHolder holder, ChatMessage message) {
@@ -1442,7 +1569,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             toolParams = itemView.findViewById(R.id.tool_params);
             toolResultContainer = itemView.findViewById(R.id.tool_result_container);
             toolResult = itemView.findViewById(R.id.tool_result);
-            toolProgress = itemView.findViewById(R.id.tool_progress);
+            toolProgress = itemView.findViewById(R.id.tool_progress_small);
         }
     }
 
@@ -1467,22 +1594,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     static class AgentStepViewHolder extends RecyclerView.ViewHolder {
         TextView stepIcon;
-        TextView stepTypeLabel;
-        TextView stepIteration;
-        TextView stepThought;
-        TextView stepAction;
-        TextView stepObservation;
+        TextView stepDescription;
+        TextView stepReasoningMode;
+        TextView stepDetail;
         ProgressBar stepProgress;
 
         AgentStepViewHolder(View itemView) {
             super(itemView);
             stepIcon = itemView.findViewById(R.id.step_icon);
-            stepTypeLabel = itemView.findViewById(R.id.step_type_label);
-            stepIteration = itemView.findViewById(R.id.step_iteration);
-            stepThought = itemView.findViewById(R.id.step_thought);
-            stepAction = itemView.findViewById(R.id.step_action);
-            stepObservation = itemView.findViewById(R.id.step_observation);
-            stepProgress = itemView.findViewById(R.id.step_progress);
+            stepDescription = itemView.findViewById(R.id.step_description);
+            stepReasoningMode = itemView.findViewById(R.id.step_reasoning_mode);
+            stepDetail = itemView.findViewById(R.id.step_detail);
+            stepProgress = itemView.findViewById(R.id.step_progress_bar);
         }
     }
 
@@ -1500,6 +1623,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             reflectionAnalysis = itemView.findViewById(R.id.reflection_analysis);
             reflectionImprovements = itemView.findViewById(R.id.reflection_improvements);
             btnRetrySuggestion = itemView.findViewById(R.id.btn_retry_suggestion);
+        }
+    }
+
+    static class AgentSummaryViewHolder extends RecyclerView.ViewHolder {
+        TextView summaryTitle;
+        TextView summaryStatus;
+        TextView summaryTime;
+        TextView summarySteps;
+        TextView summaryTools;
+        TextView summaryTokens;
+
+        AgentSummaryViewHolder(View itemView) {
+            super(itemView);
+            summaryTitle = itemView.findViewById(R.id.summary_title);
+            summaryStatus = itemView.findViewById(R.id.summary_status);
+            summaryTime = itemView.findViewById(R.id.summary_time);
+            summarySteps = itemView.findViewById(R.id.summary_steps);
+            summaryTools = itemView.findViewById(R.id.summary_tools);
+            summaryTokens = itemView.findViewById(R.id.summary_tokens);
         }
     }
 

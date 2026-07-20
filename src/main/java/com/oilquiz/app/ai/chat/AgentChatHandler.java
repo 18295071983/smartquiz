@@ -46,6 +46,7 @@ public class AgentChatHandler {
         void onToolCallUI(String toolName, String args, int position);
         void onToolCallResultUI(int position, boolean success, String result);
         void onAgentStepUpdateUI(int position, String thought, String action, String observation, boolean isCompleted);
+        void onInferenceProgress(int tokenCount, float tokensPerSecond);
     }
 
     private final Activity activity;
@@ -54,6 +55,7 @@ public class AgentChatHandler {
     private final UnifiedAgentEngine engine;
     private final SmartIntentRecognizer intentRecognizer;
     private AgentSoftwareLayer softwareLayer;
+    private volatile boolean isShutdown = false;
 
     private InferenceMode currentInferenceMode = InferenceMode.REACT;
 
@@ -75,7 +77,7 @@ public class AgentChatHandler {
             @Override
             public void onStepUpdate(String step, String detail) {
                 AILogger.i(TAG, "Agent step: " + step + " - " + detail);
-                if (callback != null) {
+                if (isValid()) {
                     ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
                         ChatMessage.AgentStepInfo.AgentStepType.THINKING, 0, 0);
                     stepInfo.thought = step + ": " + detail;
@@ -83,42 +85,49 @@ public class AgentChatHandler {
                     callback.onAgentStep(stepInfo);
                 }
             }
-            
+
             @Override
             public void onThinkingUpdate(String thought) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onThinkingToken(thought);
                 }
             }
-            
+
             @Override
             public void onToolCallStart(String toolName, String args) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onToolCallStart(toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
                 }
             }
-            
+
             @Override
             public void onToolCallComplete(String toolName, boolean success, String result) {
-                if (callback != null) {
+                if (isValid()) {
                     AgentService.ToolResult toolResult = new AgentService.ToolResult(toolName, result, success);
                     callback.onToolCallComplete(toolName, toolResult);
                     callback.onToolCallResultUI(-1, success, result);
                 }
             }
-            
+
             @Override
             public void onComplete(AgentResponse response) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onComplete(response.finalAnswer);
                 }
             }
-            
+
             @Override
             public void onError(String error) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onError(error);
+                }
+            }
+
+            @Override
+            public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
+                if (isValid()) {
+                    callback.onInferenceProgress(tokenCount, tokensPerSecond);
                 }
             }
         });
@@ -126,22 +135,22 @@ public class AgentChatHandler {
         engine.setCallback(new UnifiedAgentEngine.AgentCallback() {
             @Override
             public void onToken(String token) {
-                if (callback != null) callback.onToken(token);
+                if (isValid()) callback.onToken(token);
             }
 
             @Override
             public void onThinkingToken(String token) {
-                if (callback != null) callback.onThinkingToken(token);
+                if (isValid()) callback.onThinkingToken(token);
             }
 
             @Override
             public void onThinkingEnd() {
-                if (callback != null) callback.onThinkingEnd();
+                if (isValid()) callback.onThinkingEnd();
             }
 
             @Override
             public void onToolCallStart(String toolName, String args) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onToolCallStart(toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
                 }
@@ -149,7 +158,7 @@ public class AgentChatHandler {
 
             @Override
             public void onToolCallComplete(String toolName, AgentService.ToolResult result) {
-                if (callback != null) {
+                if (isValid()) {
                     callback.onToolCallComplete(toolName, result);
                     // 保护：result可能为null
                     boolean success = result != null && result.success;
@@ -160,13 +169,32 @@ public class AgentChatHandler {
 
             @Override
             public void onStepUpdate(String step, String detail) {
-                if (callback != null) {
+                if (isValid()) {
+                    // 根据步骤内容判断步骤类型
+                    ChatMessage.AgentStepInfo.AgentStepType stepType = ChatMessage.AgentStepInfo.AgentStepType.THINKING;
+
+                    if (step.contains("意图") || step.contains("intent") || step.contains("分析")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.PLANNING;
+                    } else if (step.contains("执行") || step.contains("action") || step.contains("工具")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.ACTING;
+                    } else if (step.contains("结果") || step.contains("观察") || step.contains("observe")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.OBSERVING;
+                    } else if (step.contains("反思") || step.contains("reflect")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.REFLECTING;
+                    } else if (step.contains("推理") || step.contains("reason")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.REASONING;
+                    } else if (step.contains("循环") || step.contains("loop")) {
+                        stepType = ChatMessage.AgentStepInfo.AgentStepType.LOOPING;
+                    }
+
                     ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
-                        ChatMessage.AgentStepInfo.AgentStepType.THINKING,
+                        stepType,
                         engine.getToolLoopCount() + 1,
                         5
                     );
-                    stepInfo.thought = step + ": " + detail;
+                    stepInfo.thought = step;
+                    stepInfo.detail = detail;
+                    stepInfo.reasoningMode = engine.getCurrentMode().displayName;
                     stepInfo.isCompleted = true;
                     callback.onAgentStep(stepInfo);
                 }
@@ -174,12 +202,12 @@ public class AgentChatHandler {
 
             @Override
             public void onComplete(String fullText) {
-                if (callback != null) callback.onComplete(fullText);
+                if (isValid()) callback.onComplete(fullText);
             }
 
             @Override
             public void onError(String error) {
-                if (callback != null) callback.onError(error);
+                if (isValid()) callback.onError(error);
             }
 
             // ========== 新增回调方法 ==========
@@ -187,7 +215,7 @@ public class AgentChatHandler {
             @Override
             public void onNeedMoreInfo(String missingInfo, String context, java.util.List<String> suggestions) {
                 AILogger.i(TAG, "onNeedMoreInfo: " + missingInfo);
-                if (callback != null) {
+                if (isValid()) {
                     // 显示输入对话框
                     showInputDialog(missingInfo, context, suggestions);
                 }
@@ -196,13 +224,16 @@ public class AgentChatHandler {
             @Override
             public void onExecutionPaused(String reason, String currentState) {
                 AILogger.i(TAG, "onExecutionPaused: " + reason);
-                if (callback != null) {
+                if (isValid()) {
                     // 显示暂停状态
-                    callback.onAgentStep(new ChatMessage.AgentStepInfo(
+                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
                         ChatMessage.AgentStepInfo.AgentStepType.PAUSED,
                         engine.getToolLoopCount() + 1,
                         0
-                    ));
+                    );
+                    stepInfo.detail = reason;
+                    stepInfo.isCompleted = false;
+                    callback.onAgentStep(stepInfo);
                 }
             }
 
@@ -215,7 +246,7 @@ public class AgentChatHandler {
             @Override
             public void onThinking(String thought) {
                 AILogger.i(TAG, "onThinking: " + thought);
-                if (callback != null) {
+                if (isValid()) {
                     // 显示思考内容
                     ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
                         ChatMessage.AgentStepInfo.AgentStepType.THINKING,
@@ -223,6 +254,7 @@ public class AgentChatHandler {
                         0
                     );
                     stepInfo.thought = thought;
+                    stepInfo.reasoningMode = engine.getCurrentMode().displayName;
                     stepInfo.isCompleted = false;
                     callback.onAgentStep(stepInfo);
                 }
@@ -231,7 +263,7 @@ public class AgentChatHandler {
             @Override
             public void onThinkingStage(String stage) {
                 AILogger.i(TAG, "onThinkingStage: " + stage);
-                if (callback != null) {
+                if (isValid()) {
                     // 可以在UI上显示阶段变化
                     callback.onAgentStep(new ChatMessage.AgentStepInfo(
                         ChatMessage.AgentStepInfo.AgentStepType.THINKING,
@@ -244,7 +276,7 @@ public class AgentChatHandler {
             @Override
             public void onInputValidationResult(String paramName, com.oilquiz.app.ai.agent.InputValidator.ValidationResult result) {
                 AILogger.i(TAG, "onInputValidationResult: " + paramName + ", valid=" + result.valid);
-                if (callback != null) {
+                if (isValid()) {
                     if (result.valid) {
                         // 验证成功
                         AILogger.i(TAG, "Input validation passed, continuing...");
@@ -257,6 +289,13 @@ public class AgentChatHandler {
             }
 
             // ==========================================
+        });
+
+        // 设置推理进度监听器，转发到UI
+        engine.setInferenceProgressListener((tokenCount, tokensPerSecond) -> {
+            if (isValid()) {
+                callback.onInferenceProgress(tokenCount, tokensPerSecond);
+            }
         });
     }
 
@@ -281,6 +320,30 @@ public class AgentChatHandler {
 
     public boolean shouldUseAgent(String message) {
         return intentRecognizer.shouldUseAgent(message);
+    }
+
+    /**
+     * 检查 AgentChatHandler 是否有效
+     * 防止 callback=null 导致的崩溃
+     */
+    public boolean isValid() {
+        return !isShutdown && callback != null && activity != null && !activity.isFinishing();
+    }
+
+    /**
+     * 安全执行回调操作
+     * 在执行前检查 callback 是否有效
+     */
+    private void safeCallback(java.util.function.Consumer<AgentChatCallback> action) {
+        if (isValid()) {
+            try {
+                action.accept(callback);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Callback error: " + e.getMessage());
+            }
+        } else {
+            AILogger.w(TAG, "Callback invalid, skipping action");
+        }
     }
 
     public String getIntentType(String message) {
@@ -484,6 +547,8 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     }
 
     public void shutdown() {
+        isShutdown = true;
         engine.shutdown();
+        AILogger.i(TAG, "AgentChatHandler shut down");
     }
 }

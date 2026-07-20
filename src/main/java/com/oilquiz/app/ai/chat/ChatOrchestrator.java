@@ -224,6 +224,11 @@ public class ChatOrchestrator {
             public void onError(String msgId, String error) {
                 handleError(msgId, error);
             }
+            
+            @Override
+            public void onInferenceProgress(String msgId, int tokenCount, float tokensPerSecond) {
+                handleInferenceProgress(msgId, tokenCount, tokensPerSecond);
+            }
         });
     }
     
@@ -255,6 +260,18 @@ public class ChatOrchestrator {
             broadcaster.broadcastTo(messageId, 
                 StreamingEvent.createThinkingUpdate(messageId, (StreamingEvent.ThinkingStepData) thinkingData));
         }
+    }
+    
+    private void handleInferenceProgress(String messageId, int tokenCount, float tokensPerSecond) {
+        broadcaster.broadcastTo(messageId, 
+            StreamingEvent.createInferenceProgress(messageId, 
+                new StreamingEvent.InferenceProgressData(
+                    com.oilquiz.app.ai.chat.ChatMessage.InferencePhase.GENERATING,
+                    tokenCount,
+                    tokensPerSecond
+                )
+            )
+        );
     }
     
     private void handleComplete(String messageId, String finalContent, Object stats) {

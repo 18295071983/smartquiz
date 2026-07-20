@@ -14,16 +14,14 @@ public class WeatherService {
 
     private static final String TAG = "WeatherService";
     
-    private static final long CACHE_DURATION_NOW = 5 * 60 * 1000;
-    private static final long CACHE_DURATION_FORECAST = 30 * 60 * 1000;
-    private static final long CACHE_DURATION_AIR = 10 * 60 * 1000;
-    private static final long CACHE_DURATION_ALERTS = 5 * 60 * 1000;
-    private static final long CACHE_DURATION_HOURLY = 15 * 60 * 1000;
-    private static final long CACHE_DURATION_INDICES = 60 * 60 * 1000;
+    private static final long CACHE_DURATION_NOW = 15 * 60 * 1000;
+    private static final long CACHE_DURATION_FORECAST = 3 * 60 * 60 * 1000;
+    private static final long CACHE_DURATION_AIR = 30 * 60 * 1000;
+    private static final long CACHE_DURATION_ALERTS = 10 * 60 * 1000;
+    private static final long CACHE_DURATION_HOURLY = 30 * 60 * 1000;
+    private static final long CACHE_DURATION_INDICES = 8 * 60 * 60 * 1000;
+    private static final long CACHE_DURATION_MINUTELY = 5 * 60 * 1000;
 
-    /**
-     * 将坐标截断到小数点后2位作为缓存 key，避免浮点精度导致的 key 不一致
-     */
     private static String locationKey(double lat, double lon) {
         return String.format(java.util.Locale.US, "%.2f_%.2f", lat, lon);
     }
@@ -32,14 +30,27 @@ public class WeatherService {
     private final AIWeatherManager weatherManager;
     private final WeatherCacheManager cacheManager;
     private final Gson gson;
+    private final QWeatherSdkManager sdkManager;
 
     private static WeatherService instance;
 
     private WeatherService(Context context) {
         this.context = context.getApplicationContext();
-        this.weatherManager = new AIWeatherManager(this.context, AIWeatherManager.WeatherProvider.HEFENG);
         this.cacheManager = WeatherCacheManager.getInstance(this.context);
         this.gson = new Gson();
+        this.sdkManager = QWeatherSdkManager.getInstance(this.context);
+
+        // Auto-initialize SDK with default JWT credentials
+        if (!sdkManager.isInitialized()) {
+            sdkManager.initializeFromStorage();
+            if (sdkManager.isInitialized()) {
+                Log.i(TAG, "QWeather SDK auto-initialized with JWT credentials");
+            } else {
+                Log.w(TAG, "QWeather SDK initialization failed, falling back to direct API");
+            }
+        }
+
+        this.weatherManager = new AIWeatherManager(this.context, AIWeatherManager.WeatherProvider.HEFENG);
     }
 
     public static synchronized WeatherService getInstance(Context context) {
@@ -47,6 +58,33 @@ public class WeatherService {
             instance = new WeatherService(context);
         }
         return instance;
+    }
+
+    public void initializeSdk(String apiHost, String privateKey, String projectId, String kid) {
+        sdkManager.initialize(apiHost, privateKey, projectId, kid);
+    }
+
+    /**
+     * Initialize JWT authentication for QWeather API.
+     * @param privateKeyPem Ed25519 private key in PEM format
+     * @param projectId QWeather project ID
+     * @param kid QWeather key ID (credential ID from console)
+     * @param apiHost API host (e.g., "https://xxx.qweatherapi.com")
+     */
+    public void initializeJwt(String privateKeyPem, String projectId, String kid, String apiHost) {
+        weatherManager.initializeJwt(privateKeyPem, projectId, kid, apiHost);
+        Log.i(TAG, "QWeather JWT authentication initialized");
+    }
+
+    public boolean isSdkInitialized() {
+        return sdkManager.isInitialized();
+    }
+
+    /**
+     * Check if JWT authentication is configured.
+     */
+    public boolean isJwtInitialized() {
+        return weatherManager.isJwtInitialized();
     }
 
     public CompletableFuture<String> getCurrentWeather(String city) {
@@ -58,6 +96,13 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getCurrentWeather(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getCurrentWeather(city).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
@@ -65,6 +110,10 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon) {
+        return getCurrentWeatherByLocation(lat, lon, null);
+    }
+
+    public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon, String cityName) {
         String cacheKey = "weather_now_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
@@ -73,7 +122,15 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
-        return weatherManager.getCurrentWeatherByLocation(lat, lon).thenApply(result -> {
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getCurrentWeather(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
+        return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
         });
@@ -107,6 +164,14 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getDailyForecast(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getHefengForecastByLocation(lat, lon).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
@@ -120,6 +185,14 @@ public class WeatherService {
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_HOURLY)) {
             Log.d(TAG, "Returning cached hourly for location " + lat + "," + lon);
             return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getHourlyForecast(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
         }
 
         return weatherManager.getHefengHourlyByLocation(lat, lon).thenApply(result -> {
@@ -137,6 +210,14 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getAirQuality(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getHefengAirQualityByLocation(lat, lon).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
@@ -150,6 +231,14 @@ public class WeatherService {
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_ALERTS)) {
             Log.d(TAG, "Returning cached alerts for location " + lat + "," + lon);
             return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getWeatherAlerts(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
         }
 
         return weatherManager.getHefengAlertsByLocation(lat, lon).thenApply(result -> {
@@ -167,7 +256,45 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getIndices(location).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getHefengIndicesByLocation(lat, lon).thenApply(result -> {
+            cacheManager.saveCache(cacheKey, result);
+            return result;
+        });
+    }
+
+    public CompletableFuture<String> getMinutelyByLocation(double lat, double lon) {
+        String cacheKey = "weather_minutely_" + locationKey(lat, lon);
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_MINUTELY)) {
+            Log.d(TAG, "Returning cached minutely for location " + lat + "," + lon);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        return weatherManager.getHefengMinutelyByLocation(lat, lon).thenApply(result -> {
+            cacheManager.saveCache(cacheKey, result);
+            return result;
+        });
+    }
+
+    public CompletableFuture<String> getSunByLocation(double lat, double lon) {
+        String cacheKey = "weather_sun_" + locationKey(lat, lon);
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_FORECAST)) {
+            Log.d(TAG, "Returning cached sun info for location " + lat + "," + lon);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        return weatherManager.getHefengSunByLocation(lat, lon).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
         });
@@ -180,6 +307,13 @@ public class WeatherService {
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_FORECAST)) {
             Log.d(TAG, "Returning cached forecast for " + city);
             return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getDailyForecast(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
         }
 
         return weatherManager.getHefengForecast(city).thenApply(result -> {
@@ -197,6 +331,13 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getHourlyForecast(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getHefengHourly(city).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
@@ -210,6 +351,13 @@ public class WeatherService {
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_AIR)) {
             Log.d(TAG, "Returning cached air quality for " + city);
             return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getAirQuality(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
         }
 
         return weatherManager.getHefengAirQuality(city).thenApply(result -> {
@@ -227,6 +375,13 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getWeatherAlerts(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
         return weatherManager.getHefengAlerts(city).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
@@ -240,6 +395,13 @@ public class WeatherService {
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_INDICES)) {
             Log.d(TAG, "Returning cached indices for " + city);
             return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getIndices(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
         }
 
         return weatherManager.getHefengIndices(city).thenApply(result -> {

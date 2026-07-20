@@ -243,18 +243,48 @@ public class ModelSelectorActivity extends AppCompatActivity
             });
         } else {
             Toast.makeText(this, "正在切换到本地模型: " + modelName, Toast.LENGTH_SHORT).show();
-            new Thread(() -> {
-                onlineModelManager.stopActiveModel();
-                boolean success = aiService.switchModel(modelName);
-                runOnUiThread(() -> {
-                    if (success) {
-                        Toast.makeText(this, "模型切换成功: " + modelName, Toast.LENGTH_SHORT).show();
-                        refreshModels();
-                    } else {
-                        Toast.makeText(this, "模型切换失败", Toast.LENGTH_SHORT).show();
-                    }
-                });
-            }).start();
+            onlineModelManager.stopActiveModel();
+
+            // 使用热切换，带进度回调
+            aiService.hotSwitchModel(modelName, new AIService.HotSwitchCallback() {
+                @Override
+                public void onSwitchStarted(String fromModel, String toModel) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(ModelSelectorActivity.this,
+                            "开始切换: " + (fromModel != null ? fromModel : "无") + " → " + toModel,
+                            Toast.LENGTH_SHORT).show();
+                    });
+                }
+
+                @Override
+                public void onSwitchProgress(int progress, String message) {
+                    runOnUiThread(() -> {
+                        // 可以在这里更新进度条
+                    });
+                }
+
+                @Override
+                public void onSwitchCompleted(boolean success, String model) {
+                    runOnUiThread(() -> {
+                        if (success) {
+                            Toast.makeText(ModelSelectorActivity.this,
+                                "模型切换成功: " + model, Toast.LENGTH_SHORT).show();
+                            refreshModels();
+                        } else {
+                            Toast.makeText(ModelSelectorActivity.this,
+                                "模型切换失败", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+
+                @Override
+                public void onSwitchFailed(String reason) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(ModelSelectorActivity.this,
+                            "模型切换失败: " + reason, Toast.LENGTH_SHORT).show();
+                    });
+                }
+            });
         }
     }
 
