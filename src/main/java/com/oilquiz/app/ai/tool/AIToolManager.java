@@ -3,7 +3,15 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 import android.util.Log;
 
+import com.oilquiz.app.ai.tool.openai.ToolDefinition;
+import com.oilquiz.app.ai.tool.openai.ParamDefinition;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -562,5 +570,241 @@ public class AIToolManager {
         unloadAllTools();
         dynamicTools.clear();
         Log.i(TAG, "AIToolManager released");
+    }
+    
+    /**
+     * 获取所有工具的 OpenAI 标准格式描述
+     * @return JSONArray 包含所有工具的 OpenAI function calling 格式定义
+     */
+    public JSONArray getToolsAsOpenAIFormat() throws JSONException {
+        JSONArray toolsArray = new JSONArray();
+        
+        for (String toolName : toolFactories.keySet()) {
+            ToolDefinition definition = getToolDefinition(toolName);
+            if (definition != null) {
+                toolsArray.put(definition.toOpenAIFormat());
+            }
+        }
+        
+        for (AITool tool : dynamicTools.values()) {
+            ToolDefinition definition = createToolDefinitionFromAITool(tool);
+            if (definition != null) {
+                toolsArray.put(definition.toOpenAIFormat());
+            }
+        }
+        
+        Log.i(TAG, "Returning " + toolsArray.length() + " tools in OpenAI format");
+        return toolsArray;
+    }
+    
+    /**
+     * 获取工具的 ToolDefinition 对象
+     */
+    public ToolDefinition getToolDefinition(String toolName) {
+        switch (toolName) {
+            case "ai_weather":
+                return ToolDefinition.builder("ai_weather", "天气查询工具，获取指定城市的天气信息")
+                    .addParameter("action", "string", "操作类型: current/forecast/hourly/air_quality/alerts/indices/all", false, "current")
+                    .addParameter("city", "string", "城市名称，如：北京、上海", false)
+                    .addParameter("lat", "number", "纬度", false)
+                    .addParameter("lon", "number", "经度", false)
+                    .category("weather")
+                    .build();
+            case "network_search":
+                return ToolDefinition.builder("network_search", "网络搜索工具，搜索网络信息")
+                    .addParameter("action", "string", "操作类型: search/get_webpage/extract_info/summarize/search_and_read/smart_search", false, "search")
+                    .addParameter("query", "string", "搜索关键词", true)
+                    .addParameter("keyword", "string", "搜索关键词（query的别名）", false)
+                    .addParameter("limit", "integer", "结果数量限制，默认5", false, 5)
+                    .addParameter("num_results", "integer", "返回结果数量（limit的别名）", false, 5)
+                    .addParameter("url", "string", "网页URL（用于get_webpage操作）", false)
+                    .category("search")
+                    .build();
+            case "python_calculate":
+                return ToolDefinition.builder("python_calculate", "使用Python进行数学计算")
+                    .addParameter("expression", "string", "数学表达式，如：2+3*4", true)
+                    .addParameter("task", "string", "任务描述（可选）", false)
+                    .category("calculator")
+                    .build();
+            case "translation":
+                return ToolDefinition.builder("translation", "翻译工具，翻译文本")
+                    .addParameter("text", "string", "待翻译文本", true)
+                    .addParameter("target_lang", "string", "目标语言，如：zh, en, ja, ko", false, "zh")
+                    .category("translation")
+                    .build();
+            case "file_reader":
+                return ToolDefinition.builder("file_reader", "文件读取工具，读取文件内容")
+                    .addParameter("file_path", "string", "文件路径", true)
+                    .category("file")
+                    .build();
+            case "file_analyzer":
+                return ToolDefinition.builder("file_analyzer", "文件分析工具，分析文件内容")
+                    .addParameter("file_path", "string", "文件路径", true)
+                    .addParameter("analysis_type", "string", "分析类型（可选）", false)
+                    .category("file")
+                    .build();
+            case "file_generator":
+                return ToolDefinition.builder("file_generator", "文件生成工具，生成文件")
+                    .addParameter("file_name", "string", "文件名", true)
+                    .addParameter("content", "string", "文件内容", true)
+                    .addParameter("format", "string", "文件格式（可选）", false)
+                    .category("file")
+                    .build();
+            case "database":
+                return ToolDefinition.builder("database", "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作")
+                    .addParameter("action", "string", "操作类型: execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score", true)
+                    .addParameter("query", "string", "SQL查询语句", false)
+                    .addParameter("keyword", "string", "搜索关键词", false)
+                    .addParameter("id", "string", "题目/用户ID", false)
+                    .addParameter("category", "string", "题目分类", false)
+                    .addParameter("type", "string", "题目类型", false)
+                    .addParameter("difficulty", "integer", "难度: 1-简单, 2-中等, 3-困难", false)
+                    .addParameter("page", "integer", "页码", false)
+                    .addParameter("page_size", "integer", "每页数量", false)
+                    .category("data")
+                    .build();
+            case "smart_research":
+                return ToolDefinition.builder("smart_research", "智能研究工具，整合搜索和阅读功能，自动完成搜索→选择→阅读→摘要的完整研究流程")
+                    .addParameter("topic", "string", "研究主题", true)
+                    .addParameter("depth", "integer", "研究深度(默认1)", false, 1)
+                    .addParameter("maxResults", "integer", "最大结果数(默认5)", false, 5)
+                    .category("research")
+                    .build();
+            case "location":
+                return ToolDefinition.builder("location", "位置查询工具，获取当前位置信息")
+                    .addParameter("action", "string", "操作类型: get_current/get_city/get_coordinates", false, "get_current")
+                    .category("location")
+                    .build();
+            case "webpage_reader":
+                return ToolDefinition.builder("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要")
+                    .addParameter("action", "string", "操作类型: read, extract, summarize, read_multiple, follow_links", false, "read")
+                    .addParameter("url", "string", "网页URL", true)
+                    .addParameter("content", "string", "网页内容(与url二选一)", false)
+                    .addParameter("query", "string", "搜索查询词", false)
+                    .addParameter("maxDepth", "integer", "最大链接深度(默认2)", false, 2)
+                    .addParameter("maxLinks", "integer", "最大链接数量(默认10)", false, 10)
+                    .category("web")
+                    .build();
+            case "system_resource":
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作")
+                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info", false, "open_app")
+                    .addParameter("app_name", "string", "应用名称(如微信、QQ、支付宝等)", false)
+                    .addParameter("url", "string", "URL地址", false)
+                    .addParameter("phone_number", "string", "电话号码", false)
+                    .addParameter("message", "string", "短信内容", false)
+                    .addParameter("params", "string", "附加参数JSON", false)
+                    .category("system")
+                    .build();
+            case "python_execute":
+                return ToolDefinition.builder("python_execute", "执行Python代码")
+                    .addParameter("code", "string", "Python代码（可选）", false)
+                    .addParameter("task", "string", "任务描述（可选）", false)
+                    .addParameter("context", "string", "上下文数据（可选）", false)
+                    .category("python")
+                    .build();
+            case "python_analyze_data":
+                return ToolDefinition.builder("python_analyze_data", "使用Python分析数据")
+                    .addParameter("data", "string", "数据（可选）", false)
+                    .addParameter("task", "string", "任务描述（可选）", false)
+                    .category("python")
+                    .build();
+            case "file":
+                return ToolDefinition.builder("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件")
+                    .addParameter("action", "string", "操作类型: get_file_info, read_file, list_files", true)
+                    .addParameter("file_path", "string", "文件路径（用于get_file_info和read_file操作）", false)
+                    .addParameter("directory_path", "string", "目录路径（用于list_files操作）", false)
+                    .category("file")
+                    .build();
+            case "app_operation":
+                return ToolDefinition.builder("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面")
+                    .addParameter("action", "string", "操作类型: navigate/list_pages/go_home/go_back", false, "navigate")
+                    .addParameter("page", "string", "页面名称(如user/question/quiz/study_plan/wrong_question/note/ocr/ai等)", false)
+                    .category("app")
+                    .build();
+            case "create_dynamic_tool":
+                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具")
+                    .addParameter("action", "string", "操作类型: create/update/delete/list", false, "list")
+                    .addParameter("tool_name", "string", "工具名称", false)
+                    .addParameter("description", "string", "工具描述", false)
+                    .addParameter("parameters", "string", "参数定义JSON", false)
+                    .addParameter("logic", "string", "执行逻辑脚本", false)
+                    .category("tool")
+                    .build();
+            case "permission_manager":
+                return ToolDefinition.builder("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能")
+                    .addParameter("action", "string", "操作类型: check/check_all/request/request_and_wait/get_status/list_permissions/explain_permission/can_request", false, "check")
+                    .addParameter("permission", "string", "权限名称（如camera/位置/录音/存储/拨打电话/发送短信等）", false)
+                    .addParameter("permissions", "array", "权限列表（用于check_all操作）", false)
+                    .category("system")
+                    .build();
+            case "app_toolkit":
+                return ToolDefinition.builder("app_toolkit", "应用工具集，提供多种实用功能")
+                    .addParameter("action", "string", "操作类型: weather_current/weather_forecast/calculate/ocr_recognize等", true)
+                    .category("app")
+                    .build();
+            case "ai_create_tool":
+                return ToolDefinition.builder("ai_create_tool", "AI创建工具，使用AI自动生成新工具")
+                    .addParameter("tool_name", "string", "工具名称", true)
+                    .addParameter("description", "string", "工具描述", true)
+                    .addParameter("parameters", "string", "参数定义", false)
+                    .addParameter("logic", "string", "执行逻辑", false)
+                    .category("tool")
+                    .build();
+            default:
+                return null;
+        }
+    }
+    
+    /**
+     * 从 AITool 实例创建 ToolDefinition
+     */
+    private ToolDefinition createToolDefinitionFromAITool(AITool tool) {
+        try {
+            ToolDefinition.Builder builder = ToolDefinition.builder(
+                tool.getName(),
+                tool.getDescription()
+            );
+            
+            Map<String, String> paramDescriptions = tool.getParameterDescriptions();
+            if (paramDescriptions != null) {
+                for (Map.Entry<String, String> entry : paramDescriptions.entrySet()) {
+                    builder.addParameter(entry.getKey(), "string", entry.getValue(), false);
+                }
+            }
+            
+            return builder.build();
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating ToolDefinition from AITool: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * 获取工具的 OpenAI 格式字符串描述（用于 Prompt）
+     */
+    public String getToolsForPrompt() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("可用工具列表:\n\n");
+        
+        for (String toolName : toolFactories.keySet()) {
+            ToolDefinition definition = getToolDefinition(toolName);
+            if (definition != null) {
+                sb.append("工具名称: ").append(definition.getName()).append("\n");
+                sb.append("功能描述: ").append(definition.getDescription()).append("\n");
+                sb.append("参数:\n");
+                for (ParamDefinition param : definition.getParameters()) {
+                    sb.append("  - ").append(param.getName());
+                    sb.append(" (").append(param.getType()).append(")");
+                    if (param.isRequired()) sb.append(" [必填]");
+                    if (param.getDefaultValue() != null) {
+                        sb.append(" 默认: ").append(param.getDefaultValue());
+                    }
+                    sb.append(": ").append(param.getDescription()).append("\n");
+                }
+                sb.append("\n");
+            }
+        }
+        
+        return sb.toString();
     }
 }

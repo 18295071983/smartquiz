@@ -472,6 +472,18 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 }
             });
 
+            itemView.setOnLongClickListener(v -> {
+                int position = getAdapterPosition();
+                if (position != RecyclerView.NO_POSITION && listener != null) {
+                    DisplayItem item = displayItems.get(position);
+                    if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
+                        // 长按显示详情或编辑选项
+                        showModelOptions(item);
+                    }
+                }
+                return true;
+            });
+
             deleteButton.setOnClickListener(v -> {
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
@@ -620,6 +632,72 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 return context.getString(R.string.last_used_minutes, (int) minutes);
             } else {
                 return context.getString(R.string.last_used_just_now);
+            }
+        }
+
+        private void showModelOptions(DisplayItem item) {
+            if (context == null) return;
+
+            String[] options = {"查看详情", "编辑配置", "测试连接", "复制API地址"};
+            new android.app.AlertDialog.Builder(context)
+                .setTitle(item.modelName)
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0: // 查看详情
+                            showModelDetails(item);
+                            break;
+                        case 1: // 编辑配置
+                            if (listener != null) {
+                                listener.onModelClick(item.modelName);
+                            }
+                            break;
+                        case 2: // 测试连接
+                            if (listener != null) {
+                                listener.onFetchModelsClick(item.modelName);
+                            }
+                            break;
+                        case 3: // 复制API地址
+                            copyToClipboard(item.apiUrl);
+                            break;
+                    }
+                })
+                .show();
+        }
+
+        private void showModelDetails(DisplayItem item) {
+            if (context == null) return;
+
+            String details = "模型名称: " + item.modelName + "\n" +
+                           "模型类型: " + (item.modelType != null ? item.modelType : "未知") + "\n" +
+                           "API地址: " + (item.apiUrl != null ? item.apiUrl : "未知") + "\n" +
+                           "状态: " + getStatusText(item.status) + "\n" +
+                           "延迟: " + item.latencyMs + "ms\n" +
+                           "是否启用: " + (item.isEnabled ? "是" : "否");
+
+            new android.app.AlertDialog.Builder(context)
+                .setTitle("模型详情")
+                .setMessage(details)
+                .setPositiveButton("确定", null)
+                .show();
+        }
+
+        private String getStatusText(int status) {
+            switch (status) {
+                case 1: return "在线";
+                case 2: return "离线";
+                case 3: return "错误";
+                default: return "未知";
+            }
+        }
+
+        private void copyToClipboard(String text) {
+            if (context == null || text == null) return;
+            android.content.ClipboardManager clipboard = 
+                (android.content.ClipboardManager) context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                android.content.ClipData clip = android.content.ClipData.newPlainText("API URL", text);
+                clipboard.setPrimaryClip(clip);
+                android.widget.Toast.makeText(context, "已复制到剪贴板", android.widget.Toast.LENGTH_SHORT).show();
             }
         }
     }

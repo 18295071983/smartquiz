@@ -59,6 +59,14 @@ public class ChatHistoryManager {
         this.gson = new Gson();
     }
 
+    /**
+     * 检查是否有之前的会话记录
+     */
+    public boolean hasPreviousSession() {
+        File file = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE);
+        return file.exists() && file.length() > 0;
+    }
+
     // AI Chat History
     public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         try {

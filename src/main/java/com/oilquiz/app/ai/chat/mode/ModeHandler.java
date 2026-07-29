@@ -13,5 +13,6 @@ public interface ModeHandler {
         void onThinkingUpdate(String messageId, Object thinkingData);
         void onComplete(String messageId, String content, Object stats);
         void onError(String messageId, String error);
+        void onInferenceProgress(String messageId, int tokenCount, float tokensPerSecond);
     }
 }

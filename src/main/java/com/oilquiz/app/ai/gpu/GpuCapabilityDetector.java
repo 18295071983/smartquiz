@@ -51,16 +51,16 @@ public class GpuCapabilityDetector {
                           ", memory=" + globalMemoryMB + "MB");
                     
                     return new GpuInfo(
-                        name, 
-                        vendor, 
-                        version, 
+                        name,
+                        vendor,
+                        version,
                         vulkanVersion,
-                        memoryInfo.availableMemoryMB, 
-                        memoryInfo.totalMemoryMB, 
-                        maxComputeUnits, 
+                        memoryInfo.availableMemoryMB,
+                        globalMemoryMB,  // 使用实际的 GPU 显存，而不是系统内存
+                        maxComputeUnits,
                         maxFrequencyMHz,
-                        vulkanVersion, 
-                        supportsVulkan, 
+                        vulkanVersion,
+                        supportsVulkan,
                         supportsFP16
                     );
                 } catch (Exception e) {
@@ -90,7 +90,7 @@ public class GpuCapabilityDetector {
             }
 
             return new GpuInfo(renderer, vendor, version, apiVersion,
-                memoryInfo.availableMemoryMB, memoryInfo.totalMemoryMB, 0, 0,
+                memoryInfo.availableMemoryMB, 0, 0, 0,  // GPU memory unknown in fallback
                 apiVersion, vulkanSupport, fp16Support);
         } catch (Exception e) {
             Log.e(TAG, "Failed to detect GPU info", e);

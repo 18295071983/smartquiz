@@ -237,6 +237,57 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         return attachments.isEmpty();
     }
 
+    /**
+     * 更新附件列表（带 DiffUtil）
+     */
+    public void updateAttachments(List<Attachment> newAttachments) {
+        List<Attachment> oldAttachments = new ArrayList<>(this.attachments);
+        this.attachments.clear();
+        this.attachments.addAll(newAttachments != null ? newAttachments : new ArrayList<>());
+        
+        // 使用 DiffUtil 计算差异
+        androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = 
+            androidx.recyclerview.widget.DiffUtil.calculateDiff(new androidx.recyclerview.widget.DiffUtil.Callback() {
+                @Override
+                public int getOldListSize() {
+                    return oldAttachments.size();
+                }
+
+                @Override
+                public int getNewListSize() {
+                    return attachments.size();
+                }
+
+                @Override
+                public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+                    Attachment oldItem = oldAttachments.get(oldItemPosition);
+                    Attachment newItem = attachments.get(newItemPosition);
+                    return oldItem.url != null && oldItem.url.equals(newItem.url);
+                }
+
+                @Override
+                public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+                    Attachment oldItem = oldAttachments.get(oldItemPosition);
+                    Attachment newItem = attachments.get(newItemPosition);
+                    return oldItem.status == newItem.status 
+                        && oldItem.uploadProgress == newItem.uploadProgress;
+                }
+            });
+        
+        diffResult.dispatchUpdatesTo(this);
+    }
+
+    /**
+     * 清空所有附件
+     */
+    public void clear() {
+        int size = attachments.size();
+        attachments.clear();
+        if (size > 0) {
+            notifyItemRangeRemoved(0, size);
+        }
+    }
+
     public void updateAttachmentProgress(int position, int progress) {
         if (position >= 0 && position < attachments.size()) {
             Attachment attachment = attachments.get(position);

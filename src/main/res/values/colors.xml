@@ -26,8 +26,19 @@
     <color name="success">#10B981</color>
     <color name="success_light">#6EE7B7</color>
     <color name="success_container">#ECFDF5</color>
+    <color name="success_light_bg">#ECFDF5</color>
 
     <color name="warning">#F59E0B</color>
+    <color name="accent">#06B6D4</color>
+
+    <color name="border">#E2E8F0</color>
+    <color name="border_light">#F1F5F9</color>
+    <color name="surface_elevated">#FFFFFF</color>
+
+    <color name="green_light">#D1FAE5</color>
+    <color name="orange_light">#FFEDD5</color>
+    <color name="purple_light">#EDE9FE</color>
+    <color name="blue_light">#E0F2FE</color>
     <color name="warning_light">#FCD34D</color>
     <color name="warning_container">#FFFBEB</color>
 
@@ -92,6 +103,7 @@
 
     <color name="blue_100">#BBDEFB</color>
     <color name="blue_300">#64B5F6</color>
+    <color name="blue_400">#93C5FD</color>
     <color name="blue_500">#3B82F6</color>
     <color name="blue_600">#2563EB</color>
     <color name="blue_700">#1D4ED8</color>
@@ -178,16 +190,7 @@
     <color name="task_text">#065F46</color>
     <color name="task_label">#047857</color>
 
-    <color name="tool_call_background">#E0F2FE</color>
-    <color name="tool_call_text">#0C4A6E</color>
-    <color name="tool_call_label">#0369A1</color>
-    <color name="tool_call_result_background">#F1F5F9</color>
-    <color name="agent_step_background">#FFF7ED</color>
-    <color name="agent_step_text">#9A3412</color>
-    <color name="agent_step_label">#C2410C</color>
-    <color name="agent_thinking_background">#FDF2F8</color>
-    <color name="agent_action_background">#ECFDF5</color>
-    <color name="agent_observation_background">#EDE9FE</color>
+    <!-- Legacy Agent Colors (kept for compatibility) -->
     <color name="agent_reflection_background">#F0F9FF</color>
     <color name="error_message_background">#FEF2F2</color>
     <color name="error_message_text">#B91C1C</color>
@@ -198,6 +201,16 @@
     <color name="weather_banner_bg_end">#A78BFA</color>
     <color name="weather_banner_text">#FFFFFF</color>
     <color name="weather_banner_text_secondary">#E2E8F0</color>
+
+    <color name="weather_dark_bg">#0F172A</color>
+    <color name="weather_dark_surface">#1E293B</color>
+    <color name="weather_dark_card">#1E293B</color>
+    <color name="weather_dark_card_stroke">#334155</color>
+    <color name="weather_dark_text">#FFFFFF</color>
+    <color name="weather_dark_text_secondary">#94A3B8</color>
+    <color name="weather_dark_text_tertiary">#64748B</color>
+    <color name="weather_primary">#38BDF8</color>
+    <color name="weather_alert_red">#EF4444</color>
 
     <!-- Dialog Colors -->
     <color name="dialog_title_text">#1E293B</color>
@@ -217,5 +230,36 @@
     <color name="bg_validation_success">#ECFDF5</color>
     <color name="bg_validation_error">#FEE2E2</color>
     <color name="bg_warning">#FEF3C7</color>
+
+    <!-- Agent UI Colors -->
+    <color name="tool_call_label">#6366F1</color>
+    <color name="tool_call_status_default">#94A3B8</color>
+    <color name="tool_call_status_success">#10B981</color>
+    <color name="tool_call_status_error">#EF4444</color>
+    <color name="tool_call_status_running">#F59E0B</color>
+    <color name="tool_call_info">#94A3B8</color>
+    <color name="tool_call_text">#334155</color>
+    <color name="tool_call_background">#F1F5F9</color>
+    <color name="tool_call_result_background">#ECFDF5</color>
+    <color name="tool_result_label">#10B981</color>
+
+    <color name="agent_step_label">#8B5CF6</color>
+    <color name="agent_step_iteration">#94A3B8</color>
+    <color name="agent_step_info">#94A3B8</color>
+    <color name="agent_step_text">#334155</color>
+    <color name="agent_step_background">#F5F3FF</color>
+    <color name="agent_thinking_label">#8B5CF6</color>
+    <color name="agent_thinking_background">#F5F3FF</color>
+    <color name="agent_action_label">#06B6D4</color>
+    <color name="agent_action_background">#ECFEFF</color>
+    <color name="agent_observation_label">#10B981</color>
+    <color name="agent_observation_background">#ECFDF5</color>
+
+    <color name="agent_summary_title">#1E293B</color>
+    <color name="agent_summary_value">#1E293B</color>
+    <color name="agent_summary_label">#64748B</color>
+    <color name="agent_summary_divider">#E2E8F0</color>
+    <color name="agent_summary_success">#10B981</color>
+    <color name="agent_summary_error">#EF4444</color>
 
 </resources>

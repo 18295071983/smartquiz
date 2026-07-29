@@ -148,6 +148,42 @@ public class UnifiedContextManager {
         return currentContextType;
     }
 
+    /**
+     * 检查当前上下文是否支持 Agent 模式
+     * Agent 模式需要 chat context 已就绪才能正常使用流式推理
+     * 
+     * @return true 如果上下文兼容 Agent 模式
+     */
+    public boolean isContextCompatibleForAgent() {
+        boolean compatible = chatContextReady.get();
+        AppLogger.ai(TAG, "Context compatibility for Agent: " + compatible +
+                " (modelReady=" + modelContextReady.get() +
+                ", chatReady=" + chatContextReady.get() + ")");
+        return compatible;
+    }
+
+    /**
+     * 检查是否可以安全切换到 Agent 模式
+     * 如果当前有生成任务在进行，返回 false
+     * 
+     * @return true 如果可以安全切换
+     */
+    public boolean canSafelySwitchToAgent() {
+        // 检查上下文是否就绪
+        if (!chatContextReady.get()) {
+            AppLogger.aiW(TAG, "Cannot switch to Agent: chat context not ready");
+            return false;
+        }
+        
+        // 检查模型是否就绪
+        if (!modelContextReady.get()) {
+            AppLogger.aiW(TAG, "Cannot switch to Agent: model context not ready");
+            return false;
+        }
+        
+        return true;
+    }
+
     public boolean isModelContextReady() {
         return modelContextReady.get();
     }
@@ -598,6 +634,8 @@ public class UnifiedContextManager {
             allOk = false;
         }
         
+        checkAndTrimContextWindow();
+        
         if (allOk) {
             if (stabilityCallback != null) {
                 stabilityCallback.onHealthCheckPassed();
@@ -607,6 +645,18 @@ public class UnifiedContextManager {
             if (stabilityCallback != null) {
                 stabilityCallback.onHealthCheckFailed(issues.toString());
             }
+        }
+    }
+    
+    private void checkAndTrimContextWindow() {
+        try {
+            ContextWindowManager ctxManager = ContextWindowManager.getInstance();
+            if (ctxManager != null && ctxManager.shouldTrim()) {
+                AppLogger.aiW(TAG, "Context window exceeding threshold, auto-trimming...");
+                ctxManager.autoTrim();
+            }
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error checking context window", e);
         }
     }
     

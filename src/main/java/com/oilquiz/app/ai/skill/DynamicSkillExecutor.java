@@ -2,7 +2,6 @@ package com.oilquiz.app.ai.skill;
 
 import android.content.Context;
 import com.oilquiz.app.ai.service.AIService;
-import com.oilquiz.app.ai.tool.AIToolsManager;
 import com.oilquiz.app.util.AILogger;
 
 public class DynamicSkillExecutor {
@@ -10,12 +9,10 @@ public class DynamicSkillExecutor {
 
     private final Context context;
     private final SkillManager skillManager;
-    private final AIToolsManager toolsManager;
 
-    public DynamicSkillExecutor(Context context, SkillManager skillManager, AIToolsManager toolsManager) {
+    public DynamicSkillExecutor(Context context, SkillManager skillManager) {
         this.context = context.getApplicationContext();
         this.skillManager = skillManager;
-        this.toolsManager = toolsManager;
     }
 
     public String executeWithSkill(String skillId, String message) {

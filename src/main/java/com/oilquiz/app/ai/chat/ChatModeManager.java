@@ -15,7 +15,8 @@ public class ChatModeManager {
     public enum ChatMode {
         NORMAL("普通", "normal", "💬"),
         DEEP_THINKING("深度思考", "deep_thinking", "🧠"),
-        CREATIVE("创意写作", "creative", "✍️");
+        CREATIVE("创意写作", "creative", "✍️"),
+        AGENT("Agent", "agent", "🤖");
 
         public final String displayName;
         public final String modeId;
@@ -48,7 +49,7 @@ public class ChatModeManager {
     private final Context context;
     private volatile OnModeChangeListener modeChangeListener;
     private volatile ChatMode currentMode = ChatMode.NORMAL;
-    private volatile boolean autoModeEnabled = true;
+    private volatile boolean autoModeEnabled = false;
     private volatile boolean isGenerating = false;
     private volatile ChatMode pendingMode = null;
 
@@ -64,7 +65,6 @@ public class ChatModeManager {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         String modeId = prefs.getString(PREF_CURRENT_MODE, ChatMode.NORMAL.modeId);
         currentMode = ChatMode.fromModeId(modeId);
-        autoModeEnabled = prefs.getBoolean(PREF_AUTO_MODE_ENABLED, true);
     }
 
     private void saveCurrentMode() {
@@ -95,14 +95,11 @@ public class ChatModeManager {
         return autoModeEnabled;
     }
 
+    /**
+     * 自动模式已禁用，所有模式由用户手动选择
+     */
     public void setAutoModeEnabled(boolean enabled) {
-        this.autoModeEnabled = enabled;
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        prefs.edit().putBoolean(PREF_AUTO_MODE_ENABLED, enabled).apply();
-        if (modeChangeListener != null) {
-            modeChangeListener.onAutoModeChanged(enabled);
-        }
-        AppLogger.aiD(TAG, "Auto mode " + (enabled ? "enabled" : "disabled"));
+        AppLogger.aiD(TAG, "Auto mode is disabled. All modes are manually selected.");
     }
 
     public void setManualMode(ChatMode mode) {
@@ -115,14 +112,14 @@ public class ChatModeManager {
             }
             AppLogger.aiD(TAG, "Mode switch pending: " + mode.displayName);
         } else {
-            switchToMode(mode, false);
+            switchToMode(mode);
         }
     }
 
     public void setGeneratingState(boolean generating) {
         this.isGenerating = generating;
         if (!generating && pendingMode != null) {
-            switchToMode(pendingMode, false);
+            switchToMode(pendingMode);
             pendingMode = null;
         }
     }
@@ -139,7 +136,7 @@ public class ChatModeManager {
         pendingMode = null;
     }
 
-    private void switchToMode(ChatMode mode, boolean isAuto) {
+    private void switchToMode(ChatMode mode) {
         if (mode == currentMode) return;
         
         ChatMode oldMode = currentMode;
@@ -147,102 +144,72 @@ public class ChatModeManager {
         saveCurrentMode();
         
         if (modeChangeListener != null) {
-            modeChangeListener.onModeChanged(mode, isAuto);
+            modeChangeListener.onModeChanged(mode, false);
         }
-        AppLogger.aiD(TAG, "Mode switched: " + oldMode.displayName + " -> " + mode.displayName + (isAuto ? " (auto)" : " (manual)"));
+        AppLogger.aiD(TAG, "Mode switched: " + oldMode.displayName + " -> " + mode.displayName);
     }
 
     /**
-     * AI 智能识别模式
-     * 根据消息内容自动判断适合的模式
+     * 返回当前用户选择的模式。
+     * 模式完全由用户手动选择，不做自动识别。
      */
     public ChatMode determineMode(String userMessage) {
-        if (userMessage == null || userMessage.trim().isEmpty()) {
-            return ChatMode.NORMAL;
-        }
-
-        String lower = userMessage.toLowerCase();
-        int scoreThinking = 0;
-        int scoreCreative = 0;
-
-        // 深度思考关键词
-        if (containsAny(lower, "为什么", "为何", "原因", "分析", "解释", "原理", "逻辑",
-                "思考", "推理", "证明", "推导", "论证", "探讨", "研究", "深入",
-                "本质", "核心", "关键", "如何实现", "怎么做到")) {
-            scoreThinking += 3;
-        }
-        if (containsAny(lower, "比较", "对比", "区别", "差异", "优缺点", "哪个更好",
-                "如何选择", "建议", "评估", "判断", "看法", "观点")) {
-            scoreThinking += 2;
-        }
-
-        // 创意写作关键词
-        if (containsAny(lower, "写", "创作", "编写", "撰写", "续写", "改写", "模仿",
-                "帮我写", "写一篇", "写一个", "生成一")) {
-            scoreCreative += 3;
-        }
-        if (containsAny(lower, "故事", "小说", "诗歌", "散文", "文章", "作文", "报告",
-                "演讲", "致辞", "剧本", "歌词", "广告", "文案", "邮件", "书信")) {
-            scoreCreative += 2;
-        }
-        if (containsAny(lower, "浪漫", "科幻", "奇幻", "悬疑", "恐怖", "搞笑",
-                "感人", "励志", "幽默", "童话", "武侠", "爱情")) {
-            scoreCreative += 2;
-        }
-
-        // 数学/科学计算类倾向于思考
-        if (containsAny(lower, "计算", "数学", "公式", "方程", "求解", "证明",
-                "物理", "化学", "生物", "推理")) {
-            scoreThinking += 2;
-        }
-
-        // 编程倾向于思考
-        if (containsAny(lower, "代码", "程序", "函数", "算法", "bug", "调试",
-                "优化", "重构", "架构", "设计模式")) {
-            scoreThinking += 2;
-        }
-
-        // 返回得分最高的模式
-        if (scoreThinking > scoreCreative && scoreThinking >= 2) {
-            return ChatMode.DEEP_THINKING;
-        } else if (scoreCreative > scoreThinking && scoreCreative >= 2) {
-            return ChatMode.CREATIVE;
-        }
-        return ChatMode.NORMAL;
+        return currentMode;
     }
 
-    private boolean containsAny(String text, String... keywords) {
-        for (String keyword : keywords) {
-            if (text.contains(keyword)) {
-                return true;
-            }
-        }
+    /**
+     * 自动模式判断 — 已禁用，所有模式由用户手动选择
+     */
+    public boolean shouldAutoSwitch(String userMessage) {
         return false;
     }
 
+    public String getModeSystemPrompt(ChatMode mode) {
+        return getModeSystemPromptStatic(mode);
+    }
+    
     /**
-     * 自动模式判断（仅在自动模式开启时调用）
+     * 统一基础提示词 - 适用于所有模式
      */
-    public boolean shouldAutoSwitch(String userMessage) {
-        if (!autoModeEnabled) {
-            return false;
-        }
-        ChatMode suggested = determineMode(userMessage);
-        return suggested != currentMode;
+    public static String getBaseSystemPrompt() {
+        return "你是一个智能AI助手，擅长理解用户需求并提供准确、有帮助的回答。\n" +
+               "请用自然易懂的中文与用户对话，回答准确简洁，保持礼貌耐心。";
     }
 
-    public String getModeSystemPrompt(ChatMode mode) {
+    /**
+     * 静态方法 - 获取模式系统提示词（无需 context）
+     * 用于 UnifiedAgentEngine 等不需要实例的场景
+     */
+    public static String getModeSystemPromptStatic(ChatMode mode) {
+        // 所有模式都使用统一基础提示词
+        return getBaseSystemPrompt();
+    }
+
+    /**
+     * 获取模式特定指令（用于注入到上下文）
+     */
+    public static String getModeSpecificInstruction(ChatMode mode) {
         switch (mode) {
             case DEEP_THINKING:
-                return "你是一个善于深度思考的AI助手。对于每个问题，你需要进行多角度分析，展示完整的推理过程。回答格式：\n" +
-                       "1. 问题理解\n2. 关键分析\n3. 推理过程\n4. 最终结论\n" +
-                       "请用结构化的方式展示你的思考过程。";
+                return "你现在进入深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n" +
+                       "思考阶段要求：\n" +
+                       "1. 拆解问题，明确核心要点\n" +
+                       "2. 从多个角度分析，考虑各种可能性\n" +
+                       "3. 逐步推理，验证逻辑链条\n" +
+                       "最终回答要求：\n" +
+                       "1. 结论先行，简洁明确\n" +
+                       "2. 只保留关键论据和核心逻辑";
             case CREATIVE:
-                return "你是一个创意写作助手。根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
+                return "你现在进入创意写作模式。请根据用户需求，创作各类文章、故事、诗歌等文学作品。\n" +
                        "请确保：\n1. 内容原创，有创意\n2. 语言生动，富有感染力\n3. 结构清晰，逻辑通顺";
+            case AGENT:
+                return "你现在进入Agent模式。你可以调用各种工具来完成用户的任务。\n" +
+                       "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
+                       "当需要使用工具时，严格按照 TOOLS_CALL/TOOLS_END 格式输出。\n" +
+                       "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
             case NORMAL:
             default:
-                return "你是一位友好、专业的AI助手。回答准确简洁，保持礼貌耐心，必要时提供示例。请以自然易懂的方式回应。";
+                return "";
         }
     }
 
@@ -263,6 +230,24 @@ public class ChatModeManager {
         String systemPrompt = getModeSystemPrompt(mode);
         String normalPrompt = "";
         return new ModeContextPrompts(globalPrompt, systemPrompt, normalPrompt);
+    }
+
+    /**
+     * 生成模式切换指令，用于注入到上下文中
+     * 保留上下文的同时改变模型行为
+     */
+    public static String getModeSwitchInstruction(ChatMode oldMode, ChatMode newMode) {
+        String instruction = getModeSpecificInstruction(newMode);
+        if (instruction == null || instruction.isEmpty()) {
+            return ""; // 普通模式不需要特殊指令
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("[系统指令 - 模式切换]\n\n");
+        sb.append("对话模式已从「").append(oldMode.displayName).append("」切换到「").append(newMode.displayName).append("」。\n\n");
+        sb.append(instruction);
+        sb.append("\n\n请确认已理解，继续与用户对话。");
+        return sb.toString();
     }
 
     public ModeContextPrompts getUnifiedContextPrompts() {

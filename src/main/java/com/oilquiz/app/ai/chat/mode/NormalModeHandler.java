@@ -99,12 +99,13 @@ public class NormalModeHandler implements ModeHandler {
                     Log.e(TAG, "Normal mode generation error: " + messageId, error);
                 }
             });
-        } catch (Exception e) {
+        } catch (Throwable t) {
             if (callback != null) {
-                callback.onError(messageId, e.getMessage());
+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                callback.onError(messageId, errorMsg);
             }
             activeMessageIds.remove(messageId);
-            Log.e(TAG, "Failed to start normal mode generation", e);
+            Log.e(TAG, "Failed to start normal mode generation", t);
         }
     }
     

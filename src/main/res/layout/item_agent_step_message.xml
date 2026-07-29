@@ -3,80 +3,75 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
+    <!-- 主要内容：自然语言描述 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
+        android:gravity="center_vertical">
 
+        <!-- 步骤图标（带动画效果） -->
         <TextView
             android:id="@+id/step_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:layout_marginEnd="4dp" />
+            android:text="🤖"
+            android:textSize="16sp"
+            android:layout_marginEnd="8dp" />
 
+        <!-- 主要描述文本 -->
         <TextView
-            android:id="@+id/step_type_label"
+            android:id="@+id/step_description"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="12sp"
-            android:textColor="@color/agent_step_label"
-            android:textStyle="bold" />
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:lineSpacingExtra="2dp" />
 
+        <!-- 推理模式标签（小标签） -->
         <TextView
-            android:id="@+id/step_iteration"
+            android:id="@+id/step_reasoning_mode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="11sp"
-            android:textColor="@color/agent_step_label" />
-
+            android:textSize="10sp"
+            android:textColor="@color/text_secondary"
+            android:background="@drawable/agent_step_tag_background"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:layout_marginStart="8dp"
+            android:visibility="gone" />
     </LinearLayout>
 
+    <!-- 详细信息（可折叠，用于显示意图分析等） -->
     <TextView
-        android:id="@+id/step_thought"
+        android:id="@+id/step_detail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/agent_thinking_background"
-        android:padding="10dp"
-        android:textColor="@color/agent_step_text"
+        android:paddingStart="24dp"
+        android:paddingTop="4dp"
         android:textSize="13sp"
-        android:layout_marginBottom="4dp"
+        android:textColor="@color/text_secondary"
+        android:lineSpacingExtra="2dp"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/step_action"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/agent_action_background"
-        android:padding="10dp"
-        android:textColor="@color/agent_step_text"
-        android:textSize="13sp"
-        android:layout_marginBottom="4dp"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/step_observation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/agent_observation_background"
-        android:padding="10dp"
-        android:textColor="@color/agent_step_text"
-        android:textSize="13sp"
-        android:visibility="gone" />
-
+    <!-- 进度条（小进度条） -->
     <ProgressBar
-        android:id="@+id/step_progress"
+        android:id="@+id/step_progress_bar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
+        android:layout_height="2dp"
         android:layout_marginTop="4dp"
         android:max="100"
         android:progress="0"
+        android:progressDrawable="@drawable/agent_step_progress"
         android:visibility="gone" />
 
 </LinearLayout>

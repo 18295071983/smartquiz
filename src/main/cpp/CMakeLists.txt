@@ -10,11 +10,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Use -O3 without -ffast-math, and explicitly disable finite-math-only
 add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 
-option(GGML_OPENCL "Enable OpenCL backend" ON)
+option(GGML_OPENCL "Enable OpenCL backend" OFF)
 option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
-option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+
+set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
+set(GGML_OPENCL_TARGET_VERSION "300" CACHE STRING "OpenCL API version" FORCE)
 
 # --- Vulkan auto-detection ---
 # Check for glslc (needed for SPIR-V shader compilation).
@@ -45,7 +49,7 @@ endif()
 set(GGML_VULKAN ${GGML_VULKAN} CACHE BOOL "Enable Vulkan backend" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "Enable CUDA backend" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "Enable dynamic backend loading" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
 set(LLAMA_CPP_PATH "${CMAKE_SOURCE_DIR}/llama.cpp")
 set(OPENCL_HEADERS_DIR "${CMAKE_SOURCE_DIR}/opencl/headers")
@@ -58,32 +62,37 @@ else()
 endif()
 
 if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
-    message(STATUS "OpenCL backend enabled (using local ICD loader)")
-    set(GGML_OPENCL ON CACHE BOOL "Enable OpenCL backend" FORCE)
-    set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
-    set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels in binary" FORCE)
+    message(STATUS "OpenCL backend enabled (using device vendor driver at runtime)")
     
     if(EXISTS "${OPENCL_HEADERS_DIR}/CL/cl.h")
         message(STATUS "OpenCL: Using local headers at ${OPENCL_HEADERS_DIR}")
+        
+        set(OpenCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
+        set(OPENCL_INCLUDE_DIR "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dir" FORCE)
         set(OpenCL_INCLUDE_DIRS "${OPENCL_HEADERS_DIR}" CACHE PATH "OpenCL include dirs" FORCE)
         set(OpenCL_FOUND TRUE CACHE BOOL "OpenCL found" FORCE)
         set(OpenCL_VERSION_STRING "3.0" CACHE STRING "OpenCL version" FORCE)
-        if(EXISTS "${OPENCL_ICD_LIB}")
-            message(STATUS "OpenCL: Using local ICD loader at ${OPENCL_ICD_LIB}")
-            set(OpenCL_LIBRARIES "${OPENCL_ICD_LIB}" CACHE FILEPATH "OpenCL libraries" FORCE)
-            message(STATUS "OpenCL: ICD loader found, will link directly")
+        
+        set(NDK_OPENCL_LIB "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so")
+        if(EXISTS "${NDK_OPENCL_LIB}")
+            set(OpenCL_LIBRARIES "${NDK_OPENCL_LIB}" CACHE FILEPATH "OpenCL libraries" FORCE)
+            set(OpenCL_LIBRARY "${NDK_OPENCL_LIB}" CACHE FILEPATH "OpenCL library" FORCE)
+            message(STATUS "OpenCL: Using NDK stub library for compilation: ${NDK_OPENCL_LIB}")
+            message(STATUS "OpenCL: Runtime will load vendor driver from /vendor/lib64/libOpenCL.so")
         else()
-            message(WARNING "OpenCL ICD loader not found!")
-            message(WARNING "OpenCL: Will use dynamic loading as fallback")
+            message(WARNING "NDK OpenCL stub library not found at ${NDK_OPENCL_LIB}")
             set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
+            set(OpenCL_LIBRARY "" CACHE FILEPATH "OpenCL library" FORCE)
+            message(STATUS "OpenCL: Dynamic runtime loading enabled (no linking)")
         endif()
     else()
-        message(WARNING "OpenCL headers not found!")
+        message(WARNING "OpenCL headers not found at ${OPENCL_HEADERS_DIR}!")
         set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
     endif()
     
     message(STATUS "OpenCL: Adreno-optimized kernels enabled")
     message(STATUS "OpenCL: Embedded kernels enabled (no runtime compilation)")
+    message(STATUS "OpenCL: Target version ${GGML_OPENCL_TARGET_VERSION}")
 elseif(GGML_OPENCL)
     message(STATUS "OpenCL disabled for non-ARM64 architecture: ${ANDROID_ABI}")
     set(GGML_OPENCL OFF CACHE BOOL "Enable OpenCL backend" FORCE)
@@ -107,7 +116,7 @@ add_library(
     llama-jni
     SHARED
     native-lib.cpp
-    vulkan_gpu.cpp
+    llama-bridge.cpp
 )
 
 target_link_libraries(
@@ -120,6 +129,14 @@ target_link_libraries(
     atomic
     dl
 )
+
+if(GGML_OPENCL)
+    target_link_libraries(llama-jni ggml-opencl)
+endif()
+
+if(GGML_OPENCL)
+    message(STATUS "OpenCL: Using NDK stub library for compilation (runtime will load vendor driver)")
+endif()
 
 set_target_properties(
     llama-jni

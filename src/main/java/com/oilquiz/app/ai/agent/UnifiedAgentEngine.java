@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.agent;
 import android.app.Activity;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.python.PythonToolManager;
 import com.oilquiz.app.ai.refactor.UnifiedContextManager;
@@ -10,6 +11,7 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
+import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -62,9 +64,19 @@ public class UnifiedAgentEngine {
 
     private static final String TAG = "UnifiedAgentEngine";
 
-    private static final String DEFAULT_GLOBAL_PROMPT = "你是一个AI助手，请用中文回答。";
-    private static final String DEFAULT_SYSTEM_PROMPT = "你是一个全能AI助手，具备以下能力：\n1. 普通对话：友好、专业地回答问题\n2. 深度思考：逐步推理，展示思考过程\n3. 创意创作：写作、诗歌、故事等\n4. 任务执行：分析问题、调用工具、完成任务\n\n请根据用户需求灵活选择最合适的响应方式。";
-    private static final String DEFAULT_NORMAL_PROMPT = "根据对话上下文和当前模式，以自然、友好的方式回应用户。";
+    // 使用 ChatModeManager 的统一基础提示词
+    private static String getDefaultGlobalPrompt() {
+        return "你是一个AI助手，请用中文回答。";
+    }
+
+    private static String getDefaultSystemPrompt() {
+        // 使用统一基础提示词
+        return ChatModeManager.getBaseSystemPrompt();
+    }
+
+    private static String getDefaultNormalPrompt() {
+        return "";
+    }
 
     private static final int MAX_CONTEXT_INIT_RETRIES = 3;
     private static final long CONTEXT_INIT_RETRY_DELAY_MS = 200;
@@ -212,6 +224,13 @@ public class UnifiedAgentEngine {
         default void onInputValidationResult(String paramName, com.oilquiz.app.ai.agent.InputValidator.ValidationResult result) {}
     }
 
+    /**
+     * 推理进度监听器 - 用于更新UI上的推理速度显示
+     */
+    public interface InferenceProgressListener {
+        void onProgressUpdate(int tokenCount, float tokensPerSecond);
+    }
+
     private final Activity activity;
     private final AIService aiService;
     private final InferenceRouter inferenceRouter;
@@ -242,18 +261,24 @@ public class UnifiedAgentEngine {
     private final AtomicBoolean isThinking = new AtomicBoolean(false);
     private final AtomicReference<StringBuilder> currentAnalysisThinking = new AtomicReference<>(new StringBuilder());
 
+    // ========== Token 统计 ==========
+    private final TokenStatsManager tokenStatsManager;
+    private final AtomicInteger currentRequestTokens = new AtomicInteger(0);
+    private long currentRequestStartTime = 0;
+
     private final List<String> contextSummary = Collections.synchronizedList(new ArrayList<>());
     private final List<com.oilquiz.app.ai.chat.ChatMessage> onlineModelConversationHistory = Collections.synchronizedList(new ArrayList<>());
 
     private ReasoningMode currentMode = ReasoningMode.AUTO;
     private int maxToolLoops = 5;
     private AgentCallback callback;
+    private InferenceProgressListener inferenceProgressListener;
     private ServiceRouter serviceRouter;  // AIAgentEngine 兼容
 
-    private static final int TOOL_RESULT_MAX_LENGTH = 1500;
-    private static final int MAX_PROMPT_LENGTH = 8000;           // Prompt 最大长度
-    private static final int MAX_CONTEXT_ENTRIES = 20;            // 上下文条目最大数量
-    private static final int CONTEXT_TRUNCATE_THRESHOLD = 6000;   // 触发警告的阈值
+    private static final int TOOL_RESULT_MAX_LENGTH = 2000;
+    private static final int MAX_PROMPT_LENGTH = 16000;          // Prompt 最大长度
+    private static final int MAX_CONTEXT_ENTRIES = 30;            // 上下文条目最大数量
+    private static final int CONTEXT_TRUNCATE_THRESHOLD = 12000;  // 触发警告的阈值
 
     // Python 自动触发关键词
     private static final String[] PYTHON_TRIGGERS = {
@@ -303,6 +328,7 @@ public class UnifiedAgentEngine {
             return t;
         });
         this.serviceRouter = new ServiceRouter(this);
+        this.tokenStatsManager = TokenStatsManager.getInstance();
         createSession();
     }
     
@@ -319,8 +345,16 @@ public class UnifiedAgentEngine {
         this.callback = callback;
     }
 
+    public void setInferenceProgressListener(InferenceProgressListener listener) {
+        this.inferenceProgressListener = listener;
+    }
+
     public void setReasoningMode(ReasoningMode mode) {
         this.currentMode = mode;
+    }
+
+    public ReasoningMode getCurrentMode() {
+        return currentMode;
     }
 
     public void setMaxToolLoops(int max) {
@@ -347,14 +381,31 @@ public class UnifiedAgentEngine {
         return intentRecognizer.recognizeWithContext(message, getContextSummary());
     }
 
+    /**
+     * 选择最佳推理模式
+     *
+     * 核心逻辑：
+     * 1. 需要工具 → 任务循环模式（REACT/PLAN_EXECUTE）
+     * 2. 不需要工具 → 直接回答模式（DIRECT）
+     *
+     * @param intent 意图识别结果
+     * @param multiIntent 多意图识别结果
+     * @return 选择的推理模式
+     */
     public ReasoningMode selectBestMode(SmartIntentRecognizer.IntentResult intent,
                                         SmartIntentRecognizer.MultiIntentResult multiIntent) {
+        // 用户手动选择了模式，直接使用
         if (currentMode != ReasoningMode.AUTO) return currentMode;
 
+        // 意图为空，直接回答
         if (intent == null || intent.intent == null) {
+            AILogger.i(TAG, "Intent is null, using DIRECT mode");
             return ReasoningMode.DIRECT;
         }
 
+        // ========== 核心判断：是否需要工具 ==========
+
+        // 检查多意图中的工具需求
         if (multiIntent != null && multiIntent.hasMultipleIntents()) {
             int toolIntentCount = 0;
             for (SmartIntentRecognizer.IntentItem item : multiIntent.intents) {
@@ -362,36 +413,41 @@ public class UnifiedAgentEngine {
                     toolIntentCount++;
                 }
             }
+
+            AILogger.i(TAG, "Multi-intents: total=" + multiIntent.intents.size()
+                + ", toolIntents=" + toolIntentCount);
+
+            // 多个工具意图 → 计划执行模式
             if (toolIntentCount >= 2) {
+                AILogger.i(TAG, "Multiple tool intents (" + toolIntentCount + "), using PLAN_EXECUTE");
                 return ReasoningMode.PLAN_EXECUTE;
-            } else if (toolIntentCount == 1) {
+            }
+            // 单个工具意图 → ReAct模式
+            if (toolIntentCount == 1) {
+                AILogger.i(TAG, "Single tool intent, using REACT");
                 return ReasoningMode.REACT;
             }
         }
 
-        if (intent.intent.needsTool && intent.confidence >= 0.4) {
-            return ReasoningMode.REACT;
+        // 检查单个意图的工具需求
+        if (intent.intent.needsTool) {
+            // 置信度足够高，需要工具
+            if (intent.confidence >= 0.4) {
+                AILogger.i(TAG, "Intent needs tool: " + intent.intent.displayName
+                    + " (confidence=" + intent.confidence + "), using REACT");
+                return ReasoningMode.REACT;
+            }
+            // 置信度低，可能需要工具但不确定，尝试直接回答
+            AILogger.i(TAG, "Intent needs tool but low confidence: " + intent.intent.displayName
+                + " (confidence=" + intent.confidence + "), trying DIRECT");
+            return ReasoningMode.DIRECT;
         }
 
-        switch (intent.intent) {
-            case CREATIVE:
-            case ANALYSIS:
-                return ReasoningMode.CHAIN_OF_THOUGHT;
-            case LEARNING:
-                if (intent.confidence >= 0.6) {
-                    return ReasoningMode.CHAIN_OF_THOUGHT;
-                }
-                return ReasoningMode.DIRECT;
-            case TRANSLATE:
-            case CHAT:
-            case UNKNOWN:
-                return ReasoningMode.DIRECT;
-            default:
-                if (intent.intent.needsTool) {
-                    return ReasoningMode.REACT;
-                }
-                return ReasoningMode.DIRECT;
-        }
+        // ========== 不需要工具，直接回答 ==========
+
+        AILogger.i(TAG, "Intent doesn't need tool: " + intent.intent.displayName
+            + ", using DIRECT mode");
+        return ReasoningMode.DIRECT;
     }
 
     public ReasoningMode selectBestModeForMessage(String message) {
@@ -467,6 +523,13 @@ public class UnifiedAgentEngine {
         isInThinking.set(enableThinking);
         contextSummary.clear();
 
+        // 初始化Token统计
+        currentRequestTokens.set(0);
+        currentRequestStartTime = System.currentTimeMillis();
+        if (tokenStatsManager != null) {
+            tokenStatsManager.updateRequestStreamingStats(0);
+        }
+
         contextSummary.add("用户: " + truncateForContext(message));
 
         executor.submit(() -> {
@@ -536,9 +599,11 @@ public class UnifiedAgentEngine {
                         executeDirect(message + intentHint, maxTokens, enableThinking);
                         break;
                 }
-            } catch (Exception e) {
-                AILogger.e(TAG, "Error in execute: " + e.getMessage(), e);
-                notifyError("执行失败: " + e.getMessage());
+            } catch (Throwable t) {
+                AILogger.e(TAG, "Error in execute: " + t.getMessage(), t);
+                finishGeneration();
+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                notifyError("执行中断: " + errorMsg);
             }
         });
     }
@@ -821,18 +886,18 @@ public class UnifiedAgentEngine {
         notifyStep("ReAct步骤" + iterationCount.get(), "调用工具: " + call.name);
 
         executor.execute(() -> {
-            if (isCancelled.get()) { finishGeneration(); return; }
+            if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
 
             Map<String, Object> params = validateAndPrepareToolCall(call);
             if (params == null) {
                 AILogger.w(TAG, "用户取消了工具调用: " + call.name);
                 activity.runOnUiThread(() -> {
-                    if (callback != null) {
+                    if (callback != null && isValid()) {
                         callback.onToolCallComplete(call.name,
                             new AgentService.ToolResult(call.name, "用户取消", false));
                     }
                 });
-                if (isCancelled.get()) { finishGeneration(); return; }
+                if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
                 contextSummary.add("工具结果: 用户取消");
                 String nextPrompt = "[继续] 用户取消了工具调用，请尝试其他方式完成。";
                 resetBuffers();
@@ -847,26 +912,48 @@ public class UnifiedAgentEngine {
             AgentService.ToolResult result = executeToolWithTimeout(validatedCall);
             if (result == null) {
                 AILogger.e(TAG, "executeTool returned null for: " + call.name);
-                activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
+                activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
                 contextSummary.add("工具结果: 执行失败");
                 String nextPrompt = "[继续] 工具调用失败，请尝试其他方式完成。";
                 resetBuffers();
                 executeReActLoop(nextPrompt, maxTokens, false);
                 return;
             }
-            activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, result); });
+            activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, result); });
             boolean success = result.success;
             String resultStr = result.result;
             String toolResultStr = success ? resultStr : "工具执行失败: " + resultStr;
-            contextSummary.add("工具结果: " + truncateForContext(toolResultStr, TOOL_RESULT_MAX_LENGTH));
+
+            // 使用智能摘要处理长结果
+            String summarizedResult = agentService.summarizeToolResult(call.name, toolResultStr);
+            contextSummary.add("工具结果[" + call.name + "]: " + truncateForContext(summarizedResult, TOOL_RESULT_MAX_LENGTH));
+
+            // 分析工具结果是否满足用户需求
+            String userMessage = contextSummary.size() > 0 ? contextSummary.get(0) : "";
+            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString(), success);
+            AILogger.i(TAG, "Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
+
+            if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
+                // 结果不满足，提示AI调整参数重试
+                String retryPrompt = "[工具结果不满足] 工具 " + call.name + " 返回的结果不完整。\n"
+                    + "原因: " + analysis.reason + "\n"
+                    + "建议: " + analysis.suggestion + "\n"
+                    + "请调整参数重新调用工具，或使用其他工具完成任务。";
+                resetBuffers();
+                executeReActLoop(retryPrompt, maxTokens, false);
+                return;
+            }
 
             if (toolLoopCount.get() >= maxToolLoops) {
+                // 达到最大循环次数，强制总结
                 String summary = buildToolResultsSummaryPrompt();
                 resetBuffers();
                 executeReActLoop(summary, maxTokens, false);
                 return;
             }
-            String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果") + "\n\n请基于以上结果继续回答。";
+
+            // 结果满足，继续下一步
+            String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果") + "\n</tool_result>\n\n请基于以上工具返回的结果回答用户的问题。如果已有足够信息，请直接给出最终答案。";
             resetBuffers();
             executeReActLoop(nextPrompt, maxTokens, false);
         });
@@ -1002,18 +1089,22 @@ public class UnifiedAgentEngine {
                         executeDirect(nextPrompt, maxTokens, false);
                         return;
                     }
-                    activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, result); });
+                    activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, result); });
                     if (isCancelled.get()) { finishGeneration(); return; }
                     boolean success = result.success;
                     String resultStr = result.result;
-                    contextSummary.add("工具结果: " + truncateForContext(resultStr != null ? resultStr : "无结果", TOOL_RESULT_MAX_LENGTH));
+
+                    // 使用智能摘要处理长结果
+                    String summarizedResult = agentService.summarizeToolResult(call.name, resultStr != null ? resultStr : "无结果");
+                    contextSummary.add("工具结果[" + call.name + "]: " + truncateForContext(summarizedResult, TOOL_RESULT_MAX_LENGTH));
+
                     if (toolLoopCount.get() >= maxToolLoops) {
                         String summary = buildToolResultsSummaryPrompt();
                         resetBuffers();
                         executeDirect(summary, maxTokens, false);
                         return;
                     }
-                    String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果") + "\n\n请基于以上结果继续回答。";
+                    String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果") + "\n</tool_result>\n\n请基于以上工具返回的结果回答用户的问题。";
                     resetBuffers();
                     executeDirect(nextPrompt, maxTokens, false);
                 });
@@ -1114,15 +1205,34 @@ public class UnifiedAgentEngine {
             // =================================
 
             activity.runOnUiThread(() -> {
-                if (callback != null) callback.onToolCallComplete(call.name, result);
+                if (callback != null && isValid()) callback.onToolCallComplete(call.name, result);
             });
 
-            if (isCancelled.get()) { finishGeneration(); return; }
+            if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
 
             boolean success = result != null && result.success;
             String resultStr = result != null && result.result != null ? result.result : "工具执行返回null";
             String toolResultStr = success ? resultStr : "工具执行失败: " + resultStr;
-            contextSummary.add("工具结果: " + truncateForContext(toolResultStr, TOOL_RESULT_MAX_LENGTH));
+
+            // 使用智能摘要处理长结果
+            String summarizedResult = agentService.summarizeToolResult(call.name, toolResultStr);
+            contextSummary.add("工具结果[" + call.name + "]: " + truncateForContext(summarizedResult, TOOL_RESULT_MAX_LENGTH));
+
+            // 分析工具结果是否满足用户需求
+            String userMessage = contextSummary.size() > 0 ? contextSummary.get(0) : "";
+            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString(), success);
+            AILogger.i(TAG, "CoT Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
+
+            if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
+                // 结果不满足，提示AI调整参数重试
+                String retryPrompt = "[工具结果不满足] 工具 " + call.name + " 返回的结果不完整。\n"
+                    + "原因: " + analysis.reason + "\n"
+                    + "建议: " + analysis.suggestion + "\n"
+                    + "请调整参数重新调用工具，或基于已有信息继续推理。";
+                resetBuffers();
+                executeCoTLoop(retryPrompt, maxTokens, false);
+                return;
+            }
 
             if (toolLoopCount.get() >= maxToolLoops) {
                 String summary = buildToolResultsSummaryPrompt();
@@ -1131,7 +1241,8 @@ public class UnifiedAgentEngine {
                 return;
             }
 
-            String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果") + "\n\n请基于以上结果继续推理。";
+            String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果")
+                + "\n</tool_result>\n\n请基于以上工具返回的结果继续推理。如果已有足够信息，请直接给出最终答案。";
             resetBuffers();
             executeCoTLoop(nextPrompt, maxTokens, false);
         });
@@ -1430,9 +1541,16 @@ public class UnifiedAgentEngine {
 
             @Override
             public void onError(final String error) {
-                AILogger.e(TAG, "Online model generation error: " + error);
-                finishGeneration();
-                notifyError(error);
+                // 【核心】返回部分结果而非完全失败
+                String partialResponse = currentResponse.get().toString();
+                if (partialResponse != null && !partialResponse.isEmpty()) {
+                    AILogger.w(TAG, "Online model error, returning partial response: " + error + ", partial_len=" + partialResponse.length());
+                    handler.onFinalResponse(partialResponse);
+                } else {
+                    AILogger.e(TAG, "Online model generation error: " + error);
+                    finishGeneration();
+                    notifyError("执行中断: " + error);
+                }
             }
         });
     }
@@ -1447,6 +1565,8 @@ public class UnifiedAgentEngine {
             return;
         }
 
+        // Agent 模式：只发送用户原始消息，不注入 Agent 内部数据到聊天上下文
+        // Agent 的工具调用结果、思考步骤等保留在 Agent 内部的 contextSummary 中
         aiService.chatSend(message, maxTokens, enableThinking, new LlamaHelper.TokenCallback() {
             @Override
             public void onToken(String token) {
@@ -1503,7 +1623,7 @@ public class UnifiedAgentEngine {
                 if (shouldRetryContextError(error)) {
                     AILogger.w(TAG, "Chat context error detected, attempting recovery...");
                     contextInitialized.set(false);
-                    
+
                     try {
                         UnifiedContextManager ctxManager = getContextManager();
                         if (ctxManager != null) {
@@ -1518,10 +1638,17 @@ public class UnifiedAgentEngine {
                         AILogger.w(TAG, "Context recovery attempt failed: " + e.getMessage());
                     }
                 }
-                
-                AILogger.e(TAG, "Local model chatSend error: " + error);
-                finishGeneration();
-                notifyError(error);
+
+                // 【核心】返回部分结果而非完全失败
+                String partialResponse = currentResponse.get().toString();
+                if (partialResponse != null && !partialResponse.isEmpty()) {
+                    AILogger.w(TAG, "Returning partial response due to error: " + error + ", partial_len=" + partialResponse.length());
+                    handler.onFinalResponse(partialResponse);
+                } else {
+                    AILogger.e(TAG, "Local model chatSend error: " + error);
+                    finishGeneration();
+                    notifyError("执行中断: " + error);
+                }
             }
         });
     }
@@ -1553,24 +1680,25 @@ public class UnifiedAgentEngine {
         if (aiService == null) {
             return false;
         }
-        
+
         try {
             UnifiedContextManager ctxManager = getContextManager();
-            
+
+            // 如果上下文已经初始化过，直接复用，不重新初始化
             if (ctxManager != null && contextInitialized.get()) {
                 if (ctxManager.isChatContextReady() && LlamaHelper.isChatContextActive()) {
                     return true;
                 }
-                
+
                 if (!ctxManager.checkAndRecoverAllIfNeeded(aiService)) {
                     AILogger.w(TAG, "Context recovery failed, will try manual initialization");
                 }
-                
+
                 if (ctxManager.isChatContextReady() && LlamaHelper.isChatContextActive()) {
                     return true;
                 }
             }
-            
+
             AILogger.i(TAG, "Initializing chat context for Agent...");
             notifyStep("初始化", "准备聊天上下文...");
             
@@ -1599,15 +1727,15 @@ public class UnifiedAgentEngine {
                     if (ctxManager != null) {
                         initialized = ctxManager.ensureChatContext(
                             aiService,
-                            DEFAULT_GLOBAL_PROMPT,
-                            DEFAULT_SYSTEM_PROMPT,
-                            DEFAULT_NORMAL_PROMPT
+                            getDefaultGlobalPrompt(),
+                            getDefaultSystemPrompt(),
+                            getDefaultNormalPrompt()
                         );
                     } else {
                         initialized = aiService.initChatContext(
-                            DEFAULT_GLOBAL_PROMPT,
-                            DEFAULT_SYSTEM_PROMPT,
-                            DEFAULT_NORMAL_PROMPT
+                            getDefaultGlobalPrompt(),
+                            getDefaultSystemPrompt(),
+                            getDefaultNormalPrompt()
                         );
                     }
                 } catch (Exception e) {
@@ -1621,7 +1749,7 @@ public class UnifiedAgentEngine {
                     return true;
                 }
             }
-            
+
             if (LlamaHelper.isChatContextActive()) {
                 if (ctxManager != null) {
                     ctxManager.setChatContextReady(true);
@@ -1712,7 +1840,7 @@ public class UnifiedAgentEngine {
 
         while (retryCount <= TOOL_EXECUTION_MAX_RETRIES) {
             if (isCancelled.get()) {
-                return new AgentService.ToolResult(validatedCall.name, "用户取消执行", false);
+                return new AgentService.ToolResult(validatedCall.name, "用户取消执行", false, 0, 0);
             }
 
             try {
@@ -1722,22 +1850,27 @@ public class UnifiedAgentEngine {
 
                 AgentService.ToolResult result = future.get(TOOL_EXECUTION_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
 
+                long executionTime = System.currentTimeMillis() - startTime;
                 if (result != null) {
-                    long executionTime = System.currentTimeMillis() - startTime;
                     AILogger.i(TAG, "工具 " + validatedCall.name + " 执行成功，耗时: " + executionTime + "ms");
-                    return result;
+                    // 返回带执行时间的结果
+                    return new AgentService.ToolResult(
+                        result.toolName, result.result, result.success,
+                        executionTime, retryCount
+                    );
                 } else {
                     AILogger.e(TAG, "工具 " + validatedCall.name + " 返回 null");
-                    return new AgentService.ToolResult(validatedCall.name, "工具返回null", false);
+                    return new AgentService.ToolResult(validatedCall.name, "工具返回null", false, executionTime, retryCount);
                 }
 
             } catch (java.util.concurrent.TimeoutException e) {
+                long elapsed = System.currentTimeMillis() - startTime;
                 AILogger.w(TAG, "工具 " + validatedCall.name + " 执行超时 (" + TOOL_EXECUTION_TIMEOUT_MS + "ms)，重试 " + (retryCount + 1) + "/" + TOOL_EXECUTION_MAX_RETRIES);
                 retryCount++;
 
                 if (retryCount > TOOL_EXECUTION_MAX_RETRIES) {
                     return new AgentService.ToolResult(validatedCall.name,
-                        "工具执行超时，已重试" + TOOL_EXECUTION_MAX_RETRIES + "次", false);
+                        "工具执行超时，已重试" + TOOL_EXECUTION_MAX_RETRIES + "次", false, elapsed, retryCount);
                 }
 
                 // 短暂延迟后重试
@@ -1745,17 +1878,18 @@ public class UnifiedAgentEngine {
                     Thread.sleep(1000);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    return new AgentService.ToolResult(validatedCall.name, "执行被中断", false);
+                    return new AgentService.ToolResult(validatedCall.name, "执行被中断", false, elapsed, retryCount);
                 }
 
             } catch (Exception e) {
+                long elapsed = System.currentTimeMillis() - startTime;
                 AILogger.e(TAG, "工具 " + validatedCall.name + " 执行异常: " + e.getMessage(), e);
                 return new AgentService.ToolResult(validatedCall.name,
-                    "工具执行异常: " + e.getMessage(), false);
+                    "工具执行异常: " + e.getMessage(), false, elapsed, retryCount);
             }
         }
 
-        return new AgentService.ToolResult(validatedCall.name, "工具执行失败", false);
+        return new AgentService.ToolResult(validatedCall.name, "工具执行失败", false, 0, TOOL_EXECUTION_MAX_RETRIES);
     }
 
     private String buildToolListPrompt() {
@@ -1789,15 +1923,88 @@ public class UnifiedAgentEngine {
         isGenerating.set(false);
     }
 
+    /**
+     * 分析工具结果是否满足用户需求
+     * @param userMessage 用户原始消息
+     * @param toolName 工具名称
+     * @param toolResult 工具执行结果
+     * @param currentContext 当前上下文
+     * @return 分析结果
+     */
+    private ToolResultAnalysis analyzeToolResult(String userMessage, String toolName,
+                                                  String toolResult, String currentContext,
+                                                  boolean toolSuccess) {
+        ToolResultAnalysis analysis = new ToolResultAnalysis();
+
+        if (toolResult == null || toolResult.isEmpty()) {
+            analysis.sufficient = false;
+            analysis.reason = "工具返回空结果";
+            analysis.suggestion = "请检查参数是否正确，或尝试其他工具";
+            return analysis;
+        }
+
+        // 仅当工具执行本身失败时标记为不满足
+        // 工具返回的API错误（如403）应交给LLM判断如何处理，而不是自动重试
+        if (!toolSuccess) {
+            analysis.sufficient = false;
+            analysis.reason = "工具执行失败: " + toolResult.substring(0, Math.min(100, toolResult.length()));
+            analysis.suggestion = "请重试或使用其他工具";
+            return analysis;
+        }
+
+        // 检查结果是否太短（可能是无效结果）
+        if (toolResult.length() < 10 && !toolName.contains("calculator")) {
+            analysis.sufficient = false;
+            analysis.reason = "工具返回结果过短，可能不是有效结果";
+            analysis.suggestion = "请检查参数或尝试更详细的查询";
+            return analysis;
+        }
+
+        // 默认认为结果可用，让AI判断是否需要继续
+        analysis.sufficient = true;
+        analysis.reason = "工具执行成功，结果已获取";
+        analysis.summarizedResult = toolResult;
+        return analysis;
+    }
+
+    /**
+     * 工具结果分析类
+     */
+    private static class ToolResultAnalysis {
+        boolean sufficient = true;
+        String reason = "";
+        String suggestion = "";
+        String summarizedResult = "";
+    }
+
+    /**
+     * 清理Agent内部缓存，准备下一次调用
+     */
+    public void cleanupAfterCompletion() {
+        resetBuffers();
+        toolLoopCount.set(0);
+        iterationCount.set(0);
+        isCancelled.set(false);
+        executionState.set(ExecutionState.COMPLETED);
+        suspendedParams.set(null);
+        suspendedToolName.set(null);
+        pauseReason.set(null);
+        currentTask.set(null);
+        validationRetryCount.set(0);
+        AILogger.i(TAG, "Agent cleanup completed, ready for next call");
+    }
+
     public void cancel() {
         isCancelled.set(true);
         aiService.chatStop();
         finishGeneration();
+        cleanupAfterCompletion();
     }
 
     public void clearContext() {
         contextSummary.clear();
         onlineModelConversationHistory.clear();
+        cleanupAfterCompletion();
         AILogger.i(TAG, "Context and online model history cleared");
     }
 
@@ -1857,12 +2064,26 @@ public class UnifiedAgentEngine {
      */
     private void trimContextIfNeeded() {
         synchronized (contextSummary) {
+            // 按条目数量裁剪
             if (contextSummary.size() > MAX_CONTEXT_ENTRIES) {
                 int toRemove = contextSummary.size() - MAX_CONTEXT_ENTRIES;
                 for (int i = 0; i < toRemove; i++) {
                     contextSummary.remove(0);
                 }
-                AILogger.w(TAG, "Context trimmed: removed " + toRemove + " entries, remaining: " + contextSummary.size());
+                AILogger.w(TAG, "Context trimmed by count: removed " + toRemove + " entries, remaining: " + contextSummary.size());
+            }
+
+            // 按总字符数裁剪
+            int totalChars = 0;
+            for (String entry : contextSummary) {
+                totalChars += entry.length();
+            }
+            while (totalChars > CONTEXT_TRUNCATE_THRESHOLD && contextSummary.size() > 5) {
+                String removed = contextSummary.remove(0);
+                totalChars -= removed.length();
+            }
+            if (totalChars > CONTEXT_TRUNCATE_THRESHOLD) {
+                AILogger.w(TAG, "Context still over threshold after trim: " + totalChars + " chars");
             }
         }
     }
@@ -1884,32 +2105,68 @@ public class UnifiedAgentEngine {
     public String getCurrentResponse() { return currentResponse.get().toString(); }
     public String getCurrentThinking() { return currentThinking.get().toString(); }
 
+    /**
+     * 检查引擎是否有效（可用于回调）
+     */
+    public boolean isValid() {
+        return activity != null && !activity.isFinishing() && !activity.isDestroyed();
+    }
+
     private void notifyToken(String token) {
-        activity.runOnUiThread(() -> { if (callback != null) callback.onToken(token); });
+        if (!isValid()) return;
+        int tokenCount = currentRequestTokens.incrementAndGet();
+        activity.runOnUiThread(() -> {
+            if (callback != null && isValid()) callback.onToken(token);
+            // 更新流式token统计
+            if (tokenStatsManager != null) {
+                tokenStatsManager.updateRequestStreamingStats(tokenCount);
+            }
+            // 计算并通知推理速度（每10个token更新一次）
+            if (tokenCount % 10 == 0 && currentRequestStartTime > 0) {
+                long elapsed = System.currentTimeMillis() - currentRequestStartTime;
+                float tokensPerSecond = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
+                if (inferenceProgressListener != null) {
+                    inferenceProgressListener.onProgressUpdate(tokenCount, tokensPerSecond);
+                }
+            }
+        });
     }
 
     private void notifyThinkingToken(String token) {
-        activity.runOnUiThread(() -> { if (callback != null) callback.onThinkingToken(token); });
+        if (!isValid()) return;
+        activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onThinkingToken(token); });
     }
 
     private void notifyToolCallStart(String name, String args) {
-        activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallStart(name, args); });
+        if (!isValid()) return;
+        activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallStart(name, args); });
     }
 
     private void notifyStep(String step, String detail) {
-        activity.runOnUiThread(() -> { if (callback != null) callback.onStepUpdate(step, detail); });
+        if (!isValid()) return;
+        activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onStepUpdate(step, detail); });
     }
 
     private void notifyComplete(String text) {
+        // 更新最终token统计
+        int tokens = currentRequestTokens.get();
+        if (tokenStatsManager != null && tokens > 0) {
+            int promptTokens = contextSummary.toString().length() / 4;
+            tokenStatsManager.updateRequestStats(promptTokens, tokens);
+        }
         finishGeneration();
-        AILogger.i(TAG, "Complete: mode=" + currentMode + " len=" + text.length());
-        activity.runOnUiThread(() -> { if (callback != null) callback.onComplete(text); });
+        // 清理Agent内部缓存，准备下一次调用
+        cleanupAfterCompletion();
+        AILogger.i(TAG, "Complete: mode=" + currentMode + " len=" + text.length() + " tokens=" + tokens);
+        if (!isValid()) return;
+        activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onComplete(text); });
     }
 
     private void notifyError(String error) {
         finishGeneration();
         AILogger.e(TAG, "Error: " + error);
-        activity.runOnUiThread(() -> { if (callback != null) callback.onError(error); });
+        if (!isValid()) return;
+        activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onError(error); });
     }
 
     // ========== Python 自动执行能力 ==========
@@ -2347,19 +2604,21 @@ public class UnifiedAgentEngine {
      * 通知 UI 思考内容
      */
     private void notifyThinking(String thought) {
+        if (!isValid()) return;
         activity.runOnUiThread(() -> {
-            if (callback != null) {
+            if (callback != null && isValid()) {
                 callback.onThinking(thought);
             }
         });
     }
-    
+
     /**
      * 通知 UI 思考阶段
      */
     private void notifyThinkingStage(String stage) {
+        if (!isValid()) return;
         activity.runOnUiThread(() -> {
-            if (callback != null) {
+            if (callback != null && isValid()) {
                 callback.onThinkingStage(stage);
             }
         });
@@ -2610,23 +2869,25 @@ public class UnifiedAgentEngine {
             return params;
         }
         
-        // 尝试JSON解析
         try {
-            // 简单的JSON解析（对于复杂JSON可能需要更完善的解析器）
-            if (arguments.startsWith("{") && arguments.endsWith("}")) {
-                String content = arguments.substring(1, arguments.length() - 1);
-                String[] pairs = content.split(",");
-                for (String pair : pairs) {
-                    String[] kv = pair.split(":", 2);
-                    if (kv.length == 2) {
-                        String key = kv[0].trim().replace("\"", "");
-                        String value = kv[1].trim().replace("\"", "");
-                        params.put(key, value);
-                    }
+            org.json.JSONObject json = new org.json.JSONObject(arguments.trim());
+            java.util.Iterator<String> keys = json.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = json.get(key);
+                // 保留原始类型：数字、布尔值、字符串
+                if (value instanceof org.json.JSONObject) {
+                    // 嵌套对象转为字符串
+                    params.put(key, value.toString());
+                } else if (value instanceof org.json.JSONArray) {
+                    // 数组转为字符串
+                    params.put(key, value.toString());
+                } else {
+                    params.put(key, value);
                 }
             }
         } catch (Exception e) {
-            AILogger.e(TAG, "Failed to parse arguments as JSON: " + e.getMessage());
+            AILogger.e(TAG, "Failed to parse arguments as JSON: " + e.getMessage() + ", raw: " + arguments);
         }
         
         return params;

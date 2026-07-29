@@ -74,6 +74,8 @@ public class TranslationTool implements AITool {
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
+            normalizeParameters(parameters);
+            
             String action = (String) parameters.getOrDefault("action", "translate");
             switch (action) {
                 case "translate":
@@ -88,6 +90,17 @@ public class TranslationTool implements AITool {
         } catch (Exception e) {
             AILogger.e(TAG, "Error: " + e.getMessage(), e);
             return new AIToolResult("Error: " + e.getMessage(), parameters);
+        }
+    }
+    
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        
+        if (parameters.containsKey("target_lang") && !parameters.containsKey("target_language")) {
+            parameters.put("target_language", parameters.get("target_lang"));
+        }
+        if (parameters.containsKey("source_lang") && !parameters.containsKey("source_language")) {
+            parameters.put("source_language", parameters.get("source_lang"));
         }
     }
 

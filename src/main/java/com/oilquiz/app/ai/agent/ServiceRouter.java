@@ -1,6 +1,5 @@
 package com.oilquiz.app.ai.agent;
 
-import com.oilquiz.app.ai.tool.AIToolsManager;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.LocationTool;
@@ -8,7 +7,6 @@ import com.oilquiz.app.util.AILogger;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -16,7 +14,6 @@ public class ServiceRouter {
     private static final String TAG = "ServiceRouter";
 
     private final UnifiedAgentEngine agentEngine;
-    private final AIToolsManager toolsManager;
     private final AIToolManager toolManager;
     private LocationTool locationTool;
 
@@ -66,7 +63,6 @@ public class ServiceRouter {
 
     public ServiceRouter(UnifiedAgentEngine agentEngine) {
         this.agentEngine = agentEngine;
-        this.toolsManager = new AIToolsManager(agentEngine.getActivity());
         this.toolManager = AIToolManager.getInstance(agentEngine.getActivity());
     }
 
@@ -312,9 +308,14 @@ public class ServiceRouter {
     public UnifiedAgentEngine.AgentResult executeSearchTask(String message) {
         try {
             String keyword = extractKeyword(message);
-            CompletableFuture<String> future = toolsManager.executeTool("search_questions", "keyword: " + keyword);
-            String result = future.get(30, TimeUnit.SECONDS);
-            return new UnifiedAgentEngine.AgentResult(result, true);
+            Map<String, Object> params = new HashMap<>();
+            params.put("keyword", keyword);
+            AIToolResult result = toolManager.executeTool("network_search", params);
+            if (result.isSuccess()) {
+                return new UnifiedAgentEngine.AgentResult(String.valueOf(result.getResult()), true);
+            } else {
+                return new UnifiedAgentEngine.AgentResult(result.getErrorMessage(), false);
+            }
         } catch (Exception e) {
             AILogger.e(TAG, "Search task failed: " + e.getMessage());
             return new UnifiedAgentEngine.AgentResult("搜索失败: " + e.getMessage(), false);

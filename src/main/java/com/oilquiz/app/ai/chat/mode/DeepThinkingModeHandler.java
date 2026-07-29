@@ -161,10 +161,11 @@ public class DeepThinkingModeHandler implements ModeHandler {
                     Log.e(TAG, "Deep thinking answer generation error: " + messageId, error);
                 }
             });
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to generate deep thinking answer", e);
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to generate deep thinking answer", t);
             if (callback != null) {
-                callback.onError(messageId, "生成答案失败: " + e.getMessage());
+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                callback.onError(messageId, "生成答案失败: " + errorMsg);
             }
         }
     }

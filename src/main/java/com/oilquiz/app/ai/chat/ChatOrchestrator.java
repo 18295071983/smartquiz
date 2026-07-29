@@ -5,8 +5,12 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.chat.event.StreamingEvent;
 import com.oilquiz.app.ai.chat.event.StreamingSubscriber;
+import com.oilquiz.app.ai.chat.mode.AgentModeHandler;
+import com.oilquiz.app.ai.chat.mode.CreativeWritingModeHandler;
+import com.oilquiz.app.ai.chat.mode.DeepThinkingModeHandler;
 import com.oilquiz.app.ai.chat.mode.ModeHandler;
 import com.oilquiz.app.ai.chat.mode.NormalModeHandler;
+import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AgentService;
 
@@ -24,6 +28,7 @@ public class ChatOrchestrator {
     private final ChatModeManager modeManager;
     private final AIService aiService;
     private final AgentService agentService;
+    private final AIConfig aiConfig;
     private final StreamingBroadcaster broadcaster;
     private final MessageQueue messageQueue;
     
@@ -33,6 +38,9 @@ public class ChatOrchestrator {
     private final Map<String, ChatModeManager.ChatMode> messageModes = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageTokenCounts = new ConcurrentHashMap<>();
     private final Map<String, Long> messageStartTimes = new ConcurrentHashMap<>();
+    // 模型推理的实际token数和速度（从onInferenceProgress回调获取，比UI收到的token数更准确）
+    private final Map<String, Integer> messageInferenceTokens = new ConcurrentHashMap<>();
+    private final Map<String, Float> messageInferenceTps = new ConcurrentHashMap<>();
     
     private Activity activity;
     private OrchestratorListener listener;
@@ -41,6 +49,7 @@ public class ChatOrchestrator {
         this.activity = activity;
         this.aiService = aiService;
         this.agentService = agentService;
+        this.aiConfig = new AIConfig(activity);
         this.modeManager = ChatModeManager.getInstance(activity);
         this.broadcaster = StreamingBroadcaster.getInstance();
         this.messageQueue = MessageQueue.getInstance();
@@ -67,6 +76,11 @@ public class ChatOrchestrator {
     
     private void initModeHandlers() {
         modeHandlers.put(ChatModeManager.ChatMode.NORMAL, new NormalModeHandler(aiService));
+        modeHandlers.put(ChatModeManager.ChatMode.DEEP_THINKING, new DeepThinkingModeHandler(aiService));
+        modeHandlers.put(ChatModeManager.ChatMode.CREATIVE, new CreativeWritingModeHandler(aiService));
+        if (activity != null) {
+            modeHandlers.put(ChatModeManager.ChatMode.AGENT, new AgentModeHandler(activity, aiService, agentService, aiConfig));
+        }
         Log.i(TAG, "Mode handlers initialized: " + modeHandlers.size());
     }
     
@@ -89,6 +103,10 @@ public class ChatOrchestrator {
             @Override
             public void onModeChanged(ChatModeManager.ChatMode newMode, boolean isAuto) {
                 Log.i(TAG, "Mode changed: " + newMode.displayName + ", auto=" + isAuto);
+                
+                // 更新聊天上下文提示词（不销毁上下文）
+                updateContextForMode(newMode);
+                
                 if (listener != null) {
                     listener.onModeChanged(newMode, isAuto);
                 }
@@ -107,6 +125,35 @@ public class ChatOrchestrator {
                 Log.i(TAG, "Auto mode changed: " + enabled);
             }
         });
+    }
+    
+    /**
+     * 更新聊天上下文以匹配新模式
+     * 使用 updateChatPrompts 而不是 initChatContext，避免销毁上下文
+     */
+    private void updateContextForMode(ChatModeManager.ChatMode mode) {
+        if (aiService == null || !aiService.isInitialized()) {
+            return;
+        }
+        
+        ChatModeManager.ModeContextPrompts prompts = modeManager.getContextPromptsForMode(mode);
+        
+        new Thread(() -> {
+            try {
+                boolean updated = aiService.updateChatPrompts(
+                    prompts.globalPrompt, 
+                    prompts.systemPrompt, 
+                    prompts.normalPrompt
+                );
+                if (updated) {
+                    Log.i(TAG, "Chat context prompts updated for mode: " + mode.displayName);
+                } else {
+                    Log.w(TAG, "Failed to update chat context prompts for mode: " + mode.displayName);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error updating context for mode: " + e.getMessage());
+            }
+        }).start();
     }
     
     public void setListener(OrchestratorListener listener) {
@@ -148,6 +195,8 @@ public class ChatOrchestrator {
         messageContents.put(messageId, new StringBuilder());
         messageTokenCounts.put(messageId, 0);
         messageStartTimes.put(messageId, System.currentTimeMillis());
+        messageInferenceTokens.put(messageId, 0);
+        messageInferenceTps.put(messageId, 0f);
         
         modeManager.setGeneratingState(true);
         
@@ -158,32 +207,44 @@ public class ChatOrchestrator {
             handler = modeHandlers.get(ChatModeManager.ChatMode.NORMAL);
         }
         
-        handler.handleMessage(userMessage, messageId, new ModeHandler.ModeHandlerCallback() {
-            @Override
-            public void onMessageCreated(String msgId, ChatMessage initialMessage) {
-                handleMessageCreated(msgId, initialMessage);
-            }
-            
-            @Override
-            public void onToken(String msgId, String token) {
-                handleToken(msgId, token);
-            }
-            
-            @Override
-            public void onThinkingUpdate(String msgId, Object thinkingData) {
-                handleThinkingUpdate(msgId, thinkingData);
-            }
-            
-            @Override
-            public void onComplete(String msgId, String content, Object stats) {
-                handleComplete(msgId, content, stats);
-            }
-            
-            @Override
-            public void onError(String msgId, String error) {
-                handleError(msgId, error);
-            }
-        });
+        try {
+            handler.handleMessage(userMessage, messageId, new ModeHandler.ModeHandlerCallback() {
+                @Override
+                public void onMessageCreated(String msgId, ChatMessage initialMessage) {
+                    handleMessageCreated(msgId, initialMessage);
+                }
+                
+                @Override
+                public void onToken(String msgId, String token) {
+                    handleToken(msgId, token);
+                }
+                
+                @Override
+                public void onThinkingUpdate(String msgId, Object thinkingData) {
+                    handleThinkingUpdate(msgId, thinkingData);
+                }
+                
+                @Override
+                public void onComplete(String msgId, String content, Object stats) {
+                    handleComplete(msgId, content, stats);
+                }
+                
+                @Override
+                public void onError(String msgId, String error) {
+                    handleError(msgId, error);
+                }
+                
+                @Override
+                public void onInferenceProgress(String msgId, int tokenCount, float tokensPerSecond) {
+                    handleInferenceProgress(msgId, tokenCount, tokensPerSecond);
+                }
+            });
+        } catch (Throwable t) {
+            Log.e(TAG, "Fatal error in processMessage: " + messageId, t);
+            modeManager.setGeneratingState(false);
+            String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+            handleError(messageId, "本地执行异常: " + errorMsg);
+        }
     }
     
     private void handleMessageCreated(String messageId, ChatMessage initialMessage) {
@@ -216,25 +277,53 @@ public class ChatOrchestrator {
         }
     }
     
+    private void handleInferenceProgress(String messageId, int tokenCount, float tokensPerSecond) {
+        // 记录模型推理的实际token数和速度
+        messageInferenceTokens.put(messageId, tokenCount);
+        if (tokensPerSecond > 0) {
+            messageInferenceTps.put(messageId, tokensPerSecond);
+        }
+        
+        broadcaster.broadcastTo(messageId, 
+            StreamingEvent.createInferenceProgress(messageId, 
+                new StreamingEvent.InferenceProgressData(
+                    com.oilquiz.app.ai.chat.ChatMessage.InferencePhase.GENERATING,
+                    tokenCount,
+                    tokensPerSecond
+                )
+            )
+        );
+    }
+    
     private void handleComplete(String messageId, String finalContent, Object stats) {
         StringBuilder content = messageContents.get(messageId);
         String fullContent = finalContent != null ? finalContent : 
             (content != null ? content.toString() : "");
         
-        Integer tokenCount = messageTokenCounts.get(messageId);
+        Integer uiTokenCount = messageTokenCounts.get(messageId);
+        Integer inferenceTokens = messageInferenceTokens.get(messageId);
+        Float inferenceTps = messageInferenceTps.get(messageId);
         Long startTime = messageStartTimes.get(messageId);
         long elapsed = startTime != null ? System.currentTimeMillis() - startTime : 0;
-        float tps = elapsed > 0 && tokenCount != null ? (tokenCount * 1000.0f) / elapsed : 0;
+        
+        // 优先使用模型推理的实际token数和速度（比UI收到的token数更准确）
+        int finalTokenCount = (inferenceTokens != null && inferenceTokens > 0) 
+            ? inferenceTokens 
+            : (uiTokenCount != null ? uiTokenCount : 0);
+        float finalTps = (inferenceTps != null && inferenceTps > 0)
+            ? inferenceTps
+            : (elapsed > 0 ? (finalTokenCount * 1000.0f) / elapsed : 0);
         
         StreamingEvent.StatsData statsData = new StreamingEvent.StatsData(
-            tokenCount != null ? tokenCount : 0, elapsed, tps
+            finalTokenCount, elapsed, finalTps
         );
         
         ChatMessage message = messageMap.get(messageId);
         if (message != null) {
             message.content = fullContent;
-            message.tokensGenerated = tokenCount != null ? tokenCount : 0;
+            message.tokensGenerated = finalTokenCount;
             message.generationTimeMs = elapsed;
+            message.tokensPerSecond = finalTps;
             message.status = ChatMessage.MessageStatus.COMPLETED;
         }
         
@@ -244,10 +333,10 @@ public class ChatOrchestrator {
         cleanupMessage(messageId);
         modeManager.setGeneratingState(false);
         
-        Log.i(TAG, "Message completed: " + messageId + ", tokens=" + tokenCount + ", time=" + elapsed + "ms");
+        Log.i(TAG, "Message completed: " + messageId + ", tokens=" + finalTokenCount + ", tps=" + finalTps + ", time=" + elapsed + "ms");
         
         if (listener != null) {
-            listener.onMessageComplete(messageId, fullContent, tokenCount != null ? tokenCount : 0, elapsed);
+            listener.onMessageComplete(messageId, fullContent, finalTokenCount, elapsed);
         }
     }
     
@@ -307,6 +396,8 @@ public class ChatOrchestrator {
         messageModes.remove(messageId);
         messageTokenCounts.remove(messageId);
         messageStartTimes.remove(messageId);
+        messageInferenceTokens.remove(messageId);
+        messageInferenceTps.remove(messageId);
     }
     
     public void switchMode(ChatModeManager.ChatMode newMode) {
@@ -317,6 +408,15 @@ public class ChatOrchestrator {
     
     public ChatModeManager.ChatMode getCurrentMode() {
         return modeManager.getCurrentMode();
+    }
+
+    /**
+     * 检查指定消息是否为Agent模式
+     */
+    public boolean isAgentMessage(String messageId) {
+        if (messageId == null) return false;
+        ChatModeManager.ChatMode mode = messageModes.get(messageId);
+        return mode == ChatModeManager.ChatMode.AGENT;
     }
     
     public void setAutoModeEnabled(boolean enabled) {

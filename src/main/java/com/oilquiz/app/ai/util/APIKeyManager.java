@@ -467,7 +467,7 @@ public class APIKeyManager {
             case APIConfig.ServiceType.OPENWEATHERMAP:
                 return "https://api.openweathermap.org/data/2.5/weather?q=London&appid=" + config.getApiKey();
             case APIConfig.ServiceType.HEFENG_WEATHER:
-                return (apiHost != null ? apiHost : "https://devapi.qweather.com") + 
+                return (apiHost != null ? apiHost : "https://m278m2y7ak.re.qweatherapi.com") + 
                        "/v7/weather/now?location=101010100&key=" + config.getApiKey();
             case APIConfig.ServiceType.BING_SEARCH:
                 return "https://api.bing.microsoft.com/v7.0/search?q=test";
@@ -851,6 +851,113 @@ public class APIKeyManager {
         public int responseCode;
         public long latency;
         public long startTime;
+    }
+
+    // QWeather JWT credential keys
+    private static final String KEY_QWEATHER_PRIVATE_KEY = "qweather_jwt_private_key";
+    private static final String KEY_QWEATHER_PROJECT_ID = "qweather_jwt_project_id";
+    private static final String KEY_QWEATHER_KID = "qweather_jwt_kid";
+    private static final String KEY_QWEATHER_API_HOST = "qweather_jwt_api_host";
+
+    /**
+     * Save QWeather JWT credentials.
+     */
+    public void saveQWeatherJwtCredentials(String privateKey, String projectId, String kid, String apiHost) {
+        try {
+            if (privateKey != null) {
+                preferences.edit().putString(KEY_QWEATHER_PRIVATE_KEY, encrypt(privateKey)).apply();
+            }
+            if (projectId != null) {
+                preferences.edit().putString(KEY_QWEATHER_PROJECT_ID, encrypt(projectId)).apply();
+            }
+            if (kid != null) {
+                preferences.edit().putString(KEY_QWEATHER_KID, encrypt(kid)).apply();
+            }
+            if (apiHost != null) {
+                preferences.edit().putString(KEY_QWEATHER_API_HOST, encrypt(apiHost)).apply();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving QWeather JWT credentials", e);
+        }
+    }
+
+    /**
+     * Get QWeather JWT private key (PEM format).
+     */
+    public String getQWeatherPrivateKey() {
+        try {
+            String encrypted = preferences.getString(KEY_QWEATHER_PRIVATE_KEY, null);
+            if (encrypted != null) {
+                return decrypt(encrypted);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting QWeather private key", e);
+        }
+        return null;
+    }
+
+    /**
+     * Get QWeather project ID.
+     */
+    public String getQWeatherProjectId() {
+        try {
+            String encrypted = preferences.getString(KEY_QWEATHER_PROJECT_ID, null);
+            if (encrypted != null) {
+                return decrypt(encrypted);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting QWeather project ID", e);
+        }
+        return null;
+    }
+
+    /**
+     * Get QWeather key ID (kid).
+     */
+    public String getQWeatherKid() {
+        try {
+            String encrypted = preferences.getString(KEY_QWEATHER_KID, null);
+            if (encrypted != null) {
+                return decrypt(encrypted);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting QWeather kid", e);
+        }
+        return null;
+    }
+
+    /**
+     * Get QWeather API host.
+     */
+    public String getQWeatherApiHost() {
+        try {
+            String encrypted = preferences.getString(KEY_QWEATHER_API_HOST, null);
+            if (encrypted != null) {
+                return decrypt(encrypted);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting QWeather API host", e);
+        }
+        return null;
+    }
+
+    /**
+     * Check if QWeather JWT credentials are configured.
+     */
+    public boolean isQWeatherJwtConfigured() {
+        return getQWeatherPrivateKey() != null && getQWeatherProjectId() != null && getQWeatherKid() != null;
+    }
+
+    /**
+     * Clear QWeather JWT credentials.
+     */
+    public void clearQWeatherJwtCredentials() {
+        preferences.edit()
+            .remove(KEY_QWEATHER_PRIVATE_KEY)
+            .remove(KEY_QWEATHER_PROJECT_ID)
+            .remove(KEY_QWEATHER_KID)
+            .remove(KEY_QWEATHER_API_HOST)
+            .apply();
     }
 
     public static class Service {

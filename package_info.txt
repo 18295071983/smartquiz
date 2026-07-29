@@ -1,0 +1,359 @@
+Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        21d7228 com.oilquiz.app/.MainActivity filter 241fb41
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      android.intent.action.BATTERY_OKAY:
+        4eebd72 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter f8b95c3
+          Action: "android.intent.action.BATTERY_OKAY"
+          Action: "android.intent.action.BATTERY_LOW"
+      android.intent.action.ACTION_POWER_DISCONNECTED:
+        2eb88d4 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter 9f20a7d
+          Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+          Action: "android.intent.action.ACTION_POWER_CONNECTED"
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        c9a6796 com.oilquiz.app/androidx.profileinstaller.ProfileInstallReceiver filter 87f8ced
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      com.oilquiz.app.DEBUG_INJECT_HOST:
+        5ebf8e6 com.oilquiz.app/.infra.DebugKeyReceiver filter 3333e27
+          Action: "com.oilquiz.app.DEBUG_INJECT_HOST"
+          Action: "com.oilquiz.app.DEBUG_INJECT_KEY"
+      android.intent.action.DEVICE_STORAGE_LOW:
+        de25e40 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 799d179
+          Action: "android.intent.action.DEVICE_STORAGE_LOW"
+          Action: "android.intent.action.DEVICE_STORAGE_OK"
+      android.net.conn.CONNECTIVITY_CHANGE:
+        6e73ebe com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$NetworkStateProxy filter a87cb1f
+          Action: "android.net.conn.CONNECTIVITY_CHANGE"
+      android.intent.action.DEVICE_STORAGE_OK:
+        de25e40 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 799d179
+          Action: "android.intent.action.DEVICE_STORAGE_LOW"
+          Action: "android.intent.action.DEVICE_STORAGE_OK"
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        c9a6796 com.oilquiz.app/androidx.profileinstaller.ProfileInstallReceiver filter d51ff17
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      android.intent.action.BATTERY_LOW:
+        4eebd72 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter f8b95c3
+          Action: "android.intent.action.BATTERY_OKAY"
+          Action: "android.intent.action.BATTERY_LOW"
+      android.intent.action.TIMEZONE_CHANGED:
+        4af1e6c com.oilquiz.app/androidx.work.impl.background.systemalarm.RescheduleReceiver filter d5d0c35
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      android.intent.action.TIME_SET:
+        4af1e6c com.oilquiz.app/androidx.work.impl.background.systemalarm.RescheduleReceiver filter d5d0c35
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      androidx.profileinstaller.action.SKIP_FILE:
+        c9a6796 com.oilquiz.app/androidx.profileinstaller.ProfileInstallReceiver filter a6ccf04
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        c9a6796 com.oilquiz.app/androidx.profileinstaller.ProfileInstallReceiver filter 78d6722
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+      android.intent.action.BOOT_COMPLETED:
+        4af1e6c com.oilquiz.app/androidx.work.impl.background.systemalarm.RescheduleReceiver filter d5d0c35
+          Action: "android.intent.action.TIMEZONE_CHANGED"
+          Action: "android.intent.action.TIME_SET"
+          Action: "android.intent.action.BOOT_COMPLETED"
+      android.intent.action.ACTION_POWER_CONNECTED:
+        2eb88d4 com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter 9f20a7d
+          Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+          Action: "android.intent.action.ACTION_POWER_CONNECTED"
+      com.oilquiz.app.DEBUG_INJECT_KEY:
+        5ebf8e6 com.oilquiz.app/.infra.DebugKeyReceiver filter 3333e27
+          Action: "com.oilquiz.app.DEBUG_INJECT_HOST"
+          Action: "com.oilquiz.app.DEBUG_INJECT_KEY"
+      androidx.work.diagnostics.REQUEST_DIAGNOSTICS:
+        4a5b558 com.oilquiz.app/androidx.work.impl.diagnostics.DiagnosticsReceiver filter 1df36b1
+          Action: "androidx.work.diagnostics.REQUEST_DIAGNOSTICS"
+      androidx.work.impl.background.systemalarm.UpdateProxies:
+        5488ca com.oilquiz.app/androidx.work.impl.background.systemalarm.ConstraintProxyUpdateReceiver filter be7fa3b
+          Action: "androidx.work.impl.background.systemalarm.UpdateProxies"
+
+Domain verification status:
+
+Permissions:
+  Permission [com.oilquiz.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (806a4d7):
+    sourcePackage=com.oilquiz.app
+    uid=10346 gids=[] type=0 prot=signature
+    perm=PermissionInfo{d9a7541 com.oilquiz.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+    flags=0x0
+
+Permissions:
+  Permission [com.oilquiz.app.permission.DEBUG_INJECT] (657e1c4):
+    sourcePackage=com.oilquiz.app
+    uid=10346 gids=[] type=0 prot=signature
+    perm=PermissionInfo{7e14827 com.oilquiz.app.permission.DEBUG_INJECT}
+    flags=0x0
+
+Registered ContentProviders:
+  com.oilquiz.app/androidx.core.content.FileProvider:
+    Provider{411cad4 com.oilquiz.app/androidx.core.content.FileProvider}
+  com.oilquiz.app/com.google.mlkit.common.internal.MlKitInitProvider:
+    Provider{b58247d com.oilquiz.app/com.google.mlkit.common.internal.MlKitInitProvider}
+  com.oilquiz.app/androidx.startup.InitializationProvider:
+    Provider{553cf72 com.oilquiz.app/androidx.startup.InitializationProvider}
+
+ContentProvider Authorities:
+  [com.oilquiz.app.fileprovider]:
+    Provider{411cad4 com.oilquiz.app/androidx.core.content.FileProvider}
+      applicationInfo=ApplicationInfo{bcd08ad com.oilquiz.app}
+  [com.oilquiz.app.mlkitinitprovider]:
+    Provider{b58247d com.oilquiz.app/com.google.mlkit.common.internal.MlKitInitProvider}
+      applicationInfo=ApplicationInfo{1bf97e2 com.oilquiz.app}
+  [com.oilquiz.app.androidx-startup]:
+    Provider{553cf72 com.oilquiz.app/androidx.startup.InitializationProvider}
+      applicationInfo=ApplicationInfo{9a6b773 com.oilquiz.app}
+
+Key Set Manager:
+  [com.oilquiz.app]
+      Signing KeySets: 153
+
+Packages:
+  Package [com.oilquiz.app] (b3f31a3):
+    appId=10346
+    pkg=Package{81ba06c com.oilquiz.app}
+    codePath=/data/app/~~o66WQ5_EY-Kxr95H6Yo5FA==/com.oilquiz.app-MdmYFSDS5BcvwIQBEIUjJg==
+    resourcePath=/data/app/~~o66WQ5_EY-Kxr95H6Yo5FA==/com.oilquiz.app-MdmYFSDS5BcvwIQBEIUjJg==
+    legacyNativeLibraryDir=/data/app/~~o66WQ5_EY-Kxr95H6Yo5FA==/com.oilquiz.app-MdmYFSDS5BcvwIQBEIUjJg==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=2 minSdk=31 targetSdk=34
+    minExtensionVersions=[]
+    versionName=2.0
+    hiddenApiEnforcementPolicy=2
+    usesNonSdkApi=false
+    isMiuiPreinstall=false
+    splits=[base]
+    apkSigningVersion=2
+    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP LARGE_HEAP ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PARTIALLY_DIRECT_BOOT_AWARE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    forceQueryable=false
+    pageSizeCompat=0
+    scannedAsStoppedSystemApp=false
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesOptionalLibraries:
+      androidx.window.extensions
+      androidx.window.sidecar
+    usesOptionalNativeLibraries:
+      libOpenCL.so
+    usesLibraryFiles:
+      /system_ext/framework/androidx.window.extensions.jar
+      /system_ext/framework/androidx.window.sidecar.jar
+      libOpenCL.so
+    timeStamp=2026-07-27 18:26:52
+    lastUpdateTime=2026-07-27 18:26:53
+    installerPackageName=null
+    installerPackageUid=-1
+    initiatingPackageName=com.android.shell
+    originatingPackageName=null
+    packageSource=1
+    appMetadataFilePath=null
+    appMetadataSource=0
+    signatures=PackageSignatures{e2c6635 version:2, signatures:[9ca73e16], past signatures:[]}
+    installPermissionsFixed=false
+    pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP LARGE_HEAP ]
+    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PARTIALLY_DIRECT_BOOT_AWARE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    apexModuleName=null
+    declared permissions:
+      com.oilquiz.app.permission.DEBUG_INJECT: prot=signature
+      com.oilquiz.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: prot=signature
+    requested permissions:
+      android.permission.POST_NOTIFICATIONS
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.MODIFY_AUDIO_SETTINGS
+      android.permission.MANAGE_EXTERNAL_STORAGE
+      com.oilquiz.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+      android.permission.FOREGROUND_SERVICE
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+      android.permission.INTERNET
+      com.oilquiz.app.permission.DEBUG_INJECT
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.CAMERA
+      android.permission.REQUEST_INSTALL_PACKAGES
+      android.permission.RECORD_AUDIO
+      android.permission.WAKE_LOCK
+    install permissions:
+      android.permission.MODIFY_AUDIO_SETTINGS: granted=true
+      com.oilquiz.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      android.permission.FOREGROUND_SERVICE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: granted=true
+      android.permission.INTERNET: granted=true
+      com.oilquiz.app.permission.DEBUG_INJECT: granted=true
+      android.permission.FOREGROUND_SERVICE_DATA_SYNC: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.WAKE_LOCK: granted=true
+    User 0: ceDataInode=1204234 deDataInode=1166883 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false quarantined=false
+      installReason=0
+      dataDir=/data/user/0/com.oilquiz.app
+      firstInstallTime=2026-07-21 01:15:35
+      uninstallReason=0
+      overlay paths:
+        /product/overlay/GestureLineOverlay.apk
+        /data/resource-cache/com.android.systemui-neutral-eNRu.frro
+        /data/resource-cache/com.android.systemui-accent-5c4o.frro
+        /data/resource-cache/com.android.systemui-dynamic-qFPp.frro
+      legacy overlay paths:
+        /product/overlay/GestureLineOverlay.apk
+      gids=[3003]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_FINE_LOCATION: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|524288]
+        android.permission.ACCESS_COARSE_LOCATION: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.CAMERA: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.RECORD_AUDIO: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+      enabledComponents:
+        androidx.work.impl.background.systemjob.SystemJobService
+
+Queries:
+  system apps queryable: false
+  queries via forceQueryable:
+  queries via package name:
+  queries via component:
+    [com.android.server.telecom,com.miui.uireporter,android,com.miui.notification,com.miui.daemon,com.xiaomi.aiasst.service,com.xiaomi.barrage,com.miui.cit,com.xiaomi.otrpbroker,com.bsp.catchlog,com.miui.powerkeeper,com.xiaomi.trustservice,com.android.keychain,com.miui.wmsvc,com.android.providers.settings,com.xiaomi.gnss.polaris,com.qualcomm.qti.xrvd.service,com.xiaomi.aiasst.vision,com.xiaomi.joyose,miui.systemui.plugin,com.android.DeviceAsWebcam,com.wapi.wapicertmanage,com.android.dynsystem,com.xiaomi.aon,com.miui.qr,com.miui.contentcatcher,com.xiaomi.mirror,com.miui.securitycore,com.android.provision,com.miui.thirdappassistant,com.miui.aod,com.xiaomi.location.fused,com.xiaomi.digitalkey,com.xiaomi.misettings,com.miui.touchassistant,com.miui.securitycenter,com.xiaomi.mi_connect_service,com.miui.misightservice,vendor.qti.frameworks.utils,com.miui.bugreport,com.xiaomi.mtb,com.android.inputdevices,com.qualcomm.qti.services.systemhelper,com.android.location.fused,com.miui.audiomonitor,com.android.localtransport,com.xiaomi.touchservice,com.android.settings]:
+      com.oilquiz.app
+    [com.miui.tsmclient,com.android.nfc,com.st.android.nfc_extensions_16]:
+      com.oilquiz.app
+    [com.miui.backup,com.miui.huanji]:
+      com.oilquiz.app
+    com.xiaomi.finddevice:
+      com.oilquiz.app
+    com.xiaomi.aicr:
+      com.oilquiz.app
+    com.android.browser:
+      com.oilquiz.app
+    com.miui.packageinstaller:
+      com.oilquiz.app
+    com.android.contacts:
+      com.oilquiz.app
+    com.miui.personalassistant:
+      com.oilquiz.app
+    com.xiaomi.gamecenter.sdk.service:
+      com.oilquiz.app
+    com.xiaomi.minigame:
+      com.oilquiz.app
+    com.android.settings.intelligence:
+      com.oilquiz.app
+    com.miui.carlink:
+      com.oilquiz.app
+    com.miui.nextpay:
+      com.oilquiz.app
+    com.xiaomi.mis:
+      com.oilquiz.app
+    com.miui.hybrid:
+      com.oilquiz.app
+    com.miui.securityadd:
+      com.oilquiz.app
+    com.xiaomi.market:
+      com.oilquiz.app
+    com.miui.systemAdSolution:
+      com.oilquiz.app
+    com.xiaomi.account:
+      com.oilquiz.app
+    com.miui.greenguard:
+      com.oilquiz.app
+    com.xiaomi.payment:
+      com.oilquiz.app
+    com.xiaomi.xmsf:
+      com.oilquiz.app
+    com.android.providers.downloads.ui:
+      com.oilquiz.app
+    com.android.calendar:
+      com.oilquiz.app
+    com.mfashiongallery.emag:
+      com.oilquiz.app
+    com.baidu.input_mi:
+      com.oilquiz.app
+    com.android.email:
+      com.oilquiz.app
+    com.miui.notes:
+      com.oilquiz.app
+    com.android.soundrecorder:
+      com.oilquiz.app
+    com.miui.virtualsim:
+      com.oilquiz.app
+    com.xiaomi.vipaccount:
+      com.oilquiz.app
+    com.iflytek.inputmethod.miui:
+      com.oilquiz.app
+    com.duokan.phone.remotecontroller:
+      com.oilquiz.app
+    com.xiaomi.smarthome:
+      com.oilquiz.app
+    com.miui.player:
+      com.oilquiz.app
+    com.mi.health:
+      com.oilquiz.app
+    com.mipay.wallet:
+      com.oilquiz.app
+    com.xunlei.downloadprovider:
+      com.oilquiz.app
+    com.xiaomi.shop:
+      com.oilquiz.app
+    com.miui.newhome:
+      com.oilquiz.app
+    com.baidu.BaiduMap:
+      com.oilquiz.app
+    com.wandoujia.phoenix2:
+      com.oilquiz.app
+    com.coolapk.market:
+      com.oilquiz.app
+    com.xiaomi.tinygame:
+      com.oilquiz.app
+    com.taobao.taobao:
+      com.oilquiz.app
+    com.xunmeng.pinduoduo:
+      com.oilquiz.app
+    com.xingin.xhs:
+      com.oilquiz.app
+    io.dcloud.H5BF84654:
+      com.oilquiz.app
+    com.tencent.tmgp.pubgmhd:
+      com.oilquiz.app
+    com.seven.two.zero.yun:
+      com.oilquiz.app
+    com.midea.ai.appliances:
+      com.oilquiz.app
+    com.tencent.mm:
+      com.oilquiz.app
+    com.tmri.app.main:
+      com.oilquiz.app
+    com.szzc:
+      com.oilquiz.app
+    com.xiaomi.mico:
+      com.oilquiz.app
+    com.autonavi.minimap:
+      com.oilquiz.app
+    com.greenpoint.android.mc10086.activity:
+      com.oilquiz.app
+    com.ct.client:
+      com.oilquiz.app
+    com.shougang.shiftassistant:
+      com.oilquiz.app
+  queryable via interaction:
+    User 0:
+  queryable via uses-library:
+
+Dexopt state:
+  [com.oilquiz.app]
+    path: /data/app/~~o66WQ5_EY-Kxr95H6Yo5FA==/com.oilquiz.app-MdmYFSDS5BcvwIQBEIUjJg==/base.apk
+      arm64: [status=run-from-apk] [reason=unknown] [primary-abi]
+        [location is error]
+    base APK odex file size: Oops,Some thing wrong when get dex file output paths!
+
+Compiler stats:
+  [com.oilquiz.app]
+     base.apk - 1507
+     file_dex.jar - 235

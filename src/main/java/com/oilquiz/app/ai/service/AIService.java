@@ -15,9 +15,13 @@ import com.oilquiz.app.ai.model.Model;
 import com.oilquiz.app.ai.model.ModelChunkLoader;
 import com.oilquiz.app.ai.model.ModelDownloadManager;
 import com.oilquiz.app.ai.model.ModelManager;
+import com.oilquiz.app.ai.model.ModelMemoryManager;
+import com.oilquiz.app.ai.model.ModelStateCache;
 import com.oilquiz.app.ai.model.ModelRegistry;
 import com.oilquiz.app.ai.model.ModelTransferManager;
 import com.oilquiz.app.ai.optimization.DeviceDetector;
+import com.oilquiz.app.ai.optimization.ModelColdStartOptimizer;
+import com.oilquiz.app.ai.optimization.ResourceConfig;
 import com.oilquiz.app.ai.gpu.GpuCapabilityDetector;
 import com.oilquiz.app.ai.gpu.GpuDatabase;
 import com.oilquiz.app.ai.gpu.GpuInfo;
@@ -82,6 +86,9 @@ public class AIService {
 
     // 分块加载器
     private ModelChunkLoader modelChunkLoader;
+
+    // 冷启动优化器
+    private ModelColdStartOptimizer coldStartOptimizer;
 
     // 增强的服务状态管理
     private final AIServiceState serviceState = new AIServiceState();
@@ -161,9 +168,18 @@ public class AIService {
 
         // 从SharedPreferences加载保存的模型名称
         loadSavedModelName();
-        
+
         // 从SharedPreferences加载优化模式
         loadOptimizationMode();
+
+        // 初始化模型状态缓存
+        ModelStateCache cache = ModelStateCache.getInstance(context);
+        if (cache.hasRestorableState() && !cache.isCacheExpired()) {
+            AILogger.i(TAG, "Found restorable model state, attempting to restore...");
+            cache.restoreModelState((success, message) -> {
+                AILogger.i(TAG, "Model state restore: " + message);
+            });
+        }
         
         // 初始化聊天记录仓库
         chatRepository = new ChatRepository(context);
@@ -174,10 +190,14 @@ public class AIService {
         // 初始化分块加载器
         this.modelChunkLoader = new ModelChunkLoader();
 
+        // 初始化冷启动优化器
+        this.coldStartOptimizer = new ModelColdStartOptimizer(context);
+
         AILogger.i(TAG, "ThreadPool initialized with " + threadPoolSize + " threads");
         AILogger.i(TAG, "ChatRepository initialized");
         AILogger.i(TAG, "UnifiedContextManager initialized");
         AILogger.i(TAG, "ModelChunkLoader initialized");
+        AILogger.i(TAG, "ModelColdStartOptimizer initialized");
     }
     
     private void setupNativeLogCallback() {
@@ -616,17 +636,54 @@ public class AIService {
 
         modelInitSerialExecutor.execute(() -> {
             long recoveryStartTime = System.currentTimeMillis();
-            boolean success = reloadCurrentModel();
+            
+            // 优先尝试轻量恢复：如果模型本身还有效，只重建chat context
+            boolean modelValid = LlamaHelper.isModelInitialized();
+            boolean chatValid = LlamaHelper.isChatContextActive();
+            boolean success = false;
+            String recoveryMethod = "";
+
+            if (modelValid && !chatValid) {
+                // 模型有效但chat context无效，只重建chat context（快速恢复）
+                AILogger.i(TAG, "Model still valid, rebuilding chat context only (lightweight recovery)");
+                recoveryMethod = "chat context rebuild";
+                try {
+                    UnifiedContextManager ctxManager = UnifiedContextManager.getInstance();
+                    ctxManager.setChatContextReady(false);
+                    success = initChatContext("", "", "");
+                } catch (Exception e) {
+                    AILogger.e(TAG, "Chat context rebuild failed: " + e.getMessage(), e);
+                    success = false;
+                }
+                
+                // 如果chat context重建失败，再尝试完整重新加载模型
+                if (!success) {
+                    AILogger.w(TAG, "Chat context rebuild failed, falling back to full model reload");
+                    recoveryMethod = "full model reload (fallback)";
+                    success = reloadCurrentModel();
+                }
+            } else if (!modelValid) {
+                // 模型本身无效，必须重新加载
+                AILogger.i(TAG, "Model invalid, performing full model reload");
+                recoveryMethod = "full model reload";
+                success = reloadCurrentModel();
+            } else {
+                // 模型和chat context都有效，无需恢复
+                AILogger.i(TAG, "Native state already valid, no recovery needed");
+                success = true;
+                recoveryMethod = "none needed";
+            }
+
             long recoveryTimeMs = System.currentTimeMillis() - recoveryStartTime;
 
             if (success && LlamaHelper.isNativeStateValid()) {
                 LlamaHelper.recordRecoverySuccess();
-                AILogger.i(TAG, "Native state recovery successful, took " + recoveryTimeMs + "ms");
+                AILogger.i(TAG, "Native state recovery successful (" + recoveryMethod + "), took " + recoveryTimeMs + "ms");
                 notifyRecoverySuccess(recoveryTimeMs);
                 if (callback != null) callback.onRecoverySuccess(pendingMessage);
             } else {
                 int maxAttempts = LlamaHelper.getRecoveryAttemptCount();
-                String reason = "模型重新加载失败" + (!success ? "" : " (Native 状态仍无效)");
+                String reason = "恢复失败 (" + recoveryMethod + ")" + (!success ? "" : " (Native 状态仍无效)");
                 AILogger.e(TAG, "Native state recovery failed: " + reason);
                 notifyRecoveryFailed(attemptCount, maxAttempts, reason);
                 if (callback != null) callback.onRecoveryFailed(reason);
@@ -742,7 +799,7 @@ public class AIService {
             }
             
             long fileSizeMB = modelFile.length() / (1024 * 1024);
-            AILogger.i(TAG, "[PERF] Model file check: size=" + fileSizeMB + "MB, time=" 
+            AILogger.i(TAG, "[PERF] Model file check: size=" + fileSizeMB + "MB, time="
                     + (System.currentTimeMillis() - phaseStartTime) + "ms");
             phaseStartTime = System.currentTimeMillis();
 
@@ -753,14 +810,47 @@ public class AIService {
             AILogger.i(TAG, "[PERF] Optimization apply time: " + (System.currentTimeMillis() - phaseStartTime) + "ms");
             phaseStartTime = System.currentTimeMillis();
 
-            int gpuLayers = LlamaHelper.getGPULayers();
-            int threadCount = LlamaHelper.getThreadCount();
-            int batchSize = LlamaHelper.getBatchSize();
-            int memoryPoolSize = LlamaHelper.getMemoryPoolSize();
-            
-            MemoryUsageInfo memoryInfo = new GpuCapabilityDetector(context).getMemoryUsageInfo();
-            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, 
-                    memoryInfo.availableMemoryMB, gpuLayers > 0);
+            // 使用 ResourceConfig 获取安全的参数
+            ResourceConfig resourceConfig = new ResourceConfig(context);
+            GpuCapabilityDetector gpuDetector = new GpuCapabilityDetector(context);
+            MemoryUsageInfo memoryInfo = gpuDetector.getMemoryUsageInfo();
+
+            // 获取 GPU 显存信息用于计算最优 GPU 层数
+            long gpuMemoryMB = 0;
+            long maxMemAllocSizeMB = LlamaHelper.getGpuMaxMemAllocSizeMB();
+            GpuInfo gpuInfo = gpuDetector.detectGpuInfo();
+
+            AILogger.i(TAG, "========== GPU DETECTION ==========");
+            if (gpuInfo != null) {
+                AILogger.i(TAG, "GPU Info: renderer=" + gpuInfo.renderer + ", totalMemoryMB=" + gpuInfo.totalMemoryMB);
+            } else {
+                AILogger.i(TAG, "GPU Info: null");
+            }
+
+            if (gpuInfo != null && gpuInfo.totalMemoryMB > 0) {
+                gpuMemoryMB = gpuInfo.totalMemoryMB;
+                AILogger.i(TAG, "Using GPU total memory: " + gpuMemoryMB + "MB");
+            } else {
+                // 尝试从 OpenCL 获取 GPU 内存
+                gpuMemoryMB = gpuDetector.getAvailableGpuMemoryMB();
+                AILogger.i(TAG, "Using OpenCL detected memory: " + gpuMemoryMB + "MB");
+            }
+            AILogger.i(TAG, "maxMemAllocSize: " + maxMemAllocSizeMB + "MB");
+            AILogger.i(TAG, "====================================");
+
+            // 获取上下文大小用于计算 KV 缓存
+            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0);
+
+            // 获取模型文件大小用于估算层数
+            long modelSizeMB = modelFile.length() / (1024 * 1024);
+
+            // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
+            boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
+            int gpuLayers = resourceConfig.getOptimalGpuLayers(
+                    hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB, contextSize, modelSizeMB, modelFile.getName());
+            int threadCount = resourceConfig.getOptimalThreadCount();
+            int batchSize = resourceConfig.getOptimalBatchSize(LlamaHelper.getBatchSize());
+            int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(LlamaHelper.getMemoryPoolSize());
 
             AILogger.i(TAG, "Initializing model with optimized parameters: " +
                     "gpuLayers=" + gpuLayers +
@@ -768,7 +858,7 @@ public class AIService {
                     ", threadCount=" + threadCount +
                     ", batchSize=" + batchSize +
                     ", memoryPoolSize=" + memoryPoolSize + "MB");
-            
+
             if (gpuLayers > 0) {
                 updateServiceStage(AIServiceState.ServiceStage.GPU_INITIALIZATION, "初始化GPU加速...", 70);
             } else {
@@ -777,26 +867,39 @@ public class AIService {
 
             AILogger.i(TAG, "[PERF] Starting model initialization (native)...");
             long modelLoadStart = System.currentTimeMillis();
+
+            // 设置 GPU 层数（必须在 initModel 之前）
+            LlamaHelper.setGPULayers(gpuLayers);
+            AILogger.i(TAG, "Set GPU layers to " + gpuLayers + " before initModel");
+
             int result = LlamaHelper.initModel(
                     modelFile.getAbsolutePath(),
                     contextSize,
                     threadCount
             );
             long modelLoadTime = System.currentTimeMillis() - modelLoadStart;
-            AILogger.i(TAG, "[PERF] Native model initialization time: " + modelLoadTime + "ms (" 
+            AILogger.i(TAG, "[PERF] Native model initialization time: " + modelLoadTime + "ms ("
                     + String.format("%.2f", modelLoadTime / 1000.0) + "s)");
+
+            // 记录模型加载时间
+            coldStartOptimizer.recordModelLoad(modelFile.getAbsolutePath(), modelLoadTime, result == 0);
 
             if (result != 0 && LlamaHelper.getGPULayers() > 0) {
                 AILogger.w(TAG, "GPU initialization failed (code: " + result + "), trying CPU-only mode...");
                 updateServiceStage(AIServiceState.ServiceStage.CPU_FALLBACK, "GPU初始化失败，切换到CPU模式...", 75);
+                
+                // 使用 ResourceConfig 计算安全的 CPU 模式参数
+                int cpuThreadCount = resourceConfig.getOptimalThreadCount();
+                int cpuBatchSize = resourceConfig.getOptimalBatchSize(64);
+                int cpuContextSize = resourceConfig.getOptimalContextSize(contextSize, cpuBatchSize);
+                
                 LlamaHelper.setGPULayers(0);
-                int cpuThreadCount = Math.min(Runtime.getRuntime().availableProcessors(), 6);
                 LlamaHelper.setThreadCount(cpuThreadCount);
-                LlamaHelper.setBatchSize(128);
-                AILogger.i(TAG, "Switching to CPU mode: threads=" + cpuThreadCount + ", batchSize=128");
+                LlamaHelper.setBatchSize(cpuBatchSize);
+                AILogger.i(TAG, "Switching to CPU mode: threads=" + cpuThreadCount + ", batchSize=" + cpuBatchSize);
                 result = LlamaHelper.initModel(
                         modelFile.getAbsolutePath(),
-                        contextSize,
+                        cpuContextSize,
                         cpuThreadCount
                 );
                 if (result == 0) {
@@ -814,7 +917,20 @@ public class AIService {
                 if (crashHandler != null) {
                     crashHandler.startMonitoring();
                 }
-                
+
+                // 模型加载成功后，重新验证 GPU 状态
+                int finalGpuLayers = LlamaHelper.getGPULayers();
+                boolean gpuWorking = finalGpuLayers > 0 && LlamaHelper.isGPUWorking();
+                AILogger.i(TAG, "Post-init GPU status - layers: " + finalGpuLayers + ", working: " + gpuWorking);
+                // 如果 native 层 GPU 状态与预期不符，同步更新
+                if (finalGpuLayers > 0 && !gpuWorking) {
+                    AILogger.w(TAG, "GPU layers configured but not working, checking OpenCL...");
+                    if (!LlamaHelper.isOpenCLLoaded()) {
+                        AILogger.w(TAG, "OpenCL not loaded after model init, attempting reload...");
+                        preloadOpenClIfNeeded();
+                    }
+                }
+
                 UnifiedContextManager.getInstance().setModelContextReady(true);
                 
                 long totalLoadTimeMs = System.currentTimeMillis() - totalStartTime;
@@ -962,52 +1078,38 @@ public class AIService {
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 final String[] result = {null};
                 final Exception[] error = {null};
-                final Object lock = new Object();
-                
-                synchronized (lock) {
-                    LlamaHelper.chatSend(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
-                        private StringBuilder fullResponse = new StringBuilder();
-                        
-                        @Override
-                        public void onToken(String token) {
-                            fullResponse.append(token);
-                        }
-                        
-                        @Override
-                        public void onComplete(String fullText) {
-                            result[0] = fullText != null ? fullText : fullResponse.toString();
-                            synchronized (lock) {
-                                lock.notify();
-                            }
-                        }
-                        
-                        @Override
-                        public void onError(String msg) {
-                            error[0] = new Exception(msg);
-                            synchronized (lock) {
-                                lock.notify();
-                            }
-                        }
-                    });
-                    
-                    try {
-                        lock.wait(120000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+
+                // nativeGenerateStream 是同步阻塞调用，回调在当前线程同步触发
+                // 不需要 wait/notify 机制，直接在回调里 post 结果到主线程
+                LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                    private StringBuilder fullResponse = new StringBuilder();
+
+                    @Override
+                    public void onToken(String token) {
+                        fullResponse.append(token);
                     }
-                }
-                
-                if (error[0] != null) {
-                    AILogger.e(TAG, "Chat send error: " + error[0].getMessage());
-                    mainHandler.post(() -> callback.onError(error[0]));
-                } else if (result[0] != null) {
-                    mainHandler.post(() -> {
-                        callback.onSuccess(result[0]);
-                        saveChatMessage(0, "user", prompt, false);
-                        saveChatMessage(0, "assistant", result[0], false);
-                    });
-                } else {
-                    mainHandler.post(() -> callback.onError(new Exception("生成超时或无响应")));
+
+                    @Override
+                    public void onComplete(String fullText) {
+                        result[0] = fullText != null ? fullText : fullResponse.toString();
+                        mainHandler.post(() -> {
+                            callback.onSuccess(result[0]);
+                            saveChatMessage(0, "user", prompt, false);
+                            saveChatMessage(0, "assistant", result[0], false);
+                        });
+                    }
+
+                    @Override
+                    public void onError(String msg) {
+                        error[0] = new Exception(msg);
+                        AILogger.e(TAG, "Chat send error: " + msg);
+                        mainHandler.post(() -> callback.onError(error[0]));
+                    }
+                });
+
+                // 如果回调都没触发（native 异常退出），给出超时提示
+                if (result[0] == null && error[0] == null) {
+                    mainHandler.post(() -> callback.onError(new Exception("生成无响应，可能是模型问题")));
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Error generating text: " + e.getMessage(), e);
@@ -1069,13 +1171,6 @@ public class AIService {
         
         taskFuture[0] = executorService.submit(() -> {
             try {
-                String actualPrompt;
-                if (promptRequest != null) {
-                    actualPrompt = promptRequest.build();
-                } else {
-                    actualPrompt = prompt;
-                }
-
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                 sendLogBroadcast("INFO", "[AIService] 使用聊天上下文进行流式生成");
@@ -1086,54 +1181,43 @@ public class AIService {
                 
                 ScheduledFuture<?> watchdogFuture = watchdogScheduler.schedule(() -> {
                     if (!completed.get()) {
-                        AILogger.w(TAG, "Chat send timeout after " + timeoutMs + "ms, stopping...");
-                        LlamaHelper.chatStop();
+                        AILogger.w(TAG, "Generate stream timeout after " + timeoutMs + "ms, stopping...");
+                        LlamaHelper.stopGeneration();
                         mainHandler.post(() -> callback.onError(new Exception("生成超时，请重试")));
                         if (taskFuture[0] != null && !taskFuture[0].isDone()) {
                             taskFuture[0].cancel(true);
                         }
                     }
                 }, timeoutMs, TimeUnit.MILLISECONDS);
-                
-                LlamaHelper.chatSend(actualPrompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
-                    @Override
-                    public void onToken(String token) {
-                        mainHandler.post(() -> callback.onToken(token));
-                    }
 
-                    @Override
-                    public void onComplete(String fullText) {
+                // 判断是否使用结构化消息列表：
+                // - 有 promptRequest（结构化 prompt 构建器）→ 用消息列表，native 层 applyChatTemplate 自动适配模型
+                // - 有 history（历史消息列表）→ 用消息列表
+                // - 纯文本 prompt → 保持旧行为，直接送字符串（兼容翻译等调用者自己拼好格式的场景）
+                boolean useMessageList = (promptRequest != null) || (history != null && !history.isEmpty());
+
+                if (useMessageList) {
+                    List<PromptBuilder.Message> messages;
+                    if (promptRequest != null) {
+                        messages = promptRequest.buildMessages();
+                        AILogger.i(TAG, "使用 promptRequest.buildMessages() 构建 " + messages.size() + " 条消息");
+                    } else {
+                        messages = new ArrayList<>(history);
+                        messages.add(new PromptBuilder.Message("user", prompt));
+                        AILogger.i(TAG, "使用 history+user 构建 " + messages.size() + " 条消息");
+                    }
+                    if (messages.isEmpty()) {
                         completed.set(true);
                         watchdogFuture.cancel(false);
-                        long elapsed = System.currentTimeMillis() - startTime;
-                        float inferenceSpeed = LlamaHelper.getInferenceSpeed();
-                        int tokenCount = LlamaHelper.getTokenCount();
-                        
-                        AILogger.i(TAG, "LlamaHelper.chatSend: onComplete called, fullText length: " + (fullText != null ? fullText.length() : 0) + ", elapsed: " + elapsed + "ms");
-                        AILogger.i(TAG, "Performance metrics - Speed: " + String.format("%.2f", inferenceSpeed) + " t/s, Tokens: " + tokenCount);
-                        sendLogBroadcast("INFO", "[AIService] 生成完成: 完整文本长度=" + (fullText != null ? fullText.length() : 0) + ", 耗时=" + elapsed + "ms");
-                        sendLogBroadcast("INFO", "[AIService] 性能监控: 推理速度=" + String.format("%.2f", inferenceSpeed) + " tokens/s, token数=" + tokenCount);
-                        
-                        mainHandler.post(() -> {
-                            try {
-                                callback.onSuccess(fullText);
-                                saveChatMessage(0, "user", prompt, false);
-                                saveChatMessage(0, "assistant", fullText, false);
-                            } catch (Exception e) {
-                                AILogger.e(TAG, "Error in onComplete callback: " + e.getMessage(), e);
-                            }
-                        });
+                        mainHandler.post(() -> callback.onError(new IllegalArgumentException("消息列表为空")));
+                        return;
                     }
-
-                    @Override
-                    public void onError(String error) {
-                        completed.set(true);
-                        watchdogFuture.cancel(false);
-                        AILogger.e(TAG, "LlamaHelper.chatSend: onError called, error: " + error);
-                        sendLogBroadcast("ERROR", "[AIService] 生成错误: " + error);
-                        mainHandler.post(() -> callback.onError(new Exception(error)));
-                    }
-                });
+                    LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
+                        buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                } else {
+                    LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
+                        buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                }
                 
                 AILogger.i(TAG, "Generation setup completed!");
             } catch (OutOfMemoryError e) {
@@ -1141,7 +1225,6 @@ public class AIService {
                 sendLogBroadcast("ERROR", "[AIService] 内存溢出: " + e.getMessage());
                 try {
                     LlamaHelper.stopGeneration();
-                    LlamaHelper.chatStop();
                 } catch (Exception ex) {
                     AILogger.e(TAG, "Error stopping generation: " + ex.getMessage());
                 }
@@ -1316,7 +1399,7 @@ public class AIService {
             final Object lock = new Object();
             
             synchronized (lock) {
-                LlamaHelper.chatSend(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
                     private StringBuilder fullResponse = new StringBuilder();
                     
                     @Override
@@ -1505,12 +1588,66 @@ public class AIService {
     public boolean switchModel(String modelName) {
         synchronized (modelInitLock) {
             AILogger.i(TAG, "Switching to model: " + modelName);
-            if (LlamaHelper.isModelInitialized()) {
-                releaseNativeResourcesLocked(false);
+
+            // 使用内存管理器检查内存
+            ModelMemoryManager memManager = ModelMemoryManager.getInstance(context);
+            if (!memManager.isSwitching()) {
+                // 检查是否有足够内存
+                String modelPath = findModelPath(modelName);
+                if (modelPath != null && !memManager.hasEnoughMemoryForModel(modelPath)) {
+                    AILogger.w(TAG, "Insufficient memory for model, attempting to free memory");
+                    // 尝试释放内存
+                    if (LlamaHelper.isModelInitialized()) {
+                        releaseNativeResourcesLocked(false);
+                    }
+                    System.gc();
+                }
             }
+
+            // 先卸载旧模型
+            if (LlamaHelper.isModelInitialized()) {
+                AILogger.i(TAG, "Unloading old model before switching");
+                try {
+                    LlamaHelper.chatDestroy();
+                } catch (Exception e) {
+                    AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
+                }
+                LlamaHelper.release();
+                // 等待内存释放
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                System.gc();
+            }
+
             saveModelName(modelName);
-            return loadModelLocked(modelName);
+            boolean success = loadModelLocked(modelName);
+
+            // 切换成功后保存状态到缓存
+            if (success) {
+                ModelStateCache.getInstance(context).saveModelState(null);
+            }
+
+            return success;
         }
+    }
+
+    /**
+     * 查找模型文件路径
+     */
+    private String findModelPath(String modelName) {
+        File modelDir = new File(context.getFilesDir(), MODEL_DIR_NAME);
+        File modelFile = new File(modelDir, modelName);
+        if (modelFile.exists()) {
+            return modelFile.getAbsolutePath();
+        }
+        File rootModelFile = new File(context.getFilesDir(), modelName);
+        if (rootModelFile.exists()) {
+            return rootModelFile.getAbsolutePath();
+        }
+        return null;
     }
 
     /**
@@ -1536,6 +1673,295 @@ public class AIService {
             }
             return success;
         }
+    }
+
+    // ========== 模型热切换 ==========
+
+    /**
+     * 热切换回调接口
+     */
+    public interface HotSwitchCallback {
+        void onSwitchStarted(String fromModel, String toModel);
+        void onSwitchProgress(int progress, String message);
+        void onSwitchCompleted(boolean success, String model);
+        void onSwitchFailed(String reason);
+    }
+
+    /**
+     * 热切换模型 - 快速切换，无需完全重新加载
+     * 与 switchModel() 的区别：
+     * - switchModel(): 完全释放旧模型 + 重新加载新模型（安全但慢）
+     * - hotSwitchModel(): 尝试快速切换，如果模型已缓存则直接切换（快但可能失败）
+     *
+     * @param targetModelName 目标模型名称
+     * @param callback 切换回调
+     * @return 是否开始切换
+     */
+    public boolean hotSwitchModel(String targetModelName, HotSwitchCallback callback) {
+        if (targetModelName == null || targetModelName.isEmpty()) {
+            if (callback != null) callback.onSwitchFailed("目标模型名称为空");
+            return false;
+        }
+
+        String fromModel = currentModelName;
+        if (targetModelName.equals(fromModel)) {
+            if (callback != null) callback.onSwitchCompleted(true, targetModelName);
+            return true;
+        }
+
+        AILogger.i(TAG, "Hot switching from " + fromModel + " to " + targetModelName);
+
+        executorService.execute(() -> {
+            synchronized (modelInitLock) {
+                try {
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchStarted(fromModel, targetModelName));
+                    }
+
+                    // 步骤1: 查找模型文件
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchProgress(10, "查找模型文件..."));
+                    }
+                    String modelPath = findModelPath(targetModelName);
+                    if (modelPath == null) {
+                        AILogger.e(TAG, "Model file not found: " + targetModelName);
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onSwitchFailed("模型文件不存在: " + targetModelName));
+                        }
+                        return;
+                    }
+
+                    // 步骤2: 检查内存
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchProgress(20, "检查内存..."));
+                    }
+                    ModelMemoryManager memManager = ModelMemoryManager.getInstance(context);
+                    File modelFile = new File(modelPath);
+                    long modelSizeMB = modelFile.length() / (1024 * 1024);
+                    if (!memManager.hasEnoughMemory(modelSizeMB)) {
+                        AILogger.w(TAG, "Insufficient memory for hot switch, falling back to full switch");
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onSwitchProgress(30, "内存不足，使用标准切换..."));
+                        }
+                        // 回退到标准切换
+                        boolean success = doSwitchModelInternal(targetModelName, callback);
+                        return;
+                    }
+
+                    // 步骤3: 释放当前模型（如果需要）
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchProgress(40, "释放当前模型..."));
+                    }
+                    if (LlamaHelper.isModelInitialized()) {
+                        try {
+                            LlamaHelper.chatDestroy();
+                        } catch (Exception e) {
+                            AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
+                        }
+                        LlamaHelper.release();
+                        // 等待内存释放
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
+                    // 步骤4: 加载新模型
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchProgress(60, "加载新模型..."));
+                    }
+                    boolean success = loadModelLocked(targetModelName);
+
+                    if (success) {
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onSwitchProgress(100, "切换完成"));
+                            mainHandler.post(() -> callback.onSwitchCompleted(true, targetModelName));
+                        }
+                        AILogger.i(TAG, "Hot switch completed successfully");
+                    } else {
+                        // 切换失败，尝试回滚
+                        AILogger.e(TAG, "Hot switch failed, attempting rollback to: " + fromModel);
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onSwitchProgress(80, "切换失败，回滚中..."));
+                        }
+                        if (fromModel != null) {
+                            rollbackToModel(fromModel);
+                        }
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onSwitchFailed("模型加载失败，已回滚"));
+                        }
+                    }
+                } catch (Exception e) {
+                    AILogger.e(TAG, "Hot switch exception: " + e.getMessage(), e);
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onSwitchFailed("切换异常: " + e.getMessage()));
+                    }
+                }
+            }
+        });
+
+        return true;
+    }
+
+    /**
+     * 标准切换（内部方法，带完整状态同步）
+     */
+    private boolean doSwitchModelInternal(String modelName, HotSwitchCallback callback) {
+        try {
+            boolean success = switchModel(modelName);
+            if (success) {
+                if (callback != null) {
+                    mainHandler.post(() -> callback.onSwitchCompleted(true, modelName));
+                }
+            } else {
+                if (callback != null) {
+                    mainHandler.post(() -> callback.onSwitchFailed("标准切换失败"));
+                }
+            }
+            return success;
+        } catch (Exception e) {
+            AILogger.e(TAG, "Standard switch failed: " + e.getMessage(), e);
+            if (callback != null) {
+                mainHandler.post(() -> callback.onSwitchFailed("标准切换异常: " + e.getMessage()));
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 回滚到指定模型
+     */
+    private void rollbackToModel(String modelId) {
+        if (modelId == null || modelId.isEmpty()) {
+            AILogger.w(TAG, "No model to rollback to");
+            return;
+        }
+
+        AILogger.i(TAG, "Rolling back to model: " + modelId);
+        try {
+            boolean success = loadModelLocked(modelId);
+            if (success) {
+                AILogger.i(TAG, "Rollback successful");
+            } else {
+                AILogger.e(TAG, "Rollback failed");
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "Rollback exception: " + e.getMessage(), e);
+        }
+    }
+
+    // ========== 模型预加载 ==========
+
+    /**
+     * 预加载模型到内存
+     * 实际加载模型文件，为后续快速切换做准备
+     *
+     * @param modelName 模型名称
+     * @param callback 预加载回调
+     * @return 是否开始预加载
+     */
+    public boolean preloadModel(String modelName, PreloadCallback callback) {
+        if (modelName == null || modelName.isEmpty()) {
+            if (callback != null) callback.onPreloadFailed("模型名称为空");
+            return false;
+        }
+
+        if (modelName.equals(currentModelName) && LlamaHelper.isModelInitialized()) {
+            AILogger.i(TAG, "Model already loaded and active: " + modelName);
+            if (callback != null) callback.onPreloadCompleted(modelName);
+            return true;
+        }
+
+        AILogger.i(TAG, "Preloading model: " + modelName);
+
+        executorService.execute(() -> {
+            synchronized (modelInitLock) {
+                try {
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onPreloadProgress(10, "准备预加载..."));
+                    }
+
+                    // 查找模型文件
+                    String modelPath = findModelPath(modelName);
+                    if (modelPath == null) {
+                        AILogger.e(TAG, "Model file not found for preloading: " + modelName);
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onPreloadFailed("模型文件不存在: " + modelName));
+                        }
+                        return;
+                    }
+
+                    // 检查内存
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onPreloadProgress(20, "检查内存..."));
+                    }
+                    ModelMemoryManager memManager = ModelMemoryManager.getInstance(context);
+                    File modelFile = new File(modelPath);
+                    long modelSizeMB = modelFile.length() / (1024 * 1024);
+                    if (!memManager.hasEnoughMemory(modelSizeMB)) {
+                        AILogger.w(TAG, "Not enough memory for preloading: " + modelSizeMB + "MB");
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onPreloadFailed("内存不足，无法预加载: " + modelSizeMB + "MB"));
+                        }
+                        return;
+                    }
+
+                    // 释放当前模型（如果需要）
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onPreloadProgress(40, "释放当前模型..."));
+                    }
+                    if (LlamaHelper.isModelInitialized()) {
+                        try {
+                            LlamaHelper.chatDestroy();
+                        } catch (Exception e) {
+                            AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
+                        }
+                        LlamaHelper.release();
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
+                    // 加载模型
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onPreloadProgress(60, "加载模型到内存..."));
+                    }
+                    boolean success = loadModelLocked(modelName);
+
+                    if (success) {
+                        AILogger.i(TAG, "Model preloaded successfully: " + modelName);
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onPreloadProgress(100, "预加载完成"));
+                            mainHandler.post(() -> callback.onPreloadCompleted(modelName));
+                        }
+                    } else {
+                        AILogger.e(TAG, "Failed to preload model: " + modelName);
+                        if (callback != null) {
+                            mainHandler.post(() -> callback.onPreloadFailed("模型加载失败"));
+                        }
+                    }
+                } catch (Exception e) {
+                    AILogger.e(TAG, "Preload exception: " + e.getMessage(), e);
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onPreloadFailed("预加载异常: " + e.getMessage()));
+                    }
+                }
+            }
+        });
+
+        return true;
+    }
+
+    /**
+     * 预加载回调接口
+     */
+    public interface PreloadCallback {
+        void onPreloadProgress(int progress, String message);
+        void onPreloadCompleted(String modelName);
+        void onPreloadFailed(String reason);
     }
 
     /**
@@ -1637,6 +2063,8 @@ public class AIService {
                 try {
                     System.load(path);
                     AILogger.i(TAG, "libOpenCL.so loaded from " + path);
+                    // 同步 native 层的 OpenCL 状态
+                    LlamaHelper.setOpenCLLoaded(true);
                     openClPreloaded = true;
                     return;
                 } catch (UnsatisfiedLinkError e) {
@@ -1651,68 +2079,32 @@ public class AIService {
 
     /**
      * 根据当前优化模式应用设置
+     * 只设置线程数、批处理大小、内存池大小
+     * GPU 层�数由 loadModelLocked() 根据模型信息计算
      */
     private void applyOptimizations() {
         try {
             OptimizationMode mode = optimizationMode;
-            int cpuCores = Runtime.getRuntime().availableProcessors();
 
-            // 基础参数：由模式决定
-            int threadCount = Math.min(cpuCores, mode.maxThreads);
-            int batchSize = mode.batchSize;
-            int memoryPoolSize = mode.memoryPoolMB;
+            // 使用 ResourceConfig 计算安全的参数
+            ResourceConfig resourceConfig = new ResourceConfig(context);
 
-            if (mode.gpuEnabled) {
-                // GPU 模式：检测硬件能力后动态调整
-                preloadOpenClIfNeeded();
-                GpuCapabilityDetector gpuDetector = new GpuCapabilityDetector(context);
-                GpuInfo gpuInfo = gpuDetector.detectGpuInfo();
-                MemoryUsageInfo memoryInfo = gpuDetector.getMemoryUsageInfo();
+            // 只计算线程数、批处理大小、内存池大小（不计算 GPU 层数）
+            int threadCount = resourceConfig.getOptimalThreadCount();
+            int batchSize = resourceConfig.getOptimalBatchSize(mode.batchSize);
+            int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(mode.memoryPoolMB);
 
-                AILogger.i(TAG, "=== Hardware Capability Detection ===");
-                AILogger.i(TAG, "GPU Renderer: " + (gpuInfo != null ? gpuInfo.renderer : "Unknown"));
-                AILogger.i(TAG, "Vulkan Support: " + gpuInfo.supportsVulkan + ", FP16 Support: " + gpuInfo.supportsFP16);
-                AILogger.i(TAG, "Total Memory: " + memoryInfo.totalMemoryMB + "MB, Available: " + memoryInfo.availableMemoryMB + "MB");
-                AILogger.i(TAG, "CPU Cores: " + cpuCores);
+            // 应用计算后的参数（只设置线程数、批处理大小、内存池大小）
+            LlamaHelper.setThreadCount(threadCount);
+            LlamaHelper.setBatchSize(batchSize);
+            LlamaHelper.setMemoryPoolSize(memoryPoolSize);
+            // GPU 层数由 loadModelLocked() 根据模型信息计算，这里不设置
 
-                boolean hasGpuSupport = checkGpuSupport(gpuInfo, gpuDetector);
-                if (!hasGpuSupport) {
-                    // 不支持 GPU，回退到模式的基础参数
-                    AILogger.i(TAG, "GPU not supported, falling back to CPU with mode parameters");
-                }
-
-                int gpuLayers = hasGpuSupport ? calculateOptimalGpuLayers(hasGpuSupport, memoryInfo, gpuInfo, gpuDetector) : 0;
-                // 根据可用内存微调模式参数
-                if (memoryInfo.availableMemoryMB < 2048) {
-                    batchSize = Math.max(batchSize / 2, 32);
-                    memoryPoolSize = Math.max(memoryPoolSize / 2, 128);
-                }
-
-                LlamaHelper.setThreadCount(threadCount);
-                LlamaHelper.setBatchSize(batchSize);
-                LlamaHelper.setMemoryPoolSize(memoryPoolSize);
-                LlamaHelper.setGPULayers(gpuLayers);
-
-                AILogger.i(TAG, "=== Optimizations Applied: " + mode.displayName + " ===");
-                AILogger.i(TAG, "Mode: " + (hasGpuSupport ? "GPU (n_gpu_layers=" + gpuLayers + ")" : "CPU"));
-                AILogger.i(TAG, "Context Size: " + mode.contextSize);
-                AILogger.i(TAG, "Memory Pool: " + memoryPoolSize + "MB");
-                AILogger.i(TAG, "Batch Size: " + batchSize);
-                AILogger.i(TAG, "Thread Count: " + threadCount);
-                AILogger.i(TAG, "GPU Layers: " + (gpuLayers < 0 ? "auto-detect" : gpuLayers));
-            } else {
-                // 纯 CPU 模式
-                LlamaHelper.setThreadCount(threadCount);
-                LlamaHelper.setBatchSize(batchSize);
-                LlamaHelper.setMemoryPoolSize(memoryPoolSize);
-                LlamaHelper.setGPULayers(0);
-
-                AILogger.i(TAG, "=== Optimizations Applied: " + mode.displayName + " (CPU) ===");
-                AILogger.i(TAG, "Context Size: " + mode.contextSize);
-                AILogger.i(TAG, "Memory Pool: " + memoryPoolSize + "MB");
-                AILogger.i(TAG, "Batch Size: " + batchSize);
-                AILogger.i(TAG, "Thread Count: " + threadCount);
-            }
+            AILogger.i(TAG, "=== Optimizations Applied: " + mode.displayName + " ===");
+            AILogger.i(TAG, "Thread Count: " + threadCount);
+            AILogger.i(TAG, "Batch Size: " + batchSize);
+            AILogger.i(TAG, "Memory Pool: " + memoryPoolSize + "MB");
+            AILogger.i(TAG, "GPU Layers: (deferred to loadModelLocked)");
         } catch (Exception e) {
             AILogger.e(TAG, "Error applying settings: " + e.getMessage(), e);
             applyFallbackDefaults();
@@ -1742,13 +2134,9 @@ public class AIService {
      * 根据当前优化模式返回 Context Size
      */
     private int calculateOptimalContextSize(long totalMemoryMB, long availableMemoryMB, boolean hasGpuSupport) {
-        int contextSize = optimizationMode.contextSize;
-        
-        // 内存不足时自动降级
-        if (availableMemoryMB < 1024 && contextSize > N_CTX_LOW_MEMORY) {
-            contextSize = N_CTX_LOW_MEMORY;
-            AILogger.w(TAG, "Low available memory, reducing context size to " + contextSize);
-        }
+        // 使用 ResourceConfig 计算安全的上下文大小
+        ResourceConfig resourceConfig = new ResourceConfig(context);
+        int contextSize = resourceConfig.getOptimalContextSize(optimizationMode.contextSize, 128);
         
         AILogger.i(TAG, "calculateOptimalContextSize: mode=" + optimizationMode.displayName 
                 + ", totalMem=" + totalMemoryMB + "MB, availableMem=" + availableMemoryMB + "MB"
@@ -1767,53 +2155,19 @@ public class AIService {
             return 0;
         }
         
-        try {
-            com.oilquiz.app.ai.gpu.GpuConfig gpuConfig = gpuDetector.getOptimalConfig(2048);
-            if (gpuConfig != null && gpuConfig.gpuLayers > 0) {
-                AILogger.i(TAG, "Using GpuDetector recommended GPU layers: " + gpuConfig.gpuLayers);
-                return gpuConfig.gpuLayers;
-            }
-        } catch (Exception e) {
-            AILogger.w(TAG, "Failed to get GpuDetector config, using fallback: " + e.getMessage());
-        }
+        // 使用 ResourceConfig 计算安全的 GPU 层数
+        ResourceConfig resourceConfig = new ResourceConfig(context);
         
-        long availableGpuMemMB = 0;
+        long gpuMemoryMB = 0;
         if (gpuInfo != null && gpuInfo.totalMemoryMB > 0) {
-            availableGpuMemMB = gpuInfo.totalMemoryMB;
+            gpuMemoryMB = gpuInfo.totalMemoryMB;
         } else {
-            availableGpuMemMB = gpuDetector.getAvailableGpuMemoryMB();
+            gpuMemoryMB = gpuDetector.getAvailableGpuMemoryMB();
         }
         
-        if (availableGpuMemMB <= 0) {
-            long systemMem = memoryInfo.totalMemoryMB;
-            if (systemMem >= 8192) {
-                availableGpuMemMB = 4096;
-            } else if (systemMem >= 6144) {
-                availableGpuMemMB = 3072;
-            } else if (systemMem >= 4096) {
-                availableGpuMemMB = 2048;
-            } else {
-                availableGpuMemMB = 1024;
-            }
-        }
+        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, gpuMemoryMB);
         
-        int gpuLayers;
-        if (availableGpuMemMB >= 6144) {
-            gpuLayers = 99;
-        } else if (availableGpuMemMB >= 4096) {
-            gpuLayers = 80;
-        } else if (availableGpuMemMB >= 3072) {
-            gpuLayers = 60;
-        } else if (availableGpuMemMB >= 2048) {
-            gpuLayers = 40;
-        } else if (availableGpuMemMB >= 1024) {
-            gpuLayers = 20;
-        } else {
-            gpuLayers = -1;
-        }
-        
-        AILogger.i(TAG, "calculateOptimalGpuLayers: estimatedGpuMem=" + availableGpuMemMB 
-                + "MB, gpuLayers=" + (gpuLayers < 0 ? "auto" : gpuLayers));
+        AILogger.i(TAG, "calculateOptimalGpuLayers: gpuMem=" + gpuMemoryMB + "MB, gpuLayers=" + gpuLayers);
         
         return gpuLayers;
     }
@@ -1889,89 +2243,106 @@ public class AIService {
     private void applyXiaomi14Optimizations(long totalDeviceMem) {
         AILogger.i(TAG, "Applying Xiaomi 14 specific optimizations");
         
-        // 小米14搭载Snapdragon 8 Gen 3，Adreno 750
-        // GPU layers 由 Native 层自动检测
-        LlamaHelper.setMemoryPoolSize(safeMemoryPoolSize(totalDeviceMem, 4096));
-        LlamaHelper.setThreadCount(8);
-        LlamaHelper.setBatchSize(512);
+        // 使用 ResourceConfig 计算安全参数
+        ResourceConfig resourceConfig = new ResourceConfig(context);
+        int threadCount = resourceConfig.getOptimalThreadCount();
+        int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(2048);
+        int batchSize = resourceConfig.getOptimalBatchSize(256);
+        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, 0);
         
-        AILogger.i(TAG, "Xiaomi 14 optimizations applied: GPU=auto-detect, MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=512, Threads=8");
+        LlamaHelper.setMemoryPoolSize(memoryPoolSize);
+        LlamaHelper.setThreadCount(threadCount);
+        LlamaHelper.setBatchSize(batchSize);
+        LlamaHelper.setGPULayers(gpuLayers);
+        
+        AILogger.i(TAG, "Xiaomi 14 optimizations applied: GPU layers=" + gpuLayers + 
+                ", MemPool=" + memoryPoolSize + "MB, Batch=" + batchSize + ", Threads=" + threadCount);
     }
     
     /**
      * Adreno GPU优化
+     * 使用 ResourceConfig 确保参数在安全范围内
      */
     private void applyAdrenoOptimizations(String series, long totalDeviceMem) {
         AILogger.i(TAG, "Applying Adreno optimizations for series: " + series);
         
+        ResourceConfig resourceConfig = new ResourceConfig(context);
+        int threadCount = resourceConfig.getOptimalThreadCount();
+        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, 0);
+        
         switch (series) {
             case "A7XX":
                 // Adreno 740/750 - 高端GPU
-                // GPU layers 由 Native 层自动检测
-                LlamaHelper.setMemoryPoolSize(safeMemoryPoolSize(totalDeviceMem, 4096));
-                LlamaHelper.setThreadCount(8);
-                LlamaHelper.setBatchSize(512);
-                AILogger.i(TAG, "A7XX optimizations applied: GPU=auto-detect, MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=512, Threads=8");
+                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(2048));
+                LlamaHelper.setThreadCount(threadCount);
+                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(256));
+                LlamaHelper.setGPULayers(gpuLayers);
+                AILogger.i(TAG, "A7XX optimizations applied: GPU layers=" + gpuLayers + 
+                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=256, Threads=" + threadCount);
                 break;
                 
             case "A6XX":
                 // Adreno 650 - 中端GPU
-                // GPU layers 由 Native 层自动检测
-                LlamaHelper.setMemoryPoolSize(safeMemoryPoolSize(totalDeviceMem, 1024));
-                LlamaHelper.setThreadCount(6);
-                LlamaHelper.setBatchSize(256);
-                AILogger.i(TAG, "A6XX optimizations applied: GPU=auto-detect, MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=256, Threads=6");
+                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(1024));
+                LlamaHelper.setThreadCount(threadCount);
+                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(128));
+                LlamaHelper.setGPULayers(gpuLayers);
+                AILogger.i(TAG, "A6XX optimizations applied: GPU layers=" + gpuLayers + 
+                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=128, Threads=" + threadCount);
                 break;
                 
             case "A5XX":
                 // Adreno 5xx - 低端GPU
-                // GPU layers 由 Native 层自动检测
-                LlamaHelper.setMemoryPoolSize(safeMemoryPoolSize(totalDeviceMem, 512));
-                LlamaHelper.setThreadCount(4);
-                LlamaHelper.setBatchSize(128);
-                AILogger.i(TAG, "A5XX optimizations applied: GPU=auto-detect, MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=128, Threads=4");
+                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(512));
+                LlamaHelper.setThreadCount(resourceConfig.getOptimalThreadCount());
+                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(64));
+                LlamaHelper.setGPULayers(resourceConfig.getOptimalGpuLayers(true, 0));
+                AILogger.i(TAG, "A5XX optimizations applied: GPU layers=" + LlamaHelper.getGPULayers() + 
+                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=64, Threads=" + LlamaHelper.getThreadCount());
                 break;
                 
             default:
                 // 通用优化
-                // GPU layers 由 Native 层自动检测
-                LlamaHelper.setMemoryPoolSize(safeMemoryPoolSize(totalDeviceMem, 256));
-                LlamaHelper.setThreadCount(4);
-                LlamaHelper.setBatchSize(64);
-                AILogger.i(TAG, "Generic Adreno optimizations applied: GPU=auto-detect, MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=64, Threads=4");
+                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(256));
+                LlamaHelper.setThreadCount(threadCount);
+                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(64));
+                LlamaHelper.setGPULayers(gpuLayers);
+                AILogger.i(TAG, "Generic Adreno optimizations applied: GPU layers=" + gpuLayers + 
+                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=64, Threads=" + threadCount);
                 break;
         }
     }
     
     /**
      * 基于设备能力的自动调优
+     * 使用 ResourceConfig 确保参数在安全范围内
      */
     private void autoTuneBasedOnCapabilities() {
         AILogger.i(TAG, "Auto-tuning based on device capabilities");
         
         try {
-            // 基于设备能力设置参数 - GPU layers 由 Native 层自动检测
-            int cpuCores = DeviceDetector.getCPUCores();
-            int threadCount = Math.min(cpuCores, 4); // 默认4线程
-            int batchSize = 16; // 默认批处理大小
+            ResourceConfig resourceConfig = new ResourceConfig(context);
+            ResourceConfig.OptimalConfig optimalConfig = resourceConfig.calculateOptimalConfig(false, 0, 0, 4096);
             
-            AILogger.i(TAG, "Auto-tuned parameters - CPU Cores: " + cpuCores + ", Threads: " + threadCount + ", Batch: " + batchSize);
+            LlamaHelper.setMemoryPoolSize(optimalConfig.memoryPoolMB);
+            LlamaHelper.setThreadCount(optimalConfig.threadCount);
+            LlamaHelper.setBatchSize(optimalConfig.batchSize);
+            LlamaHelper.setGPULayers(0); // CPU 模式
             
-            // 设置优化参数 - GPU layers 由 Native 层自动检测
-            LlamaHelper.setMemoryPoolSize(1024); // 默认内存池大小
-            LlamaHelper.setThreadCount(threadCount);
-            LlamaHelper.setBatchSize(batchSize);
+            AILogger.i(TAG, "Auto-tuned parameters - Threads: " + optimalConfig.threadCount + 
+                    ", Batch: " + optimalConfig.batchSize + 
+                    ", MemPool: " + optimalConfig.memoryPoolMB + "MB");
             
         } catch (Exception e) {
-            AILogger.w(TAG, "Failed to auto-tune, using default optimizations: " + e.getMessage());
-            // 使用默认值
-            int cpuCores = DeviceDetector.getCPUCores();
-            int threadCount = Math.min(cpuCores, 4); 
-            int batchSize = 16;
+            AILogger.w(TAG, "Failed to auto-tune, using safe defaults: " + e.getMessage());
+            // 使用安全的默认值
+            ResourceConfig resourceConfig = new ResourceConfig(context);
+            int threadCount = resourceConfig.getOptimalThreadCount();
             
-            LlamaHelper.setMemoryPoolSize(1024);
+            LlamaHelper.setMemoryPoolSize(256);
             LlamaHelper.setThreadCount(threadCount);
-            LlamaHelper.setBatchSize(batchSize);
+            LlamaHelper.setBatchSize(64);
+            LlamaHelper.setGPULayers(0);
         }
     }
 
@@ -2480,6 +2851,52 @@ public class AIService {
         void onHotStartComplete(boolean success, String message);
     }
 
+    // ========== 冷启动优化 ==========
+
+    /**
+     * 获取冷启动优化器
+     */
+    public ModelColdStartOptimizer getColdStartOptimizer() {
+        return coldStartOptimizer;
+    }
+
+    /**
+     * 预加载模型文件到系统缓存
+     * 这不会加载模型到内存，只是让系统缓存文件内容，加速后续加载
+     *
+     * @param modelPath 模型路径
+     * @param callback 预加载回调
+     */
+    public void preloadModelFile(String modelPath, ModelColdStartOptimizer.PreloadCallback callback) {
+        if (coldStartOptimizer != null) {
+            coldStartOptimizer.preloadModelFile(modelPath, callback);
+        }
+    }
+
+    /**
+     * 预热模型加载
+     * 使用小上下文预加载模型，然后释放，让文件在系统缓存中
+     *
+     * @param modelPath 模型路径
+     * @param callback 预热回调
+     */
+    public void warmUpModel(String modelPath, ModelColdStartOptimizer.WarmUpCallback callback) {
+        if (coldStartOptimizer != null) {
+            coldStartOptimizer.warmUpModel(modelPath, callback);
+        }
+    }
+
+    /**
+     * 获取模型加载统计信息
+     */
+    public ModelColdStartOptimizer.LoadStats getModelLoadStats(String modelPath) {
+        if (coldStartOptimizer != null) {
+            String modelKey = new File(modelPath).getName();
+            return coldStartOptimizer.getLoadStats(modelKey);
+        }
+        return null;
+    }
+
     /**
      * 应用进入后台时调用
      */
@@ -2795,7 +3212,15 @@ public class AIService {
     public boolean updateChatPrompts(String globalPrompt, String systemPrompt, String normalPrompt) {
         synchronized (chatContextLock) {
             try {
-                return LlamaHelper.chatUpdatePrompts(globalPrompt, systemPrompt, normalPrompt);
+                // 如果聊天上下文已激活，直接更新提示词（不销毁上下文）
+                if (LlamaHelper.isChatContextActive()) {
+                    AILogger.i(TAG, "Updating chat prompts without destroying context");
+                    return LlamaHelper.chatUpdatePrompts(globalPrompt, systemPrompt, normalPrompt);
+                } else {
+                    // 如果上下文未激活，创建新上下文
+                    AILogger.i(TAG, "Chat context not active, creating new context");
+                    return initChatContext(globalPrompt, systemPrompt, normalPrompt);
+                }
             } catch (Exception e) {
                 AILogger.e(TAG, "Error updating chat prompts: " + e.getMessage(), e);
                 return false;
@@ -2834,18 +3259,39 @@ public class AIService {
     public void chatSend(String message, int maxTokens, boolean enableThinking, LlamaHelper.TokenCallback callback) {
         updateLastUsedTime();
 
-        if (!canSendChat()) {
-            String error = getChatSendErrorReason();
-            AILogger.w(TAG, "chatSend rejected: " + error);
-            if (callback != null) callback.onError(error);
-            return;
-        }
-
-        if (crashHandler != null) {
-            crashHandler.recordActivity();
-        }
-        
+        // 同步检查并创建上下文，避免竞态条件
         synchronized (chatContextLock) {
+            if (!canSendChat()) {
+                String error = getChatSendErrorReason();
+                AILogger.w(TAG, "chatSend rejected: " + error);
+                
+                // 尝试自动恢复：如果模型已初始化但聊天上下文未激活，尝试创建上下文
+                if (isInitialized && LlamaHelper.isModelInitialized() && !LlamaHelper.isChatContextActive()) {
+                    AILogger.i(TAG, "Chat context not active, attempting to create...");
+                    try {
+                        boolean ctxCreated = initChatContext("", "", "");
+                        if (ctxCreated && canSendChat()) {
+                            AILogger.i(TAG, "Chat context created successfully, continuing chatSend");
+                            // 不递归重试，直接继续执行
+                        } else {
+                            if (callback != null) callback.onError(error);
+                            return;
+                        }
+                    } catch (Exception e) {
+                        AILogger.e(TAG, "Failed to create chat context: " + e.getMessage(), e);
+                        if (callback != null) callback.onError("Failed to create chat context: " + e.getMessage());
+                        return;
+                    }
+                } else {
+                    if (callback != null) callback.onError(error);
+                    return;
+                }
+            }
+
+            if (crashHandler != null) {
+                crashHandler.recordActivity();
+            }
+            
             activeChatGenerationCount++;
             AILogger.i(TAG, "chatSend started, activeGenerationCount=" + activeChatGenerationCount);
         }
@@ -2938,7 +3384,44 @@ public class AIService {
                     }
                 }, timeoutMs, TimeUnit.MILLISECONDS);
 
-                LlamaHelper.chatSend(message, maxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
+                // 获取推理锁，确保不与 generate 并发执行
+                if (!LlamaHelper.acquireInferenceWriteLock()) {
+                    AILogger.w(TAG, "chatSend: Failed to acquire inference lock");
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onError("推理锁获取超时"));
+                    }
+                    return;
+                }
+                
+                try {
+                // 检查上下文空间是否足够
+                int promptTokens = LlamaHelper.countTokens(message);
+                int remainingTokens = LlamaHelper.getContextRemainingTokens();
+                int requiredTokens = promptTokens + maxTokens;
+
+                AILogger.i(TAG, "chatSend context check: promptTokens=" + promptTokens +
+                        ", remaining=" + remainingTokens + ", required=" + requiredTokens);
+
+                // 使用 final 变量用于 lambda
+                final int effectiveMaxTokens;
+                if (remainingTokens < requiredTokens) {
+                    AILogger.w(TAG, "Not enough context space in chatSend, clearing context");
+                    LlamaHelper.clearContextForInference();
+
+                    // 再次检查
+                    remainingTokens = LlamaHelper.getContextRemainingTokens();
+                    if (remainingTokens < requiredTokens) {
+                        AILogger.w(TAG, "Still not enough context after clear, reducing maxTokens");
+                        effectiveMaxTokens = Math.max(128, remainingTokens - promptTokens - 256);
+                        AILogger.i(TAG, "Reduced maxTokens to " + effectiveMaxTokens);
+                    } else {
+                        effectiveMaxTokens = maxTokens;
+                    }
+                } else {
+                    effectiveMaxTokens = maxTokens;
+                }
+
+                LlamaHelper.chatSend(message, effectiveMaxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
                         if (wrappedCallback != null) {
@@ -2974,6 +3457,10 @@ public class AIService {
                         }
                     }
                 });
+                } finally {
+                    // 释放推理锁
+                    LlamaHelper.releaseInferenceWriteLock();
+                }
             } catch (Exception e) {
                 AILogger.e(TAG, "Exception in chatSend task: " + e.getMessage(), e);
                 if (callback != null) {
@@ -3008,6 +3495,53 @@ public class AIService {
                 if (callback != null) callback.onError(e != null ? e.getMessage() : "Unknown error");
             }
         });
+    }
+
+    private LlamaHelper.TokenCallback buildStreamCallback(
+            final java.util.concurrent.atomic.AtomicBoolean completed,
+            final ScheduledFuture<?> watchdogFuture,
+            final long startTime,
+            final String prompt,
+            final GenerateStreamCallback callback) {
+        return new LlamaHelper.TokenCallback() {
+            @Override
+            public void onToken(String token) {
+                mainHandler.post(() -> callback.onToken(token));
+            }
+
+            @Override
+            public void onComplete(String fullText) {
+                completed.set(true);
+                watchdogFuture.cancel(false);
+                long elapsed = System.currentTimeMillis() - startTime;
+                float inferenceSpeed = LlamaHelper.getInferenceSpeed();
+                int tokenCount = LlamaHelper.getTokenCount();
+
+                AILogger.i(TAG, "LlamaHelper.generateStream: onComplete called, fullText length: " + (fullText != null ? fullText.length() : 0) + ", elapsed: " + elapsed + "ms");
+                AILogger.i(TAG, "Performance metrics - Speed: " + String.format("%.2f", inferenceSpeed) + " t/s, Tokens: " + tokenCount);
+                sendLogBroadcast("INFO", "[AIService] 生成完成: 完整文本长度=" + (fullText != null ? fullText.length() : 0) + ", 耗时=" + elapsed + "ms");
+                sendLogBroadcast("INFO", "[AIService] 性能监控: 推理速度=" + String.format("%.2f", inferenceSpeed) + " tokens/s, token数=" + tokenCount);
+
+                mainHandler.post(() -> {
+                    try {
+                        callback.onSuccess(fullText);
+                        saveChatMessage(0, "user", prompt, false);
+                        saveChatMessage(0, "assistant", fullText, false);
+                    } catch (Exception e) {
+                        AILogger.e(TAG, "Error in onComplete callback: " + e.getMessage(), e);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                completed.set(true);
+                watchdogFuture.cancel(false);
+                AILogger.e(TAG, "LlamaHelper.generateStream: onError called, error: " + error);
+                sendLogBroadcast("ERROR", "[AIService] 生成错误: " + error);
+                mainHandler.post(() -> callback.onError(new Exception(error)));
+            }
+        };
     }
 
     public void chatStop() {

@@ -36,7 +36,7 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\quzp\\app\\ninja.exe"
+                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON"
             }
         }
         ndk {
@@ -78,6 +78,7 @@ android {
         debug {
             debuggable true
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
         release {
             minifyEnabled false
@@ -116,6 +117,12 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion "1.4.8"
     }
+    // externalNativeBuild {
+    //     cmake {
+    //         path "src/main/cpp/CMakeLists.txt"
+    //         version "3.22.1"
+    //     }
+    // }
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -125,6 +132,10 @@ android {
 }
 
 dependencies {
+    // 和风天气 Android SDK
+    implementation files('libs/QWeather_Public_Android_V5.2.2.jar')
+    implementation "net.i2p.crypto:eddsa:0.3.0"
+
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.12.0"
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
@@ -256,8 +267,8 @@ dependencies {
         exclude group: 'com.android.support'
     }
     
-    // TBS SDK
-    implementation files('libs/TbsFileSdk_base_universal_1.0.5.6000094.20250604183316.aar')
+    // TBS SDK - 需要从腾讯云官网下载后放入 libs/ 目录
+    // implementation files('libs/TbsFileSdk_base_universal_1.0.5.6000094.20250604183316.aar')
     
     // Bouncy Castle库，用于创建标准的X.509证书
     implementation "org.bouncycastle:bcpkix-jdk18on:1.76"

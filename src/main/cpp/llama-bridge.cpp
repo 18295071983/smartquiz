@@ -29,6 +29,9 @@ static int s_defaultThreadCount = 4;
 static int s_defaultContextSize = 2048;
 static int s_defaultBatchSize = 512;
 
+// Forward declarations
+void release();
+
 bool initializeBackend() {
     static bool initialized = false;
     static std::mutex initMutex;
@@ -99,8 +102,8 @@ bool loadModel(const std::string& modelPath, int nGpuLayers = 0) {
     ctx_params.n_batch = effectiveBatchSize;
     ctx_params.n_ubatch = effectiveBatchSize;
 
-    LOGI("Creating context: n_ctx=%d, n_threads=%d, n_batch=%d",
-         ctx_params.n_ctx, ctx_params.n_threads, ctx_params.n_batch);
+    LOGI("Creating context: n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, gpu_layers=%d",
+         ctx_params.n_ctx, ctx_params.n_threads, ctx_params.n_batch, ctx_params.n_ubatch, effectiveGpuLayers);
 
     ctx = llama_init_from_model(model, ctx_params);
     if (!ctx) {
@@ -221,7 +224,7 @@ void release() {
     LOGI("Resources released");
 }
 
-bool isValid() const {
+bool isValid() {
     return isInitialized && model != nullptr && ctx != nullptr && vocab != nullptr;
 }
 

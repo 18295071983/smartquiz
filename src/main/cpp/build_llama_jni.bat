@@ -5,10 +5,10 @@ rem Building llama-jni shared library
 rem ========================================
 
 rem 设置环境变量
-set ANDROID_NDK_ROOT=D:\Android\ndk\25.2.0
+set ANDROID_NDK_ROOT=D:\Android\Sdk\ndk\26.1.10909125
 set ANDROID_SDK_ROOT=D:\Android\Sdk
 set CMAKE_PATH=%ANDROID_SDK_ROOT%\cmake\3.22.1\bin
-set NINJA_PATH=D:\quzp\app
+set NINJA_PATH=%ANDROID_SDK_ROOT%\cmake\3.22.1\bin
 
 rem 确保路径存在
 if not exist "%CMAKE_PATH%\cmake.exe" (
