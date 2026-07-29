@@ -45,10 +45,11 @@ public class CreativeWritingModeHandler implements ModeHandler {
         executor.submit(() -> {
             try {
                 executeCreativeWriting(userMessage.content, messageId, callback);
-            } catch (Exception e) {
-                Log.e(TAG, "Creative writing error: " + messageId, e);
+            } catch (Throwable t) {
+                Log.e(TAG, "Creative writing error: " + messageId, t);
                 if (callback != null && activeMessageIds.contains(messageId)) {
-                    callback.onError(messageId, "创作失败: " + e.getMessage());
+                    String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                    callback.onError(messageId, "创作失败: " + errorMsg);
                 }
             } finally {
                 activeMessageIds.remove(messageId);

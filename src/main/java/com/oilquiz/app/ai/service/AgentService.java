@@ -864,16 +864,22 @@ public class AgentService {
         return result;
     }
 
-    private static final int TOOL_RESULT_MAX_LENGTH = 2000;
+    private static final int TOOL_RESULT_MAX_LENGTH = 3000;
     private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
+    private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
 
     private String formatToolOutput(Object result) {
         if (result == null) return "工具返回空结果";
         
         if (result instanceof String) {
             String strResult = (String) result;
-            if (strResult.length() > TOOL_CONTENT_PREVIEW_LENGTH) {
-                return strResult.substring(0, TOOL_CONTENT_PREVIEW_LENGTH) + "\n[内容过长，已截断，共 " + strResult.length() + " 字符]";
+            int previewLength = TOOL_CONTENT_PREVIEW_LENGTH;
+            if (strResult.contains("weather") || strResult.contains("forecast") || strResult.contains("air_quality") || 
+                strResult.contains("alerts") || strResult.contains("indices") || strResult.contains("hourly")) {
+                previewLength = WEATHER_CONTENT_PREVIEW_LENGTH;
+            }
+            if (strResult.length() > previewLength) {
+                return strResult.substring(0, previewLength) + "\n[内容过长，已截断，共 " + strResult.length() + " 字符]";
             }
             return strResult;
         }

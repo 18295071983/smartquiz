@@ -599,9 +599,11 @@ public class UnifiedAgentEngine {
                         executeDirect(message + intentHint, maxTokens, enableThinking);
                         break;
                 }
-            } catch (Exception e) {
-                AILogger.e(TAG, "Error in execute: " + e.getMessage(), e);
-                notifyError("执行失败: " + e.getMessage());
+            } catch (Throwable t) {
+                AILogger.e(TAG, "Error in execute: " + t.getMessage(), t);
+                finishGeneration();
+                String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                notifyError("执行中断: " + errorMsg);
             }
         });
     }
@@ -928,7 +930,7 @@ public class UnifiedAgentEngine {
 
             // 分析工具结果是否满足用户需求
             String userMessage = contextSummary.size() > 0 ? contextSummary.get(0) : "";
-            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString());
+            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString(), success);
             AILogger.i(TAG, "Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
 
             if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
@@ -951,7 +953,7 @@ public class UnifiedAgentEngine {
             }
 
             // 结果满足，继续下一步
-            String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果") + "\n\n请基于以上结果继续回答。如果已有足够信息，请直接给出最终答案。";
+            String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果") + "\n</tool_result>\n\n请基于以上工具返回的结果回答用户的问题。如果已有足够信息，请直接给出最终答案。";
             resetBuffers();
             executeReActLoop(nextPrompt, maxTokens, false);
         });
@@ -1102,7 +1104,7 @@ public class UnifiedAgentEngine {
                         executeDirect(summary, maxTokens, false);
                         return;
                     }
-                    String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果") + "\n\n请基于以上结果继续回答。";
+                    String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果") + "\n</tool_result>\n\n请基于以上工具返回的结果回答用户的问题。";
                     resetBuffers();
                     executeDirect(nextPrompt, maxTokens, false);
                 });
@@ -1218,7 +1220,7 @@ public class UnifiedAgentEngine {
 
             // 分析工具结果是否满足用户需求
             String userMessage = contextSummary.size() > 0 ? contextSummary.get(0) : "";
-            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString());
+            ToolResultAnalysis analysis = analyzeToolResult(userMessage, call.name, resultStr, contextSummary.toString(), success);
             AILogger.i(TAG, "CoT Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
 
             if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
@@ -1239,8 +1241,8 @@ public class UnifiedAgentEngine {
                 return;
             }
 
-            String nextPrompt = "[继续] 工具返回：\n" + (resultStr != null ? resultStr : "无结果")
-                + "\n\n请基于以上结果继续推理。如果已有足够信息，请直接给出最终答案。";
+            String nextPrompt = "<tool_result>\n工具: " + call.name + "\n状态: " + (success ? "成功" : "失败") + "\n结果: " + (resultStr != null ? resultStr : "无结果")
+                + "\n</tool_result>\n\n请基于以上工具返回的结果继续推理。如果已有足够信息，请直接给出最终答案。";
             resetBuffers();
             executeCoTLoop(nextPrompt, maxTokens, false);
         });
@@ -1930,7 +1932,8 @@ public class UnifiedAgentEngine {
      * @return 分析结果
      */
     private ToolResultAnalysis analyzeToolResult(String userMessage, String toolName,
-                                                  String toolResult, String currentContext) {
+                                                  String toolResult, String currentContext,
+                                                  boolean toolSuccess) {
         ToolResultAnalysis analysis = new ToolResultAnalysis();
 
         if (toolResult == null || toolResult.isEmpty()) {
@@ -1940,9 +1943,9 @@ public class UnifiedAgentEngine {
             return analysis;
         }
 
-        // 检查是否是错误结果
-        if (toolResult.contains("失败") || toolResult.contains("错误") || toolResult.contains("error")
-            || toolResult.contains("超时") || toolResult.contains("null")) {
+        // 仅当工具执行本身失败时标记为不满足
+        // 工具返回的API错误（如403）应交给LLM判断如何处理，而不是自动重试
+        if (!toolSuccess) {
             analysis.sufficient = false;
             analysis.reason = "工具执行失败: " + toolResult.substring(0, Math.min(100, toolResult.length()));
             analysis.suggestion = "请重试或使用其他工具";
@@ -2866,23 +2869,25 @@ public class UnifiedAgentEngine {
             return params;
         }
         
-        // 尝试JSON解析
         try {
-            // 简单的JSON解析（对于复杂JSON可能需要更完善的解析器）
-            if (arguments.startsWith("{") && arguments.endsWith("}")) {
-                String content = arguments.substring(1, arguments.length() - 1);
-                String[] pairs = content.split(",");
-                for (String pair : pairs) {
-                    String[] kv = pair.split(":", 2);
-                    if (kv.length == 2) {
-                        String key = kv[0].trim().replace("\"", "");
-                        String value = kv[1].trim().replace("\"", "");
-                        params.put(key, value);
-                    }
+            org.json.JSONObject json = new org.json.JSONObject(arguments.trim());
+            java.util.Iterator<String> keys = json.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = json.get(key);
+                // 保留原始类型：数字、布尔值、字符串
+                if (value instanceof org.json.JSONObject) {
+                    // 嵌套对象转为字符串
+                    params.put(key, value.toString());
+                } else if (value instanceof org.json.JSONArray) {
+                    // 数组转为字符串
+                    params.put(key, value.toString());
+                } else {
+                    params.put(key, value);
                 }
             }
         } catch (Exception e) {
-            AILogger.e(TAG, "Failed to parse arguments as JSON: " + e.getMessage());
+            AILogger.e(TAG, "Failed to parse arguments as JSON: " + e.getMessage() + ", raw: " + arguments);
         }
         
         return params;

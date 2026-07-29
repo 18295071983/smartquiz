@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) 系统架构设计
 
-> 版本: 2.1 | 更新日期: 2026-07-18 | 对应代码版本: v2.0
+> 版本: 2.2 | 更新日期: 2026-07-29 | 对应代码版本: v2.1
 
 ## 一、项目概述
 
@@ -125,7 +125,10 @@ com.oilquiz.app/
 │   ├── quiz/           # 答题工具 (1 file)
 │   └── render/         # 文件渲染 (13 files)
 ├── viewmodel/          # ViewModel (12 files)
-├── weather/            # 天气服务 (2 files)
+├── weather/            # 天气服务 (3 files)
+│   ├── QWeatherSdkManager  # 和风天气SDK管理
+│   ├── WeatherService    # 天气服务（三级回退机制）
+│   └── ...               # 其他天气相关类
 ├── webview/            # WebView 组件 (12 files)
 │   ├── js/             # JS 接口 (5 files)
 │   └── security/       # 安全配置 (3 files)
@@ -194,13 +197,53 @@ GpuProfile  BenchmarkResult
 | **翻译** | TranslationTool, Translator |
 | **天气** | AIWeatherManager, WeatherService |
 
-### 4.5 Skill 技能系统
+### 4.5 天气服务系统
+
+#### 三级回退机制
+```
+天气预警请求
+    ↓
+┌─────────────────────────────────────────┐
+│ 1. QWeatherSdkManager (SDK)             │
+│    → 和风天气 SDK 直接调用              │
+└──────────────┬──────────────────────────┘
+               ↓ 失败
+┌─────────────────────────────────────────┐
+│ 2. WeatherService (HTTP API)            │
+│    → 直接调用和风天气 REST API          │
+└──────────────┬──────────────────────────┘
+               ↓ 失败
+┌─────────────────────────────────────────┐
+│ 3. APISpace 备用 API                    │
+│    → 国家预警中心数据                   │
+└─────────────────────────────────────────┘
+```
+
+#### 天气服务组件
+
+| 组件 | 类名 | 功能 |
+|------|------|------|
+| 天气管理器 | `AIWeatherManager` | 统一天气查询入口 |
+| SDK 管理 | `QWeatherSdkManager` | 和风天气 SDK 封装 |
+| 天气服务 | `WeatherService` | HTTP API 回退调用 |
+| 位置工具 | `LocationTool` | 获取用户位置信息 |
+| 图标映射 | `QWeatherIconMapper` | 天气图标映射 |
+| 横幅组件 | `WeatherBannerView` | 天气横幅 UI 组件 |
+| 横幅管理 | `WeatherBannerController` | 横幅控制器 |
+
+#### 支持的天气数据类型
+- 实时天气、24小时预报、3天预报
+- 空气质量、生活指数（16类）
+- 天气预警、分钟级降水
+- 日出日落、天文数据
+
+### 4.6 Skill 技能系统
 
 动态加载和执行技能：
 - `SkillManager` — 技能注册与管理
 - `SkillLoader` — 技能加载器
 
-### 4.6 WebView 混合界面
+### 4.7 WebView 混合界面
 
 ```
 WebViewActivity → bridge.js
@@ -215,7 +258,7 @@ WebView 与原生通过 JavaScript Bridge 通信，支持：
 - 文件读写
 - 工具调用
 
-### 4.7 文件处理子系统
+### 4.8 文件处理子系统
 
 #### 导入支持格式
 | 格式 | 解析引擎 |

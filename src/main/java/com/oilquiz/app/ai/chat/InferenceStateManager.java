@@ -220,7 +220,17 @@ public class InferenceStateManager {
      */
     public void handleStreamingEvent(String messageId, StreamingEvent event) {
         StateDetails details = stateMap.get(messageId);
-        if (details == null) return;
+        if (details == null) {
+            // 自动初始化状态（Agent模式等路径可能未调用startInference）
+            if (event.type == StreamingEvent.Type.MESSAGE_CREATED ||
+                event.type == StreamingEvent.Type.INFERENCE_PROGRESS ||
+                event.type == StreamingEvent.Type.TOKEN_APPENDED) {
+                Log.i(TAG, "Auto-initializing state for message: " + messageId + " (event: " + event.type + ")");
+                startInference(messageId);
+                details = stateMap.get(messageId);
+            }
+            if (details == null) return;
+        }
         
         details.updateHeartbeat();
         

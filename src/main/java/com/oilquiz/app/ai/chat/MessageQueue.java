@@ -120,10 +120,10 @@ public class MessageQueue {
                         if (listener != null) {
                             listener.onMessageReady(messageId, queued.message);
                         }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error processing message: " + messageId, e);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "Error processing message: " + messageId, t);
                         if (listener != null) {
-                            listener.onMessageError(messageId, e.getMessage());
+                            listener.onMessageError(messageId, t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                         }
                     } finally {
                         activeMessageIds.remove(messageId);

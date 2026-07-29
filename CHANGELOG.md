@@ -1,5 +1,142 @@
 # 变更日志
 
+## [Unreleased] - 2026-07-29
+
+### 新增功能
+
+#### 1. Agent 软件层架构升级
+- **新增文件**：
+  - `AgentSoftwareLayer.java` — Agent 软件层主入口
+  - `IntentRecognizer.java` — LLM 意图识别模块
+  - `ComplexityAnalyzer.java` — LLM 复杂度分析模块
+  - `TaskDecomposer.java` — LLM 任务分解模块
+  - `ExecutionEngine.java` — 任务执行引擎
+  - `ThinkingChainEngine.java` — 思考链引擎
+  - `ResultIntegrator.java` — 结果整合模块
+- **数据模型**：
+  - `Task.java` — 任务定义和执行计划
+  - `IntentResult.java` — 意图识别结果
+  - `ComplexityLevel` — 复杂度级别枚举
+
+#### 2. 天气系统全面重构
+- **AIWeatherManager 增强**：
+  - 新增空气质量查询接口
+  - 新增分钟级降水预报接口
+  - 新增天气预警三级回退机制（SDK → HTTP API → APISpace 备用）
+  - 实现智能解析策略，只显示有实际数据的字段
+- **QWeatherSdkManager 优化**：
+  - 使用直连 switch-case 调用替代反射调用
+  - 增强天气数据解析和格式化
+- **WeatherService 重构**：
+  - 实现生活指数 API 的 HTTP 回退机制（SDK 403 时）
+  - 支持空气质量、预警、分钟降水等全品类天气数据
+- **天气详情界面升级**：
+  - 新增网页跳转按钮组（当前天气/小时预报/日预报/空气质量/生活指数）
+  - 优化小时预报卡片布局
+  - 新增动态图表展示
+  - 支持更多天气信息可视化
+
+#### 3. 天气 Banner 组件
+- **新增 WeatherBannerView**：
+  - 可自定义的天气横幅组件
+  - MaterialCardView 容器，整体可点击
+  - 子视图禁用点击事件传递
+- **新增 WeatherBannerController**：
+  - 管理天气横幅生命周期
+  - 处理点击跳转逻辑
+
+#### 4. AI 聊天界面升级
+- **ChatAdapter 增强**：
+  - 支持思考链可视化展示
+  - 支持工具调用消息渲染
+  - 支持流式内容展示
+- **AgentModeHandler 优化**：
+  - 集成 Agent 软件层处理流程
+  - 支持无限等待 AI 服务初始化
+  - 实现 Agent 执行步骤 UI 展示
+
+### 技术实现
+
+#### 天气预警三级回退机制
+```java
+// WeatherService.java
+private JSONObject fetchWarningWithFallback(String location) {
+    // 1. 尝试 SDK
+    try { return qWeatherSdkManager.getWarningNow(location); }
+    // 2. SDK 失败 → HTTP API
+    catch (Exception e) { return fetchWarningFromHttp(location); }
+    // 3. HTTP 失败 → APISpace 备用
+    catch (Exception e2) { return fetchWarningFromApispace(location); }
+}
+```
+
+#### Agent 软件层处理流程
+```java
+// AgentSoftwareLayer.java
+public AgentResponse processUserMessage(String message) {
+    // 1. 意图识别
+    IntentResult intent = intentRecognizer.recognize(message);
+    // 2. 复杂度分析
+    ComplexityLevel complexity = complexityAnalyzer.analyze(message);
+    // 3. 任务分解（仅复杂请求）
+    TaskPlan plan = taskDecomposer.decompose(message, complexity);
+    // 4. 执行引擎
+    ExecutionResult result = executionEngine.execute(plan);
+    // 5. 思考链（可选）
+    ThinkingChain chain = thinkingChainEngine.generate(message);
+    // 6. 结果整合
+    return resultIntegrator.integrate(result, chain);
+}
+```
+
+#### 天气数据智能解析
+```java
+// AIWeatherManager.java - 字段名: 值 格式
+private String formatWeatherData(JSONObject data) {
+    StringBuilder sb = new StringBuilder();
+    for (String key : data.keySet()) {
+        Object value = data.get(key);
+        if (isValidValue(value)) {
+            sb.append(key).append(": ").append(value).append("\n");
+        }
+    }
+    return sb.toString().trim();
+}
+```
+
+### UI 变更
+
+#### 天气详情页面
+- `activity_weather_detail.xml` 大幅重构
+  - 新增网页跳转按钮组
+  - 优化小时预报卡片显示
+  - 新增预警区域显示
+  - 支持动态图表区域
+- `widget_weather_banner.xml` 新增天气横幅组件
+
+#### 聊天界面
+- `item_ai_message.xml` 新增思考链显示支持
+- `item_tool_call_message.xml` 工具调用消息优化
+- `item_tool_result_message.xml` 工具结果消息优化
+
+### 性能影响
+- Agent 软件层增加一次 LLM 调用（意图识别 + 复杂度分析）
+- 天气三级回退最坏情况延迟约 3-5 秒
+- 天气数据智能解析增加约 10-20ms 处理时间
+
+### 代码变更
+- **新增**：`AgentSoftwareLayer.java`, `IntentRecognizer.java`, `ComplexityAnalyzer.java`, `TaskDecomposer.java`, `ExecutionEngine.java`, `ThinkingChainEngine.java`, `ResultIntegrator.java`, `Task.java`, `WeatherBannerView.java`, `WeatherBannerController.java`, `QWeatherIconMapper.java`
+- **修改**：`AIWeatherManager.java`, `QWeatherSdkManager.java`, `WeatherService.java`, `WeatherDetailActivity.java`, `WeatherBannerManager.java`, `AIChatActivity.java`, `ChatAdapter.java`, `ChatOrchestrator.java`, `AgentModeHandler.java`, `MainActivity.java`
+- **修改**：`activity_weather_detail.xml`, `widget_weather_banner.xml`, `activity_main.xml`, `item_ai_message.xml`
+
+### 文件变更统计
+- 修改文件：45 个
+- 新增代码行：+7770
+- 删除代码行：-3313
+- 净增代码行：+4457
+
+---
+
 ## [Unreleased] - 2026-05-26
 
 ### 新增功能

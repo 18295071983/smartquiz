@@ -1,0 +1,521 @@
+--------- beginning of main
+07-27 18:41:19.469  3116  8804 I LOWI-9.0.1.125: [LOWI-Scan] lowi_close_record:Scan done in 176881147ms, 7 APs in scan results
+07-27 18:41:19.470  3116  3198 I LOWI-9.0.1.125: [LOWIUtils] responseToOutPostcard - TO: FreeWifiScanObserver, FROM:   LOWI-SERVER, RESP:  LOWI_ASYNC_DISCOVERY_SCAN_RESULTS
+07-27 18:41:19.471  3451  6318 D WifiNl80211Manager: Scan result ready event
+07-27 18:41:19.472  3451  6318 D WifiNative: Scan result ready event
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.474  3451  4928 D MiuiWifiCommonBase: band: 0, compensate: 0
+07-27 18:41:19.477  1980  2257 I LocSvc_api_v02: ---> locClientSendReq line 1821 INJECT_WIFI_AP_DATA
+07-27 18:41:19.478  1980  4076 I LocSvc_ApiV02: <--- globalRespCb line 252 INJECT_WIFI_AP_DATA
+07-27 18:41:19.478  3451  4928 I WifiScanner: onFullResults
+07-27 18:41:19.488  3451  7194 D SLM-SRV-SLAService: checktemp temperature = 38860 temperature_average = 38588 isPerformanceMode = false thermal_enable_slm = true
+07-27 18:41:19.488  3451  4904 D WakeupController: Attempted to handleScanResults while not enabled
+07-27 18:41:19.489  3451  7206 W ScanResultUtil: Empty or null ScanResult list
+07-27 18:41:19.489  3451  7206 W WifiService: Attempt to retrieve WifiConfiguration with invalid scanResult List
+07-27 18:41:19.489  3451  7206 W ScanResultUtil: Empty or null ScanResult list
+07-27 18:41:19.490  3451  7206 E WifiService: Attempt to retrieve passpoint with invalid scanResult List
+07-27 18:41:19.490  3451  7206 W ScanResultUtil: Empty or null ScanResult list
+07-27 18:41:19.490  3451  7206 W WifiService: Attempt to retrieve OsuProviders with invalid scanResult List
+07-27 18:41:19.490  5832  5832 I HyperComm_BroadcastReceiver: receive action: android.net.wifi.SCAN_RESULTS
+07-27 18:41:19.490  3451  4913 E AppScanObserverService: Result available, null observers for user: 0
+07-27 18:41:19.492  5832  5832 I SceneObserver: notify event: EVENT_WIFI_SCAN_COMPLETED
+07-27 18:41:19.492  5832  5832 D HighSpeedTrainManager: receive actionandroid.net.wifi.SCAN_RESULTS
+07-27 18:41:19.492  5832  6040 D HighSpeedTrainManager: msg.what = 1
+07-27 18:41:19.492 10658 10658 I WifiMonitor: receive Broadcast SCAN_RESULTS_AVAILABLE_ACTION,updated:true
+07-27 18:41:19.623  5563  6238 D JavaheapMonitor: Java heap used=7M max=256M, proc: com.android.bluetooth
+07-27 18:41:19.623  5563  6238 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+--------- beginning of system
+07-27 18:41:19.624  3451  3820 D AurogonBandwidthController: skinTemperature:38.86
+07-27 18:41:19.680  1980  2100 E LocSvc_GnssAdapter: 0 !!!! is mRecordLoseCount  sv report
+07-27 18:41:19.697  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 2714, rxBytesDelta: 1355, mDataActivity: 3, dataActivity: 3
+07-27 18:41:19.832  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:19.832  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:19.834  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:19.834  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:19.834  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:19.835  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:19.990  3451  3767 I SmartPower: com.xiaomi.metoknlp/10143(10586): idle->background(37428ms) R(broadcast start Intent { act=android.net.wifi.SCAN_RESULTS flg=0x4000010 xflg=0x4 (has extras) }) adj=200.
+07-27 18:41:19.993 10586 10586 I WifiMonitor: receive Broadcast SCAN_RESULTS_AVAILABLE_ACTION,updated:true
+07-27 18:41:19.996  3451  3767 I SmartPower: com.miui.powerinsight/10226(8834): idle->background(35587ms) R(broadcast start Intent { act=android.net.wifi.SCAN_RESULTS flg=0x4000010 xflg=0x4 (has extras) }) adj=699.
+07-27 18:41:20.000  8834  8834 D PowerInsight_WifiInfoReceiver: WifiInfoReceiver action = android.net.wifi.SCAN_RESULTS
+07-27 18:41:20.002 11054 21907 I AIRC_CounterTrack: collect: signal-mt7
+07-27 18:41:20.003 11054 28345 I AIRC_Perception: wifiScanSignal
+07-27 18:41:20.005 11054 28430 I AIRC_[Geek]_GeekSdkManager: handleOnCallback doGeekSdkInit event=120
+07-27 18:41:20.012 11054 28430 I AIRC_[Geek]_GeekSdkManager: triggerInitSdk event=120
+07-27 18:41:20.012  5832  6039 D HyperComm_TelephonyMonitor: onCellInfoChanged[0], cellInfo = [CellInfoNr:{ mRegistered=YES mTimeStamp=176896898463682ns mCellConnectionStatus=0 CellIdentityNr:{ mMcc = 460 mMnc = 00 mAlphaLong = 中国移动 mAlphaShort = 中国移动 mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -89 ssRsrq = -11 ssSinr = 8 miuiLevel = 0 mOptimizedLevel = 0 level = 2 parametersUseForLevel = 0 timingAdvance = 2147483647 } }]
+07-27 18:41:20.013 11054 29706 I AIRC_CounterTrack: collect: base_event-WifiScanEvent
+07-27 18:41:20.014  5832  6039 D HyperComm_TelephonyMonitor: onCellInfoChanged[1], cellInfo = [CellInfoNr:{ mRegistered=YES mTimeStamp=176896898645245ns mCellConnectionStatus=0 CellIdentityNr:{ mMcc = 460 mMnc = 01 mAlphaLong = CHN-UNICOM mAlphaShort = UNICOM mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -102 ssRsrq = -13 ssSinr = -2 miuiLevel = 0 mOptimizedLevel = 0 level = 1 parametersUseForLevel = 0 timingAdvance = 2147483647 } }]
+07-27 18:41:20.015 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.015 - =MI NLP=request called to code=5 fix time 2506 ms, result code 0 , resultInfo 
+07-27 18:41:20.015 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5Cqhke/oBrokssLyh7d7IskROCK5TyHanDtU76ZfY6EwDY4z0Ys8ZBQrwsQM3cBL245E6Ny9QVfOkfYBdxcokwvImWvZ8w5mgSM5v01OVYIY7i6pnS2Q0uxyL5vMxBMvGPj4/FTHeIz+M1V9VXM/kB7oQih+D0ogfMyPMEHjyn0tPDReomnso6y0CjNuvhfYne/o5LLoTgy08+2DwcH/N/Kut8zh674UEr09i4hL1eeArqr2aAePeKlDbW+BgdyXIaYOR0dJeW6AePFDmAp9l6ts=
+07-27 18:41:20.015 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleGeekEvent event=120, geekSwitch=true
+07-27 18:41:20.016 11054 21907 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.016 11054 29706 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.016 10586 10586 I MetokLocationProvider: report position from 5
+07-27 18:41:20.016 10586 11011 I NetworkLocationManager: start get current Location info[c:2;w:7;b:0]
+07-27 18:41:20.016 11054 28430 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.016  3451  3489 D LocationManagerService: incoming location: Location[network hAcc=50 et=+2d1h8m16s903ms vAcc=??? sAcc=??? bAcc=???]
+07-27 18:41:20.016 11054 28430 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleSdkEvent
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleSdkEvent sdkEventData=GeekSdkEventData{eventId=15, eventName='requestCellInfoUpdate'}
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekSdkManager: handleOnCallback doGeekSdkInit event=120
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekSdkManager: triggerInitSdk event=120
+07-27 18:41:20.017 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5CuFrlRLtB2SU/m/c9xhZnKeQvKQWimVKToBFd4rik1eefpHt0NsY9CbHt8O+uW3NzcruSiDxLSpOl2Qs9vCPR4booUkJZiIHNIpFo9NjnH3caHn5O60xjPxAymwbNYwosIYKFZoWuXthPC/qdgdmFa9zKCh1RRBIZRu41ic3bQK8LXgxG35vLIBsuVQBaYbhd1dvPgJjEjWxCgPChkvHx8HOQuXzRbNHSmvDAv7bnT4LScBHx8rdFREU3lWkFxl+0zCGobkk4k82CYzRACfseL5HLjYEh6mcEvw7e3IlxQOsNK6PLRK9mBxS0eTTbMkkyQ==
+07-27 18:41:20.017 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5CsvzjFXx/GLv9nlb9VLPRGovua2x57R4XVAEnw3mwuv40tFIaV8b6xrZeIW3aqhO9sfpIJ54NuSpPJXKdVTNXq1SAGkf29hL1tIQkOlwksSpA0yPFYtY1ObmDKWnuX7Ferb0WKwUE6RVyaW+IWqKGiKh3rdF4Vnrr93jaxqfZy5yphcholo5iqrdGtRBFoIT/xt3Cl5RSY4Anw6e92zuRTc9evmeW9dsc6WWFNmiiNhUrhys4ZUHG+qhCWSiHjv/Xk7vrBNohsuusxNklnEJEUPuorp/NyKDWLIbMXHhJXNKwRxV9MEeSk9z36HP9Ltty0zQ2N0OkfSqxytmMfgGlI1FxEhcTuKHst/LLgNzCuSObI3bFZSpxVFpCga/NdlixITTH0+ghM7BpUJpFi2wAwOCx10DeINmuELSx7ZLfQmRqwYqOKoVHp/v+PdtYmTjUCwhPQ3+jufqSJGA/tHJblmQ7DESJwsq3nUhnT27wuHlat3NqfQLnZjyPeeu2SLV4Irt74Zl45dBlrosNyzpxOAEJGxYsnlXI1xBKDrZA9pecGBDgwYnRIR8QGv+8+qsR6r/7nWKYkCtXYbmBmyO7jMXC/8IfBRRERh/XDr07PzCgbnb2CJ1gTpDD4gpuuJCCbMi4KqMaXnTT2O5GtWlJItg2stI5ChjhrfWOf67hLekkc69shsZIJ129komrYthZzO/lzWk3ipXhN0jwN7StPtSmHj1z9SOGQIbWBxnfz7HftPxrj8hC4ATxex5zmVKI/XlHJqhY+Rudc+ECMOZ1BvybMOeBZ+ZQX56rgRymwXYTtTLNBykkVcE4rkFz6xEzwr+Adb8ozHp2+puH5T7Ww+UT8VaoRLqpvdhPcwCDUKhHE+IgJnmqxjKPof12HAJ02I4FTDsaYlsqMVyPMCG4VqtrL9h77Ime5K0HDCU5R4lYONMlCzKbLQ8zcp6Kt6sCN72MrGzsm27s9okfYfe0+a7ivo7oQkKBtiP94iRZL1DTYHSETGw0N7KDsuE/M3jHv2FcsYoMugFvnBVxdgCMBFyXAu1mBM6Q4w3CPQX94VicMMCt86/IloDdkBWFtxTSc2FSK0z4yb2HiEnGJzRk+xedkxC2JnQdLLlhsV/oxlOoVe3aB60+mMTbymofWvIRrno7Hs+ubF/S69as2h3hZfHEYF2AmZ6x1G+Ah8d46gAEbOZJ+zfEvEVSm1MhhCIctrOLa384ZlfEKPpnBbQZQt3XwtSukE0ctwwj4ma781HZLrNR1fOQQci7SRffeX2lOpdsmtdrJwJcwqon7KM8iG5o37kwi/hZwmz9KEzMWe+fVgv2An1mGzNk3nMktAhbjTV4AgmEivVpnsKu3/ft8h/TkRwnDD+RGFrepoYvWftOqX9QuD8QHC6x/Rj/QZXHrtw+BNT8oF8ybqdtbvMpi8DW9zrdWso7tbzWjJHFX2eIXyyaOn9TM4jGaxpD0dYMMVAvF9JTy2uw5vIDoC9Ud1fOlblzkKGG8F+l69YZG9PqVP7h5qtbdzvHy9Vhqp1NoOtfNpQxBrtghDuCrvIdZjCUjW+FooXB/4/o9chJQ1XTQzFc4o3VFZmL0RAeq2K805z3MpXfcGSZUvbb3l7vRQ2ojRHJEwBo4vnaY7JI5Yt9tCkyvo/k0blHhR5Q/qcAhPqit4nJgRkZC1BqQcDLj1s2UQMkMChSy+CPWwLFxTtr7KF96edCxZK/MWJ4z9HINuzo3zyYsZh5f4dF0pkUzKx2+nmv0aWV2CJj0OaHbMTy4bmGcG0wwp2PKxoCU06f1mf9fQJYjeBAi4pO41DDqeou4c65y/hmja6oP084jUCZKievffkDRWnjeowlM597UUzxTxXQTKT1abV7ywdW6lHq8q7AXyzqSt/pmBGwWEX8TW5x3PoDL1nwoPeZ7N8VsGBE8ync3MveaSrEXtPpDfxJyhdtrOG2QA6iQxC5ToYMu9rj+LUKcBd7TDkOvDDig==
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleGeekEvent event=120, geekSwitch=true
+07-27 18:41:20.017 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.017 - =MI NLP=Use last location because time < 1s, return last location immediately
+07-27 18:41:20.017 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5CorN7D2drGlu2MgNFJbD21VBnymVs0/BZTWTaZksBRgF2aecb68lFfT6P1O4n0Rx+dc2+tdaNNMuubSbAkmylcZAFAgLnxB4fZry/a2yjqoNpGRSonQXBMzMn6X1W46ZKcZreDeS0mY626XqqrkgNvbfjDL2E//2qWjqqvO2+Jd05jo3iQNjqOzt5kk4YAZVjT+sbq3O4BM8MLJiNV/gD0EIExO06UA24wu2MG/Py1cg46mRjr9rGybpKhRmuZpLpy/2XHi/VFL3zaPqrgHL7H9f4A6Vm1NEqWNdQYvgGNymL5vW1ujYLO19Tp836CkVgg==
+07-27 18:41:20.017  3451  3489 D LocationManagerService: registration onInactive from uid: 10346 package: com.oilquiz.app
+07-27 18:41:20.017 11054 28430 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.017  3451  3489 D LocationManagerService: registration onInactive from uid: 10346 package: com.oilquiz.app
+07-27 18:41:20.017 11054 28430 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleSdkEvent
+07-27 18:41:20.017 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleSdkEvent sdkEventData=GeekSdkEventData{eventId=15, eventName='requestCellInfoUpdate'}
+07-27 18:41:20.018 19159 25195 I LocationTool: Successfully got location from network
+07-27 18:41:20.018 19159 25195 I LocationTool: Success at attempt 3 with provider network
+07-27 18:41:20.019 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.018 - =MI NLP=onSetRequest: request =ProviderRequest[OFF] ; client =WorkSource{}
+07-27 18:41:20.019 19159 25199 I LocationTool: Successfully got location from network
+07-27 18:41:20.020 19159 25199 I LocationTool: Success at attempt 3 with provider network
+07-27 18:41:20.023 10586 25530 W System  : Ignoring header MIUICVER because its value was null.
+07-27 18:41:20.024 10586 25530 W System  : Ignoring header MIUIPVER because its value was null.
+07-27 18:41:20.024 10586 25530 W System  : Ignoring header MIUIGVER because its value was null.
+07-27 18:41:20.024 10586 10996 I MetokGeocodeService: getFromLocation
+07-27 18:41:20.024 10586 10996 I MetokGeocodeService: call reverseGeocode package: com.oilquiz.app
+07-27 18:41:20.024 10586 10996 I MetokGeocodeService: request-getLocale()  : zh_CN
+07-27 18:41:20.024  3451  3489 D LocationManagerService: [0]network provider removed registration from 10346/com.oilquiz.app/AFDFACB3
+07-27 18:41:20.025  3451  3489 D GnssBackgroundUsageOpt: remove normal: loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@251938245
+07-27 18:41:20.025  3451  3489 D IMiLocation:  remove, loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@251938245
+07-27 18:41:20.025 10586 10996 I LocationManagerProxy: getFromLocation enter 5
+07-27 18:41:20.025  1980  1995 I GnssAidl: ===> injectLocation line 241 
+07-27 18:41:20.025 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.025 - =MI NLP=request-getLocale: zh_CN
+07-27 18:41:20.025  1980  2257 I LocSvc_api_v02: ---> locClientSendReq line 1821 INJECT_POSITION
+07-27 18:41:20.025  3451  3489 I GnssSsruImpl: 1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@251938245:remove By system or app...
+07-27 18:41:20.025  3451  3489 I Location.SSRU: maybe Stop Tracking Location pkgName is com.oilquiz.app
+07-27 18:41:20.025  3451  3489 I GnssSsruImpl: maybeStopTrackingLocation:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@251938245 reason:onRemoveLocation:remove By system or app...
+07-27 18:41:20.025  3451  3489 D AwareResourceControl: onRemoveLocation entry uid =10346 pid=19159 removeTag=
+07-27 18:41:20.025  3451  3489 I GnssBackgroundUsageOpt: remove not by opt,  not notifyStop: loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@251938245 removeReq:null
+07-27 18:41:20.025  3451  3489 D LocationManagerService: [0]network provider removed registration from 10346/com.oilquiz.app/FBF8770E
+07-27 18:41:20.025  3451  3489 D GnssBackgroundUsageOpt: remove normal: loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@18715145
+07-27 18:41:20.025  3451  3489 D IMiLocation:  remove, loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@18715145
+07-27 18:41:20.025  3451  3489 I GnssSsruImpl: 1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@18715145:remove By system or app...
+07-27 18:41:20.025  3451  3489 I Location.SSRU: maybe Stop Tracking Location pkgName is com.oilquiz.app
+07-27 18:41:20.025  3451  3489 I Location.SSRU: maybe Stop remove Location pkgName is com.oilquiz.app
+07-27 18:41:20.025  3451  3489 I GnssSsruImpl: maybeStopTrackingLocation:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@18715145 reason:onRemoveLocation:remove By system or app...
+07-27 18:41:20.025  3451  3489 D AwareResourceControl: onRemoveLocation entry uid =10346 pid=19159 removeTag=
+07-27 18:41:20.025  3451  3489 I GnssBackgroundUsageOpt: remove not by opt,  not notifyStop: loc_info:1034619159networkcom.oilquiz.app.ai.tool.LocationTool$$ExternalSyntheticLambda3@18715145 removeReq:null
+07-27 18:41:20.026 10586 10586 I MetokLocationProvider: setRequest: request =ProviderRequest[OFF] ; client =WorkSource{}
+07-27 18:41:20.026 10586 10586 I NLPWrapper: request exit
+07-27 18:41:20.026 10586 10586 I MetokLocationProvider: report position from 2
+07-27 18:41:20.026  3451  6968 D LocationManagerService: incoming location: Location[network hAcc=50 et=+2d1h8m16s904ms vAcc=??? sAcc=??? bAcc=???]
+07-27 18:41:20.026  1980  1995 I GnssAidl: ===> injectLocation line 241 
+07-27 18:41:20.027  1980  4076 I LocSvc_ApiV02: <--- globalRespCb line 252 INJECT_POSITION
+07-27 18:41:20.028 11054 21907 I AIRC_CounterTrack: collect: signal-n30
+07-27 18:41:20.028 11054 21907 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.028 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.028 - =MI NLP=NLPManagerremoveRequest
+07-27 18:41:20.028 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.028 - =MI NLP=NLPManagerpostRunnable lock
+07-27 18:41:20.028 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.028 - =MI NLP=NLPManagerpostRunnable unlock
+07-27 18:41:20.028 11054 21013 I AIRC_CounterTrack: collect: signal-n30
+07-27 18:41:20.028 11054 21013 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.028  1980  2257 I LocSvc_api_v02: ---> locClientSendReq line 1821 INJECT_POSITION
+07-27 18:41:20.029  1980  4076 I LocSvc_ApiV02: <--- globalRespCb line 252 INJECT_POSITION
+07-27 18:41:20.031 10586 15027 I LocationManagerProxy: update mLastGeoAddress and mLastGeoLocation
+07-27 18:41:20.031 10586 10996 I LocationManagerProxy: geo location ret null  future count:150
+07-27 18:41:20.031 11054 28430 I AIRC_[Geek]_GeekSdkManager: handleOnCallback doGeekSdkInit event=112
+07-27 18:41:20.031 11054 28430 I AIRC_[Geek]_GeekSdkManager: triggerInitSdk event=112
+07-27 18:41:20.031 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleGeekEvent event=112, geekSwitch=true
+07-27 18:41:20.032 11054 28430 I AIRC_[Geek]_GeekResultHandler: actualHandleGeekEvent not handle event=112
+07-27 18:41:20.032 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5Cirt5SORjoeyJu7H6iw5ni0cJBUDp0PK6C7ar+m+CVpqk2Z4FDOwqc3TM6ojcx6Pi3g2R3wHSMDNc9z1YagFCTY+gYSnfhSGuX5PJIGx7/SDlpjeDFw0abh/CUQVsi+M1jOZoGwxwNYbORF3NjQpUWF8RkPQh4h3sKDobQmXpOhLDWnUqbqEDAC6HPbbslZ4b0wTGjRI9wkm1uOcvCXE45YlDYOGedPZB1AhmbH1MAWyo30sdzwd1gxfwwYqchHG4tDs3ARzL/NlHXcOwUi0PV9jhiLQg7y7B1t+7BFZooVPMjJabs4Uk45Voe9XpAznq1AQ9p+tc9nq2zMgPFXiiWkwVXePj5QAI/QxbuidWEYtTs6B+SDoKKtlK9MyTMWAgTMfXvlQu87+Z6WwAdIABHuWAR0nKBN/iKvhE4wA2ofNs+zB4j/dcK1DHL85QPsqFtdIB6jeycztSUd8JJXnd2d8wIm5wGZOs4qOB9l07q5Cg45/s85oIcngOVJj9cvlV/paVM6iVO6QmcewIqlQ/PE4NW1vtb+fVCDQfvv3cROwGILoe31/MMKVLyEMQYjCCj1DvZnAjo3SGZXXuaY+z0geiTzN3oEKdZrOrpBDNFZhPhGPsXM/YeKa6jqhqgGWyH9Y71wMTAwR778Bwxp9iWf7BSKNsWi38DRu/K92xgOCEn67eaM8TCmTMtAUOeXMug==
+07-27 18:41:20.032 19159 25199 I WeatherBannerView: Geocoder反解析成功: 金凤区
+07-27 18:41:20.032 19159 25199 I WeatherBannerView: Location cached: 金凤区 (38.419877,106.26213)
+07-27 18:41:20.034 10586 10996 I MetokGeocodeService: getFromLocation
+07-27 18:41:20.034 10586 10996 I MetokGeocodeService: call reverseGeocode package: com.oilquiz.app
+07-27 18:41:20.034 10586 10996 I MetokGeocodeService: request-getLocale()  : zh_CN
+07-27 18:41:20.034 10586 10996 I LocationManagerProxy: getFromLocation enter 5
+07-27 18:41:20.034 19159 25195 I WeatherBannerView: Geocoder反解析成功: 金凤区
+07-27 18:41:20.034 19159 25195 I WeatherBannerView: Location cached: 金凤区 (38.419877,106.26213)
+07-27 18:41:20.034 10586 10808 D MetokFileLogger: logInfo msg:07-27 18:41:20.034 - =MI NLP=request-getLocale: zh_CN
+07-27 18:41:20.034 10586 10808 D MetokFileLogger: logInfo msg:=MI NLP EN=/TJnjH3lmQg1tW1WEMA5Coe3jBCzt/1J56OZfGqxsxda0N+pWLIjQ0waAAZ3LC0hAHwo8lC92z66KEihrIDDU2pjXKycyJBf9dckEhMkY+o=
+07-27 18:41:20.035 19159 19159 D WeatherService: Returning cached weather for location 38.419877,106.26213
+07-27 18:41:20.040 19159 19159 D WeatherService: Returning cached weather for location 38.419877,106.26213
+07-27 18:41:20.042  3451  3489 D PerfShielderService: com.oilquiz.app|com.oilquiz.app/com.oilquiz.app.MainActivity|97|165090027059001|47|3|2
+07-27 18:41:20.045  9863 16183 W MiuiPerfServiceClient: interceptAndQueuing:19159|com.oilquiz.app|97|47|165090027059001|Slow handle traversal|2
+07-27 18:41:20.054  2157  2157 D MI-SF   : isSupportLowBrightnessFpsSwitch current_setting_fps: 120
+07-27 18:41:20.054  2157  2157 D MI-SF   : isTpIdleScene ,mAverageFrameRate is 0, 1  1 
+07-27 18:41:20.054  2157  2157 D MI-SF   : modeGroup0 mIsSupportAutomodeForMaxFpsSetting is 1(0), getCurrentBrightness() = 4079(0), mIsKeepAutoMode 0 isAutoModeAllowed() 1
+07-27 18:41:20.054  2157  2157 D MI-SF   : setTpIdleFps in vrr choose FPS:120, mode:0
+07-27 18:41:20.055  2157  2239 D RenderEngine: makePassBlurBetterDownShader layers:1 layername:com.oilquiz.app/com.oilquiz.app.MainActivity#53552,WH:1220x2656
+07-27 18:41:20.055  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:20.057  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 0, misPrimary 1
+07-27 18:41:20.057  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:20.057  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:20.057  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:20.057  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:20.068 10586 10662 I xiaomi.metoknlp: This is non sticky GC, maxfree is 33554432 minfree is 8388608
+07-27 18:41:20.068 10586 10662 W xiaomi.metoknlp: Reducing the number of considered missed Gc histogram windows from 181 to 100
+07-27 18:41:20.070 10586 10664 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.070 10586 10664 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.072 10586 10664 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.073 10586 10664 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.077 10586 16527 D JavaheapMonitor: Java heap used=5M max=256M, proc: com.xiaomi.metoknlp
+07-27 18:41:20.077 10586 16527 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:20.083 10586 25530 E LocationServer: indoor info is null!
+07-27 18:41:20.086  2157  2157 D MI-SF   : isSupportLowBrightnessFpsSwitch current_setting_fps: 120
+07-27 18:41:20.086  2157  2157 D MI-SF   : isTpIdleScene ,mAverageFrameRate is 0, 1  1 
+07-27 18:41:20.086  2157  2157 D MI-SF   : modeGroup0 mIsSupportAutomodeForMaxFpsSetting is 1(0), getCurrentBrightness() = 4079(0), mIsKeepAutoMode 0 isAutoModeAllowed() 1
+07-27 18:41:20.086  2157  2157 D MI-SF   : setTpIdleFps in vrr choose FPS:120, mode:0
+07-27 18:41:20.087  2157  2239 D RenderEngine: makePassBlurBetterDownShader layers:1 layername:com.oilquiz.app/com.oilquiz.app.MainActivity#53552,WH:1220x2656
+07-27 18:41:20.087  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:20.093  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1a2d0) status 0 for display-0.
+07-27 18:41:20.093  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:20.093  3137  3253 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:20.114 11054 11184 I ognitionService: This is sticky GC, maxfree is 33554432 minfree is 8388608
+07-27 18:41:20.118 11054 11186 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.118 11054 11186 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.119 11054 11186 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.119 11054 11186 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.122 11054 11186 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.122 11054 11186 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.122 11054 11186 W System  : A resource failed to call CursorWindow.close. 
+07-27 18:41:20.122 11054 11186 W System  : A resource failed to call AbstractCursor.close. 
+07-27 18:41:20.122 11054 16934 D JavaheapMonitor: Java heap used=22M max=512M, proc: com.xiaomi.aicr:cognitionService
+07-27 18:41:20.122 11054 16934 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:20.145 11054 28345 I AIRC_PerceptionEventBus: event=WifiScanEvent,traceId=4b17c86e65f64846934318338a8f896f send result=true
+07-27 18:41:20.145 11054 28346 I AIRC_Cognition_CognitionTriggerManager: dispatchEvent event=WifiScanEvent, traceId=4b17c86e65f64846934318338a8f896f
+07-27 18:41:20.146 11054 28346 I AIRC_CognitionEnableManager: LocationChange enable: true
+07-27 18:41:20.146 11054 28346 I AIRC_CognitionEnableManager: FrequentLocationCognition enable: true
+07-27 18:41:20.147 11054 28346 I AIRC_CognitionEnableManager: MetroCodeCognition enable: true
+07-27 18:41:20.147 11054 28346 I AIRC_CognitionEnableManager: TravelCognition enable: true
+07-27 18:41:20.147 11054 28346 I AIRC_CognitionEnableManager: ScanCodeCognition enable: true
+07-27 18:41:20.147 11054 28346 I AIRC_CognitionEnableManager: GeekCognition enable: true
+07-27 18:41:20.147 11054 28346 I AIRC_CognitionEnableManager: AudioCognition enable: true
+07-27 18:41:20.148 11054 28346 I AIRC_CognitionEnableManager: BatteryCognition enable: true
+07-27 18:41:20.148 11054 28346 I AIRC_LocationChange: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.148 11054 28346 I AIRC_FrequentLocationCognition: dispatchEvent needHandle:true, event:WifiScanEvent
+07-27 18:41:20.149 11054 28346 I AIRC_FLCT: onEvent traceId:4b17c86e65f64846934318338a8f896f, event:WifiScanEvent
+07-27 18:41:20.151 11054   537 I AIRC_CounterTrack: collect: base_event-GeoLocationChangeEvent
+07-27 18:41:20.151 11054 28345 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.151 11054 28345 I AiCrEngine_OpenCapabilityProvider: is support xiao ai capability = true
+07-27 18:41:20.151 11054 28345 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.151 11054 28345 I AiCrEngine_OpenCapabilityProvider: call capCode=3100, isSupportCapability=true, method=check_cta_agreed, arg=com.xiaomi.aicr
+07-27 18:41:20.151 11054 28345 I AiCrEngine_PrivacyUtils: checkCTASwitch is 1772648967404
+07-27 18:41:20.151 11054 28345 I AiCrEngine_OpenCapabilityProvider: call checkCtaAgreed =true
+07-27 18:41:20.151 11054 28345 I AiCrEngine_OpenCapabilityCaller: checkCtaAgreed checkCTASwitch=true
+07-27 18:41:20.151 11054   537 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.151 11054 28345 I AIRC_[Geek]_GeekHelper: isGeekTotalTimeValid totalCount:2, dayMaxCount:3000
+07-27 18:41:20.151 11054 28345 I AIRC_[Geek]_GeekHelper: isGeekTimeValid result:true
+07-27 18:41:20.152 11054 28345 I AIRC_LocationPerception: updateLocation checkResult=true
+07-27 18:41:20.152 11054 28345 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.152 11054 28345 I AiCrEngine_OpenCapabilityProvider: is support xiao ai capability = true
+07-27 18:41:20.152 11054 28345 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.152 11054 28345 I AiCrEngine_OpenCapabilityProvider: call capCode=3100, isSupportCapability=true, method=check_cta_agreed, arg=com.xiaomi.aicr
+07-27 18:41:20.152 11054 28345 I AiCrEngine_PrivacyUtils: checkCTASwitch is 1772648967404
+07-27 18:41:20.152 11054 28345 I AiCrEngine_OpenCapabilityProvider: call checkCtaAgreed =true
+07-27 18:41:20.152 11054 28345 I AiCrEngine_OpenCapabilityCaller: checkCtaAgreed checkCTASwitch=true
+07-27 18:41:20.152 11054 28345 I AIRC_[Geek]_GeekHelper: isGeekTotalTimeValid totalCount:2, dayMaxCount:3000
+07-27 18:41:20.152 11054 28345 I AIRC_[Geek]_GeekHelper: isGeekTimeValid result:true
+07-27 18:41:20.152 11054 28345 I AIRC_[Geek]_GeekSdkManager: initialize geek sdk that it's happened
+07-27 18:41:20.152 11054 28345 I AIRC_[Geek]_GeekSdkManager: updateLocation paramArray:["1828","1738","1792","1799","700","1501","1502","1503","1586","1758","1463","1508","142","145","1522","949","1473","138","1507","809","144","1474"]
+07-27 18:41:20.152 11054 28345 I AIRC_PerceptionEventBus: event=GeoLocationChangeEvent,traceId=329b8f762e6146d08b15d6a38f65c9b7 send result=true
+07-27 18:41:20.153 11054 28346 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.153 11054 28346 I AiCrEngine_OpenCapabilityProvider: is support xiao ai capability = true
+07-27 18:41:20.153 11054 28346 I AiCrEngine_DeviceUtils: isSupportIntention isInternationalDevice=false, isFoldDevice=false, isLiteDevice=false
+07-27 18:41:20.153 11054 28346 I AiCrEngine_OpenCapabilityProvider: call capCode=3100, isSupportCapability=true, method=method_support_geofence, arg=com.xiaomi.aicr
+07-27 18:41:20.153 11054 28346 D AiCrEngine_GeoFenceCapability: Polaris version = 2025.11.26.1
+07-27 18:41:20.153 11054 28346 I AiCrEngine_OpenCapabilityCaller: supportGeoFence true
+07-27 18:41:20.156 11054 28346 I AIRC_Cognition_FrequentLocationLearn: FrequentLocationRecognizer,changedEvent []
+07-27 18:41:20.156 11054 28346 I MMKV    : <MMKV.cpp:1182::sync> MMKV::sync, SyncFlag = 1
+07-27 18:41:20.156 11054 28346 I AIRC_FLCT: onEvent 4b17c86e65f64846934318338a8f896f,WifiScanEvent,
+07-27 18:41:20.156 11054 28346 I AIRC_MetroCodeCognition: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.156 11054 28346 I AIRC_TravelCognition: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.156 11054 28346 I AIRC_ScanCodeCognition: dispatchEvent needHandle:true, event:WifiScanEvent
+07-27 18:41:20.156 11054 28346 I AIRC_CognitionScanCodeCognitionTrigger: onEvent event:class com.xiaomi.aireco.entity.event.WifiScanEvent
+07-27 18:41:20.157 11054 28346 I AIRC_CognitionScanCodeCognitionTrigger: preprocessScancodeEvent,WifiScanEvent(traceId='4b17c86e65f64846934318338a8f896f', time=1785148880012)
+07-27 18:41:20.157 11054 28346 I AIRC_GeekCognition: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.157 11054 28346 I AIRC_AudioCognition: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.157 11054 28346 I AIRC_BatteryCognition: dispatchEvent needHandle:false, event:WifiScanEvent
+07-27 18:41:20.157 11054   537 I AIRC_Cognition_CognitionTriggerManager: not in test mode
+07-27 18:41:20.157 11054 28346 I AIRC_Cognition_CognitionTriggerManager: dispatchEvent event=GeoLocationChangeEvent, traceId=329b8f762e6146d08b15d6a38f65c9b7
+07-27 18:41:20.157 11054 28346 I AIRC_CognitionEnableManager: LocationChange enable: true
+07-27 18:41:20.157 11054 28346 I AIRC_CognitionEnableManager: FrequentLocationCognition enable: true
+07-27 18:41:20.157 11054 28346 I AIRC_CognitionEnableManager: MetroCodeCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_CognitionEnableManager: TravelCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_CognitionEnableManager: ScanCodeCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_CognitionEnableManager: GeekCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_CognitionEnableManager: AudioCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_CognitionEnableManager: BatteryCognition enable: true
+07-27 18:41:20.158 11054 28346 I AIRC_LocationChange: dispatchEvent needHandle:true, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_LocationChangeTrigger: handleGeoLocationChangeEvent cached updateTime=1785148094468 not insert
+07-27 18:41:20.158 11054 28346 I AIRC_FrequentLocationCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_MetroCodeCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_TravelCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_ScanCodeCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_GeekCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_AudioCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 28346 I AIRC_BatteryCognition: dispatchEvent needHandle:false, event:GeoLocationChangeEvent
+07-27 18:41:20.158 11054 29706 I AIRC_Cognition_CognitionTriggerManager: not in test mode
+07-27 18:41:20.169 11054 28430 I AIRC_[Geek]_GeekSdkManager: handleOnCallback doGeekSdkInit event=112
+07-27 18:41:20.169 11054 28430 I AIRC_[Geek]_GeekSdkManager: triggerInitSdk event=112
+07-27 18:41:20.169 11054 28430 I AIRC_[Geek]_GeekResultHandler: handleGeekEvent event=112, geekSwitch=true
+07-27 18:41:20.169 11054 28430 I AIRC_[Geek]_GeekResultHandler: actualHandleGeekEvent not handle event=112
+07-27 18:41:20.185 10189 20035 D JavaheapMonitor: Java heap used=14M max=256M, proc: com.qualcomm.location
+07-27 18:41:20.186 10189 20035 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:20.190  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 69999 us
+07-27 18:41:20.270  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 1, misPrimary 1
+07-27 18:41:20.271  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:20.271  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:20.271  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:20.271  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:20.291  3137  8715 W vendor.xiaomi.sensor.citsensorservice.aidl: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: display.qservice
+07-27 18:41:20.291  2010  2926 I SDM     : QServiceBackend::notifyCallback: calling qservice command 5
+07-27 18:41:20.291  2010  2926 I SDM     : SDMServices::notifyCallback: sdmclient qservice command 5
+07-27 18:41:20.292  3137  8715 D libsensor-parseRGB: MiScreenRefresh screenRefresh qdutils::DisplayType(0), ret = 0
+07-27 18:41:20.292  2010  2537 E vendor.qti.hardware.display.composer-service: CWB_DEBUG[1]:time_diff[21617917],need delay
+07-27 18:41:20.295  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:20.300  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1be50) status 0 for display-0.
+07-27 18:41:20.300  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:20.300  3137  8715 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:20.310  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 1, misPrimary 1
+07-27 18:41:20.311  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:20.311  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:20.311  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:20.311  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:20.367  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:20.400  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1be50) status 0 for display-0.
+07-27 18:41:20.400  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:20.400  3137  8715 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:20.450  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:20.570  3451  4935 D NetworkMetricsTracker: calcNWCause:0
+07-27 18:41:20.653 16486 18353 D JavaheapMonitor: Java heap used=6M max=256M, proc: com.milink.service:ui
+07-27 18:41:20.653 16486 18353 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:20.683  1980  2100 E LocSvc_GnssAdapter: 0 !!!! is mRecordLoseCount  sv report
+07-27 18:41:20.699  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 80, rxBytesDelta: 328, mDataActivity: 3, dataActivity: 3
+07-27 18:41:20.834  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:20.834  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:20.836  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:20.837  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:20.838  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:20.839  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:20.843  6021  6021 D TelephonyManager: requestModemActivityInfo: Sending result to app: ModemActivityInfo{ mTimestamp=176897730 mSleepTimeMs=58872223 mIdleTimeMs=2233044 mActivityStatsTechSpecificInfo=[{mRat=UNKNOWN,mFrequencyRange=UNKNOWN,mTxTimeMs[]=[3143240, 3366225, 4355041, 2010625, 4707262],mRxTimeMs=124090508}]}
+07-27 18:41:20.843  6021  6021 D TelephonyManager: requestModemActivityInfo: Sending result to app: ModemActivityInfo{ mTimestamp=176897731 mSleepTimeMs=58872223 mIdleTimeMs=2233044 mActivityStatsTechSpecificInfo=[{mRat=UNKNOWN,mFrequencyRange=UNKNOWN,mTxTimeMs[]=[3143241, 3366244, 4355392, 2010791, 4707367],mRxTimeMs=124094880}]}
+07-27 18:41:20.843  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 3
+07-27 18:41:20.844  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 3
+07-27 18:41:21.121  8492  8531 D QLM-Service: check_headroom_zone: Timer EVT, Temp: 45897
+07-27 18:41:21.262  3137  8505 I libsensor-boledalgo: dbv:4329,lux:27.3,cct:5802.8,hsv:-1.0,CWB R:541.2,G:732.1,B:1160.3Event R:145.6,G:143.5,B:68.2,C:329.2,W:628.6Cali R:24.8,G:34.4,B:15.7,C:50.9,W:45.6,DC:1
+07-27 18:41:21.444  3451  4719 W ActivityManagerServiceImpl: Sending non-protected broadcast miui.intent.action.CYCLE_CHECK from system uid 1000 pkg android. Callers=com.android.server.am.BroadcastController.checkBroadcastFromSystem:2218 com.android.server.am.BroadcastController.broadcastIntentLockedTraced:1703 com.android.server.am.BroadcastController.broadcastIntentLocked:857 com.android.server.am.BroadcastController.broadcastIntentInPackage:824 com.android.server.am.ActivityManagerService$LocalService.broadcastIntentInPackage:18839 
+07-27 18:41:21.444  3451  4719 D AlarmManager: mBroadcastRefCount -> 1
+07-27 18:41:21.457  3451  3451 E AlarmManager: not align this alarm: Alarm{c90a8e0 type 2 origWhen 176928343 whenElapsed 176928343 android}, reason=0
+07-27 18:41:21.457  2052  2052 I vendor.xiaomi.hardware.micharge-service: ReadFilePathValue path = /sys/class/power_supply/battery/temp value = 383
+07-27 18:41:21.457  3451  3668 E IMiCharge: MiCharge method 9 val = 383
+07-27 18:41:21.458  2052  2052 I vendor.xiaomi.hardware.micharge-service: ReadFilePathValue path = /sys/class/xm_power/charger/charger_thermal/wired_ctrl_limit value = 12
+07-27 18:41:21.458  3451  3668 E IMiCharge: MiCharge method 10 val = 12
+07-27 18:41:21.458  3451  3451 D AlarmManager: mBroadcastRefCount -> 0
+07-27 18:41:21.458  3451  3451 D AlarmManager: mPendingIntent -> PendingIntent{8636f8: PendingIntentRecord{9b527d1 android broadcastIntent}}
+07-27 18:41:21.625  3451  3820 D AurogonBandwidthController: skinTemperature:38.86
+07-27 18:41:21.662 25291 25305 I com.qti.qcc: This is non sticky GC, maxfree is 33554432 minfree is 8388608
+07-27 18:41:21.664 25291 25544 D JavaheapMonitor: Java heap used=2M max=256M, proc: com.qti.qcc
+07-27 18:41:21.664 25291 25544 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:21.681  1980  2100 E LocSvc_GnssAdapter: 0 !!!! is mRecordLoseCount  sv report
+07-27 18:41:21.700  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 149038, rxBytesDelta: 25064, mDataActivity: 3, dataActivity: 3
+07-27 18:41:21.789  3451  4904 V MiuiSuperHotspotManager: mCurRssi change to: -999
+07-27 18:41:21.839  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:21.839  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:21.841  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:21.841  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:21.841  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:21.842  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:22.120 28433 16968 I TimeTracker_28433_16968: trackProcessAlive() called duration 1121, miill 1785148882118, start 1785081572064
+07-27 18:41:22.162  5304 17807 D JavaheapMonitor: Java heap used=10M max=256M, proc: com.miui.miwallpaper
+07-27 18:41:22.162  5304 17807 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:22.573  3451  4935 D NetworkMetricsTracker: calcNWCause:0
+07-27 18:41:22.574 27130 28541 D JavaheapMonitor: Java heap used=3M max=256M, proc: com.milink.service.persistent
+07-27 18:41:22.574 27130 28541 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:22.684  1980  2100 E LocSvc_GnssAdapter: 0 !!!! is mRecordLoseCount  sv report
+07-27 18:41:22.701  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 40, rxBytesDelta: 40, mDataActivity: 3, dataActivity: 3
+07-27 18:41:22.843  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:22.843  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:22.845  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:22.845  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:22.845  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:22.846  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:22.848  6021  6021 D DynamicService_WifiBt: PhoneStateListener.onDataActivity: direction=2
+07-27 18:41:22.848  6021  6021 D DynamicService_WifiBt: modem or radio power state change,messageType: 128 state: 2
+07-27 18:41:22.848  5832  6039 D HyperComm_TelephonyMonitor: onDataActivity[0], direction = 2
+07-27 18:41:22.848  5832  6039 I SceneObserver: notify event: EVENT_DATA_ACTIVITY_CHANGED
+07-27 18:41:22.848  8834  8834 D PowerInsight_ModemCollector: ModemTelephonyCallback_onDataActivity direction:2/mCurrentRunState:2/mCurrentDataRunState:0
+07-27 18:41:22.848  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:42731---Rat:042731---42731/0/0/0/0
+07-27 18:41:22.848  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:42731---Rat:042731---42731/0/0/0/0
+07-27 18:41:22.877  2157  2157 D MI-SF   : isSupportLowBrightnessFpsSwitch current_setting_fps: 120
+07-27 18:41:22.877  2157  2157 D MI-SF   : isTpIdleScene ,mAverageFrameRate is 0, 1  1 
+07-27 18:41:22.877  2157  2157 D MI-SF   : modeGroup0 mIsSupportAutomodeForMaxFpsSetting is 1(0), getCurrentBrightness() = 4079(0), mIsKeepAutoMode 0 isAutoModeAllowed() 1
+07-27 18:41:22.877  2157  2157 D MI-SF   : setTpIdleFps in vrr choose FPS:120, mode:0
+07-27 18:41:22.881  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 0, misPrimary 1
+07-27 18:41:22.881  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:22.881  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:22.882  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:22.882  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:22.904  2010  2912 I SDM     : DemuraTnCaptureIntfImpl::ProcessCapturePanelData: 0x2100000000af:Screen capture status = 0
+07-27 18:41:22.904  2010  2912 I SDM     : InterVmIpcUvmIntfImpl::ProcessOps: client: 1, cmd: 1
+07-27 18:41:22.939 10407 13267 D JavaheapMonitor: Java heap used=25M max=256M, proc: com.miui.securitycenter.remote
+07-27 18:41:22.939 10407 13267 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:22.943 32387   371 I dist:vtcamera:PhoneTemperatureReader: onEvent: null
+07-27 18:41:22.943  3451  3820 D AurogonBandwidthController: skinTemperature:38.844
+07-27 18:41:22.944  3451  3820 D AurogonBandwidthController: skinTemperature:38.844
+07-27 18:41:22.944  3451  3820 D AurogonBandwidthController: skinTemperature:38.844
+07-27 18:41:22.944 32387  2773 I dist:vtcamera:PhoneTemperatureReader: read-temp:38844
+07-27 18:41:22.944 32387  2773 D dist:vtcamera:PhoneTemperatureNotifier: tempV=38844, highTemperature state=false
+07-27 18:41:22.951  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:22.985  2010  2912 I SDM     : InterVmIpcUvmIntfImpl::SendCommand: response for cmd id: 1, status: 0
+07-27 18:41:22.991  3451  5030 I SmartPower: com.xiaomi.metoknlp/10143(10586): background->idle(3001ms) R(broadcast start Intent { act=android.net.wifi.SCAN_RESULTS flg=0x4000010 xflg=0x4 (has extras) }) adj=200.
+07-27 18:41:22.996  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1c1c0) status 0 for display-0.
+07-27 18:41:22.996  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:22.997  3137  3252 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:22.997  3451  5030 I SmartPower: com.miui.powerinsight/10226(8834): background->idle(3001ms) R(broadcast start Intent { act=android.net.wifi.SCAN_RESULTS flg=0x4000010 xflg=0x4 (has extras) }) adj=699.
+07-27 18:41:23.013  8834 10844 D JavaheapMonitor: Java heap used=6M max=256M, proc: com.miui.powerinsight
+07-27 18:41:23.013  8834 10844 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:23.039  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 69999 us
+07-27 18:41:23.203 10052 20368 D JavaheapMonitor: Java heap used=3M max=256M, proc: org.ifaa.aidl.manager
+07-27 18:41:23.203 10052 20368 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:23.440  5979 18612 D JavaheapMonitor: Java heap used=6M max=256M, proc: .qtidataservices
+07-27 18:41:23.440  5979 18612 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:23.514 12031 16109 W lyra-mdns-core: _deal_timeout query _lyra-mdns._udp.local[0C] timeout!
+07-27 18:41:23.515  3451  3743 D HANGTASK: IOCTL_HANG_MON_Kick IOCTL,cmd= 2147774474, lParam=120. 
+07-27 18:41:23.553  5563  7360 I ScanManager: msg.what = MSG_CHECK_SCAN_STATUS, msg.arg1 = CHECK_BACKGROUND_TIMEOUT
+07-27 18:41:23.626  3451  3820 D AurogonBandwidthController: skinTemperature:38.844
+07-27 18:41:23.681  1980  2100 E LocSvc_GnssAdapter: 0 !!!! is mRecordLoseCount  sv report
+07-27 18:41:23.702  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 101, rxBytesDelta: 0, mDataActivity: 3, dataActivity: 2
+07-27 18:41:23.849  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:23.849  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:23.851  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:23.851  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:23.851  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:23.853  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:23.853  5832  6039 D HyperComm_TelephonyMonitor: onDataActivity[0], direction = 1
+07-27 18:41:23.853  5832  6039 I SceneObserver: notify event: EVENT_DATA_ACTIVITY_CHANGED
+07-27 18:41:23.854  6021  6021 D DynamicService_WifiBt: PhoneStateListener.onDataActivity: direction=1
+07-27 18:41:23.854  6021  6021 D DynamicService_WifiBt: modem or radio power state change,messageType: 128 state: 1
+07-27 18:41:23.855  8834  8834 D PowerInsight_ModemCollector: ModemTelephonyCallback_onDataActivity direction:1/mCurrentRunState:2/mCurrentDataRunState:0
+07-27 18:41:23.855  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:43738---Rat:043738---43738/0/0/0/0
+07-27 18:41:23.855  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:43738---Rat:043738---43738/0/0/0/0
+07-27 18:41:23.865 12031 13161 I lyra-msg-act: ActuatorControl::ActuatorControlProcess:310 monitor queueMap :0
+07-27 18:41:23.882  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:23.882  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 0, misPrimary 1
+07-27 18:41:23.883  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:23.883  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:23.883  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:23.883  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:23.952  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:23.996  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1ae80) status 0 for display-0.
+07-27 18:41:23.996  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:23.997  3137  3253 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:24.042  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:24.128 10800 17120 D JavaheapMonitor: Java heap used=18M max=256M, proc: com.xiaomi.xmsf
+07-27 18:41:24.128 10800 17120 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:24.260  3137  8505 I libsensor-boledalgo: dbv:4329,lux:27.2,cct:5885.1,hsv:-1.0,CWB R:541.2,G:732.1,B:1160.3Event R:144.2,G:143.6,B:68.4,C:326.6,W:627.5Cali R:24.8,G:34.4,B:15.7,C:50.9,W:45.6,DC:1
+07-27 18:41:24.576  3451  4935 D NetworkMetricsTracker: calcNWCause:0
+07-27 18:41:24.680  1980  2100 E LocSvc_GnssAdapter: 1 !!!! is mRecordLoseCount
+07-27 18:41:24.704  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 0, rxBytesDelta: 40, mDataActivity: 2, dataActivity: 1
+07-27 18:41:24.792  3451  4904 V MiuiSuperHotspotManager: mCurRssi change to: -999
+07-27 18:41:24.852  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:24.852  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:24.854  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:24.854  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:24.854  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:24.855  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:24.855  6021  6021 D DynamicService_WifiBt: PhoneStateListener.onDataActivity: direction=0
+07-27 18:41:24.855  6021  6021 D DynamicService_WifiBt: modem or radio power state change,messageType: 128 state: 0
+07-27 18:41:24.855  6021  6021 D DynamicService_WifiBt: listeners is null or md controller is disable!!!
+07-27 18:41:24.855  5832  6039 D HyperComm_TelephonyMonitor: onDataActivity[0], direction = 0
+07-27 18:41:24.855  5832  6039 I SceneObserver: notify event: EVENT_DATA_ACTIVITY_CHANGED
+07-27 18:41:24.856  8834  8834 D PowerInsight_ModemCollector: ModemTelephonyCallback_onDataActivity direction:0/mCurrentRunState:2/mCurrentDataRunState:0
+07-27 18:41:24.877  3451  6318 W ActivityManagerServiceImpl: Sending non-protected broadcast xiaomi.intent.action.DEVICE_STATE from system 6021:com.android.phone/1001 pkg com.android.phone. Callers=
+07-27 18:41:24.884  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:24.885  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 0, misPrimary 1
+07-27 18:41:24.885  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:24.885  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:24.886  2010  2010 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:24.886  2010  2010 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:24.896 23479 23989 D JavaheapMonitor: Java heap used=4M max=256M, proc: com.miui.thirdappassistant
+07-27 18:41:24.896 23479 23989 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:24.918  6021  6383 D JavaheapMonitor: Java heap used=43M max=256M, proc: com.android.phone
+07-27 18:41:24.918  6021  6383 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:24.955  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:24.988  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c12df0) status 0 for display-0.
+07-27 18:41:24.988  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:24.989  3137  8971 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:25.025  5832  6039 D HyperComm_TelephonyMonitor: onCellInfoChanged[0], cellInfo = [CellInfoNr:{ mRegistered=YES mTimeStamp=176901911894878ns mCellConnectionStatus=0 CellIdentityNr:{ mMcc = 460 mMnc = 00 mAlphaLong = 中国移动 mAlphaShort = 中国移动 mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -91 ssRsrq = -11 ssSinr = 7 miuiLevel = 0 mOptimizedLevel = 0 level = 1 parametersUseForLevel = 0 timingAdvance = 2147483647 } }]
+07-27 18:41:25.038  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:25.046  6107  6107 D ControlCenterHeaderExpandController: onExpansionChanged: progress =  0.0
+07-27 18:41:25.047  6107  6107 D ControlCenterHeaderExpandController: onExpansionChanged: progress =  0.0
+07-27 18:41:25.047  6107  6107 D DynamicIslandWindowViewController: handleDynamicIsland: action_avoid_screen_burn_in_tran
+07-27 18:41:25.054  6107  6107 D AvoidScreenBurnInHelper:  flow screenBurnInStrategy  1 
+07-27 18:41:25.068  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:25.081  2157  2157 D MI-SF   : isSupportLowBrightnessFpsSwitch current_setting_fps: 120
+07-27 18:41:25.082  2157  2157 D MI-SF   : isTpIdleScene ,mAverageFrameRate is 0, 1  1 
+07-27 18:41:25.082  2157  2157 D MI-SF   : modeGroup0 mIsSupportAutomodeForMaxFpsSetting is 1(0), getCurrentBrightness() = 4079(0), mIsKeepAutoMode 0 isAutoModeAllowed() 1
+07-27 18:41:25.082  2157  2157 D MI-SF   : setTpIdleFps in vrr choose FPS:120, mode:0
+07-27 18:41:25.154  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:25.234  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 1, misPrimary 1
+07-27 18:41:25.234  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:25.234  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:25.235  2010  2957 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:25.235  2010  2957 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:25.255  3137  8971 W vendor.xiaomi.sensor.citsensorservice.aidl: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: display.qservice
+07-27 18:41:25.255  2010  2926 I SDM     : QServiceBackend::notifyCallback: calling qservice command 5
+07-27 18:41:25.255  2010  2926 I SDM     : SDMServices::notifyCallback: sdmclient qservice command 5
+07-27 18:41:25.255  3137  8971 D libsensor-parseRGB: MiScreenRefresh screenRefresh qdutils::DisplayType(0), ret = 0
+07-27 18:41:25.256  2010  2537 E vendor.qti.hardware.display.composer-service: CWB_DEBUG[1]:time_diff[21793073],need delay
+07-27 18:41:25.262  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1b2a0) status 0 for display-0.
+07-27 18:41:25.262  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:25.262  3137  8714 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:25.274  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:25.274  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 1, misPrimary 1
+07-27 18:41:25.274  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:25.274  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:25.275  2010  2957 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:25.275  2010  2957 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:25.344  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:25.378  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c15260) status 0 for display-0.
+07-27 18:41:25.379  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:25.379  3137  8714 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:25.428  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:25.628  3451  3820 D AurogonBandwidthController: skinTemperature:38.844
+07-27 18:41:25.681  1980  2100 E LocSvc_GnssAdapter: 1 !!!! is mRecordLoseCount
+07-27 18:41:25.706  6021  6782 D MiuiDualMobileTrafficStats[0] : txBytesDelta: 0, rxBytesDelta: 0, mDataActivity: 1, dataActivity: 0
+07-27 18:41:25.854  6021  6021 D QtiLinkBandwidthEstimator-1: handleMessage: 2
+07-27 18:41:25.854  6021  6021 D QtiLinkBandwidthEstimator-1: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:25.857  6021  6021 D QtiLinkBandwidthEstimator-1: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:25.857  6021  6021 D QtiLinkBandwidthEstimator-0: handleMessage: 2
+07-27 18:41:25.857  6021  6021 D QtiLinkBandwidthEstimator-0: MSG_TRAFFIC_STATS_POLL
+07-27 18:41:25.858  6021  6021 D QtiLinkBandwidthEstimator-0: isDataPacketsCaluclationOnEachSimSeperately : true
+07-27 18:41:25.859  6021  6021 D DynamicService_WifiBt: PhoneStateListener.onDataActivity: direction=3
+07-27 18:41:25.859  6021  6021 D DynamicService_WifiBt: modem or radio power state change,messageType: 128 state: 3
+07-27 18:41:25.859  6021  6021 D DynamicService_WifiBt: listeners is null or md controller is disable!!!
+07-27 18:41:25.859  5832  6039 D HyperComm_TelephonyMonitor: onDataActivity[0], direction = 3
+07-27 18:41:25.859  5832  6039 I SceneObserver: notify event: EVENT_DATA_ACTIVITY_CHANGED
+07-27 18:41:25.860  8834  8834 D PowerInsight_ModemCollector: ModemTelephonyCallback_onDataActivity direction:3/mCurrentRunState:2/mCurrentDataRunState:0
+07-27 18:41:25.861  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:45744---Rat:045744---45744/0/0/0/0
+07-27 18:41:25.861  8834  8834 D PowerInsight_ModemCollector: addOperatorNetworkState is:45744---Rat:045744---45744/0/0/0/0
+07-27 18:41:25.864 10949 11274 D JavaheapMonitor: Java heap used=14M max=512M, proc: com.sohu.inputmethod.sogou.xiaomi
+07-27 18:41:25.864 10949 11274 V JavaheapMonitor: Check java heap usage finished! Next check delay: 300000
+07-27 18:41:25.881  3451  6968 W ActivityManagerServiceImpl: Sending non-protected broadcast xiaomi.intent.action.DEVICE_STATE from system 6021:com.android.phone/1001 pkg com.android.phone. Callers=
+07-27 18:41:25.892  2010  2531 I SDM     : HWDeviceDRM::SetupConcurrentWriteback: Tear down the Concurrent Writeback topology
+07-27 18:41:25.893  2010  2537 I vendor.qti.hardware.display.composer-service: Sensor: notify citsensorservice to trigger cwb, misForced = 0, misPrimary 1
+07-27 18:41:25.893  3137  8484 D libsensor-parseRGB: threadTriggerDump Directly dump if cwb done before notify
+07-27 18:41:25.893  3137  8484 D libsensor-parseRGB: 236 Dump start setCWBOutputBuffer disp_id 1 
+07-27 18:41:25.894  2010  2957 I SDM     : CWB config passed by cwb_client: Tap_Point/Control_Flag: 0x1 CWB_ROI : (595.000000 136.000000 776.000000 317.000000) CWB_downscale_rect: (0.000000 0.000000 0.000000 0.000000) for display-0
+07-27 18:41:25.894  2010  2957 W SDM     : DisplayBase::ValidateCwbRoiWithOutputBuffer: Insufficient buffer(256x180) provided for cwb roi(595.000000, 136.000000, 776.000000, 317.000000). Thus, falling to buffer fit ROI.
+07-27 18:41:25.958  3451  5006 D HyperStabilitySdkService: checkDmabufStatus done, exceedLimitsList:[], totalDmabufSize:0
+07-27 18:41:25.963  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:26.000  2010  8643 I SDM     : NotifyCWBStatus: Notify the client about buffer (0xf1c1d0e0) status 0 for display-0.
+07-27 18:41:26.000  2010  8643 I SDM     : SDMConcurrentWriteBack::ProcessCWBStatus: CWB queue is empty. Display: 0
+07-27 18:41:26.000  3137  8507 D libsensor-parseRGB: onCwbSuccess, mRequestDisplayId 0
+07-27 18:41:26.040  2010  2531 I SDM     : DisplayBase::CommitThread: Received Idle Timeout, panel: video, timeout: 70000 us
+07-27 18:41:26.093  3451  5206 I NetworkBoostStatusManager: handle: 107
+07-27 18:41:26.096  6021  7220 E PhoneAdapter: get ntnphones failed, exception: java.lang.IllegalStateException: not support satellite!
+07-27 18:41:26.098  3451  5206 D SLM-SRV-SLAService: isModemSingnalStrengthStatus = 0
+07-27 18:41:26.126  8492  8531 D QLM-Service: check_headroom_zone: Timer EVT, Temp: 44966
+07-27 18:41:26.262  3248  3248 I adbd    : in ShellService: export ANDROID_LOG_TAGS=''; exec logcat '-d'

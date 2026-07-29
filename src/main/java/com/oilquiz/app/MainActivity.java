@@ -43,6 +43,7 @@ import com.oilquiz.app.ui.activity.ModelSelectorActivity;
 import com.oilquiz.app.ui.activity.AIServiceStatusActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceState;
 
 import java.io.File;
 
@@ -119,11 +120,17 @@ public class MainActivity extends BaseActivity {
             weatherBanner.onResume();
         }
 
+        // 注册AI状态观察者，监听状态变化
+        registerAiStatusObserver();
+        
         // 实时查询并更新AI服务状态
         updateAiStatus();
+        
         // 实时查询并更新题库统计信息
         updateQuestionCount();
     }
+    
+    private AIService.DetailedStatusObserver aiStatusObserver;
     
     private void updateAiStatus() {
         new Thread(() -> {
@@ -131,30 +138,105 @@ public class MainActivity extends BaseActivity {
                 AIService aiService = AIService.getInstance(this);
                 boolean isInitialized = aiService.isInitialized();
                 String modelName = aiService.getCurrentModelName();
+                AIServiceState serviceState = aiService.getServiceState();
+                AIServiceState.ServiceStage stage = serviceState.getCurrentStage();
+                String stageMessage = serviceState.getStageMessage();
+                int progress = serviceState.getProgressPercent();
+                String errorMessage = serviceState.getErrorMessage();
                 
-                runOnUiThread(() -> {
-                    android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
-                    if (tvAiStatus != null) {
-                        if (isInitialized && modelName != null) {
-                            tvAiStatus.setText("AI运行中");
-                            tvAiStatus.setTextColor(getResources().getColor(R.color.success));
-                        } else {
-                            tvAiStatus.setText("AI未初始化");
-                            tvAiStatus.setTextColor(getResources().getColor(R.color.error));
-                        }
-                    }
-                });
+                runOnUiThread(() -> updateAiStatusUI(stage, modelName, stageMessage, progress, errorMessage));
             } catch (Exception e) {
                 e.printStackTrace();
                 runOnUiThread(() -> {
                     android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
                     if (tvAiStatus != null) {
-                        tvAiStatus.setText("错误");
+                        tvAiStatus.setText("AI状态未知");
                         tvAiStatus.setTextColor(getResources().getColor(R.color.error));
                     }
                 });
             }
         }).start();
+    }
+    
+    private void updateAiStatusUI(AIServiceState.ServiceStage stage, String modelName, 
+                                   String stageMessage, int progress, String errorMessage) {
+        android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
+        if (tvAiStatus != null) {
+            String statusText;
+            int statusColor;
+            
+            switch (stage) {
+                case INITIALIZED:
+                    if (modelName != null) {
+                        statusText = "AI运行中 · " + modelName;
+                    } else {
+                        statusText = "AI运行中";
+                    }
+                    statusColor = getResources().getColor(R.color.success);
+                    break;
+                case MODEL_FILE_PREPARING:
+                case MODEL_LOADING:
+                case GPU_INITIALIZATION:
+                case CHAT_CONTEXT_CREATING:
+                case NATIVE_LIBRARY_LOADING:
+                    statusText = "AI初始化中 " + progress + "% · " + stageMessage;
+                    statusColor = getResources().getColor(R.color.warning);
+                    break;
+                case CPU_FALLBACK:
+                    statusText = "CPU模式 " + progress + "% · " + stageMessage;
+                    statusColor = getResources().getColor(R.color.warning);
+                    break;
+                case ERROR:
+                    if (errorMessage != null && !errorMessage.isEmpty()) {
+                        statusText = "AI错误: " + errorMessage;
+                    } else {
+                        statusText = "AI初始化失败";
+                    }
+                    statusColor = getResources().getColor(R.color.error);
+                    break;
+                case UNINITIALIZED:
+                default:
+                    statusText = "AI未初始化";
+                    statusColor = getResources().getColor(R.color.error);
+                    break;
+            }
+            
+            tvAiStatus.setText(statusText);
+            tvAiStatus.setTextColor(statusColor);
+        }
+    }
+    
+    private void registerAiStatusObserver() {
+        if (aiStatusObserver != null) {
+            return;
+        }
+        
+        aiStatusObserver = new AIService.DetailedStatusObserver() {
+            @Override
+            public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+                updateAiStatusUI(stage, AIService.getInstance(MainActivity.this).getCurrentModelName(), 
+                               message, progress, null);
+            }
+            
+            @Override
+            public void onError(String errorMessage) {
+                updateAiStatusUI(AIServiceState.ServiceStage.ERROR, null, null, 0, errorMessage);
+            }
+            
+            @Override
+            public void onInitialized(String modelName, long loadTimeMs) {
+                updateAiStatusUI(AIServiceState.ServiceStage.INITIALIZED, modelName, "AI服务已就绪", 100, null);
+            }
+        };
+        
+        AIService.getInstance(this).registerDetailedStatusObserver(aiStatusObserver);
+    }
+    
+    private void unregisterAiStatusObserver() {
+        if (aiStatusObserver != null) {
+            AIService.getInstance(this).unregisterDetailedStatusObserver(aiStatusObserver);
+            aiStatusObserver = null;
+        }
     }
     
     private void updateQuestionCount() {
@@ -231,9 +313,24 @@ public class MainActivity extends BaseActivity {
     }
 
     private void setupButtons() {
+        View cardWeatherBanner = findViewById(R.id.card_weather_banner);
         WeatherBannerView weatherBanner = findViewById(R.id.weather_banner);
+        
+        if (cardWeatherBanner != null) {
+            cardWeatherBanner.setClickable(true);
+            cardWeatherBanner.setFocusable(true);
+            cardWeatherBanner.setFocusableInTouchMode(true);
+            cardWeatherBanner.setOnClickListener(v -> {
+                android.util.Log.d("MainActivity", "card_weather_banner clicked");
+                if (weatherBanner != null) {
+                    weatherBanner.onBannerClicked();
+                }
+            });
+        }
+        
         if (weatherBanner != null) {
-            weatherBanner.setOnClickListener(v -> weatherBanner.onBannerClicked());
+            weatherBanner.setClickable(true);
+            weatherBanner.setFocusable(true);
         }
 
         setupButton(R.id.btn_question, QuestionActivity.class);
@@ -692,5 +789,11 @@ public class MainActivity extends BaseActivity {
         }
         
         return tempFile;
+    }
+    
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unregisterAiStatusObserver();
     }
 }

@@ -26,8 +26,19 @@
     <color name="success">#10B981</color>
     <color name="success_light">#6EE7B7</color>
     <color name="success_container">#ECFDF5</color>
+    <color name="success_light_bg">#ECFDF5</color>
 
     <color name="warning">#F59E0B</color>
+    <color name="accent">#06B6D4</color>
+
+    <color name="border">#E2E8F0</color>
+    <color name="border_light">#F1F5F9</color>
+    <color name="surface_elevated">#FFFFFF</color>
+
+    <color name="green_light">#D1FAE5</color>
+    <color name="orange_light">#FFEDD5</color>
+    <color name="purple_light">#EDE9FE</color>
+    <color name="blue_light">#E0F2FE</color>
     <color name="warning_light">#FCD34D</color>
     <color name="warning_container">#FFFBEB</color>
 
@@ -198,6 +209,8 @@
     <color name="weather_dark_text">#FFFFFF</color>
     <color name="weather_dark_text_secondary">#94A3B8</color>
     <color name="weather_dark_text_tertiary">#64748B</color>
+    <color name="weather_primary">#38BDF8</color>
+    <color name="weather_alert_red">#EF4444</color>
 
     <!-- Dialog Colors -->
     <color name="dialog_title_text">#1E293B</color>

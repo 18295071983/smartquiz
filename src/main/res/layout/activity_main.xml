@@ -154,7 +154,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:text="-"
-                                    android:textSize="24sp"
+                                    android:textSize="14sp"
                                     android:textStyle="bold"
                                     android:textColor="@color/text_primary"
                                     android:layout_marginBottom="4dp" />
@@ -185,19 +185,17 @@
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="16dp"
             android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@android:color/transparent"
-            app:strokeWidth="0dp">
+            app:cardBackgroundColor="@android:color/transparent">
 
             <com.oilquiz.app.ui.widget.WeatherBannerView
                 android:id="@+id/weather_banner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
                 android:background="@drawable/weather_banner_background"
-                android:foreground="?attr/selectableItemBackground"
                 app:autoLoad="true" />
 
         </com.google.android.material.card.MaterialCardView>
@@ -239,39 +237,81 @@
                 android:orientation="horizontal"
                 android:layout_marginBottom="12dp">
 
-                <com.google.android.material.button.MaterialButton
+                <com.google.android.material.card.MaterialCardView
                     android:id="@+id/btn_question"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
-                    android:text="@string/question_management"
-                    android:textAllCaps="false"
-                    android:textColor="@color/text_primary"
-                    app:icon="@drawable/ic_bank"
-                    app:iconGravity="top"
-                    app:iconTint="@color/primary"
-                    app:cornerRadius="16dp"
-                    app:cardBackgroundColor="@color/card_background"
-                    app:strokeWidth="0dp"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/card_background">
 
-                <com.google.android.material.button.MaterialButton
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📚"
+                            android:textSize="24sp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/question_management"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_primary" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
                     android:id="@+id/btn_quiz"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
-                    android:text="@string/start_quiz"
-                    android:textAllCaps="false"
-                    android:textColor="@color/text_primary"
-                    app:icon="@drawable/ic_check_circle"
-                    app:iconGravity="top"
-                    app:iconTint="@color/success"
-                    app:cornerRadius="16dp"
-                    app:cardBackgroundColor="@color/card_background"
-                    app:strokeWidth="0dp"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/card_background">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="✅"
+                            android:textSize="24sp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/start_quiz"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_primary" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
 
             </LinearLayout>
 
@@ -280,39 +320,81 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
-                <com.google.android.material.button.MaterialButton
+                <com.google.android.material.card.MaterialCardView
                     android:id="@+id/btn_study_plan"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
-                    android:text="@string/study_plan"
-                    android:textAllCaps="false"
-                    android:textColor="@color/text_primary"
-                    app:icon="@drawable/ic_stats"
-                    app:iconGravity="top"
-                    app:iconTint="@color/secondary"
-                    app:cornerRadius="16dp"
-                    app:cardBackgroundColor="@color/card_background"
-                    app:strokeWidth="0dp"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/card_background">
 
-                <com.google.android.material.button.MaterialButton
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📊"
+                            android:textSize="24sp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/study_plan"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_primary" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
                     android:id="@+id/btn_wrong_question"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
-                    android:text="@string/wrong_question_collection"
-                    android:textAllCaps="false"
-                    android:textColor="@color/text_primary"
-                    app:icon="@drawable/ic_error"
-                    app:iconGravity="top"
-                    app:iconTint="@color/error"
-                    app:cornerRadius="16dp"
-                    app:cardBackgroundColor="@color/card_background"
-                    app:strokeWidth="0dp"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/card_background">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="❌"
+                            android:textSize="24sp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/wrong_question_collection"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_primary" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
 
             </LinearLayout>
 

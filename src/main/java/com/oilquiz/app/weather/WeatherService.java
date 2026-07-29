@@ -25,6 +25,19 @@ public class WeatherService {
     private static String locationKey(double lat, double lon) {
         return String.format(java.util.Locale.US, "%.2f_%.2f", lat, lon);
     }
+    
+    private static String extractFxLink(String data) {
+        if (data == null) return null;
+        int index = data.indexOf("链接: ");
+        if (index >= 0) {
+            int endIndex = data.indexOf("\n", index + 4);
+            if (endIndex >= 0) {
+                return data.substring(index + 4, endIndex).trim();
+            }
+            return data.substring(index + 4).trim();
+        }
+        return null;
+    }
 
     private final Context context;
     private final AIWeatherManager weatherManager;
@@ -124,9 +137,25 @@ public class WeatherService {
 
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
         if (sdkManager.isInitialized()) {
-            return sdkManager.getCurrentWeather(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
-                return result;
+            return sdkManager.getCurrentWeather(location, cityName).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("异常") && !result.contains("SDK未初始化")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                Log.w(TAG, "SDK weather failed, falling back to HTTP");
+                return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(httpResult -> {
+                    cacheManager.saveCache(cacheKey, httpResult);
+                    return httpResult;
+                });
+            }).exceptionally(e -> {
+                Log.w(TAG, "SDK weather failed, falling back to HTTP", e);
+                try {
+                    String httpResult = weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).get();
+                    cacheManager.saveCache(cacheKey, httpResult);
+                    return httpResult;
+                } catch (Exception ex) {
+                    return "天气信息解析失败";
+                }
             });
         }
 
@@ -211,10 +240,20 @@ public class WeatherService {
         }
 
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        // 尝试 SDK，如果失败则回退到 HTTP
         if (sdkManager.isInitialized()) {
-            return sdkManager.getAirQuality(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
-                return result;
+            return sdkManager.getAirQuality(location).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                // SDK 失败，回退到 HTTP
+                Log.w(TAG, "SDK air quality failed, falling back to HTTP");
+                return weatherManager.getHefengAirQualityByLocation(lat, lon).thenApply(r -> {
+                    cacheManager.saveCache(cacheKey, r);
+                    return r;
+                });
             });
         }
 
@@ -234,16 +273,51 @@ public class WeatherService {
         }
 
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        // 尝试 SDK，如果失败则回退到 HTTP，再失败则尝试备用API
         if (sdkManager.isInitialized()) {
-            return sdkManager.getWeatherAlerts(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
-                return result;
+            return sdkManager.getWeatherAlerts(location).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                // SDK 失败，回退到 HTTP
+                Log.w(TAG, "SDK alerts failed, falling back to HTTP");
+                return weatherManager.getHefengAlertsByLocation(lat, lon).thenCompose(httpResult -> {
+                    if (httpResult != null && !httpResult.contains("失败") && !httpResult.contains("无权限") && !httpResult.contains("异常")) {
+                        cacheManager.saveCache(cacheKey, httpResult);
+                        return CompletableFuture.completedFuture(httpResult);
+                    }
+                    // HTTP 也失败，尝试备用API (国家预警中心数据)
+                    Log.w(TAG, "HTTP alerts failed, falling back to backup API");
+                    return weatherManager.getBackupAlerts(lat, lon).thenApply(backupResult -> {
+                        String finalResult = weatherManager.parseBackupAlertsResponse(backupResult);
+                        if (finalResult == null) {
+                            finalResult = "天气预警:\n当前无天气预警";
+                        }
+                        cacheManager.saveCache(cacheKey, finalResult);
+                        return finalResult;
+                    });
+                });
             });
         }
 
-        return weatherManager.getHefengAlertsByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
-            return result;
+        // 直接使用 HTTP，失败则尝试备用API
+        return weatherManager.getHefengAlertsByLocation(lat, lon).thenCompose(result -> {
+            if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
+                cacheManager.saveCache(cacheKey, result);
+                return CompletableFuture.completedFuture(result);
+            }
+            // HTTP 失败，尝试备用API
+            Log.w(TAG, "HTTP alerts failed, falling back to backup API");
+            return weatherManager.getBackupAlerts(lat, lon).thenApply(backupResult -> {
+                String finalResult = weatherManager.parseBackupAlertsResponse(backupResult);
+                if (finalResult == null) {
+                    finalResult = "天气预警:\n当前无天气预警";
+                }
+                cacheManager.saveCache(cacheKey, finalResult);
+                return finalResult;
+            });
         });
     }
 
@@ -257,10 +331,20 @@ public class WeatherService {
         }
 
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        // 尝试 SDK，如果失败则回退到 HTTP
         if (sdkManager.isInitialized()) {
-            return sdkManager.getIndices(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
-                return result;
+            return sdkManager.getIndices(location).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("解析失败")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                // SDK 失败，回退到 HTTP
+                Log.w(TAG, "SDK indices failed, falling back to HTTP");
+                return weatherManager.getHefengIndicesByLocation(lat, lon).thenApply(r -> {
+                    cacheManager.saveCache(cacheKey, r);
+                    return r;
+                });
             });
         }
 
@@ -279,7 +363,26 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getMinutelyByLocation(location).thenCompose(result -> {
+                Log.d(TAG, "SDK minutely result: " + result);
+                if (result != null && !result.contains("失败") && !result.contains("异常")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                Log.w(TAG, "SDK minutely failed, falling back to HTTP");
+                return weatherManager.getHefengMinutelyByLocation(lat, lon).thenApply(r -> {
+                    Log.d(TAG, "HTTP minutely result: " + r);
+                    cacheManager.saveCache(cacheKey, r);
+                    return r;
+                });
+            });
+        }
+
         return weatherManager.getHefengMinutelyByLocation(lat, lon).thenApply(result -> {
+            Log.d(TAG, "HTTP minutely result: " + result);
             cacheManager.saveCache(cacheKey, result);
             return result;
         });
@@ -294,7 +397,47 @@ public class WeatherService {
             return CompletableFuture.completedFuture(cacheEntry.getData());
         }
 
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        // 尝试 SDK，如果失败则回退到 HTTP
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getSunByLocation(location).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("异常")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                // SDK 失败，回退到 HTTP
+                Log.w(TAG, "SDK sun failed, falling back to HTTP");
+                return weatherManager.getHefengSunByLocation(lat, lon).thenApply(r -> {
+                    cacheManager.saveCache(cacheKey, r);
+                    return r;
+                });
+            });
+        }
+
         return weatherManager.getHefengSunByLocation(lat, lon).thenApply(result -> {
+            cacheManager.saveCache(cacheKey, result);
+            return result;
+        });
+    }
+
+    public CompletableFuture<String> getSun(String city) {
+        String cacheKey = "weather_sun_" + city;
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_FORECAST)) {
+            Log.d(TAG, "Returning cached sun info for " + city);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getSun(city).thenApply(result -> {
+                cacheManager.saveCache(cacheKey, result);
+                return result;
+            });
+        }
+
+        return weatherManager.getHefengSun(city).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
         });
@@ -398,13 +541,35 @@ public class WeatherService {
         }
 
         if (sdkManager.isInitialized()) {
-            return sdkManager.getIndices(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
-                return result;
+            return sdkManager.getIndices(city).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("解析失败")) {
+                    cacheManager.saveCache(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                Log.w(TAG, "SDK indices failed, falling back to HTTP");
+                return weatherManager.getHefengIndices(city).thenApply(r -> {
+                    cacheManager.saveCache(cacheKey, r);
+                    return r;
+                });
             });
         }
 
         return weatherManager.getHefengIndices(city).thenApply(result -> {
+            cacheManager.saveCache(cacheKey, result);
+            return result;
+        });
+    }
+
+    public CompletableFuture<String> getMinutely(String city) {
+        String cacheKey = "weather_minutely_" + city;
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_MINUTELY)) {
+            Log.d(TAG, "Returning cached minutely for " + city);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        return weatherManager.getHefengMinutely(city).thenApply(result -> {
             cacheManager.saveCache(cacheKey, result);
             return result;
         });
@@ -421,6 +586,127 @@ public class WeatherService {
         cacheManager.removeCache("weather_air_" + city);
         cacheManager.removeCache("weather_alerts_" + city);
         cacheManager.removeCache("weather_indices_" + city);
+    }
+
+    public static class WeatherBatchResult {
+        public String currentWeather;
+        public String hourlyForecast;
+        public String dailyForecast;
+        public String airQuality;
+        public String alerts;
+        public String indices;
+        public String sunInfo;
+        public String minutely;
+        
+        public String fxLinkCurrent;
+        public String fxLinkDaily;
+        public String fxLinkHourly;
+        public String fxLinkAir;
+        public String fxLinkIndices;
+    }
+
+    public CompletableFuture<WeatherBatchResult> getAllWeatherByLocation(double lat, double lon) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CompletableFuture<String> currentFuture = getCurrentWeatherByLocation(lat, lon)
+                    .exceptionally(e -> "获取当前天气失败: " + e.getMessage());
+                CompletableFuture<String> hourlyFuture = getHourlyByLocation(lat, lon)
+                    .exceptionally(e -> "获取小时预报失败: " + e.getMessage());
+                CompletableFuture<String> dailyFuture = getForecastByLocation(lat, lon)
+                    .exceptionally(e -> "获取天气预报失败: " + e.getMessage());
+                CompletableFuture<String> airFuture = getAirQualityByLocation(lat, lon)
+                    .exceptionally(e -> "获取空气质量失败: " + e.getMessage());
+                CompletableFuture<String> alertsFuture = getAlertsByLocation(lat, lon)
+                    .exceptionally(e -> "天气预警: 请在和风天气控制台开通权限");
+
+                CompletableFuture<String> indicesFuture = getIndicesByLocation(lat, lon)
+                    .exceptionally(e -> "生活指数: 请在和风天气控制台开通权限");
+
+                CompletableFuture<String> sunFuture = getSunByLocation(lat, lon)
+                    .exceptionally(e -> "获取日出日落失败: " + e.getMessage());
+
+                CompletableFuture<String> minutelyFuture = getMinutelyByLocation(lat, lon)
+                    .exceptionally(e -> "获取分钟级降水失败: " + e.getMessage());
+
+                CompletableFuture.allOf(currentFuture, hourlyFuture, dailyFuture, airFuture, alertsFuture, indicesFuture, sunFuture, minutelyFuture)
+                    .get(20, java.util.concurrent.TimeUnit.SECONDS);
+
+                WeatherBatchResult result = new WeatherBatchResult();
+                result.currentWeather = currentFuture.get();
+                result.hourlyForecast = hourlyFuture.get();
+                result.dailyForecast = dailyFuture.get();
+                result.airQuality = airFuture.get();
+                result.alerts = alertsFuture.get();
+                result.indices = indicesFuture.get();
+                result.sunInfo = sunFuture.get();
+                result.minutely = minutelyFuture.get();
+                
+                result.fxLinkCurrent = extractFxLink(result.currentWeather);
+                result.fxLinkHourly = extractFxLink(result.hourlyForecast);
+                result.fxLinkDaily = extractFxLink(result.dailyForecast);
+                result.fxLinkAir = extractFxLink(result.airQuality);
+                result.fxLinkIndices = extractFxLink(result.indices);
+
+                return result;
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting all weather data", e);
+                WeatherBatchResult result = new WeatherBatchResult();
+                result.currentWeather = "获取天气数据失败: " + e.getMessage();
+                return result;
+            }
+        });
+    }
+
+    public CompletableFuture<WeatherBatchResult> getAllWeather(String city) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CompletableFuture<String> currentFuture = getCurrentWeather(city)
+                    .exceptionally(e -> "获取当前天气失败: " + e.getMessage());
+                CompletableFuture<String> hourlyFuture = getHourly(city)
+                    .exceptionally(e -> "获取小时预报失败: " + e.getMessage());
+                CompletableFuture<String> dailyFuture = getForecast(city)
+                    .exceptionally(e -> "获取天气预报失败: " + e.getMessage());
+                CompletableFuture<String> airFuture = getAirQuality(city)
+                    .exceptionally(e -> "获取空气质量失败: " + e.getMessage());
+                CompletableFuture<String> alertsFuture = getAlerts(city)
+                    .exceptionally(e -> "天气预警: 请在和风天气控制台开通权限");
+
+                CompletableFuture<String> indicesFuture = getIndices(city)
+                    .exceptionally(e -> "生活指数: 请在和风天气控制台开通权限");
+
+                CompletableFuture<String> sunFuture = getSun(city)
+                    .exceptionally(e -> "获取日出日落失败: " + e.getMessage());
+
+                CompletableFuture<String> minutelyFuture = getMinutely(city)
+                    .exceptionally(e -> "获取分钟级降水失败: " + e.getMessage());
+
+                CompletableFuture.allOf(currentFuture, hourlyFuture, dailyFuture, airFuture, alertsFuture, indicesFuture, sunFuture, minutelyFuture)
+                    .get(20, java.util.concurrent.TimeUnit.SECONDS);
+
+                WeatherBatchResult result = new WeatherBatchResult();
+                result.currentWeather = currentFuture.get();
+                result.hourlyForecast = hourlyFuture.get();
+                result.dailyForecast = dailyFuture.get();
+                result.airQuality = airFuture.get();
+                result.alerts = alertsFuture.get();
+                result.indices = indicesFuture.get();
+                result.sunInfo = sunFuture.get();
+                result.minutely = minutelyFuture.get();
+                
+                result.fxLinkCurrent = extractFxLink(result.currentWeather);
+                result.fxLinkHourly = extractFxLink(result.hourlyForecast);
+                result.fxLinkDaily = extractFxLink(result.dailyForecast);
+                result.fxLinkAir = extractFxLink(result.airQuality);
+                result.fxLinkIndices = extractFxLink(result.indices);
+
+                return result;
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting all weather data", e);
+                WeatherBatchResult result = new WeatherBatchResult();
+                result.currentWeather = "获取天气数据失败: " + e.getMessage();
+                return result;
+            }
+        });
     }
 
     public void clearCacheForLocation(double lat, double lon) {

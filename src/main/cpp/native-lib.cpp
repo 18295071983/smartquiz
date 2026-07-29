@@ -1681,7 +1681,8 @@ public:
             
             if (inThinking && !thinkingEnded) {
                 thinkingText += token;
-                if (token.find("\xe2\x9d\xb4") != std::string::npos ||
+                if (token.find("</think>") != std::string::npos ||
+                    token.find("\xe2\x9d\xb4") != std::string::npos ||
                     token.find("\xe2\x9d\xb5") != std::string::npos) {
                     thinkingEnded = true;
                     callback("[THINK_END]", false, "");
@@ -2536,7 +2537,8 @@ public:
 
                 if (inThinking && !thinkingEnded) {
                     thinkingText += token_str;
-                    if (token_str.find("\xe2\x9d\xb4") != std::string::npos ||
+                    if (token_str.find("</think>") != std::string::npos ||
+                        token_str.find("\xe2\x9d\xb4") != std::string::npos ||
                         token_str.find("\xe2\x9d\xb5") != std::string::npos) {
                         thinkingEnded = true;
                         callback("[THINK_END]", false, "");

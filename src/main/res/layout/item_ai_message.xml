@@ -57,6 +57,21 @@
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
 
+            <!-- Agent执行视图 -->
+            <com.oilquiz.app.ai.chat.AgentExecutionView
+                android:id="@+id/agent_execution_view"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <!-- Agent执行面板（通用容器） -->
+            <com.oilquiz.app.ai.agent.AgentExecutionPanel
+                android:id="@+id/agent_execution_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:visibility="gone" />
+
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/attachments_recycler"
                 android:layout_width="match_parent"

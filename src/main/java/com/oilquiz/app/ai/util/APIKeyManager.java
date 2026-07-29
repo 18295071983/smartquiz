@@ -467,7 +467,7 @@ public class APIKeyManager {
             case APIConfig.ServiceType.OPENWEATHERMAP:
                 return "https://api.openweathermap.org/data/2.5/weather?q=London&appid=" + config.getApiKey();
             case APIConfig.ServiceType.HEFENG_WEATHER:
-                return (apiHost != null ? apiHost : "https://devapi.qweather.com") + 
+                return (apiHost != null ? apiHost : "https://m278m2y7ak.re.qweatherapi.com") + 
                        "/v7/weather/now?location=101010100&key=" + config.getApiKey();
             case APIConfig.ServiceType.BING_SEARCH:
                 return "https://api.bing.microsoft.com/v7.0/search?q=test";

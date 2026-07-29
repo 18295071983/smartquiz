@@ -1,57 +1,55 @@
 package com.oilquiz.app.ai.chat.mode;
 
-import android.app.Activity;
-import android.util.Log;
+import android.content.Context;
 
-import com.oilquiz.app.ai.chat.AgentChatHandler;
+import com.oilquiz.app.ai.agent.AgentExecutionEngine;
+import com.oilquiz.app.ai.agent.AgentExecutionState;
+import com.oilquiz.app.ai.agent.ExecutionEvent;
+import com.oilquiz.app.ai.agent.ExecutionEventListener;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.chat.event.StreamingEvent;
-import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.util.AILogger;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
- * Agent 模式处理器 - 与本地 AIService 完全兼容
- * 
- * 修复点：
- * 1. 使用 ChatModeManager 统一提示词
- * 2. 复用 AgentChatHandler 实例
- * 3. 确保聊天上下文已初始化
+ * Agent 模式处理器 - 使用 AgentExecutionEngine 完全与UI解耦
+ *
+ * 架构：
+ *   AgentModeHandler（协调者，不执行模型）
+ *         ↓ 委托执行
+ *   AgentExecutionEngine（后台引擎，独立线程）
+ *         ↓ 更新数据
+ *   AgentExecutionState（纯数据结构）
+ *         ↓ 事件通知
+ *   ExecutionEventListener → ModeHandlerCallback → UI
+ *
+ * 特点：
+ * 1. 不持有 Activity 引用
+ * 2. 模型执行完全在后台线程
+ * 3. 通过事件驱动UI更新
+ * 4. native崩溃被引擎隔离
  */
 public class AgentModeHandler implements ModeHandler {
     private static final String TAG = "AgentMode";
-    
-    private final Activity activity;
+
+    private final Context appContext;
     private final AIService aiService;
     private final AgentService agentService;
-    private final Set<String> activeMessageIds;
-    
-    // 复用 AgentChatHandler 实例，避免每次创建新实例
-    private AgentChatHandler sharedAgentHandler;
-    
-    public AgentModeHandler(Activity activity, AIService aiService, AgentService agentService) {
-        this.activity = activity;
+    private final AIConfig aiConfig;
+    private final AgentExecutionEngine engine;
+
+    public AgentModeHandler(Context context, AIService aiService,
+                            AgentService agentService, AIConfig aiConfig) {
+        this.appContext = context.getApplicationContext();
         this.aiService = aiService;
         this.agentService = agentService;
-        this.activeMessageIds = ConcurrentHashMap.newKeySet();
+        this.aiConfig = aiConfig;
+        this.engine = new AgentExecutionEngine(appContext, aiService, agentService, aiConfig);
     }
-    
-    /**
-     * 获取或创建共享的 AgentChatHandler
-     */
-    private AgentChatHandler getOrCreateAgentHandler(AgentChatHandler.AgentChatCallback callback) {
-        if (sharedAgentHandler == null) {
-            sharedAgentHandler = new AgentChatHandler(
-                activity, aiService, agentService, callback);
-        }
-        return sharedAgentHandler;
-    }
-    
+
     @Override
     public void handleMessage(ChatMessage userMessage, String messageId, ModeHandlerCallback callback) {
         if (userMessage == null || userMessage.content == null) {
@@ -60,207 +58,141 @@ public class AgentModeHandler implements ModeHandler {
             }
             return;
         }
-        
-        activeMessageIds.add(messageId);
-        
+
+        AILogger.i(TAG, "Starting agent mode for message: " + messageId);
+
+        // 检查 Agent 是否启用
+        if (aiConfig == null || !aiConfig.isAgentEnabled()) {
+            AILogger.e(TAG, "Agent is not enabled");
+            if (callback != null) {
+                callback.onError(messageId, "请先在AI设置中开启Agent功能");
+            }
+            return;
+        }
+
         // 创建初始 AI 消息
         ChatMessage initialAiMessage = createInitialAIMessage(messageId, userMessage);
         if (callback != null) {
             callback.onMessageCreated(messageId, initialAiMessage);
         }
-        
-        AILogger.i(TAG, "Starting agent mode for message: " + messageId);
-        
-        try {
-            // 确保聊天上下文已初始化
-            ensureChatContext();
-            
-            // 使用 ChatModeManager 的统一 Agent 提示词
-            String systemPrompt = ChatModeManager.getInstance(activity)
-                .getModeSystemPrompt(ChatModeManager.ChatMode.AGENT);
-            AILogger.i(TAG, "Agent system prompt: " + systemPrompt.substring(0, Math.min(50, systemPrompt.length())) + "...");
-            
-            // 创建回调
-            AgentChatHandler.AgentChatCallback agentCallback = createAgentCallback(messageId, callback);
-            
-            // 获取或创建 AgentChatHandler（复用实例）
-            AgentChatHandler agentHandler = getOrCreateAgentHandler(agentCallback);
-            
-            // 启动 Agent 循环
-            agentHandler.startAgentLoop(userMessage.content, 1024, true);
-            
-        } catch (Exception e) {
-            AILogger.e(TAG, "Failed to start agent mode", e);
-            if (callback != null) {
-                callback.onError(messageId, "Agent执行失败: " + e.getMessage());
+
+        // 委托给引擎执行，通过事件回调通知UI
+        engine.execute(messageId, userMessage.content, new ExecutionEventListener() {
+            @Override
+            public void onExecutionEvent(ExecutionEvent event) {
+                if (callback == null) return;
+                handleEngineEvent(event, messageId, callback);
             }
-            activeMessageIds.remove(messageId);
-        }
+        });
     }
-    
+
     /**
-     * 确保聊天上下文已初始化
+     * 将引擎事件转换为ModeHandlerCallback调用
      */
-    private void ensureChatContext() {
-        if (aiService != null && !LlamaHelper.isChatContextActive()) {
-            AILogger.i(TAG, "Chat context not active, initializing...");
-            aiService.initChatContext("", "", "");
+    private void handleEngineEvent(ExecutionEvent event, String messageId, ModeHandlerCallback callback) {
+        switch (event.type) {
+            case EXECUTION_STARTED:
+                // 引擎已启动，无需额外通知
+                break;
+
+            case TOKEN_GENERATED:
+                if (event.text != null) {
+                    callback.onToken(messageId, event.text);
+                }
+                break;
+
+            case THINKING_TOKEN:
+                if (event.text != null) {
+                    // 只更新Agent执行面板的思考过程，不显示在聊天文本中
+                    callback.onThinkingUpdate(messageId, new StreamingEvent.ThinkingStepData(
+                        0, "THINKING", "思考过程", event.text, 50
+                    ));
+                }
+                break;
+
+            case STEP_STARTED:
+                StreamingEvent.ThinkingStepData stepData = new StreamingEvent.ThinkingStepData(
+                    event.stepNumber, event.stepType, event.stepTitle, event.stepContent, event.progress
+                );
+                callback.onThinkingUpdate(messageId, stepData);
+                break;
+
+            case TOOL_CALL_STARTED:
+                callback.onThinkingUpdate(messageId, new StreamingEvent.ThinkingStepData(
+                    0, "TOOL_CALL", "调用工具: " + event.toolName, event.toolArgs, 50
+                ));
+                break;
+
+            case TOOL_CALL_COMPLETED:
+                String resultContent = "执行结果: " + (event.success ? "成功" : "失败") + "\n";
+                if (event.toolResult != null) {
+                    resultContent += "返回内容:\n" + event.toolResult;
+                }
+                callback.onThinkingUpdate(messageId, new StreamingEvent.ThinkingStepData(
+                    0, "TOOL_RESULT", "工具执行完成: " + event.toolName, resultContent, 100
+                ));
+                break;
+
+            case INFERENCE_PROGRESS:
+                callback.onInferenceProgress(messageId, event.tokenCount, event.tokensPerSecond);
+                break;
+
+            case EXECUTION_COMPLETED:
+                callback.onComplete(messageId, event.text, null);
+                break;
+
+            case EXECUTION_FAILED:
+                callback.onError(messageId, event.errorMessage);
+                break;
+
+            case NEED_USER_INPUT:
+                // UI层应处理此事件显示输入对话框
+                AILogger.i(TAG, "Need user input: " + event.missingInfo);
+                break;
+
+            case VALIDATION_ERROR:
+                // UI层应处理此事件显示验证错误
+                AILogger.w(TAG, "Validation error: " + event.errorMessage);
+                break;
+
+            case MODE_SWITCHED:
+                callback.onThinkingUpdate(messageId, new StreamingEvent.ThinkingStepData(
+                    0, "MODE_SWITCH", "切换模式", "当前模式: " + event.text, 0
+                ));
+                break;
+
+            default:
+                break;
         }
     }
-    
-    /**
-     * 创建 Agent 回调
-     */
-    private AgentChatHandler.AgentChatCallback createAgentCallback(
-            String messageId, ModeHandlerCallback callback) {
-        return new AgentChatHandler.AgentChatCallback() {
-            private final StringBuilder fullResponse = new StringBuilder();
-            private long startTime = System.currentTimeMillis();
-            private int tokenCount = 0;
-            
-            @Override
-            public void onToolCallStart(String toolName, String args) {
-                if (!activeMessageIds.contains(messageId)) return;
-                AILogger.i(TAG, "Tool call start: " + toolName + " for " + messageId);
-                sendThinkingUpdate(callback, messageId, 0, "TOOL_CALL", 
-                    "调用工具: " + toolName, args, -1);
-            }
-            
-            @Override
-            public void onToolCallComplete(String toolName, AgentService.ToolResult result) {
-                if (!activeMessageIds.contains(messageId)) return;
-                AILogger.i(TAG, "Tool call complete: " + toolName + ", success=" + result.success);
-            }
-            
-            @Override
-            public void onToken(String token) {
-                if (!activeMessageIds.contains(messageId)) return;
-                if (token != null) {
-                    fullResponse.append(token);
-                    tokenCount++;
-                    if (callback != null) {
-                        callback.onToken(messageId, token);
-                    }
-                }
-            }
-            
-            @Override
-            public void onThinkingToken(String token) {
-                if (!activeMessageIds.contains(messageId)) return;
-            }
-            
-            @Override
-            public void onThinkingEnd() {
-            }
-            
-            @Override
-            public void onComplete(String fullText) {
-                if (!activeMessageIds.contains(messageId)) return;
-                
-                long elapsed = System.currentTimeMillis() - startTime;
-                float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-                
-                if (callback != null) {
-                    Object stats = createStats(tokenCount, elapsed, tps);
-                    callback.onComplete(messageId, 
-                        fullText != null ? fullText : fullResponse.toString(), stats);
-                }
-                activeMessageIds.remove(messageId);
-                AILogger.i(TAG, "Agent mode completed: " + messageId + ", tokens: " + tokenCount);
-            }
-            
-            @Override
-            public void onError(String error) {
-                if (!activeMessageIds.contains(messageId)) return;
-                
-                if (callback != null) {
-                    callback.onError(messageId, error);
-                }
-                activeMessageIds.remove(messageId);
-                AILogger.e(TAG, "Agent mode error: " + messageId + ", error: " + error);
-            }
-            
-            @Override
-            public void onModeSwitched(String mode) {
-            }
-            
-            @Override
-            public void onAgentStep(ChatMessage.AgentStepInfo stepInfo) {
-                if (!activeMessageIds.contains(messageId)) return;
-                AILogger.d(TAG, "Agent step: " + stepInfo.thought);
-            }
-            
-            @Override
-            public void onToolCallUI(String toolName, String args, int position) {
-            }
-            
-            @Override
-            public void onToolCallResultUI(int position, boolean success, String result) {
-            }
-            
-            @Override
-            public void onAgentStepUpdateUI(int position, String thought, String action,
-                                            String observation, boolean isCompleted) {
-            }
 
-            @Override
-            public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
-                if (!activeMessageIds.contains(messageId)) return;
-
-                // 更新本地token统计
-                long elapsed = System.currentTimeMillis() - startTime;
-                float currentTps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-
-                AILogger.d(TAG, "Inference progress: tokens=" + tokenCount
-                    + ", tps=" + String.format("%.1f", currentTps)
-                    + ", elapsed=" + elapsed + "ms");
-
-                // 传递推理进度到上层回调
-                if (callback != null) {
-                    callback.onInferenceProgress(messageId, tokenCount, tokensPerSecond);
-                }
-            }
-        };
-    }
-    
-    private void sendThinkingUpdate(ModeHandlerCallback callback, String messageId,
-                                     int stepNumber, String stepType, String title,
-                                     String content, int progress) {
-        if (callback != null && activeMessageIds.contains(messageId)) {
-            StreamingEvent.ThinkingStepData stepData = new StreamingEvent.ThinkingStepData(
-                stepNumber, stepType, title, content, progress
-            );
-            callback.onThinkingUpdate(messageId, stepData);
-        }
-    }
-    
-    private Object createStats(int tokens, long elapsedMs, float tps) {
-        return new Object() {
-            public int totalTokens = tokens;
-            public long generationTimeMs = elapsedMs;
-            public float tokensPerSecond = tps;
-        };
-    }
-    
     @Override
     public void cancel(String messageId) {
         if (messageId != null) {
-            activeMessageIds.remove(messageId);
+            engine.cancel(messageId);
             AILogger.i(TAG, "Agent mode cancelled: " + messageId);
         }
     }
-    
+
     @Override
     public String getModeName() {
         return "agent";
     }
-    
+
+    /**
+     * 获取执行状态（供UI读取）
+     */
+    public AgentExecutionState getExecutionState(String messageId) {
+        return engine.getState(messageId);
+    }
+
     private ChatMessage createInitialAIMessage(String messageId, ChatMessage userMessage) {
         return new ChatMessage.Builder(ChatMessage.MessageType.AI)
             .id(messageId)
             .parentId(userMessage.id)
             .content("")
             .status(ChatMessage.MessageStatus.GENERATING)
+            .agentMode(true)
             .build();
     }
 }

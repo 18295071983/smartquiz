@@ -636,17 +636,54 @@ public class AIService {
 
         modelInitSerialExecutor.execute(() -> {
             long recoveryStartTime = System.currentTimeMillis();
-            boolean success = reloadCurrentModel();
+            
+            // 优先尝试轻量恢复：如果模型本身还有效，只重建chat context
+            boolean modelValid = LlamaHelper.isModelInitialized();
+            boolean chatValid = LlamaHelper.isChatContextActive();
+            boolean success = false;
+            String recoveryMethod = "";
+
+            if (modelValid && !chatValid) {
+                // 模型有效但chat context无效，只重建chat context（快速恢复）
+                AILogger.i(TAG, "Model still valid, rebuilding chat context only (lightweight recovery)");
+                recoveryMethod = "chat context rebuild";
+                try {
+                    UnifiedContextManager ctxManager = UnifiedContextManager.getInstance();
+                    ctxManager.setChatContextReady(false);
+                    success = initChatContext("", "", "");
+                } catch (Exception e) {
+                    AILogger.e(TAG, "Chat context rebuild failed: " + e.getMessage(), e);
+                    success = false;
+                }
+                
+                // 如果chat context重建失败，再尝试完整重新加载模型
+                if (!success) {
+                    AILogger.w(TAG, "Chat context rebuild failed, falling back to full model reload");
+                    recoveryMethod = "full model reload (fallback)";
+                    success = reloadCurrentModel();
+                }
+            } else if (!modelValid) {
+                // 模型本身无效，必须重新加载
+                AILogger.i(TAG, "Model invalid, performing full model reload");
+                recoveryMethod = "full model reload";
+                success = reloadCurrentModel();
+            } else {
+                // 模型和chat context都有效，无需恢复
+                AILogger.i(TAG, "Native state already valid, no recovery needed");
+                success = true;
+                recoveryMethod = "none needed";
+            }
+
             long recoveryTimeMs = System.currentTimeMillis() - recoveryStartTime;
 
             if (success && LlamaHelper.isNativeStateValid()) {
                 LlamaHelper.recordRecoverySuccess();
-                AILogger.i(TAG, "Native state recovery successful, took " + recoveryTimeMs + "ms");
+                AILogger.i(TAG, "Native state recovery successful (" + recoveryMethod + "), took " + recoveryTimeMs + "ms");
                 notifyRecoverySuccess(recoveryTimeMs);
                 if (callback != null) callback.onRecoverySuccess(pendingMessage);
             } else {
                 int maxAttempts = LlamaHelper.getRecoveryAttemptCount();
-                String reason = "模型重新加载失败" + (!success ? "" : " (Native 状态仍无效)");
+                String reason = "恢复失败 (" + recoveryMethod + ")" + (!success ? "" : " (Native 状态仍无效)");
                 AILogger.e(TAG, "Native state recovery failed: " + reason);
                 notifyRecoveryFailed(attemptCount, maxAttempts, reason);
                 if (callback != null) callback.onRecoveryFailed(reason);

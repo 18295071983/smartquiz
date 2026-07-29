@@ -68,19 +68,7 @@ public class TaskDecomposer {
             // 构建任务分解 Prompt
             String prompt = buildDecompositionPrompt(userMessage, intent, complexity);
             
-            // 如果聊天上下文活跃，先关闭再使用 generate
-            boolean contextWasActive = LlamaHelper.isChatContextActive();
-            if (contextWasActive) {
-                AILogger.i(TAG, "Chat context active, destroying before task decomposition");
-                try {
-                    LlamaHelper.chatDestroy();
-                    Thread.sleep(100);
-                } catch (Exception e) {
-                    AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
-                }
-            }
-            
-            // 调用 LLM 分解任务
+            // 调用 LLM 分解任务（generate 独占推理锁，不触碰 chat context，无需 destroy）
             String response = LlamaHelper.generate(prompt, 500, 0.3f);
             
             if (response == null || response.trim().isEmpty()) {
@@ -144,6 +132,8 @@ public class TaskDecomposer {
                 return "database";
             case IntentRecognizer.INTENT_QUIZ:
                 return "database";
+            case IntentRecognizer.INTENT_APP_OPERATION:
+                return "app_operation";
             default:
                 return null;
         }
@@ -151,31 +141,52 @@ public class TaskDecomposer {
     
     /**
      * 构建任务分解 Prompt - 使用 OpenAI 标准格式
+     * 包含角色约束、可用工具、few-shot 示例、依赖关系字段
      */
-    private String buildDecompositionPrompt(String userMessage, IntentResult intent, 
+    private String buildDecompositionPrompt(String userMessage, IntentResult intent,
                                             ComplexityLevel complexity) {
         StringBuilder sb = new StringBuilder();
-        
-        sb.append("你是一个智能任务分解助手，可以使用工具来完成用户的请求。\n\n");
+
+        sb.append("你是一个任务规划引擎，负责将用户请求分解为可执行的工具调用序列。\n\n");
+        sb.append("【角色约束】\n");
+        sb.append("- 严格输出 JSON 格式，不要解释、不要多余文字\n");
+        sb.append("- 只使用下面列出的工具，不要编造工具名\n");
+        sb.append("- 参数必须与工具定义匹配，必填参数不能遗漏\n");
+        sb.append("- 如果任务之间有依赖（后一个需要前一个的结果），用 depends_on 指定前置任务的 id\n");
+        sb.append("- 如果任务互相独立，depends_on 留空数组，它们会被并行执行\n");
+        sb.append("- 后续任务可通过 ${task_id.result} 引用前置任务的完整结果，或 ${task_id.result.字段名} 引用 JSON 字段\n");
+        sb.append("- 如果不需要任何工具，直接输出纯文本回答即可\n\n");
+
         sb.append("【用户消息】\n").append(userMessage).append("\n\n");
-        sb.append("【识别意图】\n").append(intent.type).append("\n");
-        sb.append("【复杂度】\n").append(complexity).append("\n\n");
-        
+        sb.append("【识别意图】").append(intent.type).append("\n");
+        sb.append("【复杂度】").append(complexity).append("\n\n");
+
         sb.append("【可用工具】\n");
         if (toolManager != null) {
             sb.append(toolManager.getToolsForPrompt());
         } else {
             sb.append(getDefaultToolsDescription());
         }
-        
-        sb.append("【输出格式】\n");
-        sb.append("如果你需要使用工具，请严格按照以下 JSON 格式输出：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("如果不需要工具，直接回答用户问题即可。\n\n");
+
+        sb.append("\n【输出格式（严格）】\n");
+        sb.append("如果需要使用工具，输出且仅输出以下 JSON（不要加```标记）：\n");
+        sb.append("{\"tool_calls\": [{\"id\": \"task1\", \"name\": \"工具名\", \"arguments\": {\"参数\": \"值\"}, \"depends_on\": []}]}\n\n");
+        sb.append("【示例 1 - 单工具】\n");
+        sb.append("用户: 北京今天天气\n");
+        sb.append("{\"tool_calls\": [{\"id\": \"task1\", \"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\", \"action\": \"current\"}, \"depends_on\": []}]}\n\n");
+        sb.append("【示例 2 - 依赖引用】\n");
+        sb.append("用户: 查一下我在的城市天气然后翻译成英文\n");
+        sb.append("{\"tool_calls\": [{\"id\": \"task1\", \"name\": \"ai_weather\", \"arguments\": {\"action\": \"current\"}, \"depends_on\": []}, ");
+        sb.append("{\"id\": \"task2\", \"name\": \"translation\", \"arguments\": {\"text\": \"${task1.result}\", \"target_lang\": \"en\"}, \"depends_on\": [\"task1\"]}]}\n\n");
+        sb.append("【示例 3 - 并行无依赖】\n");
+        sb.append("用户: 北京和上海今天天气\n");
+        sb.append("{\"tool_calls\": [{\"id\": \"task1\", \"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\", \"action\": \"current\"}, \"depends_on\": []}, ");
+        sb.append("{\"id\": \"task2\", \"name\": \"ai_weather\", \"arguments\": {\"city\": \"上海\", \"action\": \"current\"}, \"depends_on\": []}]}\n\n");
+        sb.append("【示例 4 - 无需工具】\n");
+        sb.append("用户: 你好\n");
+        sb.append("你好！有什么可以帮你的吗？\n\n");
         sb.append("【输出】\n");
-        
+
         return sb.toString();
     }
     
@@ -258,32 +269,39 @@ public class TaskDecomposer {
     
     /**
      * 解析 OpenAI 标准格式的工具调用
+     * 支持 id、name、arguments、depends_on 字段
      */
     private List<Task> parseJsonToolCalls(String response) {
         List<Task> tasks = new ArrayList<>();
-        
+
         try {
             // 提取 JSON 内容（去除 ```json 标记）
             String jsonStr = extractJsonFromResponse(response);
             if (jsonStr == null || jsonStr.trim().isEmpty()) {
                 return tasks;
             }
-            
+
             JSONObject json = new JSONObject(jsonStr);
-            
+
             if (!json.has("tool_calls")) {
                 return tasks;
             }
-            
+
             JSONArray toolCalls = json.getJSONArray("tool_calls");
             for (int i = 0; i < toolCalls.length(); i++) {
                 JSONObject toolCall = toolCalls.getJSONObject(i);
-                
+
                 String toolName = toolCall.optString("name", "");
                 if (toolName.isEmpty()) {
                     continue;
                 }
-                
+
+                // 解析 id（LLM 可能给出 task1 等，否则用 UUID）
+                String taskId = toolCall.optString("id", "");
+                if (taskId.isEmpty()) {
+                    taskId = "task_" + (i + 1);
+                }
+
                 JSONObject arguments = toolCall.optJSONObject("arguments");
                 Map<String, Object> params = new HashMap<>();
                 if (arguments != null) {
@@ -293,24 +311,36 @@ public class TaskDecomposer {
                         params.put(key, arguments.get(key));
                     }
                 }
-                
-                Task task = new Task(UUID.randomUUID().toString());
+
+                // 使用 LLM 给出的 id 作为 Task id，便于 depends_on 引用
+                Task task = new Task(taskId);
                 task.setDescription("调用工具: " + toolName);
                 task.setToolName(toolName);
                 task.setNeedsTool(true);
-                
+
+                // 解析 depends_on 数组
+                JSONArray deps = toolCall.optJSONArray("depends_on");
+                if (deps != null) {
+                    for (int j = 0; j < deps.length(); j++) {
+                        String depId = deps.optString(j);
+                        if (!depId.isEmpty()) {
+                            task.addDependency(depId);
+                        }
+                    }
+                }
+
                 // 设置参数
                 for (Map.Entry<String, Object> entry : params.entrySet()) {
                     task.addParameter(entry.getKey(), entry.getValue());
                 }
-                
+
                 tasks.add(task);
             }
-            
+
         } catch (JSONException e) {
             AILogger.w(TAG, "Error parsing JSON tool calls: " + e.getMessage());
         }
-        
+
         return tasks;
     }
     
