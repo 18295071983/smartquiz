@@ -135,6 +135,7 @@ public class AIChatActivity extends BaseActivity {
     private View thinkingIndicator;
     private Chip chipNormalChat;
     private Chip chipAgentMode;
+    private Chip chipThinkingAssist;
     private Chip chipWeather;
     private Chip chipClear;
 
@@ -298,6 +299,7 @@ public class AIChatActivity extends BaseActivity {
             thinkingIndicator = findViewById(R.id.thinking_indicator);
             chipNormalChat = findViewById(R.id.chip_normal_chat);
             chipAgentMode = findViewById(R.id.chip_agent_mode);
+            chipThinkingAssist = findViewById(R.id.chip_thinking_assist);
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
 
@@ -883,6 +885,16 @@ public class AIChatActivity extends BaseActivity {
                 updateModeButtonText();
                 injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.CREATIVE);
                 showToast("已切换到创意写作模式");
+            });
+        });
+
+        if (chipThinkingAssist != null) chipThinkingAssist.setOnClickListener(v -> {
+            animateModeSwitch(() -> {
+                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
+                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.THINKING_ASSIST);
+                updateModeButtonText();
+                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.THINKING_ASSIST);
+                showToast("已切换到思考辅助模式");
             });
         });
 
@@ -3008,8 +3020,15 @@ public class AIChatActivity extends BaseActivity {
             public void onModeSelected(ChatModeManager.ChatMode mode) {
                 ChatModeManager.getInstance(AIChatActivity.this).setManualMode(mode);
                 updateModeButtonText();
-                String modeName = mode == ChatModeManager.ChatMode.NORMAL ? "普通模式" :
-                                  mode == ChatModeManager.ChatMode.DEEP_THINKING ? "深度思考模式" : "创意写作模式";
+                String modeName;
+                switch (mode) {
+                    case NORMAL: modeName = "普通模式"; break;
+                    case DEEP_THINKING: modeName = "深度思考模式"; break;
+                    case CREATIVE: modeName = "创意写作模式"; break;
+                    case AGENT: modeName = "Agent模式"; break;
+                    case THINKING_ASSIST: modeName = "思考辅助模式"; break;
+                    default: modeName = "未知模式"; break;
+                }
                 showToast("已切换到" + modeName);
             }
             

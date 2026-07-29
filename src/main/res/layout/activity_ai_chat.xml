@@ -588,6 +588,18 @@
                 android:textColor="@color/on_secondary_container"
                 app:chipStrokeWidth="0dp"/>
 
+            <!-- 思考辅助入口 -->
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_thinking_assist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💡思考辅助"
+                app:chipIconTint="@color/tertiary"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_weather"
                 android:layout_width="wrap_content"
