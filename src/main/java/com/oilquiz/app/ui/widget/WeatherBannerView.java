@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.graphics.Typeface;
 import android.location.Address;
 import android.location.Geocoder;
 import android.net.ConnectivityManager;
@@ -11,8 +12,10 @@ import android.net.NetworkInfo;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
-import android.widget.HorizontalScrollView;
+import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -21,6 +24,7 @@ import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.PermissionResourceProvider;
+import com.oilquiz.app.util.QWeatherIconFont;
 import com.oilquiz.app.weather.WeatherService;
 
 import java.util.List;
@@ -31,21 +35,19 @@ public class WeatherBannerView extends LinearLayout {
 
     private static final String TAG = "WeatherBannerView";
     private static final long MIN_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-    // 位置缓存（与AI对话页面共用同一个SharedPreferences）
     private static final String PREFS_NAME = "weather_location_cache";
     private static final String KEY_LAT = "cached_lat";
     private static final String KEY_LON = "cached_lon";
     private static final String KEY_CITY = "cached_city";
     private static final String KEY_TIMESTAMP = "cached_timestamp";
-    private static final long LOCATION_CACHE_DURATION = 30 * 60 * 1000; // 30分钟
+    private static final long LOCATION_CACHE_DURATION = 30 * 60 * 1000;
 
     private TextView weatherIcon;
     private TextView weatherCity;
     private TextView weatherTemp;
     private TextView weatherDesc;
-    private View btnWeatherDetail;
-    private View refreshButton;
-    private View closeButton;
+    private ImageView weatherArrow;
+    private View weatherBanner;
 
     private WeatherService weatherService;
     private String currentCity = "北京";
@@ -79,9 +81,26 @@ public class WeatherBannerView extends LinearLayout {
         weatherCity = findViewById(R.id.weather_city);
         weatherTemp = findViewById(R.id.weather_temp);
         weatherDesc = findViewById(R.id.weather_desc);
-        btnWeatherDetail = findViewById(R.id.btn_weather_detail);
-        refreshButton = findViewById(R.id.btn_weather_refresh);
-        closeButton = findViewById(R.id.btn_weather_close);
+        weatherArrow = findViewById(R.id.weather_arrow);
+        weatherBanner = findViewById(R.id.weather_banner);
+
+        disableChildClicks(this);
+
+        setClickable(true);
+        setFocusable(true);
+        setOnClickListener(v -> onBannerClicked());
+
+        if (weatherBanner != null) {
+            weatherBanner.setClickable(false);
+            weatherBanner.setFocusable(false);
+            weatherBanner.setOnClickListener(null);
+        }
+
+        Typeface iconTypeface = QWeatherIconFont.getTypeface(getContext());
+        if (weatherIcon != null) {
+            weatherIcon.setTypeface(iconTypeface);
+            weatherIcon.setText(QWeatherIconFont.getIcon("999"));
+        }
 
         weatherService = WeatherService.getInstance(getContext());
 
@@ -95,61 +114,74 @@ public class WeatherBannerView extends LinearLayout {
             ta.recycle();
         }
 
-        setupListeners();
-
         if (autoLoad) {
-            // 优先使用缓存位置（应用关闭后不丢失）
             if (!loadFromCachedLocation()) {
                 requestLocationAndLoad();
             }
         }
     }
 
-    private void setupListeners() {
-        refreshButton.setOnClickListener(v -> requestLocationAndRefresh());
-        closeButton.setOnClickListener(v -> setVisibility(View.GONE));
-        btnWeatherDetail.setOnClickListener(v -> toggleDetail());
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        float x = event.getX();
+        float y = event.getY();
+        int action = event.getAction();
+        
+        if (action == MotionEvent.ACTION_UP) {
+            Log.d(TAG, "dispatchTouchEvent ACTION_UP at (" + x + ", " + y + ")");
+            post(this::onBannerClicked);
+            return true;
+        }
+        
+        if (action == MotionEvent.ACTION_DOWN) {
+            Log.d(TAG, "dispatchTouchEvent ACTION_DOWN at (" + x + ", " + y + ")");
+        }
+        
+        return super.dispatchTouchEvent(event);
     }
 
-    private void toggleDetail() {
-        navigateToWeatherDetail();
+    private void setupListeners() {
+        if (weatherBanner != null) {
+            weatherBanner.setOnClickListener(v -> onBannerClicked());
+        }
     }
 
     private void navigateToWeatherDetail() {
         String city = currentCity;
         if (weatherCity != null) {
-            city = weatherCity.getText().toString();
-        }
-        
-        if (city == null || city.isEmpty() || city.equals("定位中...")) {
-            return;
+            String displayCity = weatherCity.getText().toString();
+            if (displayCity != null && !displayCity.isEmpty() 
+                && !displayCity.equals("定位中...") 
+                && !displayCity.equals("未知")) {
+                city = displayCity;
+            }
         }
 
-        android.content.Intent intent = new android.content.Intent(getContext(),
-                com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
-        intent.putExtra("city", city);
-        if (cachedLat != 0 && cachedLon != 0) {
-            intent.putExtra("lat", cachedLat);
-            intent.putExtra("lon", cachedLon);
+        Log.d(TAG, "navigateToWeatherDetail: city=" + city + ", lat=" + cachedLat + ", lon=" + cachedLon);
+        
+        try {
+            android.content.Intent intent = new android.content.Intent(getContext(),
+                    com.oilquiz.app.ui.activity.WeatherDetailActivity.class);
+            intent.putExtra("city", city);
+            if (cachedLat != 0 && cachedLon != 0) {
+                intent.putExtra("lat", cachedLat);
+                intent.putExtra("lon", cachedLon);
+            }
+            getContext().startActivity(intent);
+            Log.d(TAG, "WeatherDetailActivity started successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start WeatherDetailActivity", e);
         }
-        getContext().startActivity(intent);
     }
 
-    /**
-     * Activity onResume 时调用，超过最小刷新间隔则自动刷新
-     */
     public void onResume() {
         long now = System.currentTimeMillis();
         if (lastRefreshTime == 0 || (now - lastRefreshTime) > MIN_REFRESH_INTERVAL_MS) {
-            // 优先使用缓存位置（应用关闭后不丢失）
             if (loadFromCachedLocation()) return;
             requestLocationAndLoad();
         }
     }
 
-    /**
-     * 从缓存位置加载天气，返回true表示使用了缓存
-     */
     private boolean loadFromCachedLocation() {
         try {
             SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -180,10 +212,6 @@ public class WeatherBannerView extends LinearLayout {
         }
     }
 
-    /**
-     * 用经纬度查天气，使用getCurrentWeatherByLocation（含GeoAPI反解析）
-     * 和风GeoAPI可能返回乡镇级地址，比Android Geocoder更精确
-     */
     private void loadWeatherByLocationDirect(double lat, double lon, String cityName) {
         if (!isNetworkAvailable()) {
             if (weatherDesc != null) weatherDesc.setText("无网络连接");
@@ -192,7 +220,7 @@ public class WeatherBannerView extends LinearLayout {
         }
 
         if (weatherCity != null) weatherCity.setText(cityName);
-        if (weatherTemp != null) weatherTemp.setText("--°C");
+        if (weatherTemp != null) weatherTemp.setText("--°");
         if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
 
         weatherService.getCurrentWeatherByLocation(lat, lon, cityName).thenAccept(weather -> {
@@ -205,9 +233,6 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
-    /**
-     * 用Android Geocoder反解析城市名（区/县级精确地址）
-     */
     private String getCityNameFromGeocoder(double lat, double lon) {
         if (Geocoder.isPresent()) {
             try {
@@ -215,9 +240,9 @@ public class WeatherBannerView extends LinearLayout {
                 List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     Address address = addresses.get(0);
-                    String name = address.getSubLocality(); // 区
-                    if (name == null) name = address.getLocality(); // 市
-                    if (name == null) name = address.getAdminArea(); // 省
+                    String name = address.getSubLocality();
+                    if (name == null) name = address.getLocality();
+                    if (name == null) name = address.getAdminArea();
                     if (name != null) {
                         Log.i(TAG, "Geocoder反解析成功: " + name);
                         return name;
@@ -230,9 +255,6 @@ public class WeatherBannerView extends LinearLayout {
         return null;
     }
 
-    /**
-     * 缓存位置到SharedPreferences（持久化，应用关闭后不丢失）
-     */
     private void saveCachedLocation(double lat, double lon, String city) {
         try {
             SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -248,9 +270,6 @@ public class WeatherBannerView extends LinearLayout {
         }
     }
 
-    /**
-     * 强制刷新，忽略时间间隔限制
-     */
     public void forceRefresh() {
         requestLocationAndRefresh();
     }
@@ -266,16 +285,10 @@ public class WeatherBannerView extends LinearLayout {
         }
     }
 
-    /**
-     * 根据坐标获取可读地址（坐标→地址转换）
-     */
     public String getCachedAddress() {
         return cachedAddress;
     }
 
-    /**
-     * 设置外部传入的城市名进行天气查询（地址转换入口）
-     */
     public void loadWeatherByCityName(String cityName) {
         if (cityName == null || cityName.trim().isEmpty()) return;
         currentCity = cityName.trim();
@@ -285,19 +298,24 @@ public class WeatherBannerView extends LinearLayout {
     }
 
     public void onBannerClicked() {
-        if (weatherCity != null) {
-            String city = weatherCity.getText().toString();
-            if (city != null && !city.equals("定位中...") && !city.equals("未知") && !city.equals("刷新中...") && !city.equals("正在获取天气...") && !city.equals("正在刷新...")) {
-                if (onBannerClickedListener != null) {
-                    onBannerClickedListener.onBannerClicked(city);
-                } else {
-                    navigateToWeatherDetail();
+        Log.d(TAG, "onBannerClicked() called, onBannerClickedListener=" + onBannerClickedListener);
+        if (onBannerClickedListener != null) {
+            String city = currentCity;
+            if (weatherCity != null) {
+                String displayCity = weatherCity.getText().toString();
+                if (displayCity != null && !displayCity.isEmpty() 
+                    && !displayCity.equals("定位中...") 
+                    && !displayCity.equals("未知")) {
+                    city = displayCity;
                 }
             }
+            Log.d(TAG, "Calling listener with city: " + city);
+            onBannerClickedListener.onBannerClicked(city);
+        } else {
+            Log.d(TAG, "No listener, navigating to weather detail");
+            navigateToWeatherDetail();
         }
     }
-
-
 
     public void requestLocationAndLoad() {
         AppResourceManager resources = AppResourceManager.getInstance(getContext());
@@ -376,10 +394,14 @@ public class WeatherBannerView extends LinearLayout {
             return;
         }
 
-        if (weatherCity != null) weatherCity.setText("定位中...");
-        if (weatherTemp != null) weatherTemp.setText("--°C");
-        if (weatherDesc != null) weatherDesc.setText("正在定位...");
+        // 快速显示当前城市（缓存或默认），同时后台更新位置
+        if (weatherCity != null) weatherCity.setText(currentCity);
+        if (weatherDesc != null) weatherDesc.setText("定位中，正在更新...");
 
+        // 先用已有城市名加载天气，同时后台获取精确位置
+        loadWeatherWithCity(currentCity);
+
+        // 后台尝试获取精确位置
         new Thread(() -> {
             try {
                 LocationTool locationTool = new LocationTool(getContext());
@@ -388,10 +410,19 @@ public class WeatherBannerView extends LinearLayout {
                 if (result.success && result.location != null) {
                     double lat = result.location.latitude;
                     double lon = result.location.longitude;
+
+                    // 如果位置变化不大，就不重新加载
+                    if (cachedLat != 0 && cachedLon != 0) {
+                        float[] results = new float[1];
+                        android.location.Location.distanceBetween(cachedLat, cachedLon, lat, lon, results);
+                        if (results[0] < 500) { // 500米内不更新
+                            return;
+                        }
+                    }
+
                     cachedLat = lat;
                     cachedLon = lon;
 
-                    // 用Android Geocoder反解析城市名（如"金凤区"）
                     String cityName = getCityNameFromGeocoder(lat, lon);
                     if (cityName == null || cityName.isEmpty()) {
                         cityName = currentCity;
@@ -399,21 +430,18 @@ public class WeatherBannerView extends LinearLayout {
                     currentCity = cityName;
                     cachedAddress = cityName;
 
-                    // 缓存位置（持久化，应用关闭后不丢失）
                     saveCachedLocation(lat, lon, cityName);
 
-                    // 用经纬度直接查天气（不调GeoAPI反解析，省一次API调用）
                     final String finalCity = cityName;
-                    post(() -> loadWeatherByLocationDirect(lat, lon, finalCity));
-                    return;
+                    post(() -> {
+                        if (weatherCity != null) weatherCity.setText(finalCity);
+                        loadWeatherByLocationDirect(lat, lon, finalCity);
+                    });
                 }
-                Log.w(TAG, "Location returned no valid coordinates, falling back to city: " + currentCity);
             } catch (Exception e) {
-                Log.e(TAG, "Location failed: " + e.getMessage(), e);
+                Log.w(TAG, "Background location update failed: " + e.getMessage());
             }
-
-            post(() -> loadWeatherWithCity(currentCity));
-        }).start();
+        }, "LocationUpdate").start();
     }
 
     private void locateAndRefreshWeather() {
@@ -426,7 +454,7 @@ public class WeatherBannerView extends LinearLayout {
         }
 
         if (weatherCity != null) weatherCity.setText("定位中...");
-        if (weatherTemp != null) weatherTemp.setText("--°C");
+        if (weatherTemp != null) weatherTemp.setText("--°");
         if (weatherDesc != null) weatherDesc.setText("正在定位...");
 
         new Thread(() -> {
@@ -449,7 +477,6 @@ public class WeatherBannerView extends LinearLayout {
 
                     saveCachedLocation(lat, lon, cityName);
 
-                    // 刷新时清除天气缓存，强制获取最新数据
                     weatherService.clearCacheForLocation(lat, lon);
                     final String finalCity = cityName;
                     post(() -> loadWeatherByLocationDirect(lat, lon, finalCity));
@@ -483,7 +510,7 @@ public class WeatherBannerView extends LinearLayout {
         }
 
         if (weatherCity != null) weatherCity.setText(city);
-        if (weatherTemp != null) weatherTemp.setText("--°C");
+        if (weatherTemp != null) weatherTemp.setText("--°");
         if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
 
         weatherService.getCurrentWeather(city).thenAccept(weather -> {
@@ -498,27 +525,6 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
-    private void loadWeatherByLocation(double lat, double lon) {
-        if (!isNetworkAvailable()) {
-            if (weatherDesc != null) weatherDesc.setText("无网络连接");
-            if (weatherCity != null) weatherCity.setText(currentCity);
-            return;
-        }
-
-        if (weatherCity != null) weatherCity.setText(currentCity);
-        if (weatherTemp != null) weatherTemp.setText("--°C");
-        if (weatherDesc != null) weatherDesc.setText("正在获取天气...");
-
-        weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
-            lastRefreshTime = System.currentTimeMillis();
-            post(() -> updateUI(weather));
-        }).exceptionally(e -> {
-            Log.e(TAG, "Failed to load weather by location: " + e.getMessage(), e);
-            post(() -> loadWeatherWithCity(currentCity));
-            return null;
-        });
-    }
-
     private void refreshWeatherWithCity(String city) {
         if (!isNetworkAvailable()) {
             if (weatherDesc != null) weatherDesc.setText("无网络连接");
@@ -527,7 +533,7 @@ public class WeatherBannerView extends LinearLayout {
         }
 
         if (weatherCity != null) weatherCity.setText(city);
-        if (weatherTemp != null) weatherTemp.setText("--°C");
+        if (weatherTemp != null) weatherTemp.setText("--°");
         if (weatherDesc != null) weatherDesc.setText("正在刷新...");
 
         weatherService.clearCacheForCity(city);
@@ -543,27 +549,6 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
-    private void refreshWeatherByLocation(double lat, double lon) {
-        if (!isNetworkAvailable()) {
-            if (weatherDesc != null) weatherDesc.setText("无网络连接");
-            if (weatherCity != null) weatherCity.setText(currentCity);
-            return;
-        }
-
-        if (weatherCity != null) weatherCity.setText(currentCity);
-        if (weatherTemp != null) weatherTemp.setText("--°C");
-        if (weatherDesc != null) weatherDesc.setText("正在刷新...");
-
-        weatherService.getCurrentWeatherByLocation(lat, lon).thenAccept(weather -> {
-            lastRefreshTime = System.currentTimeMillis();
-            post(() -> updateUI(weather));
-        }).exceptionally(e -> {
-            Log.e(TAG, "Failed to refresh weather by location: " + e.getMessage(), e);
-            post(() -> refreshWeatherWithCity(currentCity));
-            return null;
-        });
-    }
-
     private void updateUI(String weatherText) {
         WeatherBannerManager.WeatherInfo info = parseWeather(weatherText);
 
@@ -571,7 +556,10 @@ public class WeatherBannerView extends LinearLayout {
             cachedFxLink = info.fxLink;
         }
 
-        if (weatherIcon != null) weatherIcon.setText(info.icon);
+        if (weatherIcon != null) {
+            String iconCode = info.iconCode != null && !info.iconCode.isEmpty() ? info.iconCode : "999";
+            weatherIcon.setText(QWeatherIconFont.getIcon(iconCode));
+        }
         if (weatherCity != null) {
             String displayCity = info.city;
             if (displayCity == null || displayCity.isEmpty() || displayCity.equals("未知")) {
@@ -582,105 +570,18 @@ public class WeatherBannerView extends LinearLayout {
             weatherCity.setText(displayCity);
         }
         if (weatherTemp != null) {
-            weatherTemp.setText(info.temp + "°C");
+            weatherTemp.setText(info.temp + "°");
         }
-        if (weatherDesc != null) weatherDesc.setText(info.description);
-    }
-
-    private WeatherBannerManager.WeatherInfo parseForecast(String forecastText) {
-        WeatherBannerManager.WeatherInfo info = new WeatherBannerManager.WeatherInfo();
-        if (forecastText == null) return info;
-
-        try {
-            StringBuilder forecastSummary = new StringBuilder();
-            String highTemp = null;
-            String lowTemp = null;
-            String dayText = null;
-            String nightText = null;
-
-            java.util.List<String> dailyForecasts = new java.util.ArrayList<>();
-            String[] lines = forecastText.split("\n");
-            
-            String currentDate = null;
-            String currentHigh = null;
-            String currentLow = null;
-            String currentDayWeather = null;
-            String currentNightWeather = null;
-
-            for (String line : lines) {
-                line = line.trim();
-                
-                if (line.startsWith("日期:")) {
-                    if (currentDate != null) {
-                        if (currentHigh != null && currentLow != null) {
-                            String weatherDesc = currentDayWeather != null ? currentDayWeather : (currentNightWeather != null ? currentNightWeather : "");
-                            dailyForecasts.add(currentHigh + "°/" + currentLow + "°" + (weatherDesc.isEmpty() ? "" : " " + weatherDesc));
-                            if (highTemp == null) highTemp = currentHigh;
-                            if (lowTemp == null) lowTemp = currentLow;
-                        }
-                    }
-                    currentDate = line.substring(3).trim();
-                    currentHigh = null;
-                    currentLow = null;
-                    currentDayWeather = null;
-                    currentNightWeather = null;
-                }
-                if (line.startsWith("最高温度:") || line.startsWith("最高温:")) {
-                    String val = line.substring(line.indexOf(":") + 1).trim();
-                    if (val.endsWith("°C") || val.endsWith("°")) {
-                        val = val.replace("°C", "").replace("°", "");
-                    }
-                    currentHigh = val;
-                    if (highTemp == null) highTemp = val;
-                }
-                if (line.startsWith("最低温度:") || line.startsWith("最低温:")) {
-                    String val = line.substring(line.indexOf(":") + 1).trim();
-                    if (val.endsWith("°C") || val.endsWith("°")) {
-                        val = val.replace("°C", "").replace("°", "");
-                    }
-                    currentLow = val;
-                    if (lowTemp == null) lowTemp = val;
-                }
-                if (line.startsWith("白天天气:")) {
-                    currentDayWeather = line.substring(5).trim();
-                    if (dayText == null) dayText = currentDayWeather;
-                }
-                if (line.startsWith("夜间天气:")) {
-                    currentNightWeather = line.substring(5).trim();
-                    if (nightText == null) nightText = currentNightWeather;
-                }
+        if (weatherDesc != null) {
+            String desc = info.description;
+            if (desc == null || desc.isEmpty()) {
+                desc = "暂无数据";
             }
-
-            if (currentDate != null) {
-                if (currentHigh != null && currentLow != null) {
-                    String weatherDesc = currentDayWeather != null ? currentDayWeather : (currentNightWeather != null ? currentNightWeather : "");
-                    dailyForecasts.add(currentHigh + "°/" + currentLow + "°" + (weatherDesc.isEmpty() ? "" : " " + weatherDesc));
-                }
+            if (info.humidity != null && !info.humidity.isEmpty() && !info.humidity.equals("--")) {
+                desc += " · 湿度" + info.humidity + "%";
             }
-
-            if (highTemp != null && lowTemp != null) {
-                info.tempRange = lowTemp + "° ~ " + highTemp + "°";
-            } else if (highTemp != null) {
-                info.tempRange = "最高 " + highTemp + "°";
-            } else if (lowTemp != null) {
-                info.tempRange = "最低 " + lowTemp + "°";
-            }
-
-            if (!dailyForecasts.isEmpty()) {
-                for (int i = 0; i < Math.min(3, dailyForecasts.size()); i++) {
-                    if (i > 0) forecastSummary.append("   ");
-                    String[] dayNames = {"今天", "明天", "后天"};
-                    String prefix = i < dayNames.length ? dayNames[i] + " " : "";
-                    forecastSummary.append(prefix).append(dailyForecasts.get(i));
-                }
-                info.forecast = forecastSummary.toString();
-            } else if (dayText != null && nightText != null) {
-                String weatherChange = dayText.equals(nightText) ? dayText : dayText + "转" + nightText;
-                info.forecast = weatherChange;
-            }
-        } catch (Exception ignored) {
+            weatherDesc.setText(desc);
         }
-        return info;
     }
 
     private WeatherBannerManager.WeatherInfo parseWeather(String weatherText) {
@@ -698,6 +599,7 @@ public class WeatherBannerView extends LinearLayout {
                     info.description = line.substring(3).trim();
                 } else if (line.startsWith("图标:")) {
                     iconCode = line.substring(3).trim();
+                    info.iconCode = iconCode;
                 } else if (line.startsWith("温度:")) {
                     info.temp = line.substring(3).trim().replace("°C", "").replace("°", "");
                 } else if (line.startsWith("湿度:")) {
@@ -718,9 +620,9 @@ public class WeatherBannerView extends LinearLayout {
             }
 
             if (!iconCode.isEmpty()) {
-                info.icon = com.oilquiz.app.util.QWeatherIconMapper.getEmojiIcon(iconCode);
+                info.icon = QWeatherIconFont.getIcon(iconCode);
             } else {
-                info.icon = com.oilquiz.app.util.QWeatherIconMapper.getEmojiIcon("999");
+                info.icon = QWeatherIconFont.getIcon("999");
             }
         } catch (Exception e) {
             info.description = "解析失败";
@@ -743,6 +645,18 @@ public class WeatherBannerView extends LinearLayout {
 
     public boolean isLocationPermissionGranted() {
         return locationPermissionGranted;
+    }
+
+    private void disableChildClicks(ViewGroup viewGroup) {
+        for (int i = 0; i < viewGroup.getChildCount(); i++) {
+            View child = viewGroup.getChildAt(i);
+            if (child instanceof ViewGroup) {
+                disableChildClicks((ViewGroup) child);
+            } else {
+                child.setClickable(false);
+                child.setFocusable(false);
+            }
+        }
     }
 
     public interface OnBannerClickedListener {

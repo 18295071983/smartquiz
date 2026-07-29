@@ -12,12 +12,14 @@ import android.widget.TextView;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.util.AILogger;
-import com.oilquiz.app.util.QWeatherIconMapper;
+import com.oilquiz.app.util.QWeatherIconFont;
 
 import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Locale;
+
+import android.graphics.Typeface;
 
 /**
  * 管理 AI 聊天页面的天气横幅。
@@ -92,7 +94,11 @@ public class WeatherBannerController {
         this.weatherDesc = weatherDesc;
         this.weatherHumidity = weatherHumidity;
         this.weatherWind = weatherWind;
-        // 详情区域在bindDetailViews中绑定
+        if (this.weatherIcon != null) {
+            Typeface iconTypeface = QWeatherIconFont.getTypeface(activity);
+            this.weatherIcon.setTypeface(iconTypeface);
+            this.weatherIcon.setText(QWeatherIconFont.getIcon("999"));
+        }
     }
 
     /**
@@ -450,7 +456,7 @@ public class WeatherBannerController {
         String pressure = w.optString("pressure", "--");
 
         if (weatherIcon != null) {
-            weatherIcon.setText(iconCode.isEmpty() ? "" : QWeatherIconMapper.getEmojiIcon(iconCode));
+            weatherIcon.setText(iconCode.isEmpty() ? QWeatherIconFont.getIcon("999") : QWeatherIconFont.getIcon(iconCode));
         }
         if (weatherCity != null) weatherCity.setText(cityName);
         if (weatherTemp != null) weatherTemp.setText(tempStr + "°C");
@@ -469,7 +475,7 @@ public class WeatherBannerController {
 
     private void updateUIFromCache(CachedWeather c) {
         if (weatherIcon != null) {
-            weatherIcon.setText(c.icon.isEmpty() ? "" : QWeatherIconMapper.getEmojiIcon(c.icon));
+            weatherIcon.setText(c.icon.isEmpty() ? QWeatherIconFont.getIcon("999") : QWeatherIconFont.getIcon(c.icon));
         }
         if (weatherCity != null) weatherCity.setText(c.city);
         if (weatherTemp != null) weatherTemp.setText(c.temp + "°C");

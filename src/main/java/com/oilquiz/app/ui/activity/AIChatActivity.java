@@ -49,6 +49,13 @@ import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
 import com.oilquiz.app.ai.util.AttachmentManager;
+import com.oilquiz.app.ai.bridge.ChatCommand;
+import com.oilquiz.app.ai.bridge.ModelExecutionBridge;
+import com.oilquiz.app.ai.bridge.BridgeCallback;
+import com.oilquiz.app.ai.agent.AgentExecutionEngine;
+import com.oilquiz.app.ai.agent.AgentExecutionState;
+import com.oilquiz.app.ai.agent.ExecutionEvent;
+import com.oilquiz.app.ai.agent.ExecutionEventListener;
 import com.oilquiz.app.ai.chat.ChatOrchestrator;
 import com.oilquiz.app.ai.chat.NativeEventBridge;
 import com.oilquiz.app.ai.chat.ChatMessage;
@@ -161,6 +168,8 @@ public class AIChatActivity extends BaseActivity {
     private AIEntertainmentManager aiEntertainmentManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
+    private ModelExecutionBridge modelBridge;
+    private AgentExecutionEngine agentEngine;
     private SkillManager skillManager;
     private AIConfig aiConfig;
     private CacheManager cacheManager;
@@ -219,7 +228,7 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onTrimMemory(int level) {
             if (aiService != null) {
-                int result = LlamaHelper.handleMemoryPressure(level);
+                int result = com.oilquiz.app.ai.jni.LlamaHelper.handleMemoryPressure(level);
                 if (result > 0) {
                     runOnUiThread(() -> addSystemMessage("内存紧张，已自动裁剪上下文"));
                 } else if (result < 0) {
@@ -232,7 +241,7 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onLowMemory() {
             if (aiService != null) {
-                LlamaHelper.handleMemoryPressure(80);
+                com.oilquiz.app.ai.jni.LlamaHelper.handleMemoryPressure(80);
             }
         }
     };
@@ -377,6 +386,12 @@ public class AIChatActivity extends BaseActivity {
             onlineModelManager = coordinator.getOnlineModelManager();
             chatHistoryManager = coordinator.getChatHistoryManager();
             aiConfig = coordinator.getAIConfig();
+
+            // 创建模型执行桥接器 - UI与模型之间的唯一通道
+            modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
+
+            // 创建Agent执行引擎 - agent模式专用，后台执行独立于UI
+            agentEngine = new AgentExecutionEngine(this, aiService, agentService, aiConfig);
 
             if (aiService == null) {
                 showToast("AI服务初始化失败");
@@ -919,7 +934,7 @@ public class AIChatActivity extends BaseActivity {
     private void cancelGeneration() {
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
-            if (aiService != null) aiService.chatStop();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             isGenerating = false;
             isDirectStreaming = false;
             hideLoadingUI();
@@ -1581,7 +1596,7 @@ public class AIChatActivity extends BaseActivity {
             }
             
             // 检查 Native 层状态，如果无效则自动恢复
-            if (!LlamaHelper.isNativeStateValid()) {
+            if (!modelBridge.isNativeStateValid()) {
                 AppLogger.aiW(TAG, "Native state invalid, triggering auto-recovery");
                 addSystemMessage("⚠️ 检测到AI模型状态异常，正在自动恢复...", ChatMessage.SystemMessageType.WARNING);
                 if (recoveryHandler != null) {
@@ -1625,45 +1640,38 @@ public class AIChatActivity extends BaseActivity {
             final int streamingIndex = currentStreamingMessageIndex;
             final String streamingId = currentStreamingMessageId;
 
-            new Thread(() -> {
-                try {
-                    runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
-                    
-                    if (!aiService.isInitialized()) {
-                        if (!aiService.initializeSafe()) { handleGenerationError("AI服务初始化失败"); return; }
-                    }
+            runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
 
-                    // 确保聊天上下文已创建（使用当前模式的正确提示词）
-                    if (!LlamaHelper.isChatContextActive()) {
-                        AppLogger.ai(TAG, "Chat context not active, attempting to create with proper prompts...");
-                        String systemPrompt = ChatModeManager.getModeSystemPromptStatic(currentMode);
-                        boolean ctxCreated = aiService.initChatContext("你是一个AI助手，请用中文回答。", systemPrompt, "");
-                        if (!ctxCreated) {
-                            AppLogger.w(TAG, "Failed to create chat context, will retry in chatSend");
-                        }
-                    }
+            int actualMaxTokens = aiConfig.getMaxTokens();
+            boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+            if (outputRouter != null) {
+                outputRouter.reset();
+                outputRouter.setThinkingEnabled(enableThinking);
+            }
+            isInThinking = enableThinking;
 
-                    {
-                        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.ENCODING, "正在编码输入..."));
-                        long chatStartTime = System.currentTimeMillis();
-                        int actualMaxTokens = aiConfig.getMaxTokens();
-                        // 深度思考模式启用模型思考链
-                        boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
-                        // 通知 OutputRouter 思考状态并重置
-                        if (outputRouter != null) {
-                            outputRouter.reset();
-                            outputRouter.setThinkingEnabled(enableThinking);
-                        }
-                        isInThinking = enableThinking;
-                        AppLogger.ai(TAG, "Calling aiService.chatSend: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+            // Agent模式走AgentExecutionEngine，支持步骤更新和工具调用
+            // 其他模式走Bridge，普通对话生成
+            boolean isAgentMode = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.AGENT;
 
-                        aiService.chatSend(prompt, actualMaxTokens, enableThinking, new StreamingTokenHandler(streamingIndex, streamingId, prompt, chatStartTime));
-                    }
-                } catch (Exception e) {
-                    AppLogger.aiE(TAG, "Error in chat: " + e.getMessage());
-                    runOnUiThread(() -> handleGenerationError("发送消息失败: " + e.getMessage()));
+            if (isAgentMode && agentEngine != null && aiConfig.isAgentEnabled()) {
+                AppLogger.ai(TAG, "Agent mode: using AgentExecutionEngine");
+                // 启动agent执行面板
+                if (chatAdapter != null) {
+                    chatAdapter.startAgentExecution(streamingId);
                 }
-            }).start();
+                // 委托给agent引擎执行，通过事件回调更新UI
+                agentEngine.execute(streamingId, prompt, new ExecutionEventListener() {
+                    @Override
+                    public void onExecutionEvent(ExecutionEvent event) {
+                        runOnUiThread(() -> handleAgentEvent(event, streamingIndex, streamingId));
+                    }
+                });
+            } else {
+                AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+                modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
+                    createBridgeCallback(streamingIndex, streamingId));
+            }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessage: " + e.getMessage());
             endGeneration();
@@ -1687,14 +1695,14 @@ public class AIChatActivity extends BaseActivity {
             // 检查AI服务是否已初始化，如果没有则等待初始化
             boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
             if (!useOnlineModel) {
-                if (aiService == null || !aiService.isInitialized()) {
+                if (modelBridge == null || !modelBridge.isModelInitialized()) {
                     addSystemMessage("⏳ AI服务正在初始化，请稍候...");
                     // 在后台线程等待 AI 服务初始化（无限等待）
                     new Thread(() -> {
                         int waitCount = 0;
                         
                         while (true) {
-                            if (aiService != null && aiService.isInitialized()) {
+                            if (modelBridge != null && modelBridge.isModelInitialized()) {
                                 // AI 服务已初始化，继续处理
                                 runOnUiThread(() -> {
                                     initAgentChatHandler();
@@ -1966,6 +1974,230 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
+    /**
+     * 创建Bridge回调 - 将模型执行结果路由到UI更新方法
+     * 这是UI与模型之间的唯一回调通道
+     */
+    private BridgeCallback createBridgeCallback(int streamingIndex, String streamingId) {
+        final long[] startTime = {System.currentTimeMillis()};
+        final int[] tokenCount = {0};
+
+        return new BridgeCallback() {
+            @Override
+            public void onGenerationStarted(String messageId) {
+                runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
+            }
+
+            @Override
+            public void onToken(String messageId, String token) {
+                tokenCount[0]++;
+                if (tokenCount[0] % 10 == 0) {
+                    long elapsed = System.currentTimeMillis() - startTime[0];
+                    float tps = elapsed > 0 ? (tokenCount[0] * 1000.0f) / elapsed : 0;
+                    runOnUiThread(() -> updateInferenceProgress(streamingIndex, tokenCount[0], tps));
+                }
+                runOnUiThread(() -> handleStreamToken(token));
+            }
+
+            @Override
+            public void onGenerationComplete(String messageId, String fullContent,
+                                              int tokens, long elapsedMs, float tps) {
+                completeGeneration(fullContent, tokens, startTime[0]);
+            }
+
+            @Override
+            public void onGenerationError(String messageId, String error) {
+                runOnUiThread(() -> {
+                    endGeneration();
+                    boolean nativeInvalid = !modelBridge.isNativeStateValid();
+                    boolean shouldRecover = nativeInvalid &&
+                        (recoveryHandler == null || !recoveryHandler.isRecovering()) &&
+                        (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
+
+                    if (currentStreamingContent != null && currentStreamingContent.length() > 0
+                        && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
+                        ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                        msg.content = currentStreamingContent.toString();
+                        msg.status = ChatMessage.MessageStatus.COMPLETED;
+                        if (nativeInvalid) {
+                            msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.FAILED);
+                        }
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
+                        if (!nativeInvalid) addSystemMessage("生成中断，已保存部分内容");
+                    } else if (currentStreamingMessageIndex >= 0) {
+                        chatHistory.remove(currentStreamingMessageIndex);
+                        if (chatAdapter != null) chatAdapter.notifyItemRemoved(currentStreamingMessageIndex);
+                    }
+                    saveHistoryAsync();
+                    currentStreamingContent = null;
+                    currentStreamingMessageIndex = -1;
+                    currentStreamingMessageId = null;
+
+                    if (shouldRecover) {
+                        addSystemMessage("⚠️ 生成失败，检测到AI模型状态异常，尝试自动恢复...",
+                            ChatMessage.SystemMessageType.WARNING);
+                        if (recoveryHandler != null) {
+                            recoveryHandler.setPendingMessage(null);
+                            recoveryHandler.triggerAutoRecovery();
+                        }
+                    } else {
+                        addErrorMessage("生成出错", error, true);
+                    }
+                });
+            }
+
+            @Override
+            public void onGenerationStopped(String messageId) {
+                runOnUiThread(() -> {
+                    endGeneration();
+                    if (currentStreamingContent != null && currentStreamingContent.length() > 0
+                        && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
+                        ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                        msg.content = currentStreamingContent.toString();
+                        msg.status = ChatMessage.MessageStatus.COMPLETED;
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
+                    }
+                    saveHistoryAsync();
+                    currentStreamingContent = null;
+                    currentStreamingMessageIndex = -1;
+                    currentStreamingMessageId = null;
+                });
+            }
+
+            @Override
+            public void onInferenceProgress(String messageId, int tokens, float tps) {
+                runOnUiThread(() -> updateInferenceProgress(streamingIndex, tokens, tps));
+            }
+
+            @Override
+            public void onContextCleared() {
+                runOnUiThread(() -> addSystemMessage("上下文已清除"));
+            }
+
+            @Override
+            public void onContextInitialized(boolean success) {}
+
+            @Override
+            public void onModelInitialized(boolean success, String modelName) {
+                if (success) {
+                    runOnUiThread(() -> addSystemMessage("模型已加载: " + modelName));
+                }
+            }
+
+            @Override
+            public void onModelReloaded(boolean success) {}
+
+            @Override
+            public void onModelInfo(String modelName, boolean isInitialized, boolean usingGPU, int gpuLayers) {}
+
+            @Override
+            public void onTokenCount(int count) {}
+
+            @Override
+            public void onNativeStateChecked(boolean isValid) {}
+
+            @Override
+            public void onMemoryPressureHandled(int result) {}
+
+            @Override
+            public void onToolCallStart(String messageId, String toolName, String args) {
+                runOnUiThread(() -> appendToolCallInProgress(toolName));
+            }
+
+            @Override
+            public void onToolCallComplete(String messageId, String toolName, boolean success, String result) {
+                runOnUiThread(() -> {
+                    if (currentStreamingContent != null) {
+                        currentStreamingContent.append("\n" + (success ? "✅" : "❌") + " 工具结果\n");
+                        safeUpdateMessage();
+                    }
+                });
+            }
+
+            @Override
+            public void onThinkingUpdate(String messageId, int stepNumber, String stepType,
+                                          String title, String content, int progress) {}
+        };
+    }
+
+    /**
+     * 处理AgentExecutionEngine的事件，路由到ChatAdapter更新UI
+     */
+    private void handleAgentEvent(ExecutionEvent event, int streamingIndex, String streamingId) {
+        if (chatAdapter == null) return;
+
+        switch (event.type) {
+            case EXECUTION_STARTED:
+                updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null);
+                break;
+
+            case TOKEN_GENERATED:
+                if (event.text != null) {
+                    handleStreamToken(event.text);
+                }
+                break;
+
+            case THINKING_TOKEN:
+                if (event.text != null) {
+                    handleStreamToken(event.text);
+                }
+                break;
+
+            case STEP_STARTED:
+                chatAdapter.updateAgentExecutionStep(streamingId, event.stepNumber,
+                    event.stepType, event.stepTitle, event.stepContent);
+                break;
+
+            case TOOL_CALL_STARTED:
+                chatAdapter.updateAgentToolCall(streamingId, event.toolName, event.toolArgs);
+                break;
+
+            case TOOL_CALL_COMPLETED:
+                chatAdapter.updateAgentToolResult(streamingId, event.toolName,
+                    event.success, event.toolResult);
+                break;
+
+            case INFERENCE_PROGRESS:
+                chatAdapter.updateAgentInferenceProgress(streamingId,
+                    event.tokenCount, event.tokensPerSecond);
+                updateInferenceProgress(streamingIndex, event.tokenCount, event.tokensPerSecond);
+                break;
+
+            case EXECUTION_COMPLETED:
+                completeGeneration(event.text, 0, System.currentTimeMillis());
+                chatAdapter.completeAgentExecution(streamingId, event.text);
+                break;
+
+            case EXECUTION_FAILED:
+                endGeneration();
+                chatAdapter.failAgentExecution(streamingId, event.errorMessage);
+                if (currentStreamingContent != null && currentStreamingContent.length() > 0
+                    && streamingIndex >= 0 && streamingIndex < chatHistory.size()) {
+                    ChatMessage msg = chatHistory.get(streamingIndex);
+                    msg.content = currentStreamingContent.toString();
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
+                    chatAdapter.notifyItemChanged(streamingIndex);
+                }
+                saveHistoryAsync();
+                currentStreamingContent = null;
+                currentStreamingMessageIndex = -1;
+                currentStreamingMessageId = null;
+                addErrorMessage("Agent执行出错", event.errorMessage, true);
+                break;
+
+            case EXECUTION_CANCELLED:
+                endGeneration();
+                chatAdapter.failAgentExecution(streamingId, "已取消");
+                currentStreamingContent = null;
+                currentStreamingMessageIndex = -1;
+                currentStreamingMessageId = null;
+                break;
+
+            default:
+                break;
+        }
+    }
+
     private class StreamingTokenHandler implements LlamaHelper.TokenCallback {
         private final int streamingIndex;
         private final String streamingId;
@@ -2053,7 +2285,7 @@ public class AIChatActivity extends BaseActivity {
                 endGeneration();
                 
                 // 检查是否因 Native 状态无效导致错误
-                boolean nativeInvalid = !LlamaHelper.isNativeStateValid();
+                boolean nativeInvalid = !modelBridge.isNativeStateValid();
                 boolean shouldRecover = nativeInvalid && (recoveryHandler == null || !recoveryHandler.isRecovering()) && (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
                 
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0 && currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
@@ -2681,7 +2913,7 @@ public class AIChatActivity extends BaseActivity {
                     modelNameText.setText("☁️ 在线模型");
                 }
             } else if (aiService != null) {
-                String name = aiService.getCurrentModelName();
+                String name = modelBridge != null ? modelBridge.getCurrentModelName() : "";
                 modelNameText.setText("📱 " + (name != null && !name.isEmpty() ? name : "未选择模型"));
             } else {
                 modelNameText.setText("AI服务未初始化");
@@ -2703,7 +2935,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 检查AI服务是否可用
         boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-        if (!useOnlineModel && (aiService == null || !aiService.isInitialized())) {
+        if (!useOnlineModel && (modelBridge == null || !modelBridge.isModelInitialized())) {
             AppLogger.aiW(TAG, "Agent模式需要AI服务已初始化，当前AI服务未就绪");
             return;
         }
@@ -2747,7 +2979,7 @@ public class AIChatActivity extends BaseActivity {
         try {
             if (isGenerating) {
                 if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
-                if (aiService != null) aiService.chatStop();
+                if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             }
             // 同步清理所有数据源
             chatHistory.clear();
@@ -2756,7 +2988,7 @@ public class AIChatActivity extends BaseActivity {
             }
             if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
             if (chatHistoryManager != null) new Thread(() -> chatHistoryManager.clearAIChatHistory()).start();
-            if (aiService != null) aiService.chatClear();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
             clearStreamingState();
             endGeneration();
             updateEmptyState();
@@ -2838,23 +3070,35 @@ public class AIChatActivity extends BaseActivity {
         AppLogger.ai(TAG, "Injecting mode switch instruction: " + oldMode.displayName + " -> " + newMode.displayName);
 
         // 如果使用本地模型，通过chatSend注入指令
-        if (aiService != null && aiService.isInitialized() && LlamaHelper.isChatContextActive()) {
+        if (modelBridge != null && modelBridge.isModelInitialized() && modelBridge.isChatContextActive()) {
             // 注入到上下文，但不生成回复
             new Thread(() -> {
                 try {
-                    // 使用空回调，只注入指令不生成回复
-                    aiService.chatSend("[系统指令] " + instruction, 1, false, new LlamaHelper.TokenCallback() {
-                        @Override
-                        public void onToken(String token) { /* 忽略 */ }
-                        @Override
-                        public void onComplete(String fullText) {
-                            AppLogger.ai(TAG, "Mode switch instruction injected successfully");
-                        }
-                        @Override
-                        public void onError(String error) {
-                            AppLogger.w(TAG, "Failed to inject mode switch instruction: " + error);
-                        }
-                    });
+                    // 通过Bridge注入系统指令
+                    modelBridge.execute(ChatCommand.sendMessage("system-inject", "[系统指令] " + instruction, 1, false),
+                        new BridgeCallback() {
+                            @Override public void onGenerationStarted(String messageId) {}
+                            @Override public void onToken(String messageId, String token) {}
+                            @Override public void onGenerationComplete(String messageId, String fullContent, int tokens, long elapsedMs, float tps) {
+                                AppLogger.ai(TAG, "Mode switch instruction injected successfully");
+                            }
+                            @Override public void onGenerationError(String messageId, String error) {
+                                AppLogger.aiE(TAG, "Mode switch instruction injection failed: " + error);
+                            }
+                            @Override public void onGenerationStopped(String messageId) {}
+                            @Override public void onInferenceProgress(String messageId, int tokens, float tps) {}
+                            @Override public void onContextCleared() {}
+                            @Override public void onContextInitialized(boolean success) {}
+                            @Override public void onModelInitialized(boolean success, String modelName) {}
+                            @Override public void onModelReloaded(boolean success) {}
+                            @Override public void onModelInfo(String modelName, boolean isInitialized, boolean usingGPU, int gpuLayers) {}
+                            @Override public void onTokenCount(int count) {}
+                            @Override public void onNativeStateChecked(boolean isValid) {}
+                            @Override public void onMemoryPressureHandled(int result) {}
+                            @Override public void onToolCallStart(String messageId, String toolName, String args) {}
+                            @Override public void onToolCallComplete(String messageId, String toolName, boolean success, String result) {}
+                            @Override public void onThinkingUpdate(String messageId, int stepNumber, String stepType, String title, String content, int progress) {}
+                        });
                 } catch (Exception e) {
                     AppLogger.aiE(TAG, "Error injecting mode switch instruction: " + e.getMessage());
                 }
@@ -2915,7 +3159,7 @@ public class AIChatActivity extends BaseActivity {
     private void stopGeneration() {
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
-            if (aiService != null) aiService.chatStop();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             endGeneration();
             showToast("已停止生成");
             addSystemMessage("生成已停止");
@@ -2979,29 +3223,46 @@ public class AIChatActivity extends BaseActivity {
             return true;
         }
         if (aiService == null) { showToast("AI服务未初始化"); return false; }
-        boolean modelInMemory = LlamaHelper.isModelInitialized();
-        if (!modelInMemory || !aiService.isInitialized()) {
+        boolean modelInMemory = modelBridge != null && modelBridge.isModelInMemory();
+        if (!modelInMemory || !modelBridge.isModelInitialized()) {
             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(true);
             showLoading("初始化AI服务...", "正在准备模型，这可能需要几秒钟...");
             addSystemMessage("⏳ 开始加载AI模型...", ChatMessage.SystemMessageType.INFO);
-            
+
             final String msg = pendingMessage;
-            new Thread(() -> {
-                long startTime = System.currentTimeMillis();
-                final boolean success = !aiService.isInitialized() ? aiService.initializeSafe() : aiService.reloadCurrentModelSafe();
-                
-                runOnUiThread(() -> {
-                    if (success) {
-                        if (msg != null && !msg.isEmpty()) {
-                            processChatMessage(msg);
+            modelBridge.execute(ChatCommand.initModel(), new BridgeCallback() {
+                @Override public void onGenerationStarted(String messageId) {}
+                @Override public void onToken(String messageId, String token) {}
+                @Override public void onGenerationComplete(String messageId, String fullContent, int tokens, long elapsedMs, float tps) {}
+                @Override public void onGenerationError(String messageId, String error) {}
+                @Override public void onGenerationStopped(String messageId) {}
+                @Override public void onInferenceProgress(String messageId, int tokens, float tps) {}
+                @Override public void onContextCleared() {}
+                @Override public void onContextInitialized(boolean success) {}
+                @Override public void onModelReloaded(boolean success) {}
+                @Override public void onModelInfo(String modelName, boolean isInitialized, boolean usingGPU, int gpuLayers) {}
+                @Override public void onTokenCount(int count) {}
+                @Override public void onNativeStateChecked(boolean isValid) {}
+                @Override public void onMemoryPressureHandled(int result) {}
+                @Override public void onToolCallStart(String messageId, String toolName, String args) {}
+                @Override public void onToolCallComplete(String messageId, String toolName, boolean success, String result) {}
+                @Override public void onThinkingUpdate(String messageId, int stepNumber, String stepType, String title, String content, int progress) {}
+
+                @Override
+                public void onModelInitialized(boolean success, String modelName) {
+                    runOnUiThread(() -> {
+                        if (success) {
+                            if (msg != null && !msg.isEmpty()) {
+                                processChatMessage(msg);
+                            }
+                        } else {
+                            if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
+                            addErrorMessage("模型加载失败", "无法初始化AI模型，请检查模型文件是否正确导入", true);
+                            showToast("模型加载失败");
                         }
-                    } else {
-                        if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
-                        addErrorMessage("模型加载失败", "无法初始化AI模型，请检查模型文件是否正确导入", true);
-                        showToast("模型加载失败");
-                    }
-                });
-            }).start();
+                    });
+                }
+            });
             return false;
         }
         return true;
@@ -3235,7 +3496,7 @@ public class AIChatActivity extends BaseActivity {
         if (shouldUseOnlineModel()) {
             return inferenceRouter != null && inferenceRouter.isCurrentModelAvailable();
         }
-        return aiService != null && aiService.isInitialized();
+        return modelBridge != null && modelBridge.isModelInitialized();
     }
 
     @Override
@@ -3371,7 +3632,7 @@ public class AIChatActivity extends BaseActivity {
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
             if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
             if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
-            if (aiService != null) aiService.chatStop();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             uiHandler.removeCallbacksAndMessages(null);
             isGenerating = false; isDirectStreaming = false;
         } catch (Exception e) { AppLogger.aiE(TAG, "Error onDestroy: " + e.getMessage()); }

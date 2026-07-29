@@ -42,19 +42,7 @@ public class ComplexityAnalyzer {
             // 构建复杂度分析 Prompt
             String prompt = buildComplexityPrompt(userMessage, intent);
             
-            // 如果聊天上下文活跃，先关闭再使用 generate
-            boolean contextWasActive = LlamaHelper.isChatContextActive();
-            if (contextWasActive) {
-                AILogger.i(TAG, "Chat context active, destroying before complexity analysis");
-                try {
-                    LlamaHelper.chatDestroy();
-                    Thread.sleep(100);
-                } catch (Exception e) {
-                    AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
-                }
-            }
-            
-            // 调用 LLM 分析复杂度
+            // 调用 LLM 分析复杂度（generate 独占推理锁，不触碰 chat context，无需 destroy）
             String response = LlamaHelper.generate(prompt, 100, 0.2f);
             
             if (response == null || response.trim().isEmpty()) {
@@ -72,22 +60,48 @@ public class ComplexityAnalyzer {
     
     /**
      * 构建复杂度分析 Prompt
+     * 包含角色约束、判断标准、few-shot 示例和严格输出格式
      */
     private String buildComplexityPrompt(String userMessage, IntentResult intent) {
-        return "你是一个任务复杂度分析助手。\n\n" +
-               "【用户消息】\n" + userMessage + "\n\n" +
+        return "你是一个任务复杂度评估引擎，负责评估完成用户请求所需的步骤数和难度。\n\n" +
+               "【角色约束】\n" +
+               "- 只输出指定格式，不要解释、不要多余文字\n" +
+               "- LEVEL 必须是 SIMPLE / MEDIUM / COMPLEX 之一\n" +
+               "- STEPS 是预估的工具调用次数（0 表示直接回答，无需工具）\n\n" +
+               "【判断标准】\n" +
+               "- SIMPLE (STEPS 0-1): 单步任务，可直接回答或仅需一次工具调用\n" +
+               "  例: 问候、单次天气查询、简单计算、翻译一句话\n" +
+               "- MEDIUM (STEPS 2-3): 需要多次工具调用或简单推理\n" +
+               "  例: 多日天气预报、搜索后总结、连续计算、多段翻译\n" +
+               "- COMPLEX (STEPS 4+): 需要多次工具调用、复杂推理或多步骤协作\n" +
+               "  例: 多城市天气对比、数据分析报告、多源信息整合、任务规划\n\n" +
+               "【示例】\n" +
+               "用户: 你好\n" +
+               "意图: CHAT\n" +
+               "LEVEL: SIMPLE\n" +
+               "REASON: 闲聊无需工具\n" +
+               "STEPS: 0\n\n" +
+               "用户: 北京今天天气\n" +
+               "意图: WEATHER\n" +
+               "LEVEL: SIMPLE\n" +
+               "REASON: 单次天气查询\n" +
+               "STEPS: 1\n\n" +
+               "用户: 查一下苹果公司最新财报并总结要点\n" +
+               "意图: SEARCH\n" +
+               "LEVEL: MEDIUM\n" +
+               "REASON: 需搜索后整理总结\n" +
+               "STEPS: 2\n\n" +
+               "用户: 对比北京上海广州三地未来一周天气\n" +
+               "意图: WEATHER\n" +
+               "LEVEL: COMPLEX\n" +
+               "REASON: 多城市多日数据对比\n" +
+               "STEPS: 4\n\n" +
+               "【输出格式（严格）】\n" +
+               "LEVEL: <SIMPLE/MEDIUM/COMPLEX>\n" +
+               "REASON: <简短理由>\n" +
+               "STEPS: <整数>\n\n" +
+               "【用户消息】\n" + userMessage + "\n" +
                "【识别意图】\n" + intent.type + "\n\n" +
-               "【任务复杂度判断标准】\n" +
-               "- SIMPLE: 单步任务，可直接回答或一次工具调用完成\n" +
-               "  例如: 问候、简单问题、单次查询\n\n" +
-               "- MEDIUM: 需要1-2个工具调用或简单推理\n" +
-               "  例如: 天气查询、信息搜索、简单计算\n\n" +
-               "- COMPLEX: 需要多个工具调用、复杂推理或多步骤任务\n" +
-               "  例如: 多条件查询、数据分析、任务规划\n\n" +
-               "【输出格式】\n" +
-               "LEVEL: SIMPLE/MEDIUM/COMPLEX\n" +
-               "REASON: 分析理由\n" +
-               "STEPS: 预估步骤数\n\n" +
                "【输出】\n";
     }
     
@@ -121,39 +135,46 @@ public class ComplexityAnalyzer {
     
     /**
      * 基于关键词的复杂度分析（备用方案）
+     * 与 prompt 中的判断标准保持一致
      */
     private ComplexityLevel analyzeByKeywords(String message, IntentResult intent) {
         String lower = message.toLowerCase();
-        
-        // 复杂任务关键词
-        if (containsAny(lower, "分析", "比较", "总结", "规划", "设计", "优化")) {
+
+        // 复杂任务关键词：多步骤、对比、规划
+        if (containsAny(lower, "对比", "比较", "分析报告", "规划", "设计方案", "多城市", "三地", "分别")) {
             return ComplexityLevel.COMPLEX;
         }
-        
-        // 中等任务关键词
-        if (containsAny(lower, "搜索", "查询", "计算", "翻译", "读取")) {
+
+        // 中等任务关键词：需搜索后总结、多日预报、连续计算
+        if (containsAny(lower, "总结", "一周", "未来几天", "之后", "再", "然后")) {
             return ComplexityLevel.MEDIUM;
         }
-        
-        // 简单任务关键词
-        if (containsAny(lower, "你好", "谢谢", "是什么", "几点")) {
+
+        // 简单任务关键词：问候、单次查询
+        if (containsAny(lower, "你好", "谢谢", "是什么", "几点", "今天天气", "现在")) {
             return ComplexityLevel.SIMPLE;
         }
-        
-        // 根据意图类型判断
+
+        // 根据意图类型判断（与 prompt 标准对齐）
         if (intent != null) {
             switch (intent.type) {
+                case "CHAT":
+                case "APP_OPERATION":
+                    return ComplexityLevel.SIMPLE;
                 case "WEATHER":
                 case "SEARCH":
                 case "CALCULATOR":
-                    return ComplexityLevel.MEDIUM;
-                case "CHAT":
+                case "TRANSLATE":
+                case "QUIZ":
+                case "FILE":
+                case "DATABASE":
+                    // 单次工具调用默认 SIMPLE
                     return ComplexityLevel.SIMPLE;
                 default:
                     return ComplexityLevel.SIMPLE;
             }
         }
-        
+
         return ComplexityLevel.SIMPLE;
     }
     

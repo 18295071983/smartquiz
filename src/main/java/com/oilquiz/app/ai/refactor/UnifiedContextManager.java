@@ -634,6 +634,8 @@ public class UnifiedContextManager {
             allOk = false;
         }
         
+        checkAndTrimContextWindow();
+        
         if (allOk) {
             if (stabilityCallback != null) {
                 stabilityCallback.onHealthCheckPassed();
@@ -643,6 +645,18 @@ public class UnifiedContextManager {
             if (stabilityCallback != null) {
                 stabilityCallback.onHealthCheckFailed(issues.toString());
             }
+        }
+    }
+    
+    private void checkAndTrimContextWindow() {
+        try {
+            ContextWindowManager ctxManager = ContextWindowManager.getInstance();
+            if (ctxManager != null && ctxManager.shouldTrim()) {
+                AppLogger.aiW(TAG, "Context window exceeding threshold, auto-trimming...");
+                ctxManager.autoTrim();
+            }
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error checking context window", e);
         }
     }
     

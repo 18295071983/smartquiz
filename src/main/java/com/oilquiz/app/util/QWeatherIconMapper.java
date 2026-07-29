@@ -1,116 +1,97 @@
 package com.oilquiz.app.util;
 
-import java.util.HashMap;
-import java.util.Map;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+
+import com.oilquiz.app.R;
+
+import java.util.Calendar;
 
 public class QWeatherIconMapper {
-    private static final Map<String, String> ICON_MAP = new HashMap<>();
-
-    static {
-        ICON_MAP.put("100", "sunny");
-        ICON_MAP.put("101", "cloudy");
-        ICON_MAP.put("102", "few_clouds");
-        ICON_MAP.put("103", "partly_cloudy");
-        ICON_MAP.put("104", "overcast");
-        ICON_MAP.put("200", "sunny_cloudy");
-        ICON_MAP.put("201", "cloudy_day");
-        ICON_MAP.put("202", "cloudy_night");
-        ICON_MAP.put("203", "overcast_day");
-        ICON_MAP.put("204", "overcast_night");
-        ICON_MAP.put("205", "rain_showers");
-        ICON_MAP.put("206", "heavy_rain_showers");
-        ICON_MAP.put("207", "thunder_showers");
-        ICON_MAP.put("208", "heavy_thunder_showers");
-        ICON_MAP.put("209", "sleet_showers");
-        ICON_MAP.put("210", "heavy_sleet_showers");
-        ICON_MAP.put("211", "snow_showers");
-        ICON_MAP.put("212", "heavy_snow_showers");
-        ICON_MAP.put("213", "mixed_rain_snow");
-        ICON_MAP.put("300", "shower_rain");
-        ICON_MAP.put("301", "heavy_shower_rain");
-        ICON_MAP.put("302", "thunder_shower");
-        ICON_MAP.put("303", "heavy_thunder");
-        ICON_MAP.put("304", "hail");
-        ICON_MAP.put("305", "light_rain");
-        ICON_MAP.put("306", "moderate_rain");
-        ICON_MAP.put("307", "heavy_rain");
-        ICON_MAP.put("308", "extreme_rain");
-        ICON_MAP.put("309", "drizzle");
-        ICON_MAP.put("310", "storm");
-        ICON_MAP.put("311", "heavy_storm");
-        ICON_MAP.put("312", "severe_storm");
-        ICON_MAP.put("313", "rain_and_snow");
-        ICON_MAP.put("314", "heavy_rain_and_snow");
-        ICON_MAP.put("315", "sleet");
-        ICON_MAP.put("316", "heavy_sleet");
-        ICON_MAP.put("317", "freezing_rain");
-        ICON_MAP.put("318", "heavy_freezing_rain");
-        ICON_MAP.put("399", "unknown_rain");
-        ICON_MAP.put("400", "snow");
-        ICON_MAP.put("401", "heavy_snow");
-        ICON_MAP.put("402", "snowstorm");
-        ICON_MAP.put("403", "light_snow");
-        ICON_MAP.put("404", "moderate_snow");
-        ICON_MAP.put("405", "wet_snow");
-        ICON_MAP.put("406", "slush");
-        ICON_MAP.put("407", "snow_grains");
-        ICON_MAP.put("408", "ice_crystals");
-        ICON_MAP.put("409", "ice_pellets");
-        ICON_MAP.put("410", "heavy_ice_pellets");
-        ICON_MAP.put("499", "unknown_snow");
-        ICON_MAP.put("500", "fog");
-        ICON_MAP.put("501", "haze");
-        ICON_MAP.put("502", "smoke");
-        ICON_MAP.put("503", "dust");
-        ICON_MAP.put("504", "sand");
-        ICON_MAP.put("507", "mist");
-        ICON_MAP.put("508", "foggy");
-        ICON_MAP.put("509", "freezing_fog");
-        ICON_MAP.put("510", "drifting_fog");
-        ICON_MAP.put("511", "thick_fog");
-        ICON_MAP.put("512", "shallow_fog");
-        ICON_MAP.put("513", "partial_fog");
-        ICON_MAP.put("514", "patches_of_fog");
-        ICON_MAP.put("515", "fog_in_vicinity");
-        ICON_MAP.put("600", "hot");
-        ICON_MAP.put("601", "cold");
-        ICON_MAP.put("602", "windy");
-        ICON_MAP.put("603", "calm");
-        ICON_MAP.put("604", "light_breeze");
-        ICON_MAP.put("605", "moderate_breeze");
-        ICON_MAP.put("606", "fresh_breeze");
-        ICON_MAP.put("607", "strong_breeze");
-        ICON_MAP.put("608", "near_gale");
-        ICON_MAP.put("609", "gale");
-        ICON_MAP.put("610", "strong_gale");
-        ICON_MAP.put("611", "storm_wind");
-        ICON_MAP.put("612", "violent_storm");
-        ICON_MAP.put("613", "hurricane");
-        ICON_MAP.put("614", "tornado");
-        ICON_MAP.put("615", "dust_devil");
-        ICON_MAP.put("616", "waterspout");
-        ICON_MAP.put("617", "squalls");
-        ICON_MAP.put("618", "funnel_cloud");
-        ICON_MAP.put("800", "clear_sky");
-        ICON_MAP.put("801", "few_clouds_day");
-        ICON_MAP.put("802", "scattered_clouds");
-        ICON_MAP.put("803", "broken_clouds");
-        ICON_MAP.put("804", "overcast_clouds");
-        ICON_MAP.put("900", "unknown");
-        ICON_MAP.put("901", "extreme_weather");
-        ICON_MAP.put("999", "unknown_weather");
-    }
 
     public static String getIconName(String weatherCode) {
-        String icon = ICON_MAP.get(weatherCode);
-        return icon != null ? icon : "unknown";
+        if (weatherCode == null) return "unknown";
+        return "qweather_" + weatherCode;
+    }
+
+    public static String getFontIcon(Context context, String weatherCode) {
+        return QWeatherIconFont.getIcon(weatherCode);
+    }
+
+    public static Typeface getIconTypeface(Context context) {
+        return QWeatherIconFont.getTypeface(context);
+    }
+
+    public static String getDayNightIcon(String weatherCode, boolean isNight) {
+        if (weatherCode == null || weatherCode.isEmpty()) return weatherCode;
+
+        try {
+            int code = Integer.parseInt(weatherCode);
+            if (isNight) {
+                return convertToNightIcon(code);
+            } else {
+                return convertToDayIcon(code);
+            }
+        } catch (NumberFormatException e) {
+            return weatherCode;
+        }
+    }
+
+    public static String getIconByTime(String weatherCode) {
+        Calendar calendar = Calendar.getInstance();
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        boolean isNight = hour < 6 || hour >= 18;
+        return getDayNightIcon(weatherCode, isNight);
+    }
+
+    private static String convertToNightIcon(int code) {
+        if (code >= 100 && code <= 104) {
+            return String.valueOf(code + 50);
+        }
+        if (code >= 150 && code <= 154) {
+            return String.valueOf(code);
+        }
+        if (code >= 300 && code <= 303) {
+            return String.valueOf(code + 50);
+        }
+        if (code >= 350 && code <= 351) {
+            return String.valueOf(code);
+        }
+        return String.valueOf(code);
+    }
+
+    private static String convertToDayIcon(int code) {
+        if (code >= 150 && code <= 154) {
+            return String.valueOf(code - 50);
+        }
+        if (code >= 350 && code <= 351) {
+            return String.valueOf(code - 50);
+        }
+        return String.valueOf(code);
+    }
+
+    public static boolean isNightIcon(int code) {
+        return (code >= 150 && code <= 154) || (code >= 350 && code <= 351);
+    }
+
+    public static boolean shouldHaveNightVariant(int code) {
+        return (code >= 100 && code <= 104) || (code >= 300 && code <= 303);
     }
 
     public static String getEmojiIcon(String weatherCode) {
+        if (weatherCode == null || weatherCode.isEmpty()) return "🌤️";
         switch (weatherCode) {
             case "100":
             case "800":
                 return "☀️";
+            case "150":
+                return "🌙";
             case "101":
             case "151":
                 return "⛅";
@@ -180,6 +161,8 @@ public class QWeatherIconMapper {
                 return "❄️";
             case "399":
                 return "🌧️";
+            case "304":
+                return "🌩️";
             case "500":
             case "501":
             case "502":
@@ -204,12 +187,105 @@ public class QWeatherIconMapper {
                 return "🔥";
             case "601":
                 return "🥶";
-            case "150":
-                return "🌙";
-            case "304":
-                return "🌩️";
+            case "900":
+                return "🥵";
+            case "901":
+                return "🥶";
+            case "999":
+                return "❓";
             default:
                 return "🌤️";
         }
+    }
+
+    public static String getWeatherType(String weatherCode) {
+        if (weatherCode == null || weatherCode.isEmpty()) return "unknown";
+        try {
+            int code = Integer.parseInt(weatherCode);
+            if (code >= 100 && code < 200) return "sunny";
+            if (code >= 200 && code < 300) return "cloudy";
+            if (code >= 300 && code < 400) return "rain";
+            if (code >= 400 && code < 500) return "snow";
+            if (code >= 500 && code < 600) return "fog";
+            if (code >= 600 && code < 700) return "wind";
+            if (code >= 800 && code < 900) return "moon";
+            if (code >= 900) return "extreme";
+            return "unknown";
+        } catch (NumberFormatException e) {
+            return "unknown";
+        }
+    }
+
+    public static String getWeatherTextDesc(String weatherCode) {
+        if (weatherCode == null || weatherCode.isEmpty()) return "未知";
+        try {
+            int code = Integer.parseInt(weatherCode);
+            if (code >= 100 && code <= 104) return "晴";
+            if (code >= 150 && code <= 154) return "晴(夜)";
+            if (code >= 300 && code <= 309) return "雨";
+            if (code >= 310 && code <= 318) return "暴雨";
+            if (code >= 350 && code <= 351) return "阵雨(夜)";
+            if (code >= 400 && code <= 410) return "雪";
+            if (code >= 456 && code <= 457) return "阵雪(夜)";
+            if (code >= 500 && code <= 515) return "雾/霾";
+            if (code >= 800 && code <= 807) return "月相";
+            if (code == 900) return "热";
+            if (code == 901) return "冷";
+            return "未知";
+        } catch (NumberFormatException e) {
+            return "未知";
+        }
+    }
+
+    public static int getIconDrawableRes(String weatherCode, Context context) {
+        if (weatherCode == null || weatherCode.isEmpty()) {
+            return R.drawable.wi_999;
+        }
+        try {
+            String resName = "wi_" + weatherCode;
+            int resId = context.getResources().getIdentifier(resName, "drawable", context.getPackageName());
+            if (resId != 0) return resId;
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
+    public static Drawable getIconDrawable(String weatherCode, Context context, int sizeDp) {
+        return createFontIconDrawable(context, weatherCode, sizeDp, Color.WHITE);
+    }
+
+    public static Drawable createFontIconDrawable(Context context, String weatherCode, int sizeDp, int color) {
+        int sizePx = (int) (sizeDp * context.getResources().getDisplayMetrics().density);
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint();
+        paint.setTypeface(QWeatherIconFont.getTypeface(context));
+        paint.setColor(color);
+        paint.setTextSize(sizePx * 0.85f);
+        paint.setAntiAlias(true);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setSubpixelText(true);
+
+        String iconText = QWeatherIconFont.getIcon(weatherCode);
+        float y = (sizePx / 2f) - ((paint.descent() + paint.ascent()) / 2f);
+        canvas.drawText(iconText, sizePx / 2f, y, paint);
+        return new BitmapDrawable(context.getResources(), bitmap);
+    }
+
+    private static Drawable createEmojiDrawable(Context context, String emoji, int sizeDp) {
+        int sizePx = (int) (sizeDp * context.getResources().getDisplayMetrics().density);
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint();
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(sizePx * 0.75f);
+        paint.setAntiAlias(true);
+        paint.setTextAlign(Paint.Align.CENTER);
+        float textWidth = paint.measureText(emoji);
+        float textHeight = paint.getTextSize();
+        float x = (sizePx - textWidth) / 2;
+        float y = (sizePx + textHeight) / 2 - paint.descent();
+        canvas.drawText(emoji, x, y, paint);
+        return new BitmapDrawable(context.getResources(), bitmap);
     }
 }

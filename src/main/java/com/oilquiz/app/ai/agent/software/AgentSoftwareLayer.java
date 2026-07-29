@@ -13,6 +13,8 @@ import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,8 +75,39 @@ public class AgentSoftwareLayer {
         this.complexityAnalyzer = new ComplexityAnalyzer(aiService);
         this.taskDecomposer = new TaskDecomposer(aiService);
         this.executionEngine = new ExecutionEngine(context, aiService);
-        this.thinkingChainEngine = new ThinkingChainEngine(aiService);
+        this.thinkingChainEngine = new ThinkingChainEngine();
         this.resultIntegrator = new ResultIntegrator(aiService);
+        
+        // 设置思考链引擎回调
+        this.thinkingChainEngine.setCallback(new ThinkingChainEngine.ThinkingCallback() {
+            @Override
+            public void onThinkingToken(String token) {
+                if (callback != null && token != null) {
+                    callback.onThinkingUpdate(token);
+                }
+            }
+            
+            @Override
+            public void onThinkingComplete(String thought) {
+                if (callback != null && thought != null) {
+                    callback.onThinkingUpdate(thought);
+                }
+            }
+            
+            @Override
+            public void onStepUpdate(int step, String thought, String action, String observation) {
+                if (callback != null) {
+                    callback.onStepUpdate("思考步骤 " + step, "思考: " + thought);
+                }
+            }
+            
+            @Override
+            public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
+                if (callback != null) {
+                    callback.onInferenceProgress(tokenCount, tokensPerSecond);
+                }
+            }
+        });
         
         AILogger.i(TAG, "AgentSoftwareLayer initialized");
     }
@@ -101,10 +134,11 @@ public class AgentSoftwareLayer {
                 if (callback != null) {
                     callback.onComplete(response);
                 }
-            } catch (Exception e) {
-                AILogger.e(TAG, "Error processing message: " + e.getMessage(), e);
+            } catch (Throwable t) {
+                AILogger.e(TAG, "Error processing message: " + t.getMessage(), t);
                 if (callback != null) {
-                    callback.onError("处理失败: " + e.getMessage());
+                    String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                    callback.onError("处理失败: " + errorMsg);
                 }
             } finally {
                 isProcessing.set(false);
@@ -118,31 +152,39 @@ public class AgentSoftwareLayer {
     private AgentResponse processMessageInternal(String userMessage) {
         long startTime = System.currentTimeMillis();
         int totalTokenCount = 0;
-        
-        // Step 1: 意图识别
-        notifyStep("意图识别", "正在分析用户意图...");
-        IntentResult intent = intentRecognizer.recognize(userMessage);
-        totalTokenCount += 50;
+        // 记录起始 chat 上下文占用，用于检测 agent 执行是否导致上下文异常增长
+        // （所有模块用 generate 单次推理，不增长 chat KV cache，增长量应为 ~0）
+        int startContextUsed = getActualUsedTokens();
+        // 统计输入 token：用 countTokens 累计实际处理的文本量
+        totalTokenCount += countTokensSafe(userMessage);
+
+        // Step 1: 意图识别 + 复杂度分析（合并为单次 LLM 调用，节省一次推理）
+        notifyStep("意图分析", "正在分析用户意图和任务复杂度...");
+        IntentRecognizer.IntentAnalysis analysis = intentRecognizer.analyzeWithComplexity(userMessage, null);
+        IntentResult intent = analysis.intent;
+        ComplexityLevel complexity = analysis.complexity;
+        totalTokenCount += countTokensSafe(intent.type + " " + intent.confidence + " " + (intent.entity != null ? intent.entity : ""));
         notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
-        AILogger.i(TAG, "Intent recognized: " + intent.type + " (confidence: " + intent.confidence + ")");
-        notifyStep("意图识别完成", "意图类型: " + intent.type + ", 置信度: " + String.format("%.0f%%", intent.confidence * 100));
-        
-        // Step 2: 复杂度分析
-        notifyStep("复杂度分析", "正在评估任务复杂度...");
-        ComplexityLevel complexity = complexityAnalyzer.analyze(userMessage, intent);
-        totalTokenCount += 30;
-        notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
-        AILogger.i(TAG, "Complexity analyzed: " + complexity);
-        notifyStep("复杂度分析完成", "复杂度级别: " + complexity);
-        
+        notifyStep("意图分析完成",
+                String.format("类型: %s | 置信度: %.0f%% | 实体: %s | 复杂度: %s | 预估步骤: %d",
+                        intent.type,
+                        intent.confidence * 100,
+                        intent.entity != null && !intent.entity.isEmpty() ? intent.entity : "无",
+                        complexity,
+                        analysis.estimatedSteps));
+        AILogger.i(TAG, "Intent: " + intent.type + " (confidence: " + intent.confidence
+                + "), Complexity: " + complexity + ", Steps: " + analysis.estimatedSteps);
+
+        // Step 2: （已合并到 Step 1，保留步骤编号便于后续扩展）
+
         // Step 3: 任务分解
         notifyStep("任务分解", "正在分解任务...");
         TaskPlan taskPlan = taskDecomposer.decompose(userMessage, intent, complexity);
-        totalTokenCount += 80;
+        totalTokenCount += countTokensSafe(buildTaskPlanDetail(taskPlan));
         notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
+        notifyStep("任务分解完成", buildTaskPlanDetail(taskPlan));
         AILogger.i(TAG, "Task plan created: " + taskPlan.getTasks().size() + " tasks");
-        notifyStep("任务分解完成", "任务数量: " + taskPlan.getTasks().size());
-        
+
         // Step 4: 执行任务
         notifyStep("任务执行", "正在执行任务...");
         ExecutionResult executionResult = executionEngine.execute(taskPlan, new ExecutionEngine.ToolCallback() {
@@ -150,46 +192,167 @@ public class AgentSoftwareLayer {
             public void onToolCallStart(String toolName, String args) {
                 if (callback != null) callback.onToolCallStart(toolName, args);
             }
-            
+
             @Override
             public void onToolCallComplete(String toolName, boolean success, String result) {
                 if (callback != null) callback.onToolCallComplete(toolName, success, result);
             }
         });
-        totalTokenCount += 100;
+        totalTokenCount += countTokensSafe(buildExecutionResultDetail(executionResult));
         notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
+        notifyStep("任务执行完成", buildExecutionResultDetail(executionResult));
         AILogger.i(TAG, "Execution completed: " + executionResult.getTaskResults().size() + " results");
-        notifyStep("任务执行完成", "执行结果数量: " + executionResult.getTaskResults().size());
-        
+
         // Step 5: 思考链处理
-        notifyStep("思考链", "正在处理思考链...");
-        ThinkingChain thinkingChain = thinkingChainEngine.process(executionResult, userMessage);
-        totalTokenCount += 150;
+        notifyStep("深度思考", "正在深度分析...");
+        ThinkingChain thinkingChain = thinkingChainEngine.process(executionResult, userMessage, complexity);
+        totalTokenCount += countTokensSafe(buildThinkingChainSummary(thinkingChain));
         notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
+        notifyStep("深度思考完成",
+                String.format("思考步骤: %d 步 (复杂度: %s)", thinkingChain.getSteps().size(), complexity));
         AILogger.i(TAG, "Thinking chain: " + thinkingChain.getSteps().size() + " steps");
-        notifyStep("思考链完成", "思考步骤数: " + thinkingChain.getSteps().size());
-        
+
         // Step 6: 结果整合
-        notifyStep("结果整合", "正在生成最终回复...");
+        notifyStep("生成回复", "正在生成最终回复...");
         AgentResponse response = resultIntegrator.integrate(thinkingChain, executionResult, userMessage);
-        totalTokenCount += response.finalAnswer.length();
+        totalTokenCount += countTokensSafe(response.finalAnswer);
         notifyInferenceProgress(totalTokenCount, calculateTps(totalTokenCount, startTime));
-        
-        // 计算统计
+        notifyStep("回复生成完成",
+                String.format("Token: %d | 速度: %.1f t/s | 用时: %.1fs | 回复长度: %d 字符",
+                        totalTokenCount,
+                        calculateTps(totalTokenCount, startTime),
+                        (System.currentTimeMillis() - startTime) / 1000.0f,
+                        response.finalAnswer != null ? response.finalAnswer.length() : 0));
+
         long totalTime = System.currentTimeMillis() - startTime;
+
+        // 检测 agent 执行是否导致 chat 上下文异常增长（所有模块用 generate，不应增长）
+        int contextGrowth = getActualUsedTokens() - startContextUsed;
+        if (contextGrowth > 100) {
+            AILogger.w(TAG, "Chat context grew by " + contextGrowth
+                    + " tokens during agent execution (expected ~0), possible chatSend leak");
+        }
+
         response.stats = new AgentStats(
-            response.finalAnswer.length(),
+            totalTokenCount,
             totalTime,
             executionResult.getTaskResults().size(),
             thinkingChain.getSteps().size()
         );
-        
+
+        // 上下文预警：使用率 >= 80% 时提醒
+        float usagePercent = LlamaHelper.getContextUsagePercent();
+        if (usagePercent >= 80.0f && usagePercent < 100.0f) {
+            AILogger.w(TAG, String.format("Context usage warning: %.1f%% (%d/%d)",
+                    usagePercent, getActualUsedTokens(), LlamaHelper.getContextSize()));
+            if (callback != null) {
+                callback.onStepUpdate("上下文预警",
+                        String.format("上下文已使用 %.0f%%，接近上限，建议开启新会话", usagePercent));
+            }
+        }
+
         AILogger.i(TAG, "Agent processing completed in " + totalTime + "ms");
-        notifyStep("处理完成", "总耗时: " + totalTime + "ms");
-        
+
         return response;
     }
-    
+
+    /**
+     * 获取 LLM 上下文实际已用 token 数
+     */
+    private int getActualUsedTokens() {
+        return LlamaHelper.getContextUsedTokens();
+    }
+
+    /**
+     * 安全地统计文本 token 数（native 层不可用时回退到字符数估算）
+     */
+    private int countTokensSafe(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        try {
+            int n = LlamaHelper.countTokens(text);
+            return n > 0 ? n : Math.max(1, text.length() / 4);
+        } catch (Exception e) {
+            return Math.max(1, text.length() / 4);
+        }
+    }
+
+    /**
+     * 构建思考链摘要文本（用于 token 统计和日志）
+     */
+    private String buildThinkingChainSummary(ThinkingChain chain) {
+        if (chain == null || chain.getSteps() == null || chain.getSteps().isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (ThinkingStep step : chain.getSteps()) {
+            if (step.getThought() != null && step.getThought().getContent() != null) {
+                sb.append(step.getThought().getContent()).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 构建任务计划详情：任务数 + 每个任务描述/工具（最多展示 5 条避免过长）
+     */
+    private String buildTaskPlanDetail(TaskPlan taskPlan) {
+        List<Task> tasks = taskPlan.getTasks();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("共 %d 个任务", tasks.size()));
+        int limit = Math.min(tasks.size(), 5);
+        for (int i = 0; i < limit; i++) {
+            Task t = tasks.get(i);
+            sb.append("\n  ").append(i + 1).append(". ");
+            if (t.getDescription() != null && !t.getDescription().isEmpty()) {
+                sb.append(truncate(t.getDescription(), 40));
+            } else {
+                sb.append("(无描述)");
+            }
+            if (t.getToolName() != null && !t.getToolName().isEmpty()) {
+                sb.append("  [工具: ").append(t.getToolName()).append("]");
+            }
+        }
+        if (tasks.size() > limit) {
+            sb.append("\n  ...还有 ").append(tasks.size() - limit).append(" 个任务");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 构建执行结果详情：成功/失败数 + 错误信息
+     */
+    private String buildExecutionResultDetail(ExecutionResult executionResult) {
+        Map<String, TaskResult> results = executionResult.getTaskResults();
+        int success = 0, failed = 0;
+        StringBuilder errors = new StringBuilder();
+        for (TaskResult r : results.values()) {
+            if (r.isSuccess()) {
+                success++;
+            } else {
+                failed++;
+                if (r.getError() != null && !r.getError().isEmpty()) {
+                    if (errors.length() > 0) errors.append("; ");
+                    errors.append(truncate(r.getError(), 60));
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("成功 %d / 失败 %d / 共 %d", success, failed, results.size()));
+        if (executionResult.hasError()) {
+            sb.append("\n执行错误: ").append(truncate(executionResult.getError(), 80));
+        }
+        if (errors.length() > 0) {
+            sb.append("\n失败原因: ").append(errors);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 截断字符串到指定长度，超出加省略号
+     */
+    private String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
+    }
+
     private float calculateTps(int tokenCount, long startTime) {
         long elapsed = System.currentTimeMillis() - startTime;
         return elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;

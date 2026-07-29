@@ -343,7 +343,8 @@ public class AIChatViewModel extends AndroidViewModel {
         try {
         executor.execute(() -> {
             try {
-                aiService.chatSend(message, aiConfig.getMaxTokens(), false, new LlamaHelper.TokenCallback() {
+                int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+                aiService.chatSend(message, maxTokens, false, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
                         handleStreamingToken(token);

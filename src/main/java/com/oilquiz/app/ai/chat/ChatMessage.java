@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat;
 
+import com.oilquiz.app.ai.agent.AgentExecutionState;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -200,6 +202,9 @@ public class ChatMessage {
     /** 生成耗时（毫秒） */
     public long generationTimeMs;
 
+    /** 模型推理速度（token/s） */
+    public float tokensPerSecond;
+
     /** 系统消息类型 */
     public SystemMessageType systemType;
 
@@ -211,6 +216,12 @@ public class ChatMessage {
 
     /** Agent汇总信息 */
     public AgentSummaryInfo agentSummaryInfo;
+
+    /** 是否为Agent模式消息 */
+    public boolean agentMode;
+
+    /** Agent执行状态数据 */
+    public AgentExecutionState agentExecutionState;
 
     /** Agent进度信息 */
     public AgentProgressInfo agentProgressInfo;
@@ -241,6 +252,9 @@ public class ChatMessage {
 
     /** 是否展开（用于长消息折叠） */
     public boolean isExpanded;
+
+    /** 用户是否手动操作过展开/收起（用于区分首次自动展开与用户主动收起） */
+    public boolean hasUserToggledExpand;
 
     /** 在线模型信息 */
     public ModelInfo modelInfo;
@@ -299,6 +313,10 @@ public class ChatMessage {
         public String result;
         public ToolCallStatus status;
         public long executionTimeMs;
+        /** 参数区域是否展开 */
+        public boolean paramsExpanded = false;
+        /** 结果区域是否展开 */
+        public boolean resultExpanded = true;
 
         public enum ToolCallStatus {
             PENDING,
@@ -1028,6 +1046,8 @@ public class ChatMessage {
         this.agentStepInfo = builder.agentStepInfo;
         this.agentSummaryInfo = builder.agentSummaryInfo;
         this.agentProgressInfo = builder.agentProgressInfo;
+        this.agentMode = builder.agentMode;
+        this.agentExecutionState = builder.agentExecutionState;
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
         this.inferenceProgress = builder.inferenceProgress;
@@ -1524,6 +1544,8 @@ public class ChatMessage {
         private AgentSummaryInfo agentSummaryInfo;
         private AgentProgressInfo agentProgressInfo;
         private AgentReflectionInfo agentReflectionInfo;
+        private boolean agentMode;
+        private AgentExecutionState agentExecutionState;
         private SummaryInfo summaryInfo;
         private String errorDetail;
         private boolean retryable = false;
@@ -1645,6 +1667,16 @@ public class ChatMessage {
 
         public Builder agentProgressInfo(AgentProgressInfo agentProgressInfo) {
             this.agentProgressInfo = agentProgressInfo;
+            return this;
+        }
+
+        public Builder agentMode(boolean agentMode) {
+            this.agentMode = agentMode;
+            return this;
+        }
+
+        public Builder agentExecutionState(AgentExecutionState state) {
+            this.agentExecutionState = state;
             return this;
         }
 

@@ -1,6 +1,6 @@
 # Agent 架构设计文档
 
-> 版本: 2.1 | 更新日期: 2026-07-18
+> 版本: 2.2 | 更新日期: 2026-07-29
 
 ## 一、架构概述
 
@@ -199,7 +199,106 @@ Agent 请求工具 → AIToolManager 匹配工具
                 回传 Agent 引擎
 ```
 
-## 五、Skill 技能系统
+## 五、Agent 软件层（v2.2 新增）
+
+### 5.1 架构概述
+
+Agent 软件层是在现有 Agent 引擎之上的更高抽象层，提供**意图识别 → 复杂度分析 → 任务分解 → 执行 → 思考链 → 结果整合**的完整处理流程。
+
+```
+用户消息
+    ↓
+AgentSoftwareLayer.processUserMessage()
+    ↓
+┌─────────────────────────────────────────────────┐
+│ 1. IntentRecognizer    — 意图识别               │
+│ 2. ComplexityAnalyzer  — 复杂度分析             │
+│ 3. TaskDecomposer      — 任务分解（仅复杂请求）  │
+│ 4. ExecutionEngine     — 执行引擎               │
+│ 5. ThinkingChainEngine — 思考链生成             │
+│ 6. ResultIntegrator    — 结果整合               │
+└─────────────────────────────────────────────────┘
+    ↓
+AgentResponse（最终响应）
+```
+
+### 5.2 核心组件
+
+| 组件 | 类名 | 功能 |
+|------|------|------|
+| 软件层入口 | `AgentSoftwareLayer` | 统一调度 Agent 处理流程 |
+| 意图识别 | `IntentRecognizer` | LLM 驱动的意图分类 |
+| 复杂度分析 | `ComplexityAnalyzer` | 评估请求复杂度等级 |
+| 任务分解 | `TaskDecomposer` | 将复杂请求分解为子任务 |
+| 执行引擎 | `ExecutionEngine` | 执行任务列表 |
+| 思考链引擎 | `ThinkingChainEngine` | 生成推理过程展示 |
+| 结果整合 | `ResultIntegrator` | 整合执行结果和思考链 |
+
+### 5.3 数据模型
+
+```java
+// 意图结果
+public class IntentResult {
+    IntentType type;      // QUIZ/QUESTION/TRANSLATION/WEATHER/GENERAL
+    float confidence;     // 识别置信度
+    String rawMessage;    // 原始消息
+}
+
+// 复杂度级别
+public enum ComplexityLevel {
+    SIMPLE,   // 单轮问答，直接回答
+    MEDIUM,   // 多步推理，可能需要工具
+    COMPLEX   // 复杂任务，需要完整规划和执行
+}
+
+// 任务定义
+public class Task {
+    String id;
+    String description;
+    String toolName;      // 使用的工具名称
+    JSONObject parameters; // 工具参数
+    TaskStatus status;     // PENDING/RUNNING/COMPLETED/FAILED
+    String result;        // 执行结果
+}
+```
+
+### 5.4 处理流程详解
+
+#### 简单请求（SIMPLE）
+```
+用户: "今天北京天气怎么样？"
+    → IntentRecognizer → WEATHER
+    → ComplexityAnalyzer → SIMPLE
+    → 直接调用 AIWeatherManager
+    → 返回结果
+```
+
+#### 复杂请求（COMPLEX）
+```
+用户: "帮我分析最近的天气趋势并给出穿衣建议"
+    → IntentRecognizer → QUESTION
+    → ComplexityAnalyzer → COMPLEX
+    → TaskDecomposer → [获取天气, 分析趋势, 生成建议]
+    → ExecutionEngine → 依次执行各任务
+    → ThinkingChainEngine → 生成推理步骤
+    → ResultIntegrator → 整合最终响应
+```
+
+### 5.5 与现有引擎的关系
+
+Agent 软件层封装了现有的 `UnifiedAgentEngine` 和 `AIAgentEngine`，向上提供更简洁的 API：
+
+```
+AgentSoftwareLayer
+    ↓ (调用)
+UnifiedAgentEngine / AIAgentEngine
+    ↓ (调用)
+ServiceRouter → LlamaHelper / Retrofit
+    ↓ (调用)
+AIToolManager → 各工具实现
+```
+
+## 六、Skill 技能系统
 
 动态加载和执行可扩展的技能模块：
 
@@ -215,9 +314,9 @@ DynamicSkillExecutor → 运行时执行
 - **SkillLoader**: 从 assets/网络加载技能定义
 - **DynamicSkillExecutor**: 在沙箱中执行技能代码
 
-## 六、Chat 子系统
+## 七、Chat 子系统
 
-### 6.1 核心组件
+### 7.1 核心组件
 
 | 组件 | 类名 | 功能 |
 |------|------|------|
@@ -226,39 +325,39 @@ DynamicSkillExecutor → 运行时执行
 | 思考过程 | `DeepThinkingEngine` | 深度思考与推理过程可视化 |
 | 消息管理 | `AgentMessageManager` | 消息的创建、存储、迭代 |
 
-### 6.2 ChatModeManager 模式
+### 7.2 ChatModeManager 模式
 
 - **问答模式**: 快速问答，低延迟
 - **分析模式**: 深度分析，多步推理
 - **创作模式**: 创意写作，风格化输出
 - **思考模式**: 链式推理，过程可见
 
-## 七、模型管理
+## 八、模型管理
 
-### 7.1 MultiModelManager
+### 8.1 MultiModelManager
 
 支持多个模型并行管理：
 - 本地模型 (GGUF 格式，通过 llama.cpp)
 - 离线模型包管理
 - 模型热切换
 
-### 7.2 ModelRegistry
+### 8.2 ModelRegistry
 
 模型注册和发现：
 - 扫描设备上的可用模型
 - 模型元数据管理
 - 版本检测
 
-### 7.3 OnlineModelManager
+### 8.3 OnlineModelManager
 
 云端模型 API 管理：
 - API Key 存储 (APIKeyManager)
 - 服务可用性检测
 - 流量统计与计费
 
-## 八、GPU 加速系统
+## 九、GPU 加速系统
 
-### 8.1 核心组件
+### 9.1 核心组件
 
 ```
 DeviceCapabilityDetector → 设备硬件检测
@@ -276,7 +375,7 @@ MemoryMonitor → 实时内存监控
 BenchmarkResult → 性能基准结果
 ```
 
-### 8.2 后端支持
+### 9.2 后端支持
 
 | 后端 | 说明 |
 |------|------|
@@ -285,9 +384,9 @@ BenchmarkResult → 性能基准结果
 
 系统自动检测最佳后端方案。
 
-## 九、AI 服务层
+## 十、AI 服务层
 
-### 9.1 多服务架构
+### 10.1 多服务架构
 
 ```
 ┌──────────────────────────────────────┐
@@ -304,7 +403,7 @@ BenchmarkResult → 性能基准结果
 └──────────┴──────────┴───────────────┘
 ```
 
-### 9.2 AI 服务组件
+### 10.2 AI 服务组件
 
 | 服务 | 类名 | 功能 |
 |------|------|------|
@@ -314,7 +413,7 @@ BenchmarkResult → 性能基准结果
 | 基础服务 | `AgentService.java` | Agent 基础服务 |
 | 崩溃处理 | `AICrashHandlerService.java` | AI 崩溃恢复 |
 
-## 十、Feature 功能层
+## 十一、Feature 功能层
 
 独立的 AI 功能模块：
 
@@ -325,27 +424,27 @@ BenchmarkResult → 性能基准结果
 | 题目生成 | `QuestionGenerator` | AI 自动出题 |
 | 翻译 | `Translator` | 多语言翻译 |
 
-## 十一、配置与优化
+## 十二、配置与优化
 
-### 11.1 AI 配置
+### 12.1 AI 配置
 
 - `AIConfig.java` — 推理参数配置（temperature, top_p, max_tokens 等）
 - `InferenceQueue.java` — 推理请求队列管理
 - `DeviceOptimizationManager.java` — 设备适配优化
 
-### 11.2 缓存与会话
+### 12.2 缓存与会话
 
 - `CacheManager.java` — 推理结果缓存
 - `SessionManager.java` — 对话会话管理
 - `ChatDatabaseHelper.java` — 聊天数据库辅助
 
-### 11.3 性能监控
+### 12.3 性能监控
 
 - `PerformanceDashboard.java` — 性能仪表盘
 - `PerformanceMonitor.java` — 运行时监控
 - `MemoryMonitor.java` — GPU 内存监控
 
-## 十二、Agent 状态机
+## 十三、Agent 状态机
 
 ```
 IDLE → ANALYZING → PLANNING → EXECUTING → VALIDATING → RESPONDING → COMPLETED

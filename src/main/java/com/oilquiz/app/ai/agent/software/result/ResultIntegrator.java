@@ -33,19 +33,7 @@ public class ResultIntegrator {
             // 构建整合 Prompt
             String prompt = buildIntegrationPrompt(chain, executionResult, userMessage);
             
-            // 如果聊天上下文活跃，先关闭再使用 generate
-            boolean contextWasActive = com.oilquiz.app.ai.jni.LlamaHelper.isChatContextActive();
-            if (contextWasActive) {
-                AILogger.i(TAG, "Chat context active, destroying before result integration");
-                try {
-                    com.oilquiz.app.ai.jni.LlamaHelper.chatDestroy();
-                    Thread.sleep(100);
-                } catch (Exception e) {
-                    AILogger.w(TAG, "Error destroying chat context: " + e.getMessage());
-                }
-            }
-            
-            // 调用 LLM 生成最终回复
+            // 调用 LLM 生成最终回复（generate 独占推理锁，不触碰 chat context，无需 destroy）
             String response = com.oilquiz.app.ai.jni.LlamaHelper.generate(prompt, 1000, 0.7f);
             
             if (response == null || response.trim().isEmpty()) {
@@ -64,34 +52,46 @@ public class ResultIntegrator {
     
     /**
      * 构建整合 Prompt
+     * 包含角色约束、上下文、风格指引和严格输出要求
      */
-    private String buildIntegrationPrompt(ThinkingChain chain, ExecutionResult result, 
+    private String buildIntegrationPrompt(ThinkingChain chain, ExecutionResult result,
                                           String userMessage) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一个智能助手，请根据以下信息生成最终回复。\n\n");
-        
+        sb.append("你是一个专业回复生成引擎，基于任务执行结果生成最终用户回复。\n\n");
+        sb.append("【角色约束】\n");
+        sb.append("- 直接回应用户问题，不要复述任务过程\n");
+        sb.append("- 基于执行结果中的真实数据，不要编造未出现的信息\n");
+        sb.append("- 如果执行结果失败，诚实告知失败原因并提供替代建议\n");
+        sb.append("- 使用自然、清晰、有条理的中文\n");
+        sb.append("- 天气类结果用结构化展示（温度/湿度/风速等分点列出）\n");
+        sb.append("- 聊天类回复用自然语言，口语化\n");
+        sb.append("- 搜索/数据类结果先给结论再补充细节\n\n");
+
         // 用户原始问题
         sb.append("【用户问题】\n");
         sb.append(userMessage).append("\n\n");
-        
-        // 思考链
+
+        // 思考链（简要）
         sb.append("【思考过程】\n");
         if (chain != null && !chain.getSteps().isEmpty()) {
             for (int i = 0; i < chain.getSteps().size(); i++) {
-                sb.append("Step ").append(i + 1).append(": ");
-                sb.append(chain.getSteps().get(i).getThought().getContent()).append("\n");
+                String content = chain.getSteps().get(i).getThought().getContent();
+                // 只取每步思考的前 100 字，避免 prompt 过长
+                sb.append("Step ").append(i + 1).append(": ")
+                  .append(truncate(content, 100)).append("\n");
             }
         } else {
-            sb.append("无思考过程\n");
+            sb.append("无\n");
         }
-        
-        // 执行结果
+
+        // 执行结果（截断过长的结果避免超出上下文）
         sb.append("\n【执行结果】\n");
         if (result != null && !result.getTaskResults().isEmpty()) {
             for (Map.Entry<String, TaskResult> entry : result.getTaskResults().entrySet()) {
                 sb.append("- ").append(entry.getKey()).append(": ");
                 if (entry.getValue().isSuccess()) {
-                    sb.append(entry.getValue().getResult());
+                    String r = entry.getValue().getResult();
+                    sb.append(r != null ? truncate(r, 1500) : "空结果");
                 } else {
                     sb.append("失败: ").append(entry.getValue().getError());
                 }
@@ -100,15 +100,19 @@ public class ResultIntegrator {
         } else {
             sb.append("无执行结果\n");
         }
-        
+
         sb.append("\n【请生成回复】\n");
-        sb.append("请基于以上信息，生成清晰、完整、有帮助的回复。\n");
-        sb.append("回复应该：\n");
-        sb.append("1. 直接回答用户的问题\n");
-        sb.append("2. 包含必要的信息和细节\n");
-        sb.append("3. 使用自然易懂的语言\n");
-        
+        sb.append("基于以上信息生成清晰、完整、有帮助的回复。\n");
+
         return sb.toString();
+    }
+
+    /**
+     * 截断字符串到指定长度
+     */
+    private String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…(已截断)";
     }
     
     /**
