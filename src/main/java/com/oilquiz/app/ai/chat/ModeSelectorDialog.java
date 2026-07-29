@@ -44,7 +44,7 @@ public class ModeSelectorDialog {
     private View dialogView;
 
     // UI 组件
-    private RadioButton rbNormal, rbThinking, rbCreative;
+    private RadioButton rbNormal, rbThinking, rbCreative, rbAgent, rbThinkingAssist;
     private View autoSwitchContainer;
     private SwitchCompat switchAutoMode;
     private TextView tvModeDesc;
@@ -87,11 +87,12 @@ public class ModeSelectorDialog {
         rbNormal = view.findViewById(R.id.rb_mode_normal_inner);
         rbThinking = view.findViewById(R.id.rb_mode_thinking_inner);
         rbCreative = view.findViewById(R.id.rb_mode_creative_inner);
+        rbAgent = view.findViewById(R.id.rb_mode_agent_inner);
+        rbThinkingAssist = view.findViewById(R.id.rb_mode_thinking_assist_inner);
         autoSwitchContainer = view.findViewById(R.id.container_auto_switch);
         switchAutoMode = view.findViewById(R.id.switch_auto_mode);
         tvModeDesc = view.findViewById(R.id.tv_mode_description);
 
-        // 点击关闭按钮
         View btnClose = view.findViewById(R.id.btn_close);
         if (btnClose != null) {
             btnClose.setOnClickListener(v -> dismiss());
@@ -99,29 +100,24 @@ public class ModeSelectorDialog {
     }
 
     private void setupListeners() {
-        // 模式选择 - 点击整个行布局来切换
         View.OnClickListener modeClickListener = v -> {
             ChatModeManager.ChatMode selectedMode;
             int id = v.getId();
             if (id == R.id.rb_mode_normal || id == R.id.rb_mode_normal_inner) {
                 selectedMode = ChatModeManager.ChatMode.NORMAL;
-                rbNormal.setChecked(true);
-                rbThinking.setChecked(false);
-                rbCreative.setChecked(false);
             } else if (id == R.id.rb_mode_thinking || id == R.id.rb_mode_thinking_inner) {
                 selectedMode = ChatModeManager.ChatMode.DEEP_THINKING;
-                rbNormal.setChecked(false);
-                rbThinking.setChecked(true);
-                rbCreative.setChecked(false);
             } else if (id == R.id.rb_mode_creative || id == R.id.rb_mode_creative_inner) {
                 selectedMode = ChatModeManager.ChatMode.CREATIVE;
-                rbNormal.setChecked(false);
-                rbThinking.setChecked(false);
-                rbCreative.setChecked(true);
+            } else if (id == R.id.rb_mode_agent || id == R.id.rb_mode_agent_inner) {
+                selectedMode = ChatModeManager.ChatMode.AGENT;
+            } else if (id == R.id.rb_mode_thinking_assist || id == R.id.rb_mode_thinking_assist_inner) {
+                selectedMode = ChatModeManager.ChatMode.THINKING_ASSIST;
             } else {
                 return;
             }
 
+            setRadioButtonState(selectedMode);
             modeManager.setManualMode(selectedMode);
             updateModeDescription(selectedMode);
 
@@ -130,20 +126,23 @@ public class ModeSelectorDialog {
             }
         };
 
-        // 为RadioButton设置点击监听
         rbNormal.setOnClickListener(modeClickListener);
         rbThinking.setOnClickListener(modeClickListener);
         rbCreative.setOnClickListener(modeClickListener);
+        rbAgent.setOnClickListener(modeClickListener);
+        rbThinkingAssist.setOnClickListener(modeClickListener);
 
-        // 为整个行布局设置点击监听
         View rowNormal = dialogView.findViewById(R.id.rb_mode_normal);
         View rowThinking = dialogView.findViewById(R.id.rb_mode_thinking);
         View rowCreative = dialogView.findViewById(R.id.rb_mode_creative);
+        View rowAgent = dialogView.findViewById(R.id.rb_mode_agent);
+        View rowThinkingAssist = dialogView.findViewById(R.id.rb_mode_thinking_assist);
         if (rowNormal != null) rowNormal.setOnClickListener(modeClickListener);
         if (rowThinking != null) rowThinking.setOnClickListener(modeClickListener);
         if (rowCreative != null) rowCreative.setOnClickListener(modeClickListener);
+        if (rowAgent != null) rowAgent.setOnClickListener(modeClickListener);
+        if (rowThinkingAssist != null) rowThinkingAssist.setOnClickListener(modeClickListener);
 
-        // 自动切换开关
         switchAutoMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
             modeManager.setAutoModeEnabled(isChecked);
             if (listener != null) {
@@ -152,26 +151,19 @@ public class ModeSelectorDialog {
         });
     }
 
+    private void setRadioButtonState(ChatModeManager.ChatMode selectedMode) {
+        rbNormal.setChecked(selectedMode == ChatModeManager.ChatMode.NORMAL);
+        rbThinking.setChecked(selectedMode == ChatModeManager.ChatMode.DEEP_THINKING);
+        rbCreative.setChecked(selectedMode == ChatModeManager.ChatMode.CREATIVE);
+        rbAgent.setChecked(selectedMode == ChatModeManager.ChatMode.AGENT);
+        rbThinkingAssist.setChecked(selectedMode == ChatModeManager.ChatMode.THINKING_ASSIST);
+    }
+
     private void updateUI() {
-        // 更新当前选中状态
         ChatModeManager.ChatMode current = modeManager.getCurrentMode();
-        switch (current) {
-            case DEEP_THINKING:
-                rbThinking.setChecked(true);
-                break;
-            case CREATIVE:
-                rbCreative.setChecked(true);
-                break;
-            case NORMAL:
-            default:
-                rbNormal.setChecked(true);
-                break;
-        }
+        setRadioButtonState(current);
 
-        // 更新自动模式开关
         switchAutoMode.setChecked(modeManager.isAutoModeEnabled());
-
-        // 更新模式描述
         updateModeDescription(current);
     }
 
@@ -183,6 +175,12 @@ public class ModeSelectorDialog {
                 break;
             case CREATIVE:
                 desc = "创作文章、故事、诗歌等作品\n适合：写作任务、创意文案、文学创作";
+                break;
+            case AGENT:
+                desc = "智能任务执行，调用工具完成复杂目标\n适合：日程管理、天气查询、翻译等";
+                break;
+            case THINKING_ASSIST:
+                desc = "苏格拉底式提问，陪你一起思考问题\n适合：决策思考、创意激发、自我反思";
                 break;
             case NORMAL:
             default:

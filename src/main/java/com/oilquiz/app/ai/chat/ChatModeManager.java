@@ -16,7 +16,8 @@ public class ChatModeManager {
         NORMAL("普通", "normal", "💬"),
         DEEP_THINKING("深度思考", "deep_thinking", "🧠"),
         CREATIVE("创意写作", "creative", "✍️"),
-        AGENT("Agent", "agent", "🤖");
+        AGENT("Agent", "agent", "🤖"),
+        THINKING_ASSIST("思考辅助", "thinking_assist", "💡");
 
         public final String displayName;
         public final String modeId;
@@ -207,6 +208,17 @@ public class ChatModeManager {
                        "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
                        "当需要使用工具时，严格按照 TOOLS_CALL/TOOLS_END 格式输出。\n" +
                        "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
+            case THINKING_ASSIST:
+                return "你现在进入思考辅助模式。你的角色不是直接回答问题，而是作为思考引导者：\n" +
+                       "1. 通过提问引导用户深入思考，帮助用户自己找到答案\n" +
+                       "2. 适时提供新的思考视角，帮助用户打破思维定式\n" +
+                       "3. 在适当的时候引导用户反思，审视自己的假设和盲点\n" +
+                       "4. 当用户思考到位后，帮助总结思考成果\n" +
+                       "重要原则：\n" +
+                       "- 不要直接给出答案，而是引导用户思考\n" +
+                       "- 一次只关注一个方面，避免信息过载\n" +
+                       "- 保持耐心，跟随用户的思考节奏\n" +
+                       "- 用提问代替陈述，用引导代替告知";
             case NORMAL:
             default:
                 return "";
