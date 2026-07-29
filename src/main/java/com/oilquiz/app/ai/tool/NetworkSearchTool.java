@@ -7,11 +7,12 @@ import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.util.AILogger;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLEncoder;
+import java.net.URL;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import com.oilquiz.app.ai.util.NetworkUtil;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -41,10 +42,12 @@ import org.json.JSONObject;
         @Action(name = "smart_read", description = "智能阅读")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作类型", required = true),
-        @Param(name = "query", type = "string", description = "搜索查询", required = false),
+        @Param(name = "action", type = "string", description = "操作类型: search/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", required = false),
+        @Param(name = "query", type = "string", description = "搜索查询（用于search、search_and_read、smart_search操作）", required = false),
+        @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false),
         @Param(name = "limit", type = "int", description = "结果数量限制(默认5)", required = false),
-        @Param(name = "url", type = "string", description = "网页URL", required = false),
+        @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false),
+        @Param(name = "url", type = "string", description = "网页URL（用于get_webpage、extract_info和get_dynamic_content操作）", required = false),
         @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
         @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false)
     }
@@ -91,8 +94,10 @@ public class NetworkSearchTool implements AITool {
         try {
             String action = (String) parameters.get("action");
             if (action == null) {
-                return new AIToolResult("Missing required parameter: action", parameters);
+                action = "search";
             }
+            
+            normalizeParameters(parameters);
             
             switch (action) {
                 case "search":
@@ -122,6 +127,18 @@ public class NetworkSearchTool implements AITool {
         }
     }
     
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        
+        if (parameters.containsKey("keyword") && !parameters.containsKey("query")) {
+            parameters.put("query", parameters.get("keyword"));
+        }
+        
+        if (parameters.containsKey("num_results") && !parameters.containsKey("limit")) {
+            parameters.put("limit", parameters.get("num_results"));
+        }
+    }
+    
     private AIToolResult search(Map<String, Object> parameters) {
         String query = (String) parameters.get("query");
         Integer limit = (Integer) parameters.get("limit");
@@ -142,9 +159,8 @@ public class NetworkSearchTool implements AITool {
             String note = null;
 
             if (apiKey == null || apiKey.isEmpty()) {
-                AILogger.w(TAG, "Bing Search API 密钥未配置，使用模拟数据");
-                searchResults = generateMockResults(query, limit);
-                note = "提示：当前使用模拟数据，配置 Bing Search API 密钥后可获取真实搜索结果";
+                AILogger.w(TAG, "Bing Search API 密钥未配置");
+                return new AIToolResult("Bing Search API 密钥未配置，请在设置中配置API密钥", parameters);
             } else {
                 searchResults = bingSearch(query, limit, apiKey);
             }
@@ -173,23 +189,6 @@ public class NetworkSearchTool implements AITool {
         }
     }
 
-    private List<Map<String, String>> generateMockResults(String query, int count) {
-        List<Map<String, String>> results = new ArrayList<>();
-        
-        String[] topics = {"技术文章", "新闻资讯", "学术研究", "行业报告", "科普知识"};
-        String[] domains = {"example.com", "knowledge.com", "techinfo.cn", "study.edu", "news.net"};
-        
-        for (int i = 0; i < count; i++) {
-            Map<String, String> item = new HashMap<>();
-            item.put("title", "关于 \"" + query + "\" 的" + topics[i % topics.length] + " - 第" + (i + 1) + "篇");
-            item.put("snippet", "这是关于 \"" + query + "\" 的搜索结果摘要，包含相关的信息和内容介绍。");
-            item.put("url", "https://www." + domains[i % domains.length] + "/search?q=" + query + "&id=" + (i + 1));
-            results.add(item);
-        }
-        
-        return results;
-    }
-
     private List<Map<String, String>> bingSearch(String query, int count, String apiKey) throws Exception {
         List<Map<String, String>> results = new ArrayList<>();
 
@@ -199,42 +198,29 @@ public class NetworkSearchTool implements AITool {
 
             AILogger.i(TAG, "Bing Search URL: " + urlString);
 
-            URL url = new URL(urlString);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Ocp-Apim-Subscription-Key", apiKey);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
+            Request request = NetworkUtil.createApiRequestBuilder(urlString)
+                    .addHeader("Ocp-Apim-Subscription-Key", apiKey)
+                    .build();
 
-            int responseCode = connection.getResponseCode();
-            AILogger.i(TAG, "Bing Search Response Code: " + responseCode);
+            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+                int responseCode = response.code();
+                AILogger.i(TAG, "Bing Search Response Code: " + responseCode);
 
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(connection.getInputStream(), "UTF-8")
-                );
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    response.append(line);
+                if (response.isSuccessful()) {
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    results = parseBingSearchResponse(responseBody);
+                    AILogger.i(TAG, "Parsed " + results.size() + " search results");
+                } else if (responseCode == 401) {
+                    AILogger.e(TAG, "Bing Search API 认证失败");
+                    throw new Exception("Bing Search API 认证失败，请检查API密钥是否正确");
+                } else if (responseCode == 429) {
+                    AILogger.e(TAG, "Bing Search API 请求频率超限");
+                    throw new Exception("Bing Search API 请求频率超限，请稍后再试");
+                } else {
+                    AILogger.e(TAG, "Bing Search API 返回错误码: " + responseCode);
+                    throw new Exception("Bing Search API 返回错误码: " + responseCode);
                 }
-                reader.close();
-
-                results = parseBingSearchResponse(response.toString());
-                AILogger.i(TAG, "Parsed " + results.size() + " search results");
-            } else if (responseCode == 401) {
-                AILogger.e(TAG, "Bing Search API 认证失败");
-                throw new Exception("Bing Search API 认证失败，请检查API密钥是否正确");
-            } else if (responseCode == 429) {
-                AILogger.e(TAG, "Bing Search API 请求频率超限");
-                throw new Exception("Bing Search API 请求频率超限，请稍后再试");
-            } else {
-                AILogger.e(TAG, "Bing Search API 返回错误码: " + responseCode);
-                throw new Exception("Bing Search API 返回错误码: " + responseCode);
             }
-
-            connection.disconnect();
 
         } catch (Exception e) {
             AILogger.e(TAG, "Bing Search API 调用失败: " + e.getMessage(), e);
@@ -303,30 +289,16 @@ public class NetworkSearchTool implements AITool {
     }
 
     private String fetchWebpage(String urlString) throws Exception {
-        URL url = new URL(urlString);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(10000);
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (compatible; OilQuizApp/1.0)");
+        Request request = NetworkUtil.createRequestBuilder(urlString)
+                .get()
+                .build();
 
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new Exception("HTTP Error: " + responseCode);
+        try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new Exception("HTTP Error: " + response.code());
+            }
+            return response.body() != null ? response.body().string() : "";
         }
-
-        BufferedReader reader = new BufferedReader(
-            new InputStreamReader(connection.getInputStream(), "UTF-8")
-        );
-        StringBuilder content = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            content.append(line).append("\n");
-        }
-        reader.close();
-        connection.disconnect();
-
-        return content.toString();
     }
     
     private AIToolResult searchAndRead(Map<String, Object> parameters) {

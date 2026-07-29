@@ -68,6 +68,11 @@ public class AgentService {
         "function\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?arguments\\s*:\\s*(\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\})",
         Pattern.DOTALL
     );
+    
+    private static final Pattern TOOL_CALL_PATTERN_OPENAI = Pattern.compile(
+        "\"tool_calls\"\\s*:\\s*\\[\\s*\\{[\\s\\S]*?\"function\"\\s*:\\s*\\{[\\s\\S]*?\"name\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?\"arguments\"\\s*:\\s*(\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\})[\\s\\S]*?\\}[\\s\\S]*?\\}[\\s\\S]*?\\]",
+        Pattern.DOTALL
+    );
 
     private final Context context;
     private final AIToolManager toolManager;
@@ -196,9 +201,9 @@ public class AgentService {
     }
 
     private void buildAliasMap() {
-        toolNameAliases.put("get_weather", "app_toolkit");
-        toolNameAliases.put("weather_query", "app_toolkit");
-        toolNameAliases.put("weather", "app_toolkit");
+        toolNameAliases.put("get_weather", "ai_weather");
+        toolNameAliases.put("weather_query", "ai_weather");
+        toolNameAliases.put("weather", "ai_weather");
         toolNameAliases.put("get_location", "location");
         toolNameAliases.put("location_query", "location");
         toolNameAliases.put("get_current_location", "location");
@@ -207,8 +212,8 @@ public class AgentService {
         toolNameAliases.put("network_search", "network_search");
         toolNameAliases.put("search", "network_search");
         toolNameAliases.put("web_search", "network_search");
-        toolNameAliases.put("calculate", "app_toolkit");
-        toolNameAliases.put("calculator", "app_toolkit");
+        toolNameAliases.put("calculate", "python_calculate");
+        toolNameAliases.put("calculator", "python_calculate");
         toolNameAliases.put("database_query", "database");
         toolNameAliases.put("database", "database");
         toolNameAliases.put("translation", "translation");
@@ -218,44 +223,49 @@ public class AgentService {
         toolNameAliases.put("read_webpage", "webpage_reader");
         toolNameAliases.put("read_url", "webpage_reader");
         toolNameAliases.put("file_analysis", "file_analyzer");
+        toolNameAliases.put("file_op", "file");
+        toolNameAliases.put("file_tool", "file");
+        toolNameAliases.put("app_op", "app_operation");
+        toolNameAliases.put("navigate", "app_operation");
+        toolNameAliases.put("go_to", "app_operation");
+        toolNameAliases.put("open_page", "app_operation");
+        toolNameAliases.put("create_tool", "create_dynamic_tool");
+        toolNameAliases.put("dynamic_tool", "create_dynamic_tool");
     }
 
     private void registerDefaultTools() {
-        registerToolSchema("get_weather", "查询天气", "action(操作类型,必填: weather_current/weather_forecast/weather_hourly/weather_air/weather_alerts/weather_indices/weather_all), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
-        registerToolSchema("weather", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
-        registerToolSchema("weather_query", "查询天气", "action(操作类型,必填), city(城市,可选), lat(纬度,可选), lon(经度,可选)");
-        registerToolSchema("location", "获取位置信息", "action(操作类型,可选: get_current/get_city/get_coordinates)");
-        registerToolSchema("get_location", "获取位置信息", "action(操作类型,可选)");
-        registerToolSchema("get_current_location", "获取当前位置", "action(操作类型,可选)");
-        registerToolSchema("get_city", "获取当前城市", "无参数");
-        registerToolSchema("network_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
-        registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
-        registerToolSchema("web_search", "搜索网络信息", "query(搜索关键词,必填), num_results(结果数,可选)");
+        registerToolSchema("ai_weather", "天气查询工具，获取指定城市的天气信息", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all,默认current), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("get_weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("location", "位置查询工具，获取当前位置信息", "action(操作类型: get_current/get_city/get_coordinates,默认get_current)");
+        registerToolSchema("get_location", "获取位置信息", "action(操作类型: get_current/get_city/get_coordinates)");
+        registerToolSchema("network_search", "网络搜索工具，搜索网络信息", "action(操作类型: search/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,必填), keyword(搜索关键词别名,可选), limit(结果数量限制,默认5), num_results(结果数量别名,默认5), url(网页URL,可选)");
+        registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(结果数量限制,默认5)");
+        registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
         registerToolSchema("calculator", "执行数学计算", "expression(数学表达式,必填)");
-        registerToolSchema("database", "数据库查询(题目搜索/用户管理/分数记录等)", "action(操作类型,必填: execute_query/get_questions/search_questions/get_question_count等), keyword(关键词,可选), category(分类,可选), type(类型,可选), difficulty(难度,可选)");
-        registerToolSchema("database_query", "数据库查询", "action(操作类型,必填), keyword(关键词,可选)");
-        registerToolSchema("search_questions", "搜索题目", "action(操作类型,必填: search_questions), keyword(关键词,必填), category(分类,可选)");
-        registerToolSchema("translation", "翻译文本", "text(文本,必填), target_lang(目标语言,可选)");
-        registerToolSchema("translate", "翻译文本", "text(文本,必填), target_lang(目标语言,可选)");
-        registerToolSchema("web_page_reader", "读取网页内容", "url(网址,必填)");
-        registerToolSchema("read_webpage", "读取网页内容", "url(网址,必填)");
-        registerToolSchema("read_url", "读取网页内容", "url(网址,必填)");
-        registerToolSchema("app_toolkit", "应用工具集(天气/OCR/图片处理/文件解析/网页解析等)", "action(操作类型,必填: weather_current/ocr_recognize/image_save/file_parse_text/web_parse_html等)");
-        registerToolSchema("smart_research", "智能研究(搜索+阅读网页)", "query(研究问题,必填), depth(研究深度,可选)");
-        registerToolSchema("system_resource", "系统资源(打开应用/发送短信等)", "action(操作类型,必填), params(参数,可选)");
+        registerToolSchema("database", "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作", "action(操作类型: execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
+        registerToolSchema("translation", "翻译工具，翻译文本", "text(待翻译文本,必填), target_lang(目标语言:zh/en/ja/ko,默认zh,可选), source_lang(源语言,可选)");
+        registerToolSchema("translate", "翻译文本", "text(待翻译文本,必填), target_lang(目标语言,可选)");
+        registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
+        registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
+        registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能，自动完成搜索→选择→阅读→摘要的完整研究流程", "topic(研究主题,必填), depth(研究深度,默认1), maxResults(最大结果数,默认5)");
+        registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info,默认open_app), app_name(应用名称,可选), url(URL地址,可选), phone_number(电话号码,可选), message(短信内容,可选), params(附加参数JSON,可选)");
+        registerToolSchema("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面", "action(操作类型: navigate/list_pages/go_home/go_back,默认navigate), page(页面名称:user/question/quiz/study_plan/wrong_question/note/ocr/ai等,可选)");
+        registerToolSchema("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件", "action(操作类型: get_file_info/read_file/list_files,必填), file_path(文件路径,可选), directory_path(目录路径,可选)");
         registerToolSchema("file_reader", "读取文件内容", "file_path(文件路径,必填)");
         registerToolSchema("file_analyzer", "分析文件", "file_path(文件路径,必填), analysis_type(分析类型,可选)");
         registerToolSchema("file_generator", "生成文件", "file_name(文件名,必填), content(内容,必填), format(格式,可选)");
-        registerToolSchema("permission_manager", "权限管理", "action(权限操作,必填), permission(权限名,可选)");
-        registerToolSchema("create_dynamic_tool", "动态创建和管理AI工具", "action(操作类型,必填: create/update/delete/list), tool_name(工具名称,必填), description(工具描述), parameters(参数定义JSON), logic(执行逻辑脚本)");
-        registerToolSchema("python_execute", "执行Python代码", "task(任务描述,必填), code(Python代码,可选)");
-        registerToolSchema("python_calculate", "执行数学计算", "expression(数学表达式,必填)");
-        registerToolSchema("python_analyze_data", "分析数据", "data(数据,可选), task(任务描述,可选)");
+        registerToolSchema("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能", "action(操作类型: check/check_all/request/request_and_wait/get_status/list_permissions/explain_permission/can_request,默认check), permission(权限名称:camera/位置/录音/存储/拨打电话/发送短信等,可选), permissions(权限列表,可选)");
+        registerToolSchema("create_dynamic_tool", "动态创建和管理AI工具", "action(操作类型: create/update/delete/list,默认list), tool_name(工具名称,可选), description(工具描述,可选), parameters(参数定义JSON,可选), logic(执行逻辑脚本,可选)");
+        registerToolSchema("app_toolkit", "应用工具集，提供多种实用功能", "action(操作类型: weather_current/weather_forecast/calculate/ocr_recognize等,必填)");
+        registerToolSchema("python_execute", "执行Python代码", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
+        registerToolSchema("python_analyze_data", "使用Python分析数据", "data(数据,可选), task(任务描述,可选)");
+        registerToolSchema("ai_create_tool", "AI创建工具，使用AI自动生成新工具", "tool_name(工具名称,必填), description(工具描述,必填), parameters(参数定义,可选), logic(执行逻辑,可选)");
 
-        registerToolParamSchema("get_weather",
-            new ToolParamSchema("action", "string", "操作类型：weather_current(当前天气), weather_forecast(未来预报), weather_hourly(24小时预报), weather_air(空气质量), weather_alerts(天气预警), weather_indices(生活指数), weather_all(全部信息)", true, "weather_all"),
-            new ToolParamSchema("city", "string", "城市名称", false, "北京"),
+        registerToolParamSchema("ai_weather",
+            new ToolParamSchema("action", "string", "操作类型：current(当前天气), forecast(未来预报), hourly(小时预报), air_quality(空气质量), alerts(天气预警), indices(生活指数), all(全部信息)", false, "current"),
+            new ToolParamSchema("city", "string", "城市名称", false, null),
             new ToolParamSchema("lat", "number", "纬度", false, 0),
             new ToolParamSchema("lon", "number", "经度", false, 0));
 
@@ -263,15 +273,35 @@ public class AgentService {
             new ToolParamSchema("action", "string", "操作类型：get_current(获取完整位置), get_city(获取城市), get_coordinates(获取坐标)", false, "get_current"));
 
         registerToolParamSchema("network_search",
+            new ToolParamSchema("action", "string", "操作类型：search(搜索), get_webpage(获取网页), extract_info(提取信息), summarize(摘要), search_and_read(搜索并阅读), smart_search(智能搜索)", false, "search"),
             new ToolParamSchema("query", "string", "搜索关键词", true, null),
-            new ToolParamSchema("num_results", "int", "结果数量", false, 5));
+            new ToolParamSchema("keyword", "string", "搜索关键词（query的别名）", false, null),
+            new ToolParamSchema("limit", "int", "结果数量限制", false, 5),
+            new ToolParamSchema("num_results", "int", "返回结果数量（limit的别名）", false, 5),
+            new ToolParamSchema("url", "string", "网页URL", false, null));
 
-        registerToolParamSchema("calculate",
-            new ToolParamSchema("expression", "string", "数学表达式，支持加减乘除、括号、幂运算", true, null));
+        registerToolParamSchema("python_calculate",
+            new ToolParamSchema("expression", "string", "数学表达式，如：2+3*4", true, null),
+            new ToolParamSchema("task", "string", "任务描述（可选）", false, null));
 
         registerToolParamSchema("translation",
-            new ToolParamSchema("text", "string", "翻译文本", true, null),
-            new ToolParamSchema("target_lang", "string", "目标语言", false, "中文"));
+            new ToolParamSchema("text", "string", "待翻译文本", true, null),
+            new ToolParamSchema("target_lang", "string", "目标语言，如：zh, en, ja, ko", false, "zh"),
+            new ToolParamSchema("source_lang", "string", "源语言，如：zh, en, ja, ko", false, null));
+
+        registerToolParamSchema("smart_research",
+            new ToolParamSchema("topic", "string", "研究主题", true, null),
+            new ToolParamSchema("depth", "int", "研究深度(默认1)", false, 1),
+            new ToolParamSchema("maxResults", "int", "最大结果数(默认5)", false, 5));
+
+        registerToolParamSchema("app_operation",
+            new ToolParamSchema("action", "string", "操作类型：navigate(导航), list_pages(列出页面), go_home(返回主页), go_back(返回上一页)", false, "navigate"),
+            new ToolParamSchema("page", "string", "页面名称(如user/question/quiz/study_plan等)", false, null));
+
+        registerToolParamSchema("permission_manager",
+            new ToolParamSchema("action", "string", "操作类型：check(检查), check_all(批量检查), request(请求), request_and_wait(请求并等待), get_status(获取状态), list_permissions(列出权限), explain_permission(解释权限), can_request(是否可请求)", false, "check"),
+            new ToolParamSchema("permission", "string", "权限名称（如camera/位置/录音/存储/拨打电话/发送短信等）", false, null),
+            new ToolParamSchema("permissions", "array", "权限列表（用于check_all操作）", false, null));
     }
 
     private void buildDynamicToolSchemas() {
@@ -420,22 +450,22 @@ public class AgentService {
     public String buildToolSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("[工具使用说明]\n\n");
-        sb.append("当需要使用工具时，按以下格式输出：\n\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n\n");
+        sb.append("当需要使用工具时，按以下 JSON 格式输出：\n\n");
+        sb.append("```json\n");
+        sb.append("{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n");
+        sb.append("```\n\n");
         sb.append("示例1 - 查天气：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"weather\", \"arguments\": {\"city\": \"北京\"}}\n");
-        sb.append("TOOLS_END\n\n");
+        sb.append("```json\n");
+        sb.append("{\"tool_calls\": [{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\", \"action\": \"current\"}}]}\n");
+        sb.append("```\n\n");
         sb.append("示例2 - 计算器：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"calculator\", \"arguments\": {\"expression\": \"3+5\"}}\n");
-        sb.append("TOOLS_END\n\n");
+        sb.append("```json\n");
+        sb.append("{\"tool_calls\": [{\"name\": \"python_calculate\", \"arguments\": {\"expression\": \"3+5\"}}]}\n");
+        sb.append("```\n\n");
         sb.append("示例3 - 搜索：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"search\", \"arguments\": {\"query\": \"人工智能\"}}\n");
-        sb.append("TOOLS_END\n\n");
+        sb.append("```json\n");
+        sb.append("{\"tool_calls\": [{\"name\": \"network_search\", \"arguments\": {\"query\": \"人工智能\"}}]}\n");
+        sb.append("```\n\n");
         sb.append("可用工具列表：\n\n");
         Map<String, ToolSchema> uniqueTools = deduplicateTools();
         for (ToolSchema tool : uniqueTools.values()) {
@@ -468,12 +498,23 @@ public class AgentService {
 
         AILogger.d(TAG, "Parsing tool calls from: " + output.substring(0, Math.min(200, output.length())));
 
-        Matcher m1 = TOOL_CALL_PATTERN_TOOLS_BLOCK.matcher(output);
-        while (m1.find()) {
-            String toolName = m1.group(1);
+        Matcher m0 = TOOL_CALL_PATTERN_OPENAI.matcher(output);
+        while (m0.find()) {
+            String toolName = m0.group(1);
             if (isKnownOrAliasedTool(toolName)) {
-                AILogger.d(TAG, "Found TOOLS_BLOCK pattern: " + toolName);
-                calls.add(new ToolCall(toolName, m1.group(2)));
+                AILogger.d(TAG, "Found OPENAI pattern: " + toolName);
+                calls.add(new ToolCall(toolName, m0.group(2)));
+            }
+        }
+
+        if (calls.isEmpty()) {
+            Matcher m1 = TOOL_CALL_PATTERN_TOOLS_BLOCK.matcher(output);
+            while (m1.find()) {
+                String toolName = m1.group(1);
+                if (isKnownOrAliasedTool(toolName)) {
+                    AILogger.d(TAG, "Found TOOLS_BLOCK pattern: " + toolName);
+                    calls.add(new ToolCall(toolName, m1.group(2)));
+                }
             }
         }
 
@@ -643,7 +684,7 @@ public class AgentService {
                             return new ToolResult(displayName, "工具执行返回null: " + realToolName, false, 0, currentAttempt);
                         }
                         
-                        if (toolResult.isSuccess() && toolResult.getResult() != null) {
+                        if (toolResult.isSuccess()) {
                             return new ToolResult(displayName, formatToolOutput(toolResult.getResult()), true, 0, currentAttempt);
                         } else {
                             String errorMsg = toolResult.getErrorMessage() != null ? toolResult.getErrorMessage() : "未知错误";
@@ -686,22 +727,174 @@ public class AgentService {
         return new ToolResult(displayName, "工具执行出错(重试" + maxRetries + "次后): " + errorMsg, false, 0, maxRetries);
     }
 
-    private static final int TOOL_RESULT_MAX_LENGTH = 2000;
+    // ========== 工具结果智能摘要 ==========
+
+    private static final int TOOL_RESULT_SUMMARY_THRESHOLD = 1500; // 超过此长度触发摘要
+
+    /**
+     * 对长工具结果进行智能摘要
+     * 当结果超过阈值时，提取关键信息进行压缩
+     */
+    public String summarizeToolResult(String toolName, String result) {
+        if (result == null || result.length() <= TOOL_RESULT_SUMMARY_THRESHOLD) {
+            return result; // 短结果直接返回
+        }
+
+        // 天气等结构化结果特殊处理
+        if (toolName != null && toolName.contains("weather")) {
+            return formatWeatherResult(result);
+        }
+
+        // 搜索结果特殊处理 - 提取标题和摘要
+        if (toolName != null && (toolName.contains("search") || toolName.contains("web"))) {
+            return formatSearchResult(result);
+        }
+
+        // 数据库结果特殊处理 - 保留表头和前几行
+        if (toolName != null && toolName.contains("database")) {
+            return formatDatabaseResult(result);
+        }
+
+        // 默认：智能截断 - 保留开头和结尾
+        return smartTruncate(result, TOOL_RESULT_MAX_LENGTH);
+    }
+
+    /**
+     * 搜索结果格式化 - 提取标题和摘要
+     */
+    private String formatSearchResult(String result) {
+        StringBuilder sb = new StringBuilder();
+        String[] lines = result.split("\n");
+        int totalLen = 0;
+        int lineCount = 0;
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+
+            // 保留标题行（通常以数字、#、**开头）
+            if (trimmed.startsWith("#") || trimmed.startsWith("**") || trimmed.matches("^\\d+\\..*")
+                || trimmed.startsWith("标题") || trimmed.startsWith("Title")) {
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(trimmed);
+                totalLen += trimmed.length();
+                lineCount++;
+            }
+            // 保留内容摘要（非空行）
+            else if (!trimmed.startsWith("http") && !trimmed.startsWith("[") && trimmed.length() > 20) {
+                if (sb.length() > 0) sb.append("\n");
+                String truncated = trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed;
+                sb.append(truncated);
+                totalLen += truncated.length();
+                lineCount++;
+            }
+
+            if (totalLen > 1000 || lineCount > 10) break;
+        }
+
+        if (sb.length() == 0) {
+            return smartTruncate(result, TOOL_RESULT_MAX_LENGTH);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 数据库结果格式化 - 保留表头和前几行
+     */
+    private String formatDatabaseResult(String result) {
+        String[] lines = result.split("\n");
+        StringBuilder sb = new StringBuilder();
+        int lineCount = 0;
+
+        for (String line : lines) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(line);
+            lineCount++;
+
+            // 最多保留10行
+            if (lineCount >= 10) {
+                sb.append("\n...[共").append(lines.length).append("行，已截断]");
+                break;
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 智能截断 - 保留开头和结尾的关键信息
+     */
+    private String smartTruncate(String result, int maxLength) {
+        if (result.length() <= maxLength) return result;
+
+        int keepLength = maxLength - 50; // 留空间给省略号
+        int headLength = keepLength * 2 / 3; // 开头保留2/3
+        int tailLength = keepLength / 3; // 结尾保留1/3
+
+        String head = result.substring(0, headLength);
+        String tail = result.substring(result.length() - tailLength);
+
+        return head + "\n...[中间省略" + (result.length() - headLength - tailLength) + "字]...\n" + tail;
+    }
+
+    /**
+     * 天气结果特殊处理 - 直接提取关键信息而非摘要
+     */
+    public String formatWeatherResult(String result) {
+        try {
+            // 尝试解析JSON格式的天气结果
+            if (result.contains("{") && result.contains("}")) {
+                org.json.JSONObject json = new org.json.JSONObject(result);
+                String city = json.optString("city", json.optString("location", "未知"));
+                int temp = json.optInt("temp", json.optInt("temperature", 0));
+                String desc = json.optString("description", json.optString("text", ""));
+                int humidity = json.optInt("humidity", 0);
+                if (!desc.isEmpty() || temp != 0) {
+                    return String.format("%s天气: %s, 温度%d°C, 湿度%d%%", city, desc, temp, humidity);
+                }
+            }
+        } catch (Exception e) {
+            // JSON解析失败
+        }
+
+        // 非JSON格式，截取关键部分
+        if (result.length() > 500) {
+            return result.substring(0, 500) + "...";
+        }
+        return result;
+    }
+
+    private static final int TOOL_RESULT_MAX_LENGTH = 3000;
     private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
+    private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
 
     private String formatToolOutput(Object result) {
         if (result == null) return "工具返回空结果";
-        if (result instanceof String) return (String) result;
+        
+        if (result instanceof String) {
+            String strResult = (String) result;
+            int previewLength = TOOL_CONTENT_PREVIEW_LENGTH;
+            if (strResult.contains("weather") || strResult.contains("forecast") || strResult.contains("air_quality") || 
+                strResult.contains("alerts") || strResult.contains("indices") || strResult.contains("hourly")) {
+                previewLength = WEATHER_CONTENT_PREVIEW_LENGTH;
+            }
+            if (strResult.length() > previewLength) {
+                return strResult.substring(0, previewLength) + "\n[内容过长，已截断，共 " + strResult.length() + " 字符]";
+            }
+            return strResult;
+        }
 
         if (result instanceof Map) {
             Map<?, ?> resultMap = (Map<?, ?>) result;
             StringBuilder sb = new StringBuilder();
 
             Object statusObj = resultMap.get("status");
-            boolean isSuccess = false;
+            boolean isSuccess = true;
             if (statusObj != null) {
                 if ("success".equals(statusObj.toString())) {
                     isSuccess = true;
+                } else if ("failed".equals(statusObj.toString()) || "error".equals(statusObj.toString())) {
+                    isSuccess = false;
                 } else if (statusObj instanceof Boolean) {
                     isSuccess = (Boolean) statusObj;
                 }
@@ -718,186 +911,56 @@ public class AgentService {
                 if (resultMap.containsKey("message")) {
                     sb.append("信息: ").append(resultMap.get("message")).append("\n");
                 }
-                if (resultMap.containsKey("attempts")) {
-                    sb.append("尝试次数: ").append(resultMap.get("attempts")).append("\n");
-                }
-                if (resultMap.containsKey("attempts_log")) {
-                    sb.append("尝试日志: ").append(resultMap.get("attempts_log")).append("\n");
-                }
                 return sb.toString();
             }
 
-            sb.append("[工具执行成功]\n");
+            sb.append("[工具执行成功]\n\n");
 
-            if (resultMap.containsKey("attempts")) {
-                sb.append("尝试次数: ").append(resultMap.get("attempts")).append("\n");
-            }
-            if (resultMap.containsKey("provider")) {
-                sb.append("数据源: ").append(resultMap.get("provider")).append("\n");
-            }
-            if (resultMap.containsKey("query_type")) {
-                sb.append("查询方式: ").append(resultMap.get("query_type")).append("\n");
-            }
-            if (resultMap.containsKey("provider_used")) {
-                sb.append("定位方式: ").append(resultMap.get("provider_used")).append("\n");
-            }
-            sb.append("\n");
-
-            if (resultMap.containsKey("data")) {
-                Object dataObj = resultMap.get("data");
-                if (dataObj instanceof String) {
-                    sb.append("【数据】\n").append((String) dataObj).append("\n");
-                } else if (dataObj != null) {
-                    sb.append("【数据】\n").append(formatNestedData(dataObj, "")).append("\n");
-                }
-            }
-
-            if (resultMap.containsKey("current")) {
-                sb.append("\n【当前天气】\n").append(resultMap.get("current")).append("\n");
-            }
-            if (resultMap.containsKey("forecast")) {
-                sb.append("\n【天气预报】\n").append(resultMap.get("forecast")).append("\n");
-            }
-            if (resultMap.containsKey("hourly")) {
-                sb.append("\n【逐时预报】\n").append(resultMap.get("hourly")).append("\n");
-            }
-            if (resultMap.containsKey("air_quality")) {
-                sb.append("\n【空气质量】\n").append(resultMap.get("air_quality")).append("\n");
-            }
-            if (resultMap.containsKey("indices")) {
-                sb.append("\n【生活指数】\n").append(resultMap.get("indices")).append("\n");
-            }
-            if (resultMap.containsKey("alerts")) {
-                sb.append("\n【天气预警】\n").append(resultMap.get("alerts")).append("\n");
-            }
-            if (resultMap.containsKey("attempts_info")) {
-                sb.append("\n【执行详情】\n").append(resultMap.get("attempts_info")).append("\n");
-            }
-
-            if (resultMap.containsKey("latitude")) {
-                sb.append("\n【位置信息】\n");
-                sb.append("纬度: ").append(resultMap.get("latitude")).append("\n");
-                sb.append("经度: ").append(resultMap.get("longitude")).append("\n");
-                if (resultMap.containsKey("accuracy")) {
-                    sb.append("精度: ").append(resultMap.get("accuracy")).append("米\n");
-                }
-                if (resultMap.containsKey("city")) {
-                    sb.append("城市: ").append(resultMap.get("city")).append("\n");
-                }
-                if (resultMap.containsKey("provider")) {
-                    sb.append("原始Provider: ").append(resultMap.get("provider")).append("\n");
-                }
-            }
-
-            if (resultMap.containsKey("city")) {
-                sb.append("城市: ").append(resultMap.get("city")).append("\n");
-            }
-            if (resultMap.containsKey("weather")) {
-                sb.append("天气: ").append(resultMap.get("weather")).append("\n");
-            }
-            if (resultMap.containsKey("temperature") || resultMap.containsKey("temp")) {
-                sb.append("温度: ").append(resultMap.get("temperature") != null ? resultMap.get("temperature") : resultMap.get("temp")).append("\n");
-            }
-            if (resultMap.containsKey("humidity")) {
-                sb.append("湿度: ").append(resultMap.get("humidity")).append("\n");
-            }
-            if (resultMap.containsKey("wind")) {
-                sb.append("风力: ").append(resultMap.get("wind")).append("\n");
-            }
-
-            if (resultMap.containsKey("expression")) {
-                sb.append("表达式: ").append(resultMap.get("expression")).append("\n");
-            }
-            if (resultMap.containsKey("result")) {
-                sb.append("结果: ").append(resultMap.get("result")).append("\n");
-            }
-
-            if (resultMap.containsKey("query")) {
-                sb.append("查询: ").append(resultMap.get("query")).append("\n");
-            }
-            if (resultMap.containsKey("count")) {
-                sb.append("结果数量: ").append(resultMap.get("count")).append("\n");
-            }
-            if (resultMap.containsKey("total")) {
-                sb.append("总计: ").append(resultMap.get("total")).append("\n");
-            }
-
-            if (resultMap.containsKey("note")) {
-                sb.append("\n").append(resultMap.get("note")).append("\n");
-            }
-            if (resultMap.containsKey("results")) {
-                Object resultsObj = resultMap.get("results");
-                if (resultsObj instanceof List) {
-                    List<?> results = (List<?>) resultsObj;
-                    if (!results.isEmpty()) {
-                        sb.append("\n搜索结果:\n\n");
-                        for (int i = 0; i < Math.min(results.size(), 5); i++) {
-                            sb.append(i + 1).append(". ");
-                            Object item = results.get(i);
-                            if (item instanceof Map) {
-                                Map<?, ?> itemMap = (Map<?, ?>) item;
-                                if (itemMap.containsKey("title")) sb.append(itemMap.get("title")).append("\n");
-                                if (itemMap.containsKey("snippet")) sb.append("   ").append(itemMap.get("snippet")).append("\n");
-                                if (itemMap.containsKey("url")) sb.append("   链接: ").append(itemMap.get("url")).append("\n");
-                                if (itemMap.containsKey("content")) sb.append("   内容: ").append(itemMap.get("content")).append("\n");
-                            } else {
-                                sb.append(item.toString()).append("\n");
-                            }
-                            sb.append("\n");
-                        }
-                        if (results.size() > 5) {
-                            sb.append("... 还有 ").append(results.size() - 5).append(" 条结果\n");
-                        }
-                    }
-                }
-            }
-
-            if (resultMap.containsKey("content")) {
-                Object contentObj = resultMap.get("content");
-                if (contentObj instanceof String) {
-                    String content = (String) contentObj;
-                    if (content.length() > TOOL_CONTENT_PREVIEW_LENGTH) {
-                        sb.append("\n【文件内容预览】\n");
-                        sb.append(content, 0, TOOL_CONTENT_PREVIEW_LENGTH).append("\n");
-                        sb.append("[内容过长，已截断，共 ").append(content.length()).append(" 字符]\n");
+            for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
+                Object key = entry.getKey();
+                Object value = entry.getValue();
+                
+                if ("status".equals(key)) continue;
+                
+                sb.append(key).append(": ");
+                
+                if (value == null) {
+                    sb.append("null\n");
+                } else if (value instanceof String) {
+                    String strValue = (String) value;
+                    if (strValue.length() > TOOL_CONTENT_PREVIEW_LENGTH) {
+                        sb.append(strValue.substring(0, TOOL_CONTENT_PREVIEW_LENGTH));
+                        sb.append("\n[内容过长，已截断，共 ").append(strValue.length()).append(" 字符]\n");
                     } else {
-                        sb.append("\n【文件内容】\n").append(content).append("\n");
+                        sb.append(strValue).append("\n");
                     }
+                } else if (value instanceof List || value instanceof Map) {
+                    sb.append("\n").append(formatNestedData(value, "  ")).append("\n");
+                } else {
+                    sb.append(value.toString()).append("\n");
                 }
             }
 
-            if (resultMap.containsKey("text")) {
-                Object textObj = resultMap.get("text");
-                if (textObj instanceof String) {
-                    String text = (String) textObj;
-                    if (text.length() > TOOL_CONTENT_PREVIEW_LENGTH) {
-                        sb.append("\n【OCR识别结果预览】\n");
-                        sb.append(text, 0, TOOL_CONTENT_PREVIEW_LENGTH).append("\n");
-                        sb.append("[内容过长，已截断，共 ").append(text.length()).append(" 字符]\n");
-                    } else {
-                        sb.append("\n【OCR识别结果】\n").append(text).append("\n");
-                    }
+            return sb.toString();
+        }
+
+        if (result instanceof List) {
+            List<?> list = (List<?>) result;
+            StringBuilder sb = new StringBuilder();
+            sb.append("[工具执行成功]\n\n");
+            for (int i = 0; i < Math.min(list.size(), 10); i++) {
+                sb.append(i + 1).append(". ");
+                Object item = list.get(i);
+                if (item instanceof Map || item instanceof List) {
+                    sb.append("\n").append(formatNestedData(item, "  "));
+                } else {
+                    sb.append(item.toString());
                 }
+                sb.append("\n");
             }
-
-            if (resultMap.containsKey("fileName")) {
-                sb.append("\n文件名: ").append(resultMap.get("fileName")).append("\n");
+            if (list.size() > 10) {
+                sb.append("... 还有 ").append(list.size() - 10).append(" 条结果\n");
             }
-            if (resultMap.containsKey("length")) {
-                sb.append("内容长度: ").append(resultMap.get("length")).append(" 字符\n");
-            }
-
-            if (sb.length() <= 10) {
-                sb.setLength(0);
-                sb.append("[工具返回数据]\n");
-                for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
-                    Object key = entry.getKey();
-                    Object value = entry.getValue();
-                    if (value instanceof Map || value instanceof List) continue;
-                    sb.append(key).append(": ").append(value).append("\n");
-                }
-            }
-
             return sb.toString();
         }
 
@@ -1288,17 +1351,17 @@ public class AgentService {
 
     private String getPrimaryToolForIntent(String intentType) {
         switch (intentType) {
-            case "weather": return "get_weather";
+            case "weather": return "ai_weather";
             case "location": return "location";
             case "search": return "network_search";
-            case "calculate": return "app_toolkit";
+            case "calculate": return "python_calculate";
             case "database": return "database";
             case "translation": return "translation";
             case "generate_questions": return "database";
             case "search_questions": return "database";
             case "system": return "system_resource";
-            case "web": return "web_page_reader";
-            case "file": return "file_reader";
+            case "web": return "webpage_reader";
+            case "file": return "file";
             default: return null;
         }
     }
@@ -1308,7 +1371,7 @@ public class AgentService {
             List<ToolSchema> selectedTools = selectToolsByIntent(userMessage);
             StringBuilder sb = new StringBuilder();
             sb.append("你可以使用以下工具来帮助回答问题。当需要使用工具时，请按以下JSON格式输出：\n");
-            sb.append("```json\n{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n```\n\n");
+            sb.append("```json\n{\"tool_calls\": [{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n```\n\n");
             sb.append("可用工具列表（按优先级排序）：\n\n");
             for (ToolSchema tool : selectedTools) {
                 if (tool != null && tool.name != null && tool.description != null) {

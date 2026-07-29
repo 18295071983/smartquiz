@@ -4,6 +4,11 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+
+import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.util.AILogger;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class InferenceQueue {
     private static final String TAG = "InferenceQueue";
-    private static final int MAX_CONCURRENT_INFERENCES = 4;
+    private static final int MAX_CONCURRENT_INFERENCES = 1; // 本地 LLM 单并发
     private static final int MAX_QUEUE_SIZE = 100;
 
     private final Context context;
@@ -112,33 +117,54 @@ public class InferenceQueue {
     }
 
     private String performInference(InferenceTask task) throws InterruptedException {
-        Log.d(TAG, "Performing inference for task: " + task.id);
+        AILogger.i(TAG, "Performing inference for task: " + task.id);
 
-        Thread.sleep(100);
-
-        StringBuilder result = new StringBuilder();
-        int maxTokens = Math.min(task.params.nPredict, 50);
-
-        for (int i = 0; i < maxTokens; i++) {
-            if (task.state == TaskState.CANCELLED) {
-                throw new InterruptedException("Task cancelled");
-            }
-
-            String token = "token_" + i + " ";
-            result.append(token);
-
-            if (task.params.streaming && i % 5 == 0 && task.callback != null) {
-                final int index = i;
-                mainHandler.post(() -> {
-                    task.callback.onToken(token, index);
-                    task.callback.onProgress((index * 100) / maxTokens);
-                });
-            }
-
-            Thread.sleep(10);
+        // 检查模型是否已初始化
+        if (!LlamaHelper.isModelInitialized()) {
+            throw new RuntimeException("AI model not initialized");
         }
 
-        return result.toString();
+        // 设置推理参数
+        int maxTokens = task.params.nPredict;
+        float temperature = task.params.temperature;
+        float topP = task.params.topP;
+        int topK = task.params.topK;
+
+        AILogger.i(TAG, "Inference params: maxTokens=" + maxTokens +
+            ", temperature=" + temperature + ", topP=" + topP + ", topK=" + topK);
+
+        // 检查上下文空间是否足够
+        int promptTokens = LlamaHelper.countTokens(task.prompt);
+        int remainingTokens = LlamaHelper.getContextRemainingTokens();
+        int requiredTokens = promptTokens + maxTokens;
+
+        AILogger.i(TAG, "Context check: promptTokens=" + promptTokens +
+                ", remaining=" + remainingTokens + ", required=" + requiredTokens);
+
+        if (remainingTokens < requiredTokens) {
+            AILogger.w(TAG, "Not enough context space, clearing context for inference");
+            LlamaHelper.clearContextForInference();
+
+            // 再次检查
+            remainingTokens = LlamaHelper.getContextRemainingTokens();
+            if (remainingTokens < requiredTokens) {
+                AILogger.w(TAG, "Still not enough context after clear, reducing maxTokens");
+                // 减少输出 token 数以适应可用空间
+                maxTokens = Math.max(128, remainingTokens - promptTokens - 256);
+                AILogger.i(TAG, "Reduced maxTokens to " + maxTokens);
+            }
+        }
+
+        // 调用 LLM 进行推理（硬件层）
+        String result = LlamaHelper.generate(task.prompt, maxTokens, temperature, topP, topK);
+
+        if (result == null || result.isEmpty()) {
+            throw new RuntimeException("LLM returned empty result");
+        }
+
+        AILogger.i(TAG, "Inference completed: " + task.id + " (result length: " + result.length() + ")");
+
+        return result;
     }
 
     public boolean cancelTask(String taskId) {
@@ -357,12 +383,14 @@ class StreamingInferenceManager {
     private static final String TAG = "StreamingInference";
 
     private final Context context;
+    private final AIService aiService;
     private final Map<String, StreamingContext> activeStreams = new ConcurrentHashMap<>();
     private final Handler mainHandler;
     private final ExecutorService streamingExecutor = Executors.newSingleThreadExecutor();
 
     public StreamingInferenceManager(Context context) {
         this.context = context.getApplicationContext();
+        this.aiService = AIService.getInstance(this.context);
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
@@ -379,21 +407,62 @@ class StreamingInferenceManager {
 
     private void executeStreaming(StreamingContext context, String prompt, InferenceQueue.InferenceParams params) {
         try {
-            StringBuilder fullResponse = new StringBuilder();
+            AILogger.i(TAG, "Starting streaming inference for: " + context.id);
 
-            for (int i = 0; i < params.nPredict; i++) {
-                if (!context.isRunning) break;
-
-                Thread.sleep(50);
-
-                String token = "token_" + i + " ";
-                fullResponse.append(token);
-
-                final int index = i;
-                mainHandler.post(() -> context.callback.onToken(token, index));
+            // 检查模型是否已初始化
+            if (!LlamaHelper.isModelInitialized()) {
+                throw new RuntimeException("AI model not initialized");
             }
 
-            mainHandler.post(() -> context.callback.onComplete(fullResponse.toString()));
+            // 检查上下文空间是否足够
+            int promptTokens = LlamaHelper.countTokens(prompt);
+            int remainingTokens = LlamaHelper.getContextRemainingTokens();
+            int requiredTokens = promptTokens + params.nPredict;
+            
+            AILogger.i(TAG, "Context check: promptTokens=" + promptTokens + 
+                    ", remaining=" + remainingTokens + ", required=" + requiredTokens);
+            
+            if (remainingTokens < requiredTokens) {
+                AILogger.w(TAG, "Not enough context space, clearing context for inference");
+                LlamaHelper.clearContextForInference();
+                
+                // 再次检查
+                remainingTokens = LlamaHelper.getContextRemainingTokens();
+                if (remainingTokens < requiredTokens) {
+                    AILogger.w(TAG, "Still not enough context after clear, proceeding anyway");
+                }
+            }
+
+            // 使用 LLM 进行流式生成（硬件层）
+            LlamaHelper.generateStream(prompt, params.nPredict, params.temperature,
+                params.topP, params.topK, false, new LlamaHelper.TokenCallback() {
+                private final StringBuilder fullResponse = new StringBuilder();
+                private int tokenCount = 0;
+
+                @Override
+                public void onToken(String token) {
+                    if (!context.isRunning) return;
+
+                    fullResponse.append(token);
+                    tokenCount++;
+
+                    final String currentToken = token;
+                    final int currentIndex = tokenCount;
+                    mainHandler.post(() -> context.callback.onToken(currentToken, currentIndex));
+                }
+
+                @Override
+                public void onComplete(String fullText) {
+                    AILogger.i(TAG, "Streaming completed: " + context.id + " (tokens: " + tokenCount + ")");
+                    mainHandler.post(() -> context.callback.onComplete(fullText != null ? fullText : fullResponse.toString()));
+                }
+
+                @Override
+                public void onError(String error) {
+                    AILogger.e(TAG, "Streaming error: " + context.id + ", error: " + error);
+                    mainHandler.post(() -> context.callback.onError(new RuntimeException(error)));
+                }
+            });
 
         } catch (Exception e) {
             mainHandler.post(() -> context.callback.onError(e));

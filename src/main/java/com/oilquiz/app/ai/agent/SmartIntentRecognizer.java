@@ -684,6 +684,7 @@ public class SmartIntentRecognizer {
     private IntentResult recognizeByLLM(String message) {
         try {
             String prompt = buildLLMPrompt(message);
+            // LlamaHelper.generate 内部有推理锁保护，会等待 chatSend 完成
             String response = LlamaHelper.generate(prompt, LLM_MAX_TOKENS, LLM_TEMPERATURE);
 
             if (response == null || response.trim().isEmpty()) {

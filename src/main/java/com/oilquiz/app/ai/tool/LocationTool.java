@@ -64,9 +64,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 })
 public class LocationTool implements AITool {
     private static final String TAG = "LocationTool";
-    private static final long LOCATION_TIMEOUT_MS = 20000;
-    private static final long RETRY_DELAY_MS = 500;
-    private static final int MAX_RETRY_ATTEMPTS = 2;
+    private static final long LOCATION_TIMEOUT_MS = 8000;
+    private static final long RETRY_DELAY_MS = 300;
+    private static final int MAX_RETRY_ATTEMPTS = 1;
     private final Context context;
     private final Handler mainHandler;
 
@@ -138,10 +138,35 @@ public class LocationTool implements AITool {
     public String getDescription() {
         return "定位工具，获取用户当前位置信息（经纬度、城市名等）";
     }
+    
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        
+        // action别名
+        if (parameters.containsKey("operation") && !parameters.containsKey("action")) {
+            parameters.put("action", parameters.get("operation"));
+        }
+        if (parameters.containsKey("type") && !parameters.containsKey("action")) {
+            parameters.put("action", parameters.get("type"));
+        }
+        
+        // get_location -> get_current
+        Object action = parameters.get("action");
+        if (action != null) {
+            String actionStr = action.toString();
+            if ("get_location".equals(actionStr) || "location".equals(actionStr)) {
+                parameters.put("action", "get_current");
+            } else if ("get_position".equals(actionStr)) {
+                parameters.put("action", "get_coordinates");
+            }
+        }
+    }
 
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
+            normalizeParameters(parameters);
+            
             if (!isLocationServiceEnabled()) {
                 AILogger.w(TAG, "Location service is disabled");
                 showToast("请先在系统设置中开启位置服务");
@@ -224,27 +249,24 @@ public class LocationTool implements AITool {
         
         if (!smartResult.success || smartResult.location == null) {
             Map<String, Object> info = new HashMap<>();
-            info.put("error", "无法获取位置信息，请检查定位权限是否已授予");
+            info.put("status", "error");
+            info.put("error", smartResult.errorMessage != null ? smartResult.errorMessage : "无法获取位置信息，请检查定位权限是否已授予");
             info.put("permission_required", !hasLocationPermission(context));
-            info.put("attempts", smartResult.attempt);
-            info.put("last_error", smartResult.errorMessage);
-            info.put("attempts_log", smartResult.attemptsLog);
-            return new AIToolResult("无法获取位置信息", info);
+            return new AIToolResult(info, new HashMap<>());
         }
 
         LocationInfo locationInfo = smartResult.location;
         String cityName = getCityName(locationInfo.latitude, locationInfo.longitude);
 
         Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
         result.put("latitude", locationInfo.latitude);
         result.put("longitude", locationInfo.longitude);
         result.put("accuracy", locationInfo.accuracy);
         result.put("city", cityName != null ? cityName : "未知");
         result.put("provider", locationInfo.provider);
-        result.put("provider_used", smartResult.providerUsed);
         result.put("timestamp", locationInfo.timestamp);
-        result.put("attempts", smartResult.attempt);
-        result.put("attempts_log", smartResult.attemptsLog);
+        result.put("address", getAddressString(locationInfo.latitude, locationInfo.longitude));
 
         return new AIToolResult(result, new HashMap<>());
     }
@@ -254,21 +276,20 @@ public class LocationTool implements AITool {
         
         if (!smartResult.success || smartResult.location == null) {
             Map<String, Object> info = new HashMap<>();
+            info.put("status", "error");
             info.put("error", "无法获取位置信息");
-            info.put("attempts", smartResult.attempt);
-            info.put("last_error", smartResult.errorMessage);
-            return new AIToolResult("无法获取位置信息", info);
+            info.put("permission_required", !hasLocationPermission(context));
+            return new AIToolResult(info, new HashMap<>());
         }
 
         LocationInfo locationInfo = smartResult.location;
         String cityName = getCityName(locationInfo.latitude, locationInfo.longitude);
         
         Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
         result.put("city", cityName != null ? cityName : "未知");
         result.put("latitude", locationInfo.latitude);
         result.put("longitude", locationInfo.longitude);
-        result.put("provider_used", smartResult.providerUsed);
-        result.put("attempts", smartResult.attempt);
 
         return new AIToolResult(result, new HashMap<>());
     }
@@ -278,20 +299,19 @@ public class LocationTool implements AITool {
         
         if (!smartResult.success || smartResult.location == null) {
             Map<String, Object> info = new HashMap<>();
+            info.put("status", "error");
             info.put("error", "无法获取位置信息");
-            info.put("attempts", smartResult.attempt);
-            info.put("last_error", smartResult.errorMessage);
-            return new AIToolResult("无法获取位置信息", info);
+            info.put("permission_required", !hasLocationPermission(context));
+            return new AIToolResult(info, new HashMap<>());
         }
 
         LocationInfo locationInfo = smartResult.location;
         
         Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
         result.put("latitude", locationInfo.latitude);
         result.put("longitude", locationInfo.longitude);
         result.put("accuracy", locationInfo.accuracy);
-        result.put("provider_used", smartResult.providerUsed);
-        result.put("attempts", smartResult.attempt);
 
         return new AIToolResult(result, new HashMap<>());
     }
@@ -461,48 +481,39 @@ public class LocationTool implements AITool {
 
     private String getCityNameFromGeoAPI(double latitude, double longitude) {
         try {
-            com.oilquiz.app.ai.util.APIKeyManager apiKeyManager = com.oilquiz.app.ai.util.APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(com.oilquiz.app.ai.util.APIKeyManager.Service.HEFENG_WEATHER);
-            if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = "be2af1f8490344feb8a7125ab46608dd";
-            }
-
-            String location = String.format(java.util.Locale.US, "%.2f,%.2f", longitude, latitude);
-            String urlString = "https://m278m2y7ak.re.qweatherapi.com/v2/city/lookup?location=" + location + "&key=" + apiKey;
-            java.net.URL url = new java.net.URL(urlString);
-            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Accept-Encoding", "gzip, deflate");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-
-            java.io.InputStream inputStream;
-            String encoding = connection.getContentEncoding();
-            if ("gzip".equalsIgnoreCase(encoding)) {
-                inputStream = new java.util.zip.GZIPInputStream(connection.getInputStream());
-            } else if ("deflate".equalsIgnoreCase(encoding)) {
-                inputStream = new java.util.zip.InflaterInputStream(connection.getInputStream());
-            } else {
-                inputStream = connection.getInputStream();
-            }
-
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(inputStream, java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            reader.close();
-
-            org.json.JSONObject jsonObject = new org.json.JSONObject(response.toString());
-            if ("200".equals(jsonObject.optString("code"))) {
-                org.json.JSONArray locationArray = jsonObject.optJSONArray("location");
-                if (locationArray != null && locationArray.length() > 0) {
-                    return locationArray.getJSONObject(0).optString("name", null);
-                }
-            }
+            AIWeatherManager weatherManager = new AIWeatherManager(context);
+            return weatherManager.getHefengCityNameByLocation(latitude, longitude);
         } catch (Exception e) {
             AILogger.w(TAG, "GeoAPI city lookup failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private String getAddressString(double latitude, double longitude) {
+        if (android.location.Geocoder.isPresent()) {
+            try {
+                Geocoder geocoder = new Geocoder(context, Locale.CHINA);
+                List<Address> addresses = geocoder.getFromLocation(latitude, longitude, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address address = addresses.get(0);
+                    StringBuilder sb = new StringBuilder();
+                    String country = address.getCountryName();
+                    String adminArea = address.getAdminArea();
+                    String locality = address.getLocality();
+                    String subLocality = address.getSubLocality();
+                    String thoroughfare = address.getThoroughfare();
+                    
+                    if (country != null) sb.append(country);
+                    if (adminArea != null) sb.append(" ").append(adminArea);
+                    if (locality != null) sb.append(" ").append(locality);
+                    if (subLocality != null) sb.append(" ").append(subLocality);
+                    if (thoroughfare != null) sb.append(" ").append(thoroughfare);
+                    
+                    return sb.toString().trim();
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "Geocoder address lookup failed: " + e.getMessage());
+            }
         }
         return null;
     }
@@ -626,57 +637,69 @@ public class LocationTool implements AITool {
         int attempt = 0;
         String lastError = null;
 
-        java.util.List<String> providerOrder = new java.util.ArrayList<>();
-        
         LocationManager locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        
+        // 1. 优先返回上次已知位置（快速路径）
         if (locationManager != null) {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                providerOrder.add(LocationProviderType.GPS);
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                providerOrder.add(LocationProviderType.NETWORK);
-            }
-            if (locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
-                providerOrder.add(LocationProviderType.PASSIVE);
+            LocationInfo lastKnown = getLastKnownLocation(locationManager);
+            if (lastKnown != null) {
+                long age = System.currentTimeMillis() - lastKnown.timestamp;
+                // 如果上次位置在30分钟内，直接返回
+                if (age < 30 * 60 * 1000) {
+                    AILogger.i(TAG, "Returning cached location, age=" + age + "ms");
+                    attemptsLog.add("Returned cached location");
+                    return new SmartLocationResult(true, lastKnown, LocationProviderType.LAST_KNOWN, 1, null, attemptsLog);
+                }
             }
         }
 
-        providerOrder.add(LocationProviderType.LAST_KNOWN);
+        // 2. 并行尝试网络定位（通常比GPS快）
+        attempt++;
+        try {
+            AILogger.i(TAG, "Attempt " + attempt + ": Trying network location");
+            attemptsLog.add("Attempt " + attempt + ": Provider=network");
 
-        for (String provider : providerOrder) {
-            for (int retry = 0; retry < MAX_RETRY_ATTEMPTS; retry++) {
-                attempt++;
-                try {
-                    AILogger.i(TAG, "Attempt " + attempt + ": Trying provider " + provider);
-                    attemptsLog.add("Attempt " + attempt + ": Provider=" + provider + ", retry=" + retry);
-
-                    LocationInfo location = null;
-                    
-                    if (LocationProviderType.LAST_KNOWN.equals(provider)) {
-                        if (locationManager != null) {
-                            location = getLastKnownLocation(locationManager);
-                        }
-                    } else {
-                        location = requestLocationByProvider(provider);
-                    }
-
-                    if (location != null) {
-                        AILogger.i(TAG, "Success at attempt " + attempt + " with provider " + provider);
-                        attemptsLog.add("Success at attempt " + attempt + ": Provider=" + provider + 
-                            ", lat=" + location.latitude + ", lon=" + location.longitude);
-                        return new SmartLocationResult(true, location, provider, attempt, null, attemptsLog);
-                    }
-                    
-                    lastError = "No location returned from " + provider;
-                } catch (Exception e) {
-                    lastError = e.getMessage();
-                    attemptsLog.add("Attempt " + attempt + ": Error - " + e.getMessage());
-                    AILogger.e(TAG, "Attempt " + attempt + " with provider " + provider + " failed: " + e.getMessage());
+            if (locationManager != null && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                LocationInfo location = requestLocationByProvider(LocationProviderType.NETWORK);
+                if (location != null) {
+                    AILogger.i(TAG, "Success with network provider");
+                    attemptsLog.add("Success: Provider=network");
+                    return new SmartLocationResult(true, location, LocationProviderType.NETWORK, attempt, null, attemptsLog);
                 }
-                
-                if (retry < MAX_RETRY_ATTEMPTS - 1) {
-                    sleepRetry();
+            }
+            lastError = "Network location failed";
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            attemptsLog.add("Attempt " + attempt + ": Error - " + e.getMessage());
+        }
+
+        // 3. 尝试GPS定位
+        attempt++;
+        try {
+            AILogger.i(TAG, "Attempt " + attempt + ": Trying GPS location");
+            attemptsLog.add("Attempt " + attempt + ": Provider=gps");
+
+            if (locationManager != null && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                LocationInfo location = requestLocationByProvider(LocationProviderType.GPS);
+                if (location != null) {
+                    AILogger.i(TAG, "Success with GPS provider");
+                    attemptsLog.add("Success: Provider=gps");
+                    return new SmartLocationResult(true, location, LocationProviderType.GPS, attempt, null, attemptsLog);
                 }
+            }
+            lastError = "GPS location failed";
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            attemptsLog.add("Attempt " + attempt + ": Error - " + e.getMessage());
+        }
+
+        // 4. 最后回退到上次已知位置（即使过期）
+        if (locationManager != null) {
+            LocationInfo lastKnown = getLastKnownLocation(locationManager);
+            if (lastKnown != null) {
+                AILogger.i(TAG, "Falling back to last known location");
+                attemptsLog.add("Fallback to last known");
+                return new SmartLocationResult(true, lastKnown, LocationProviderType.LAST_KNOWN, attempt + 1, "位置可能过时", attemptsLog);
             }
         }
 
@@ -698,12 +721,12 @@ public class LocationTool implements AITool {
                 || ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private static class LocationInfo {
-        final double latitude;
-        final double longitude;
-        final float accuracy;
-        final String provider;
-        final long timestamp;
+    public static class LocationInfo {
+        public final double latitude;
+        public final double longitude;
+        public final float accuracy;
+        public final String provider;
+        public final long timestamp;
 
         LocationInfo(double latitude, double longitude, float accuracy, String provider, long timestamp) {
             this.latitude = latitude;

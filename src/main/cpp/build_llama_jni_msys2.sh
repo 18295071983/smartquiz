@@ -31,11 +31,29 @@ GLSLC="$NDK_DIR/shader-tools/windows-x86_64/glslc.exe"
 # 将glslc所在目录添加到PATH（CMake查找glslc需要）
 export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
-# OpenCL: 在Android上不使用ICD Loader，直接使用设备厂商的驱动
-# 厂商驱动位于 /vendor/lib64/libOpenCL.so，运行时动态加载
-OPENCL_LIB=""
+# OpenCL: 在Android上使用NDK提供的stub库进行编译时链接
+# 运行时会自动加载设备厂商的驱动（/vendor/lib64/libOpenCL.so）
+OPENCL_LIB="$NDK_DIR/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libOpenCL.so"
 OPENCL_LIB_PATHS=()
 OPENCL_ENABLED=1
+
+# Python3: OpenCL内核嵌入需要Python
+# 优先使用系统Python，其次使用NDK中的Python
+PYTHON3="/c/Users/xiaocong/AppData/Local/Programs/Python/Python312/python.exe"
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Users/xiaocong/AppData/Local/Programs/Python/Python311/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Python312/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/c/Python311/python.exe"
+fi
+if [ ! -f "$PYTHON3" ]; then
+    PYTHON3="/d/Android/Sdk/ndk/26.1.10909125/prebuilt/windows-x86_64/bin/python3.exe"
+fi
+
+export PYTHONPATH=""
 
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
@@ -50,6 +68,12 @@ if [ ! -f "$NINJA" ]; then
     exit 1
 fi
 
+if [ ! -f "$PYTHON3" ]; then
+    log_error "Python3 not found! OpenCL kernel embedding requires Python3."
+    log_error "请安装Python3或设置PYTHON3环境变量"
+    exit 1
+fi
+
 # 禁用Vulkan（Adreno 750对Vulkan计算支持有限，使用OpenCL代替）
 VULKAN_ENABLED=0
 log_info "Vulkan已禁用（使用OpenCL代替）"
@@ -59,6 +83,7 @@ log_info "OpenCL已启用（使用设备厂商驱动，运行时动态加载）"
 
 log_info "使用CMake: $CMAKE"
 log_info "使用Ninja: $NINJA"
+log_info "使用Python3: $PYTHON3"
 log_info "Vulkan支持: $VULKAN_ENABLED"
 log_info "OpenCL支持: $OPENCL_ENABLED"
 
@@ -94,6 +119,45 @@ mkdir -p "$JNI_LIBS_DIR/x86_64"
 # ============================================
 log_info "开始编译ARM64架构..."
 
+# 构建OpenCL ICD Loader（仅ARM64需要，Android运行时通过dlopen动态加载厂商驱动）
+STUB_LIB="$SCRIPT_DIR/opencl/build/lib/libOpenCL.so"
+if [ ! -f "$STUB_LIB" ]; then
+    log_info "构建OpenCL ICD Loader库..."
+
+    ICD_SRC="$SCRIPT_DIR/opencl/OpenCL-ICD-Loader"
+    ICD_BUILD="$SCRIPT_DIR/build/opencl-icd-loader"
+
+    mkdir -p "$ICD_BUILD"
+    cd "$ICD_BUILD" || exit 1
+
+    "$CMAKE" "$ICD_SRC" \
+        -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+        -DANDROID_ABI="arm64-v8a" \
+        -DANDROID_PLATFORM=android-31 \
+        -DANDROID_STL=c++_shared \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=ON \
+        -DOPENCL_ICD_LOADER_HEADERS_DIR="$SCRIPT_DIR/opencl/headers" \
+        -DENABLE_OPENCL_LAYERS=OFF \
+        -DENABLE_OPENCL_LOADER_MANAGED_DISPATCH=OFF \
+        -DENABLE_OPENCL_LAYERINFO=OFF \
+        -G"Ninja" || {
+        log_error "OpenCL ICD Loader CMake配置失败"
+        exit 1
+    }
+
+    "$NINJA" || {
+        log_error "OpenCL ICD Loader编译失败"
+        exit 1
+    }
+
+    mkdir -p "$(dirname "$STUB_LIB")"
+    cp "libOpenCL.so" "$STUB_LIB"
+    log_info "OpenCL ICD Loader库已构建: $STUB_LIB"
+    cd "$SCRIPT_DIR" || exit 1
+fi
+
 ARM64_BUILD_DIR="$SCRIPT_DIR/build/arm64-v8a"
 mkdir -p "$ARM64_BUILD_DIR"
 
@@ -103,7 +167,7 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
     -DANDROID_ABI="arm64-v8a" \
     -DANDROID_PLATFORM=android-31 \
-    -DANDROID_STL=c++_shared \
+    -DANDROID_STL=c++_static \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
@@ -113,10 +177,15 @@ cd "$ARM64_BUILD_DIR" || exit 1
     -DGGML_RPC=OFF \
     -DGGML_OPENCL_EMBED_KERNELS=ON \
     -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
+    -DGGML_OPENCL_TARGET_VERSION="300" \
+    -DOpenCL_INCLUDE_DIR="$SCRIPT_DIR/opencl/headers" \
     -DOpenCL_INCLUDE_DIRS="$SCRIPT_DIR/opencl/headers" \
     -DOpenCL_FOUND=$OPENCL_ENABLED \
     -DOpenCL_VERSION_STRING="3.0" \
-    -DOpenCL_LIBRARIES="" \
+    -DOpenCL_LIBRARIES="$OPENCL_LIB" \
+    -DOpenCL_LIBRARY="$OPENCL_LIB" \
+    -DPython3_EXECUTABLE="$PYTHON3" \
+    -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
     -GNinja || {
     log_error "ARM64 CMake配置失败"
     exit 1
@@ -156,7 +225,8 @@ if [ $ARM64_LIB_FOUND -eq 0 ]; then
     exit 1
 fi
 
-# 注意：不再复制libOpenCL.so，运行时动态加载设备厂商驱动
+# 静态链接模式：只需要libllama-jni.so，所有依赖已嵌入
+log_info "静态链接模式: 所有依赖库已嵌入libllama-jni.so"
 
 # ============================================
 # 编译x86_64架构
@@ -172,7 +242,7 @@ cd "$X64_BUILD_DIR" || exit 1
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
     -DANDROID_ABI="x86_64" \
     -DANDROID_PLATFORM=android-31 \
-    -DANDROID_STL=c++_shared \
+    -DANDROID_STL=c++_static \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_MAKE_PROGRAM="$NINJA" \
     -DBUILD_SHARED_LIBS=OFF \
@@ -180,6 +250,7 @@ cd "$X64_BUILD_DIR" || exit 1
     -DGGML_VULKAN=OFF \
     -DGGML_CUDA=OFF \
     -DGGML_RPC=OFF \
+    -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
     -GNinja || {
     log_error "x86_64 CMake配置失败"
     exit 1
@@ -218,6 +289,9 @@ if [ $X64_LIB_FOUND -eq 0 ]; then
     done
     exit 1
 fi
+
+# 静态链接模式：只需要libllama-jni.so，所有依赖已嵌入
+log_info "静态链接模式: x86_64所有依赖库已嵌入libllama-jni.so"
 
 # ============================================
 # 编译完成

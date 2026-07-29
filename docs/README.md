@@ -7,7 +7,7 @@ docs/
 ├── AGENT_ARCHITECTURE.md                  # Agent 智能代理架构设计
 ├── ai_rules.md                            # AI 开发规则与规范
 ├── database/
-│   └── database_structure.md              # 数据库结构设计
+│   └── database_structure.md              # 数据库结构设计 (v20)
 ├── development/
 │   ├── ai_feature_design.md               # AI 功能总体设计
 │   ├── ai_ui_interaction_design.md        # AI-UI 交互设计
@@ -16,9 +16,9 @@ docs/
 │   ├── development_standards.md           # 开发标准规范
 │   ├── enhanced_local_library_design.md   # 增强本地库设计
 │   ├── excel_import_feature.md            # Excel 导入功能设计
-│   ├── module_function_design.md          # 模块功能设计
+│   ├── module_function_design.md          # 模块功能设计 (v2.1)
 │   ├── project_redesign_summary.md        # 项目重设计总结
-│   ├── tech_stack.md                      # 技术栈文档
+│   ├── tech_stack.md                      # 技术栈文档 (v2.2)
 │   ├── testing_strategy.md               # 测试策略文档
 │   ├── ui_resources_design.md             # UI 资源设计
 │   ├── ui_ux_redesign.md                  # UI/UX 重设计文档
@@ -26,9 +26,20 @@ docs/
 │   ├── AGENT_OPTIMIZATION_REPORT.md       # Agent 优化报告
 │   ├── RESOURCE_REFACTORING_GUIDE.md      # 资源重构指南
 │   ├── TBS_SDK_INTEGRATION_GUIDE.md       # TBS SDK 集成指南
+│   ├── AI_CHAT_V2.0_DESIGN.md             # AI Chat v2.0 设计
+│   ├── CHANGELOG_V2.0.md                  # v2.0 更新日志
+│   ├── OPENAI_TOOL_CALLING_DESIGN.md      # OpenAI 工具调用设计
+│   ├── AGENT_CHAIN_DESIGN.md              # Agent 链式调用设计
+│   ├── AGENT_HARDWARE_SOFTWARE_DESIGN.md  # Agent 软硬件设计
 │   ├── 应用重构设计文档.md                # 应用重构设计
 │   └── ai_modules/
 │       ├── ai_service_design.md           # AI 服务层设计
+│       ├── ai_chat_v3_acceptance.md       # AI Chat v3 验收标准
+│       ├── ai_chat_v3_debugging.md        # AI Chat v3 调试指南
+│       ├── ai_chat_v3_design.md           # AI Chat v3 设计文档
+│       ├── ai_chat_v3_prd.md              # AI Chat v3 需求文档
+│       ├── ai_chat_v3_rules.md            # AI Chat v3 规则
+│       ├── ai_chat_v3_tasks.md            # AI Chat v3 任务清单
 │       ├── learning_assistant_design.md   # 学习助手设计
 │       ├── llm_service_design.md          # LLM 服务设计
 │       ├── model_manager_design.md        # 模型管理设计
@@ -38,7 +49,7 @@ docs/
 └── system/
     ├── api_design.md                      # API 设计文档
     ├── deployment_guide.md                # 部署指南
-    └── system_architecture.md             # 系统架构设计
+    └── system_architecture.md             # 系统架构设计 (v2.1)
 ```
 
 ## 文档导航
@@ -56,6 +67,7 @@ docs/
 2. **Agent 架构** → [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md)
 3. **LLM 服务** → [llm_service_design.md](development/ai_modules/llm_service_design.md)
 4. **AI-UI 交互** → [ai_ui_interaction_design.md](development/ai_ui_interaction_design.md)
+5. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
 
 ### 部署与运维
 
@@ -68,3 +80,4 @@ docs/
 - 文档随代码同步更新，确保准确性
 - 所有文档纳入版本控制管理
 - 重大功能变更时同步更新相关文档
+- 更新日期统一为：2026-07-18

@@ -1,0 +1,15 @@
+
+------------------------------------------------------------
+Gradle 8.14
+------------------------------------------------------------
+
+Build time:    2025-04-25 09:29:08 UTC
+Revision:      34c560e3be961658a6fbcd7170ec2443a228b109
+
+Kotlin:        2.0.21
+Groovy:        3.0.24
+Ant:           Apache Ant(TM) version 1.10.15 compiled on August 25 2024
+Launcher JVM:  21 (Oracle Corporation 21+35-LTS-2513)
+Daemon JVM:    D:\jdk-21 (from org.gradle.java.home)
+OS:            Windows 10 10.0 amd64
+

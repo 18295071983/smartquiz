@@ -12,7 +12,7 @@ import java.util.Map;
 
 @Tool(
     value = "file",
-    description = "文件操作工具，用于获取文件信息、读取文件内容等",
+    description = "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件",
     category = "file",
     actions = {
         @Action(name = "get_file_info", description = "获取文件信息"),
@@ -21,8 +21,8 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型: get_file_info, read_file, list_files", required = true),
-        @Param(name = "file_path", type = "string", description = "文件路径", required = false),
-        @Param(name = "directory_path", type = "string", description = "目录路径", required = false)
+        @Param(name = "file_path", type = "string", description = "文件路径（用于get_file_info和read_file操作）", required = false),
+        @Param(name = "directory_path", type = "string", description = "目录路径（用于list_files操作）", required = false)
     }
 )
 public class FileTool implements AITool {

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Ed25519 密钥生成器 - QWeather JWT</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(30, 41, 59, 0.95);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        h1 {
+            color: #F8FAFC;
+            font-size: 24px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #94A3B8;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .btn-generate {
+            width: 100%;
+            padding: 14px 24px;
+            background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 24px;
+        }
+        .btn-generate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+        }
+        .btn-generate:active {
+            transform: translateY(0);
+        }
+        .key-section {
+            margin-bottom: 20px;
+        }
+        .key-label {
+            color: #94A3B8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .key-box {
+            background: #0F172A;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 11px;
+            color: #E2E8F0;
+            word-break: break-all;
+            white-space: pre-wrap;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .btn-copy {
+            background: transparent;
+            border: 1px solid #475569;
+            color: #94A3B8;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-copy:hover {
+            background: #334155;
+            color: #F8FAFC;
+        }
+        .btn-copy.copied {
+            background: #10B981;
+            border-color: #10B981;
+            color: white;
+        }
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 20px;
+        }
+        .info-box h3 {
+            color: #60A5FA;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        .info-box p {
+            color: #94A3B8;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .info-box ol {
+            color: #94A3B8;
+            font-size: 12px;
+            line-height: 1.8;
+            padding-left: 20px;
+        }
+        .hidden { display: none; }
+        .status {
+            text-align: center;
+            color: #10B981;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 Ed25519 密钥生成器</h1>
+        <p class="subtitle">用于和风天气 JWT 身份认证</p>
+
+        <button class="btn-generate" onclick="generateKeys()">生成新密钥对</button>
+
+        <div id="status" class="status hidden">✅ 密钥已生成！请复制并保存</div>
+
+        <div id="keys" class="hidden">
+            <div class="key-section">
+                <div class="key-label">
+                    <span>🔑 私钥 (Private Key) - 请妥善保管</span>
+                    <button class="btn-copy" onclick="copyKey('private')">复制</button>
+                </div>
+                <div class="key-box" id="privateKey"></div>
+            </div>
+
+            <div class="key-section">
+                <div class="key-label">
+                    <span>🔓 公钥 (Public Key) - 上传到和风天气控制台</span>
+                    <button class="btn-copy" onclick="copyKey('public')">复制</button>
+                </div>
+                <div class="key-box" id="publicKey"></div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>📋 使用说明</h3>
+            <ol>
+                <li>点击"生成新密钥对"按钮</li>
+                <li>复制<strong>公钥</strong>，登录 <a href="https://console.qweather.com" target="_blank" style="color: #60A5FA;">和风天气控制台</a></li>
+                <li>在项目管理中添加凭据，选择 JSON Web Token</li>
+                <li>粘贴公钥内容并保存</li>
+                <li>复制<strong>私钥</strong>和生成的凭据 ID，在 App 中配置</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        async function generateEd25519Pem() {
+            const k = await crypto.subtle.generateKey({name:"Ed25519"}, true, ["sign","verify"]);
+            const p8 = await crypto.subtle.exportKey("pkcs8", k.privateKey);
+            const spki = await crypto.subtle.exportKey("spki", k.publicKey);
+            const pem = (d, t) => {
+                let b = btoa(String.fromCharCode(...new Uint8Array(d)));
+                return `-----BEGIN ${t}-----\n${b.match(/.{1,64}/g).join("\n")}\n-----END ${t}-----`;
+            };
+            const priv = pem(p8, "PRIVATE KEY");
+            const pub = pem(spki, "PUBLIC KEY");
+            return { priv, pub };
+        }
+
+        async function generateKeys() {
+            try {
+                const keys = await generateEd25519Pem();
+                document.getElementById('privateKey').textContent = keys.priv;
+                document.getElementById('publicKey').textContent = keys.pub;
+                document.getElementById('keys').classList.remove('hidden');
+                document.getElementById('status').classList.remove('hidden');
+            } catch (e) {
+                alert('生成失败: ' + e.message);
+            }
+        }
+
+        function copyKey(type) {
+            const key = type === 'private' 
+                ? document.getElementById('privateKey').textContent 
+                : document.getElementById('publicKey').textContent;
+            
+            navigator.clipboard.writeText(key).then(() => {
+                const btn = event.target;
+                btn.textContent = '已复制';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '复制';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

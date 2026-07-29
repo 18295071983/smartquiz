@@ -3,13 +3,14 @@ package com.oilquiz.app.ui.widget;
 import android.content.Context;
 import android.util.Log;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.TextView;
 
-import com.oilquiz.app.ai.tool.AIWeatherManager;
+import com.oilquiz.app.R;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.infra.AppLogger;
-import com.oilquiz.app.util.QWeatherIconMapper;
+import com.oilquiz.app.weather.WeatherService;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -19,10 +20,10 @@ public class WeatherBannerManager {
     private static final String TAG = "WeatherBannerManager";
 
     private final Context context;
-    private final AIWeatherManager weatherManager;
+    private final WeatherService weatherService;
 
     private View weatherBanner;
-    private TextView weatherIcon;
+    private ImageView weatherIcon;
     private TextView weatherCity;
     private TextView weatherTemp;
     private TextView weatherDesc;
@@ -38,10 +39,10 @@ public class WeatherBannerManager {
 
     public WeatherBannerManager(Context context) {
         this.context = context;
-        this.weatherManager = new AIWeatherManager(context, AIWeatherManager.WeatherProvider.HEFENG);
+        this.weatherService = WeatherService.getInstance(context);
     }
 
-    public void setupViews(View banner, TextView icon, TextView city, TextView temp, 
+    public void setupViews(View banner, ImageView icon, TextView city, TextView temp, 
                            TextView desc, TextView humidity, TextView wind) {
         this.weatherBanner = banner;
         this.weatherIcon = icon;
@@ -81,22 +82,25 @@ public class WeatherBannerManager {
                 double lon = map.get("longitude") instanceof Number ? ((Number) map.get("longitude")).doubleValue() : 0;
 
                 if (city.equals("未知") || city.equals("null")) {
-                    if (weatherManager != null) {
-                        weatherManager.getCurrentWeather("Beijing").thenAccept(weather -> {
-                            runOnUiThread(() -> updateWeatherBannerUI(parseWeatherFromText(weather)));
-                        });
-                    }
-                    return;
+                    city = "北京";
                 }
 
-                if (weatherManager != null) {
-                    weatherManager.getCurrentWeather(city).thenAccept(weather -> {
+                String finalCity = city;
+                if (lat != 0 && lon != 0) {
+                    weatherService.getCurrentWeatherByLocation(lat, lon, finalCity).thenAccept(weather -> {
                         runOnUiThread(() -> updateWeatherBannerUI(parseWeatherFromText(weather)));
-                    }).exceptionally(throwable -> {
-                        if (lat != 0 && lon != 0 && weatherManager != null) {
-                            weatherManager.getOneCallWeather(lat, lon, null, "metric", "zh_cn")
-                                .thenAccept(weather -> runOnUiThread(() -> updateWeatherBannerUI(parseWeatherFromText(weather))));
-                        }
+                    }).exceptionally(e -> {
+                        Log.e(TAG, "Failed to load weather by location", e);
+                        weatherService.getCurrentWeather(finalCity).thenAccept(weather -> {
+                            runOnUiThread(() -> updateWeatherBannerUI(parseWeatherFromText(weather)));
+                        });
+                        return null;
+                    });
+                } else {
+                    weatherService.getCurrentWeather(finalCity).thenAccept(weather -> {
+                        runOnUiThread(() -> updateWeatherBannerUI(parseWeatherFromText(weather)));
+                    }).exceptionally(e -> {
+                        AppLogger.aiE(TAG, "Error loading weather: " + e.getMessage());
                         return null;
                     });
                 }
@@ -122,12 +126,27 @@ public class WeatherBannerManager {
         weatherBanner.setVisibility(View.VISIBLE);
         bannerVisible = true;
 
-        if (weatherIcon != null) weatherIcon.setText(info.icon);
+        if (weatherIcon != null) {
+            try {
+                android.graphics.drawable.Drawable drawable = com.oilquiz.app.util.QWeatherIconMapper.getIconDrawable(info.iconCode != null ? info.iconCode : "999", context, 36);
+                if (drawable != null) {
+                    weatherIcon.setImageDrawable(drawable);
+                } else {
+                    weatherIcon.setImageResource(R.drawable.wi_999);
+                }
+            } catch (Exception e) {
+                weatherIcon.setImageResource(R.drawable.wi_999);
+            }
+        }
         if (weatherCity != null) weatherCity.setText(info.city);
         if (weatherTemp != null) weatherTemp.setText(info.temp);
         if (weatherDesc != null) weatherDesc.setText(info.description);
-        if (weatherHumidity != null) weatherHumidity.setText("湿度: " + info.humidity);
-        if (weatherWind != null) weatherWind.setText("风速: " + info.wind);
+        if (weatherHumidity != null && info.humidity != null) {
+            weatherHumidity.setText("湿度: " + info.humidity);
+        }
+        if (weatherWind != null && info.wind != null) {
+            weatherWind.setText("风速: " + info.wind);
+        }
     }
 
     public void hideBanner() {
@@ -160,47 +179,55 @@ public class WeatherBannerManager {
                 if (line.startsWith("城市:")) {
                     info.city = line.substring(3).trim();
                 } else if (line.startsWith("天气:")) {
-                    String weatherPart = line.substring(3).trim();
-                    info.description = weatherPart;
+                    info.description = line.substring(3).trim();
                 } else if (line.startsWith("图标:")) {
                     iconCode = line.substring(3).trim();
+                    info.iconCode = iconCode;
                 } else if (line.startsWith("温度:")) {
-                    info.temp = line.substring(3).trim();
+                    info.temp = line.substring(3).trim().replace("°C", "°");
                 } else if (line.startsWith("湿度:")) {
-                    info.humidity = line.substring(3).trim();
+                    info.humidity = line.substring(3).trim().replace("%", "%");
                 } else if (line.startsWith("风速:")) {
                     info.wind = line.substring(3).trim();
+                } else if (line.startsWith("风向:")) {
+                    info.windDir = line.substring(3).trim();
                 } else if (line.startsWith("体感温度:")) {
-                    info.feelsLike = line.substring(5).trim().replace("°C", "").replace("°", "");
+                    info.feelsLike = line.substring(5).trim().replace("°C", "°");
                 } else if (line.startsWith("能见度:")) {
-                    info.visibility = line.substring(4).trim().replace(" km", "");
+                    info.visibility = line.substring(4).trim();
+                } else if (line.startsWith("气压:")) {
+                    info.pressure = line.substring(3).trim();
                 } else if (line.startsWith("链接:")) {
                     info.fxLink = line.substring(3).trim();
                 }
             }
 
             if (!iconCode.isEmpty()) {
-                info.icon = QWeatherIconMapper.getEmojiIcon(iconCode);
+                info.icon = com.oilquiz.app.util.QWeatherIconMapper.getEmojiIcon(iconCode);
             } else {
-                info.icon = QWeatherIconMapper.getEmojiIcon("999");
+                info.icon = "🌤️";
             }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error parsing weather text: " + e.getMessage());
+            info.description = "解析失败";
         }
         return info;
     }
 
     public static class WeatherInfo {
         public String icon = "🌤️";
+        public String iconCode = "999";
         public String city = "未知";
-        public String temp = "--°C";
+        public String temp = "--";
         public String description = "暂无数据";
-        public String humidity = "--%";
-        public String wind = "-- m/s";
+        public String humidity = "--";
+        public String wind = "--";
+        public String windDir = "--";
         public String tempRange = "";
         public String forecast = "";
         public String feelsLike = "--";
         public String visibility = "--";
+        public String pressure = "--";
         public String fxLink = "";
     }
 

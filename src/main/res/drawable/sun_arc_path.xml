@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="140dp"
+    android:height="70dp"
+    android:viewportWidth="140"
+    android:viewportHeight="70">
+    <!-- Arc background (dashed line) -->
+    <path
+        android:pathData="M10,65 Q70,-10 130,65"
+        android:strokeColor="#334155"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+    <!-- Horizon line -->
+    <path
+        android:pathData="M0,65 L140,65"
+        android:strokeColor="#334155"
+        android:strokeWidth="1" />
+    <!-- Sunrise marker (orange dot) -->
+    <path
+        android:pathData="M10,65 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0"
+        android:fillColor="#FB923C" />
+    <!-- Sunset marker (blue dot) -->
+    <path
+        android:pathData="M130,65 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0"
+        android:fillColor="#93C5FD" />
+</vector>

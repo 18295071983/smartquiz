@@ -1,6 +1,6 @@
 # 技术栈文档
 
-> 版本: 2.1 | 更新日期: 2026-05-20 | 构建: Gradle 8.13 + AGP 8.4.0
+> 版本: 2.2 | 更新日期: 2026-07-18 | 构建: Gradle 8.13 + AGP 8.4.0
 
 ## 一、编程语言
 
@@ -75,22 +75,19 @@
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | **llama.cpp** | (C++ JNI) | 本地 LLM 推理 |
-| **TensorFlow Lite** | 2.14.0 | 轻量级 ML 推理 |
-| **TFLite GPU** | 2.14.0 | GPU 加速推理 |
+| **TensorFlow Lite** | 2.15.0 | 轻量级 ML 推理 |
+| **TFLite GPU** | 2.15.0 | GPU 加速推理 |
 | **TFLite Support** | 0.4.4 | TFLite 辅助库 |
-| **TFLite Task Text** | 0.4.4 | 文本任务支持 |
+| **TFLite Metadata** | 0.4.4 | TFLite 元数据 |
 | **Google ML Kit** | 16.0.0 | OCR 文字识别 |
 | **ML Kit Chinese** | 16.0.0 | 中文 OCR |
 | **ML Kit Japanese** | 16.0.0 | 日文 OCR |
 | **ML Kit Korean** | 16.0.0 | 韩文 OCR |
+| **ML Kit Image Labeling** | 17.0.7 | 图像标注 |
+| **ML Kit Object Detection** | 17.0.0 | 目标检测 |
 | **Easy Rules** | 4.1.0 | 规则引擎 |
+| **Chaquopy** | 16.1.0 | Python 集成 |
 | **OpenCL** | (系统库) | GPU 并行计算加速 |
-| **Atomic (原子操作)** | (C++ 标准库) | 多线程环境下的线程安全控制 |
-
-### 7.1 GPU 加速技术栈说明
-
-- **OpenCL**：用于移动设备上的通用并行计算框架，支持 Qualcomm Adreno、Mali 等 GPU 加速
-- **Atomic**：C++ 标准库提供的原子操作，确保全局初始化只执行一次，避免重复初始化
 
 ## 八、文件处理
 
@@ -136,10 +133,12 @@
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **JGit** | 6.7.0 | Git 操作（备份功能） |
+| **JGit** | 6.7.0.202309050840-r | Git 操作（备份功能） |
 | **Dexter** | 6.2.3 | 权限请求简化 |
 | **APK Parser** | 2.6.10 | APK 元数据解析 |
 | **Coroutines** | 1.7.3 | Kotlin 协程 |
+| **SwipeRefreshLayout** | 1.1.0 | 下拉刷新 |
+| **Preference KTX** | 1.2.1 | 偏好设置 |
 | **Core KTX** | 1.9.0 | Kotlin 扩展 |
 | **Collection** | 1.2.0 | ArrayMap/ArraySet 支持 |
 | **Legacy Support** | 1.0.0 | 兼容旧 support 库 |
@@ -161,7 +160,7 @@
 | 迁移 | 变更 |
 |------|------|
 | v18 → v19 | 新增 `ocr_history`、`question_images`、`ai_usage_log` 表 |
-| v19 → v20 | `questions` 表新增 18 个字段（createdAt, updatedAt, source, tags, points, timeLimit, hint, analysis, knowledgePoint, subCategory, usageCount, correctCount, incorrectCount, lastUsedAt, status, isPublic, author, comment）；新增 4 个索引 |
+| v19 → v20 | `question` 表新增 18 个字段（createdAt, updatedAt, source, tags, points, timeLimit, hint, analysis, knowledgePoint, subCategory, usageCount, correctCount, incorrectCount, lastUsedAt, status, isPublic, author, comment, extraOptions）；新增 4 个索引 |
 | 当前 | v20 |
 
 ---

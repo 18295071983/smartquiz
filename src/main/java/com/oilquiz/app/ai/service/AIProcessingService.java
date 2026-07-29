@@ -482,10 +482,17 @@ public class AIProcessingService extends Service {
         AILogger.i(TAG, msg);
         sendLogBroadcast(LOG_LEVEL_INFO, msg);
 
-        msg = "Error: " + (error != null ? error : "null");
-        Log.i(TAG, msg);
-        AILogger.i(TAG, msg);
-        sendLogBroadcast(error != null ? LOG_LEVEL_ERROR : LOG_LEVEL_INFO, msg);
+        if (error != null) {
+            msg = "Error: " + error;
+            Log.e(TAG, msg);
+            AILogger.e(TAG, msg);
+            sendLogBroadcast(LOG_LEVEL_ERROR, msg);
+        } else {
+            msg = "Error: 无 (任务成功完成)";
+            Log.i(TAG, msg);
+            AILogger.i(TAG, msg);
+            sendLogBroadcast(LOG_LEVEL_INFO, msg);
+        }
 
         Intent broadcastIntent = new Intent(ACTION_AI_TASK_COMPLETED);
         broadcastIntent.putExtra(EXTRA_TASK_TYPE, taskType);

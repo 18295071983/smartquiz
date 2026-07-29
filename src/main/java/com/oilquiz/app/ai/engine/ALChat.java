@@ -1,164 +1,105 @@
 package com.oilquiz.app.ai.engine;
 
 import android.util.Log;
+import com.oilquiz.app.ai.jni.LlamaHelper;
 
 public class ALChat {
     private static final String TAG = "ALChat";
+    private boolean isStreamingEnabled = false;
     
-    static {
-        Log.i(TAG, "ALChat static initializer - loading llama-jni");
-        Log.i(TAG, "OpenCL loading is handled by JNI_OnLoad in native-lib.cpp");
-        System.loadLibrary("llama-jni");
-        Log.i(TAG, "llama-jni loaded successfully");
-    }
-
     public static final int GPU_BACKEND_CPU = 0;
     public static final int GPU_BACKEND_VULKAN = 1;
     public static final int GPU_BACKEND_OPENCL = 2;
     public static final int GPU_BACKEND_HEXAGON = 3;
     public static final int GPU_BACKEND_AUTO = 4;
 
-    /**
-     * 初始化模型
-     * @param modelPath 模型文件路径
-     * @param nGpuLayers GPU 层数
-     * @return 是否初始化成功
-     */
-    public native boolean initModel(String modelPath, int nGpuLayers);
+    public boolean initModel(String modelPath, int nGpuLayers) {
+        LlamaHelper.setGPULayers(nGpuLayers);
+        int result = LlamaHelper.initModel(modelPath, 2048, 4);
+        return result == 0;
+    }
 
-    /**
-     * 使用配置初始化模型
-     * @param modelPath 模型文件路径
-     * @param nGpuLayers GPU 层数
-     * @param nThreads 线程数
-     * @param nCtx 上下文大小
-     * @param nBatch 批处理大小
-     * @return 是否初始化成功
-     */
-    public native boolean initModelWithConfig(String modelPath, int nGpuLayers, int nThreads, int nCtx, int nBatch);
+    public boolean initModelWithConfig(String modelPath, int nGpuLayers, int nThreads, int nCtx, int nBatch) {
+        LlamaHelper.setGPULayers(nGpuLayers);
+        LlamaHelper.setThreadCount(nThreads);
+        LlamaHelper.setBatchSize(nBatch);
+        int result = LlamaHelper.initModel(modelPath, nCtx, nThreads);
+        return result == 0;
+    }
 
-    /**
-     * 发送消息并获取回复
-     * @param message 用户消息
-     * @param maxTokens 最大生成 tokens
-     * @param temperature 温度参数
-     * @param topP top-p 参数
-     * @param topK top-k 参数
-     * @return AI 回复
-     */
-    public native String sendMessage(String message, int maxTokens, float temperature, float topP, int topK);
+    public String sendMessage(String message, int maxTokens, float temperature, float topP, int topK) {
+        return LlamaHelper.generate(message, maxTokens, temperature, topP, topK);
+    }
 
-    /**
-     * 关闭模型
-     */
-    public native void close();
+    public void close() {
+        LlamaHelper.release();
+    }
 
-    /**
-     * 获取 GPU 层数
-     * @return GPU 层数
-     */
-    public native int getGpuLayers();
+    public int getGpuLayers() {
+        return LlamaHelper.getGPULayers();
+    }
 
-    /**
-     * 获取线程数
-     * @return 线程数
-     */
-    public native int getThreadCount();
+    public int getThreadCount() {
+        return LlamaHelper.getThreadCount();
+    }
 
-    /**
-     * 获取上下文大小
-     * @return 上下文大小
-     */
-    public native int getContextSize();
+    public int getContextSize() {
+        return LlamaHelper.getContextSize();
+    }
 
-    /**
-     * 获取批处理大小
-     * @return 批处理大小
-     */
-    public native int getBatchSize();
+    public int getBatchSize() {
+        return LlamaHelper.getBatchSize();
+    }
 
-    /**
-     * 获取 GPU 后端类型
-     * @return GPU 后端类型 (0=CPU, 1=Vulkan, 2=OpenCL, 3=Hexagon, 4=Auto)
-     */
-    public native int getGpuBackend();
+    public int getGpuBackend() {
+        return GPU_BACKEND_OPENCL;
+    }
 
-    /**
-     * 获取设备名称
-     * @return 设备名称
-     */
-    public native String getDeviceName();
+    public String getDeviceName() {
+        return LlamaHelper.getDeviceInfo();
+    }
 
-    /**
-     * 设置 GPU 层数
-     * @param layers GPU 层数
-     */
-    public native void setGpuLayers(int layers);
+    public void setGpuLayers(int layers) {
+        LlamaHelper.setGPULayers(layers);
+    }
 
-    /**
-     * 设置线程数
-     * @param threads 线程数
-     */
-    public native void setThreadCount(int threads);
+    public void setThreadCount(int threads) {
+        LlamaHelper.setThreadCount(threads);
+    }
 
-    /**
-     * 设置上下文大小
-     * @param size 上下文大小
-     */
-    public native void setContextSize(int size);
+    public void setContextSize(int size) {
+    }
 
-    /**
-     * 设置批处理大小
-     * @param size 批处理大小
-     */
-    public native void setBatchSize(int size);
+    public void setBatchSize(int size) {
+        LlamaHelper.setBatchSize(size);
+    }
 
-    /**
-     * 设置 GPU 后端类型
-     * @param backend GPU 后端类型 (0=CPU, 1=Vulkan, 2=OpenCL, 3=Hexagon, 4=Auto)
-     */
-    public native void setGpuBackend(int backend);
+    public void setGpuBackend(int backend) {
+    }
 
-    /**
-     * 检查模型是否初始化
-     * @return 是否初始化
-     */
-    public native boolean isInitialized();
+    public boolean isInitialized() {
+        return LlamaHelper.isModelInitialized();
+    }
 
-    /**
-     * 设置系统提示词
-     * @param prompt 系统提示词
-     */
-    public native void setSystemPrompt(String prompt);
+    public void setSystemPrompt(String prompt) {
+    }
 
-    /**
-     * 清空聊天历史
-     */
-    public native void clearChatHistory();
+    public void clearChatHistory() {
+        LlamaHelper.clearHistory();
+    }
 
-    /**
-     * 获取消息数量
-     * @return 消息数量
-     */
-    public native int getMessageCount();
+    public int getMessageCount() {
+        return 0;
+    }
 
-    /**
-     * 设置是否流式输出
-     * @param streaming 是否流式输出
-     */
-    public native void setStreaming(boolean streaming);
+    public void setStreaming(boolean streaming) {
+        this.isStreamingEnabled = streaming;
+    }
 
-    /**
-     * 检查是否流式输出
-     * @return 是否流式输出
-     */
-    public native boolean isStreaming();
+    public boolean isStreaming() {
+        return this.isStreamingEnabled;
+    }
 
-    /**
-     * 获取 GPU 后端描述
-     * @param backend GPU 后端类型
-     * @return GPU 后端描述
-     */
     public static String getGpuBackendName(int backend) {
         switch (backend) {
             case GPU_BACKEND_CPU:
@@ -176,10 +117,6 @@ public class ALChat {
         }
     }
 
-    /**
-     * 检查是否支持 Qualcomm 设备
-     * @return 是否支持
-     */
     public static boolean isSnapdragonSupported() {
         String manufacturer = android.os.Build.MANUFACTURER;
         String hardware = android.os.Build.HARDWARE;
