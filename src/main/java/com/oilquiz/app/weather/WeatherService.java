@@ -250,7 +250,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getAirQualityByLocation(double lat, double lon) {
-        String cacheKey = "weather_air_" + locationKey(lat, lon);
+        String cacheKey = "weather_air_v2_" + locationKey(lat, lon);
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_AIR)) {
@@ -277,6 +277,37 @@ public class WeatherService {
         }
 
         return weatherManager.getHefengAirQualityByLocation(lat, lon).thenApply(result -> {
+            saveCacheIfValid(cacheKey, result);
+            return result;
+        });
+    }
+
+    public CompletableFuture<String> getAirForecastByLocation(double lat, double lon) {
+        String cacheKey = "weather_air_forecast_v2_" + locationKey(lat, lon);
+        WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
+
+        if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_AIR)) {
+            Log.d(TAG, "Returning cached air forecast for location " + lat + "," + lon);
+            return CompletableFuture.completedFuture(cacheEntry.getData());
+        }
+
+        String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+
+        if (sdkManager.isInitialized()) {
+            return sdkManager.getAirForecast(location).thenCompose(result -> {
+                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("不支持")) {
+                    saveCacheIfValid(cacheKey, result);
+                    return CompletableFuture.completedFuture(result);
+                }
+                Log.w(TAG, "SDK air forecast failed, falling back to HTTP. SDK result: " + result);
+                return weatherManager.getHefengAirForecastByLocation(lat, lon).thenApply(r -> {
+                    saveCacheIfValid(cacheKey, r);
+                    return r;
+                });
+            });
+        }
+
+        return weatherManager.getHefengAirForecastByLocation(lat, lon).thenApply(result -> {
             saveCacheIfValid(cacheKey, result);
             return result;
         });
@@ -507,7 +538,7 @@ public class WeatherService {
     }
 
     public CompletableFuture<String> getAirQuality(String city) {
-        String cacheKey = "weather_air_" + city;
+        String cacheKey = "weather_air_v2_" + city;
         WeatherCacheManager.CacheEntry cacheEntry = cacheManager.getCache(cacheKey);
 
         if (cacheEntry != null && !cacheEntry.isExpired(CACHE_DURATION_AIR)) {
@@ -602,7 +633,7 @@ public class WeatherService {
         cacheManager.removeCache("weather_now_" + city);
         cacheManager.removeCache("weather_forecast_" + city);
         cacheManager.removeCache("weather_hourly_" + city);
-        cacheManager.removeCache("weather_air_" + city);
+        cacheManager.removeCache("weather_air_v2_" + city);
         cacheManager.removeCache("weather_alerts_" + city);
         cacheManager.removeCache("weather_indices_" + city);
         cacheManager.removeCache("weather_minutely_" + city);
@@ -614,6 +645,7 @@ public class WeatherService {
         public String hourlyForecast;
         public String dailyForecast;
         public String airQuality;
+        public String airForecast;
         public String alerts;
         public String indices;
         public String sunInfo;
@@ -637,6 +669,8 @@ public class WeatherService {
                     .exceptionally(e -> "获取天气预报失败: " + e.getMessage());
                 CompletableFuture<String> airFuture = getAirQualityByLocation(lat, lon)
                     .exceptionally(e -> "获取空气质量失败: " + e.getMessage());
+                CompletableFuture<String> airForecastFuture = getAirForecastByLocation(lat, lon)
+                    .exceptionally(e -> "空气质量预报: 查询失败: " + e.getMessage());
                 CompletableFuture<String> alertsFuture = getAlertsByLocation(lat, lon)
                     .exceptionally(e -> "天气预警: 请在和风天气控制台开通权限");
 
@@ -649,7 +683,7 @@ public class WeatherService {
                 CompletableFuture<String> minutelyFuture = getMinutelyByLocation(lat, lon)
                     .exceptionally(e -> "获取分钟级降水失败: " + e.getMessage());
 
-                CompletableFuture.allOf(currentFuture, hourlyFuture, dailyFuture, airFuture, alertsFuture, indicesFuture, sunFuture, minutelyFuture)
+                CompletableFuture.allOf(currentFuture, hourlyFuture, dailyFuture, airFuture, airForecastFuture, alertsFuture, indicesFuture, sunFuture, minutelyFuture)
                     .get(20, java.util.concurrent.TimeUnit.SECONDS);
 
                 WeatherBatchResult result = new WeatherBatchResult();
@@ -657,6 +691,7 @@ public class WeatherService {
                 result.hourlyForecast = hourlyFuture.get();
                 result.dailyForecast = dailyFuture.get();
                 result.airQuality = airFuture.get();
+                result.airForecast = airForecastFuture.get();
                 result.alerts = alertsFuture.get();
                 result.indices = indicesFuture.get();
                 result.sunInfo = sunFuture.get();
@@ -735,7 +770,7 @@ public class WeatherService {
         cacheManager.removeCache("weather_now_" + key);
         cacheManager.removeCache("weather_forecast_" + key);
         cacheManager.removeCache("weather_hourly_" + key);
-        cacheManager.removeCache("weather_air_" + key);
+        cacheManager.removeCache("weather_air_v2_" + key);
         cacheManager.removeCache("weather_alerts_" + key);
         cacheManager.removeCache("weather_indices_" + key);
         cacheManager.removeCache("weather_minutely_" + key);

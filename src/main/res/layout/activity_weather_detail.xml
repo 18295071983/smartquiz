@@ -135,6 +135,19 @@
                 android:textColor="@color/future_text_secondary"
                 android:textSize="14sp" />
 
+            <TextView
+                android:id="@+id/tv_weather_summary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:layout_marginHorizontal="20dp"
+                android:text=""
+                android:textColor="@color/future_text_secondary"
+                android:textSize="12sp"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:visibility="gone" />
+
             <!-- 体感/云量/露点 -->
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -177,6 +190,21 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="露点 --°"
+                    android:textColor="@color/future_text_secondary"
+                    android:textSize="13sp" />
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="13dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginHorizontal="12dp"
+                    android:background="#40FFFFFF" />
+
+                <TextView
+                    android:id="@+id/chip_visibility"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="能见度 --km"
                     android:textColor="@color/future_text_secondary"
                     android:textSize="13sp" />
             </LinearLayout>
@@ -256,43 +284,14 @@
                 android:orientation="vertical"
                 android:visibility="gone"
                 android:background="@drawable/weather_card_glass"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="14dp"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="12dp"
                 android:layout_marginTop="2dp">
-
-                <TextView
-                    android:id="@+id/alert_publish_time"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="发布时间：--"
-                    android:textColor="@color/future_text_tertiary"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/alert_description"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="--"
-                    android:textColor="@color/future_text_secondary"
-                    android:textSize="13sp"
-                    android:lineSpacingExtra="3dp" />
-
-                <TextView
-                    android:id="@+id/alert_defense"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="防御指南：--"
-                    android:textColor="@color/future_text_tertiary"
-                    android:textSize="12sp"
-                    android:lineSpacingExtra="2dp" />
 
                 <LinearLayout
                     android:id="@+id/ll_alerts"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
                     android:orientation="vertical" />
             </LinearLayout>
         </LinearLayout>
@@ -714,7 +713,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
+                android:gravity="center"
                 android:orientation="horizontal">
 
                 <TextView
@@ -725,8 +724,7 @@
                     android:textColor="@color/weather_primary" />
 
                 <TextView
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:text="空气质量"
@@ -735,209 +733,296 @@
                     android:alpha="0.9" />
             </LinearLayout>
 
+            <!-- AQI 数值 + 等级 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:gravity="center_vertical"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
                 android:orientation="horizontal">
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tv_air_aqi"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/future_text_primary"
-                        android:textSize="38sp"
-                        android:textStyle="bold"
-                        android:includeFontPadding="false" />
-
-                    <TextView
-                        android:id="@+id/tv_air_category"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="暂无数据"
-                        android:textColor="@color/future_text_secondary"
-                        android:textSize="13sp" />
-                </LinearLayout>
-
-                <LinearLayout
+                <TextView
+                    android:id="@+id/tv_air_aqi"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:gravity="end"
-                    android:orientation="horizontal">
+                    android:text="--"
+                    android:textColor="@color/future_text_primary"
+                    android:textSize="42sp"
+                    android:textStyle="bold"
+                    android:includeFontPadding="false" />
+
+                <TextView
+                    android:id="@+id/tv_air_category"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="暂无数据"
+                    android:textColor="@color/future_text_secondary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <!-- 污染物 3×2 网格 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical">
+
+                <!-- Row 1: PM2.5 | PM10 | NO₂ -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:weightSum="3">
 
                     <LinearLayout
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:layout_marginEnd="14dp">
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
 
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tv_air_pm25_label"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
+                            android:text="PM2.5"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="PM2.5"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="42dp" />
-
-                            <TextView
-                                android:id="@+id/tv_air_pm25"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tv_air_pm25"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="PM10"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="42dp" />
-
-                            <TextView
-                                android:id="@+id/tv_air_pm10"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="NO₂"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="42dp" />
-
-                            <TextView
-                                android:id="@+id/tv_air_no2"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
 
                     <LinearLayout
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
 
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tv_air_pm10_label"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
+                            android:text="PM10"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="SO₂"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="38dp" />
-
-                            <TextView
-                                android:id="@+id/tv_air_so2"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tv_air_pm10"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="CO"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="38dp" />
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
 
-                            <TextView
-                                android:id="@+id/tv_air_co"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tv_air_no2_label"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:paddingVertical="2dp">
+                            android:text="NO₂"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="O₃"
-                                android:textColor="@color/future_text_tertiary"
-                                android:textSize="11sp"
-                                android:minWidth="38dp" />
+                        <TextView
+                            android:id="@+id/tv_air_no2"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
 
-                            <TextView
-                                android:id="@+id/tv_air_o3"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="--"
-                                android:textColor="@color/future_text_secondary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+                <!-- 分隔线 -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#15FFFFFF" />
+
+                <!-- Row 2: SO₂ | CO | O₃ -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:weightSum="3">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
+
+                        <TextView
+                            android:id="@+id/tv_air_so2_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="SO₂"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/tv_air_so2"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
+
+                        <TextView
+                            android:id="@+id/tv_air_co_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="CO"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/tv_air_co"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:paddingVertical="8dp">
+
+                        <TextView
+                            android:id="@+id/tv_air_o3_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="O₃"
+                            android:textColor="@color/future_text_tertiary"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/tv_air_o3"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="--"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
+
+            <!-- 首要污染物 + 健康建议 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <TextView
+                    android:id="@+id/tv_air_primary_pollutant"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/future_text_secondary"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tv_air_health"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/future_text_tertiary"
+                    android:textSize="11sp"
+                    android:lineSpacingExtra="2dp"
+                    android:gravity="center"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ===== 空气质量预报 ===== -->
+        <LinearLayout
+            android:id="@+id/card_air_forecast"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/weather_card_glass"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:textColor="@color/weather_primary" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="空气质量预报"
+                    android:textColor="@color/future_text_primary"
+                    android:textSize="13sp"
+                    android:alpha="0.9" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/ll_air_forecast"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal" />
         </LinearLayout>
 
         <!-- ===== 日出日落 ===== -->
