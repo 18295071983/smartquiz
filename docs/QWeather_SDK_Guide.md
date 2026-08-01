@@ -186,40 +186,90 @@ QWeather.instance.weather24h(parameter, new Callback<WeatherHourlyResponse>() {
 });
 ```
 
-### 空气质量
+### 空气质量（v1 API）
+
+> ⚠️ **v7/air/now 已于 2026-06-01 停止服务**，请使用 v1 API。
 
 ```java
-AirQualityParameter parameter = new AirQualityParameter("101010100");
+// v1 API 使用经纬度参数，不再支持 LocationID
+AirV1Parameter parameter = new AirV1Parameter(39.92, 116.41);  // 纬度, 经度
+parameter.setLang(Lang.ZH_HANS);
 
-QWeather.instance.airNow(parameter, new Callback<AirNowResponse>() {
+QWeather.instance.airCurrent(parameter, new Callback<AirV1CurrentResponse>() {
     @Override
-    public void onSuccess(AirNowResponse response) {
-        // response.now.aqi   → AQI指数
-        // response.now.category → 空气质量等级
-        // response.now.pm2p5 → PM2.5
-        // response.now.pm10  → PM10
+    public void onSuccess(AirV1CurrentResponse response) {
+        // response.getIndexes() → AQI指数列表
+        //   index.getAqiDisplay() → AQI显示值
+        //   index.getLevel()      → 等级
+        //   index.getCategory()  → 类别
+        // response.getPollutants() → 污染物浓度列表
+        //   pollutant.getName()   → 污染物名称（PM2.5, PM10, NO2等）
+        //   pollutant.getConcentration().getValue() → 浓度值
+        //   pollutant.getConcentration().getUnit() → 单位
     }
-    // ...
+
+    @Override
+    public void onFailure(ErrorResponse errorResponse) {}
+
+    @Override
+    public void onException(Throwable e) {}
 });
 ```
 
-### 天气预警
+### 天气预警（v1 API）
+
+> ⚠️ **v7/warning/now 将于 2026-09-01 停止服务**，请迁移至 v1 API。
 
 ```java
-WarningParameter parameter = new WarningParameter("101010100");
+// v1 API 使用经纬度参数，不再支持 LocationID
+WeatherAlertCurrentParameter parameter = new WeatherAlertCurrentParameter(39.92, 116.41, true);  // 纬度, 经度, 是否返回本地时间
+parameter.setLang(Lang.ZH_HANS);
 
-QWeather.instance.warningNow(parameter, new Callback<WarningNowResponse>() {
+QWeather.instance.weatherAlertCurrent(parameter, new Callback<WeatherAlertCurrentResponse>() {
     @Override
-    public void onSuccess(WarningNowResponse response) {
-        for (Warning warning : response.warning) {
-            // warning.title    → 预警标题
-            // warning.text     → 预警详情
-            // warning.severity → 预警等级
+    public void onSuccess(WeatherAlertCurrentResponse response) {
+        for (WeatherAlert alert : response.getAlerts()) {
+            // alert.getSeverity()         → 严重程度（extreme/severe/moderate/minor）
+            // alert.getHeadline()         → 标题
+            // alert.getDescription()      → 详细描述
+            // alert.getInstruction()      → 防御指南
+            // alert.getEventType().getName() → 预警类型名称
+            // alert.getColor().getCode()  → 颜色代码（red/orange/yellow/blue）
+            // alert.getIssuedTime()       → 发布时间
+            // alert.getEffectiveTime()    → 生效时间
+            // alert.getExpireTime()       → 失效时间
         }
     }
-    // ...
+
+    @Override
+    public void onFailure(ErrorResponse errorResponse) {}
+
+    @Override
+    public void onException(Throwable e) {}
 });
 ```
+
+## v1 API 迁移对照表
+
+| 功能 | v7 方法（已弃用） | v1 方法（当前） | 状态 |
+|------|-------------------|----------------|------|
+| 空气质量 | `airNow(AirParameter)` | `airCurrent(AirV1Parameter)` | ⚠️ v7 已于 2026-06-01 停止服务 |
+| 天气预警 | `warningNow(WarningNowParameter)` | `weatherAlertCurrent(WeatherAlertCurrentParameter)` | ⚠️ v7 将于 2026-09-01 停止服务 |
+
+### 参数格式变化
+
+| 项目 | v7 | v1 |
+|------|----|----|
+| 空气质量参数类 | `AirParameter(locationId)` | `AirV1Parameter(lat, lon)` |
+| 天气预警参数类 | `WarningNowParameter(locationId)` | `WeatherAlertCurrentParameter(lat, lon, localTime)` |
+| 参数类型 | LocationID 或 "经度,纬度" | 仅支持经纬度（纬度在前） |
+| 响应类 | `AirNowResponse` | `AirV1CurrentResponse` |
+| 响应类 | `WarningResponse` | `WeatherAlertCurrentResponse` |
+
+### 主机要求
+
+- **v1 API 必须使用 JWT 专用主机**（如 `abc1234xyz.def.qweatherapi.com`）
+- 公共主机 `api.qweather.com` 不接受 JWT Bearer Token，会返回 403 Forbidden
 
 ## LocationID 示例
 
@@ -251,9 +301,9 @@ QWeather.instance.warningNow(parameter, new Callback<WarningNowResponse>() {
 | 72小时预报 | `weather72h()` | 逐小时预报 |
 | 168小时预报 | `weather168h()` | 逐小时预报 |
 | 5分钟降水 | `minutely5m()` | 分钟级降水预报 |
-| 天气预警 | `warningNow()` | 当前生效预警 |
+| 天气预警 | `weatherAlertCurrent()` | 当前生效预警（v1） |
 | 天气指数 | `indices1d()` | 生运、紫外线等指数 |
-| 空气质量实况 | `airNow()` | 当前AQI |
+| 空气质量实况 | `airCurrent()` | 当前AQI（v1） |
 | 空气质量预报 | `airDaily()` | 未来空气质量预报 |
 
 ## 实时天气返回字段
@@ -290,6 +340,66 @@ QWeather.instance.warningNow(parameter, new Callback<WarningNowResponse>() {
 | precip | 降水量 |
 | uvIndex | 紫外线指数 |
 
+## v1 空气质量响应字段
+
+**AirV1CurrentResponse**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getIndexes()` | `List<AirIndex>` | AQI 指数列表 |
+| `getPollutants()` | `List<Pollutant>` | 污染物浓度列表 |
+| `getStations()` | `List<Station>` | 监测站信息 |
+
+**AirIndex（AQI 指数）**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getAqiDisplay()` | String | AQI 显示值 |
+| `getLevel()` | String | 等级（优/良/轻度/中度/重度/严重） |
+| `getCategory()` | String | 类别描述 |
+| `getCode()` | String | 指数代码 |
+| `getName()` | String | 指数名称 |
+| `getColor()` | AirColor | 颜色信息 |
+| `getPrimaryPollutant()` | PrimaryPollutant | 首要污染物 |
+| `getHealth()` | Health | 健康建议 |
+
+**Pollutant（污染物）**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getName()` | String | 污染物名称（PM2.5, PM10, NO2, SO2, CO, O3） |
+| `getFullName()` | String | 全称 |
+| `getConcentration()` | PollutantConcentration | 浓度值和单位 |
+
+## v1 天气预警响应字段
+
+**WeatherAlertCurrentResponse**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getAlerts()` | `List<WeatherAlert>` | 预警列表 |
+| `getMetadata()` | WeatherAlertMetadata | 元数据 |
+
+**WeatherAlert（预警条目）**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getId()` | String | 预警ID |
+| `getHeadline()` | String | 标题 |
+| `getDescription()` | String | 详细描述 |
+| `getInstruction()` | String | 防御指南 |
+| `getSeverity()` | String | 严重程度（extreme/severe/moderate/minor） |
+| `getUrgency()` | String | 紧急程度 |
+| `getCertainty()` | String | 确定性 |
+| `getSenderName()` | String | 发布机构 |
+| `getIssuedTime()` | String | 发布时间 |
+| `getEffectiveTime()` | String | 生效时间 |
+| `getExpireTime()` | String | 失效时间 |
+| `getOnsetTime()` | String | 起始时间 |
+| `getEventType()` | WeatherAlertEventType | 预警类型 |
+| `getColor()` | WeatherAlertColor | 预警颜色 |
+| `getIcon()` | String | 预警图标 |
+
 ## 错误码
 
 | 错误码 | 说明 |
@@ -313,10 +423,10 @@ QWeather.instance.warningNow(parameter, new Callback<WarningNowResponse>() {
 
 ## 认证兼容性
 
-| 认证方式 | API v7 | SDK 5+ |
-|----------|--------|--------|
-| JWT | ✅ | ✅ |
-| API KEY | ✅ | ❌ 不支持 |
+| 认证方式 | API v7 | API v1 | SDK 5+ |
+|----------|--------|--------|--------|
+| JWT | ✅ | ✅ | ✅ |
+| API KEY | ✅ | ❌ | ❌ 不支持 |
 
 > SDK 5+ 仅支持 JWT，不支持 API KEY。
 
