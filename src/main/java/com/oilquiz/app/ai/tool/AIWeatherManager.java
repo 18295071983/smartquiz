@@ -3121,6 +3121,9 @@ public class AIWeatherManager implements AITool {
                     lat = (Double) latObj;
                 } else if (latObj instanceof Number) {
                     lat = ((Number) latObj).doubleValue();
+                } else if (latObj instanceof String) {
+                    try { lat = Double.parseDouble((String) latObj); }
+                    catch (NumberFormatException e) { Log.w(TAG, "无法解析lat: " + latObj); }
                 }
             }
             if (lonObj != null) {
@@ -3128,6 +3131,9 @@ public class AIWeatherManager implements AITool {
                     lon = (Double) lonObj;
                 } else if (lonObj instanceof Number) {
                     lon = ((Number) lonObj).doubleValue();
+                } else if (lonObj instanceof String) {
+                    try { lon = Double.parseDouble((String) lonObj); }
+                    catch (NumberFormatException e) { Log.w(TAG, "无法解析lon: " + lonObj); }
                 }
             }
             

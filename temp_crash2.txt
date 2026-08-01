@@ -1,0 +1,1 @@
+﻿08-01 17:49:24.015  4894  5035 I DisplayPolicyStubImpl: boost for touch up failed because of timediff < 1, package:com.oilquiz.app

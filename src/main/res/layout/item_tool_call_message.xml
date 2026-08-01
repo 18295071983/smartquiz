@@ -166,8 +166,7 @@
             android:textColor="@color/tool_call_text"
             android:textSize="12sp"
             android:fontFamily="monospace"
-            android:maxLines="8"
-            android:ellipsize="end" />
+            android:scrollbars="vertical" />
     </LinearLayout>
 
 </LinearLayout>

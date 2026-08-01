@@ -541,7 +541,7 @@
                 android:orientation="horizontal"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="8dp"
-                android:visibility="gone">
+                android:visibility="visible">
 
             <!-- 普通对话入口 -->
             <com.google.android.material.chip.Chip
@@ -604,9 +604,77 @@
                 android:id="@+id/chip_weather"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="天气"
-                app:chipIcon="@drawable/ic_weather"
-                app:chipIconTint="@color/tertiary"
+                android:text="🌤️ 查天气"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_search"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔍 搜索"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_translate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🌐 翻译"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_database"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🗄️ 数据库"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_file"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📁 文件"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_location"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📍 定位"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_app"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📱 应用"
+                android:layout_marginEnd="6dp"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_calc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="➗ 计算"
                 android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
@@ -616,9 +684,8 @@
                 android:id="@+id/chip_clear_chat2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="清空"
-                app:chipIcon="@drawable/ic_clear"
-                app:chipIconTint="@color/error"
+                android:text="🗑️ 清空"
+                android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/error_container"
                 android:textColor="@color/on_error_container"
                 app:chipStrokeWidth="0dp"/>
