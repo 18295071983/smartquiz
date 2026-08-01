@@ -1,0 +1,349 @@
+package com.oilquiz.app.ai.agent.online;
+
+import com.oilquiz.app.util.AILogger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 在线工具使用链追踪 —— 记录每次工具调用，统计指标，发现组合模式。
+ *
+ * 职责：
+ * 1. 记录每次工具调用的元数据（工具名、参数、结果、耗时、成功/失败、时间戳）
+ * 2. 统计单工具调用次数、成功率、平均耗时、超时率
+ * 3. 发现常用工具组合模式（同一会话中连续/相近调用的工具对）
+ * 4. 提供性能指标供调用链优化
+ *
+ * 线程安全：使用 {@link ConcurrentHashMap} 和原子计数器。
+ */
+public class OnlineToolUsageTracker {
+
+    private static final String TAG = "OnlineToolUsageTracker";
+
+    /** 单工具最大保留记录数（防止内存无限增长） */
+    private static final int MAX_RECORDS_PER_TOOL = 50;
+    /** 全局最大保留记录数 */
+    private static final int MAX_TOTAL_RECORDS = 500;
+    /** 模式发现的最小共现次数 */
+    private static final int PATTERN_MIN_COOCCURRENCE = 3;
+    /** 单条参数/结果摘要最大长度 */
+    private static final int SUMMARY_MAX_LENGTH = 200;
+
+    /** 工具调用记录：toolName → 记录列表（按时间序） */
+    private final Map<String, LinkedList<ToolCallRecord>> recordsByTool = new ConcurrentHashMap<>();
+
+    /** 工具组合共现计数：toolA|toolB → 次数 */
+    private final Map<String, Integer> cooccurrenceCount = new ConcurrentHashMap<>();
+
+    /** 当前会话的工具调用序列（用于共现分析） */
+    private final List<String> sessionSequence = Collections.synchronizedList(new ArrayList<>());
+
+    /** 全局统计 */
+    private final AtomicInteger totalCalls = new AtomicInteger(0);
+    private final AtomicInteger totalSuccess = new AtomicInteger(0);
+    private final AtomicInteger totalFailures = new AtomicInteger(0);
+    private final AtomicLong totalExecutionTime = new AtomicLong(0);
+
+    // ==================== 记录 ====================
+
+    /**
+     * 记录一次工具调用。
+     *
+     * @param toolName      工具名
+     * @param arguments     参数 JSON 字符串
+     * @param success       是否成功
+     * @param executionTime 执行耗时（毫秒）
+     * @param resultSummary 结果摘要（成功时为结果，失败时为错误信息）
+     */
+    public void recordCall(String toolName, String arguments, boolean success,
+                           long executionTime, String resultSummary) {
+        if (toolName == null) return;
+
+        ToolCallRecord record = new ToolCallRecord(
+            toolName,
+            truncate(arguments),
+            success,
+            executionTime,
+            truncate(resultSummary),
+            System.currentTimeMillis()
+        );
+
+        // 记录到工具历史
+        LinkedList<ToolCallRecord> list = recordsByTool.computeIfAbsent(toolName,
+            k -> new LinkedList<>());
+        synchronized (list) {
+            list.add(record);
+            while (list.size() > MAX_RECORDS_PER_TOOL) list.removeFirst();
+        }
+
+        // 更新全局统计
+        totalCalls.incrementAndGet();
+        if (success) totalSuccess.incrementAndGet();
+        else totalFailures.incrementAndGet();
+        totalExecutionTime.addAndGet(executionTime);
+
+        // 共现分析
+        updateCooccurrence(toolName);
+
+        // 全局记录数控制
+        if (totalCalls.get() > MAX_TOTAL_RECORDS) {
+            trimRecords();
+        }
+
+        AILogger.d(TAG, "Recorded call: " + toolName + " success=" + success
+            + " time=" + executionTime + "ms");
+    }
+
+    private String truncate(String s) {
+        if (s == null) return null;
+        return s.length() > SUMMARY_MAX_LENGTH ? s.substring(0, SUMMARY_MAX_LENGTH) + "..." : s;
+    }
+
+    /**
+     * 更新工具共现计数。
+     * 当前调用的工具与同一会话中最近 3 次调用的工具形成共现对。
+     */
+    private void updateCooccurrence(String currentTool) {
+        List<String> snapshot;
+        synchronized (sessionSequence) {
+            // 取最近 3 个不同工具
+            snapshot = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (int i = sessionSequence.size() - 1; i >= 0 && snapshot.size() < 3; i--) {
+                String t = sessionSequence.get(i);
+                if (!t.equals(currentTool) && seen.add(t)) {
+                    snapshot.add(t);
+                }
+            }
+            sessionSequence.add(currentTool);
+            // 限制会话序列长度
+            while (sessionSequence.size() > 20) sessionSequence.remove(0);
+        }
+
+        for (String other : snapshot) {
+            String pair = normalizePair(currentTool, other);
+            cooccurrenceCount.merge(pair, 1, Integer::sum);
+        }
+    }
+
+    /** 归一化工具对（按字典序），使 A|B 和 B|A 计为同一对 */
+    private String normalizePair(String a, String b) {
+        return a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
+    }
+
+    /** 修剪记录（移除最旧工具的最旧记录） */
+    private void trimRecords() {
+        // 简单策略：每个工具保留最近 MAX_RECORDS_PER_TOOL 条已足够，此处仅重置会话序列
+        synchronized (sessionSequence) {
+            if (sessionSequence.size() > 10) {
+                sessionSequence.subList(0, sessionSequence.size() - 10).clear();
+            }
+        }
+    }
+
+    // ==================== 统计 ====================
+
+    /**
+     * 获取单工具统计。
+     */
+    public ToolStats getToolStats(String toolName) {
+        LinkedList<ToolCallRecord> list = recordsByTool.get(toolName);
+        if (list == null || list.isEmpty()) {
+            return new ToolStats(toolName, 0, 0, 0, 0, 0, 0);
+        }
+        synchronized (list) {
+            int calls = list.size();
+            int success = 0;
+            long totalTime = 0;
+            int timeoutCount = 0;
+            long lastTime = 0;
+            for (ToolCallRecord r : list) {
+                if (r.success) success++;
+                totalTime += r.executionTime;
+                if (r.executionTime > 30_000) timeoutCount++;
+                if (r.timestamp > lastTime) lastTime = r.timestamp;
+            }
+            double successRate = calls > 0 ? (double) success / calls : 0;
+            double avgTime = calls > 0 ? (double) totalTime / calls : 0;
+            double timeoutRate = calls > 0 ? (double) timeoutCount / calls : 0;
+            return new ToolStats(toolName, calls, success, successRate, avgTime, timeoutRate, lastTime);
+        }
+    }
+
+    /**
+     * 获取所有工具统计。
+     */
+    public Map<String, ToolStats> getAllStats() {
+        Map<String, ToolStats> result = new LinkedHashMap<>();
+        for (String toolName : recordsByTool.keySet()) {
+            result.put(toolName, getToolStats(toolName));
+        }
+        return result;
+    }
+
+    /**
+     * 获取全局统计摘要。
+     */
+    public String getGlobalStatsSummary() {
+        int calls = totalCalls.get();
+        int success = totalSuccess.get();
+        int failures = totalFailures.get();
+        long time = totalExecutionTime.get();
+        double successRate = calls > 0 ? (double) success / calls : 0;
+        double avgTime = calls > 0 ? (double) time / calls : 0;
+        return String.format("总调用: %d, 成功: %d, 失败: %d, 成功率: %.1f%%, 平均耗时: %.0fms",
+            calls, success, failures, successRate * 100, avgTime);
+    }
+
+    // ==================== 模式发现 ====================
+
+    /**
+     * 发现常用工具组合模式。
+     * 返回共现次数 ≥ PATTERN_MIN_COOCCURRENCE 的工具对，按次数降序。
+     */
+    public List<ToolPattern> discoverPatterns() {
+        List<ToolPattern> patterns = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : cooccurrenceCount.entrySet()) {
+            if (e.getValue() >= PATTERN_MIN_COOCCURRENCE) {
+                String[] parts = e.getKey().split("\\|");
+                if (parts.length == 2) {
+                    patterns.add(new ToolPattern(parts[0], parts[1], e.getValue()));
+                }
+            }
+        }
+        Collections.sort(patterns, (a, b) -> Integer.compare(b.count, a.count));
+        return patterns;
+    }
+
+    /**
+     * 获取与某工具最常共现的工具。
+     */
+    public List<String> getMostCoOccurred(String toolName) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> e : cooccurrenceCount.entrySet()) {
+            String[] parts = e.getKey().split("\\|");
+            if (parts.length == 2) {
+                if (parts[0].equals(toolName)) counts.put(parts[1], e.getValue());
+                else if (parts[1].equals(toolName)) counts.put(parts[0], e.getValue());
+            }
+        }
+        List<Map.Entry<String, Integer>> sorted = new ArrayList<>(counts.entrySet());
+        sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+        List<String> result = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : sorted) result.add(e.getKey());
+        return result;
+    }
+
+    // ==================== 重置 ====================
+
+    /**
+     * 清空所有统计（开始新会话时调用）。
+     */
+    public void resetStats() {
+        recordsByTool.clear();
+        cooccurrenceCount.clear();
+        synchronized (sessionSequence) {
+            sessionSequence.clear();
+        }
+        totalCalls.set(0);
+        totalSuccess.set(0);
+        totalFailures.set(0);
+        totalExecutionTime.set(0);
+        AILogger.i(TAG, "Usage stats reset");
+    }
+
+    /**
+     * 清空单工具统计。
+     */
+    public void resetToolStats(String toolName) {
+        LinkedList<ToolCallRecord> list = recordsByTool.remove(toolName);
+        if (list != null) {
+            synchronized (list) {
+                for (ToolCallRecord r : list) {
+                    totalCalls.decrementAndGet();
+                    if (r.success) totalSuccess.decrementAndGet();
+                    else totalFailures.decrementAndGet();
+                    totalExecutionTime.addAndGet(-r.executionTime);
+                }
+            }
+        }
+    }
+
+    // ==================== 数据结构 ====================
+
+    /** 工具调用记录 */
+    public static class ToolCallRecord {
+        public final String toolName;
+        public final String arguments;
+        public final boolean success;
+        public final long executionTime;
+        public final String resultSummary;
+        public final long timestamp;
+
+        public ToolCallRecord(String toolName, String arguments, boolean success,
+                              long executionTime, String resultSummary, long timestamp) {
+            this.toolName = toolName;
+            this.arguments = arguments;
+            this.success = success;
+            this.executionTime = executionTime;
+            this.resultSummary = resultSummary;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /** 工具统计 */
+    public static class ToolStats {
+        public final String toolName;
+        public final int totalCalls;
+        public final int successCount;
+        public final double successRate;
+        public final double avgExecutionTime;
+        public final double timeoutRate;
+        public final long lastCallTimestamp;
+
+        public ToolStats(String toolName, int totalCalls, int successCount,
+                         double successRate, double avgExecutionTime,
+                         double timeoutRate, long lastCallTimestamp) {
+            this.toolName = toolName;
+            this.totalCalls = totalCalls;
+            this.successCount = successCount;
+            this.successRate = successRate;
+            this.avgExecutionTime = avgExecutionTime;
+            this.timeoutRate = timeoutRate;
+            this.lastCallTimestamp = lastCallTimestamp;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%s: 调用%d次, 成功率%.0f%%, 平均%.0fms",
+                toolName, totalCalls, successRate * 100, avgExecutionTime);
+        }
+    }
+
+    /** 工具组合模式 */
+    public static class ToolPattern {
+        public final String toolA;
+        public final String toolB;
+        public final int count;
+
+        public ToolPattern(String toolA, String toolB, int count) {
+            this.toolA = toolA;
+            this.toolB = toolB;
+            this.count = count;
+        }
+
+        @Override
+        public String toString() {
+            return toolA + " + " + toolB + " (共现" + count + "次)";
+        }
+    }
+}

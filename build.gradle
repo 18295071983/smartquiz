@@ -47,6 +47,13 @@ android {
     chaquopy {
         defaultConfig {
             version "3.10"
+            pip {
+                install "requests"
+                // 暂时屏蔽重型Python依赖以加速构建，后续按需开启
+                // install "numpy"
+                // install "Pillow"
+                install "regex"
+            }
         }
     }
 

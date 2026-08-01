@@ -1,0 +1,65 @@
+package com.oilquiz.app.ai.agent;
+
+import com.oilquiz.app.ai.agent.online.OnlineExecutionStep;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
+
+import java.util.List;
+
+/**
+ * Agent 统一回调接口（独立于具体引擎实现）。
+ *
+ * 本地引擎（{@link UnifiedAgentEngine}）和在线引擎（OnlineAgentEngine）
+ * 共用此接口，UI 层无需感知引擎差异。
+ *
+ * 工具结果统一使用 {@link OnlineToolResult} 类型，
+ * 本地引擎通过 {@link OnlineToolResult#fromAgentServiceResult} 转换。
+ */
+public interface AgentCallback {
+
+    /** 正文 token 流式回调 */
+    void onToken(String token);
+
+    /** 思考链 token 流式回调（reasoning_content） */
+    void onThinkingToken(String token);
+
+    /** 思考链结束 */
+    void onThinkingEnd();
+
+    /** 工具调用开始 */
+    void onToolCallStart(String toolName, String args);
+
+    /** 工具调用完成（使用统一的 OnlineToolResult 类型） */
+    void onToolCallComplete(String toolName, OnlineToolResult result);
+
+    /** 执行步骤更新 */
+    void onStepUpdate(String step, String detail);
+
+    /** 生成完成 */
+    void onComplete(String fullText);
+
+    /** 错误 */
+    void onError(String error);
+
+    // ========== 可选回调（默认空实现） ==========
+
+    /** 在线模型执行步骤变化（OnlineExecutionStep） */
+    default void onExecutionStep(OnlineExecutionStep step, String detail) {}
+
+    /** 需要更多用户信息时调用 */
+    default void onNeedMoreInfo(String missingInfo, String context, List<String> suggestions) {}
+
+    /** 执行已暂停，等待用户输入 */
+    default void onExecutionPaused(String reason, String currentState) {}
+
+    /** 用户已提供信息，执行即将恢复 */
+    default void onExecutionResuming(String userInput) {}
+
+    /** 思考过程输出（整段，非流式） */
+    default void onThinking(String thought) {}
+
+    /** 思考阶段变化 */
+    default void onThinkingStage(String stage) {}
+
+    /** 输入验证结果 */
+    default void onInputValidationResult(String paramName, InputValidator.ValidationResult result) {}
+}

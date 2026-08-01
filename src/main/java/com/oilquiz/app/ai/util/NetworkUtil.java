@@ -45,9 +45,9 @@ public class NetworkUtil {
     };
 
     private static final String[] ACCEPT_ENCODING_VALUES = {
-        "gzip, deflate, br",
         "gzip, deflate",
-        "br, gzip, deflate"
+        "gzip, deflate",
+        "deflate, gzip"
     };
 
     private static final String[] SEC_CH_UA_VALUES = {
@@ -85,25 +85,6 @@ public class NetworkUtil {
                     .followRedirects(true)
                     .followSslRedirects(true)
                     .retryOnConnectionFailure(true)
-                    .addInterceptor(new okhttp3.Interceptor() {
-                        @Override
-                        public Response intercept(Chain chain) throws IOException {
-                            Request originalRequest = chain.request();
-                            Request request = originalRequest.newBuilder()
-                                    .addHeader("Accept-Encoding", "gzip, deflate")
-                                    .build();
-                            Response response = chain.proceed(request);
-                            
-                            String contentEncoding = response.header("Content-Encoding");
-                            String contentLength = response.header("Content-Length");
-                            
-                            if (contentEncoding != null && contentEncoding.contains("gzip")) {
-                                System.out.println("[Gzip] Response is gzip compressed, OkHttp will auto-decompress");
-                            }
-                            
-                            return response;
-                        }
-                    })
                     .build();
         } catch (Exception e) {
             client = new OkHttpClient.Builder()
@@ -170,7 +151,6 @@ public class NetworkUtil {
             builder.addHeader("User-Agent", getRandomUserAgent());
             builder.addHeader("Accept", getRandomAccept());
             builder.addHeader("Accept-Language", getRandomAcceptLanguage());
-            builder.addHeader("Accept-Encoding", getRandomAcceptEncoding());
             builder.addHeader("Sec-Ch-Ua", getRandomSecChUa());
             builder.addHeader("Sec-Ch-Ua-Mobile", "?0");
             builder.addHeader("Sec-Ch-Ua-Platform", "\"Windows\"");
@@ -213,7 +193,6 @@ public class NetworkUtil {
                 .addHeader("User-Agent", getRandomUserAgent())
                 .addHeader("Accept", getRandomAccept())
                 .addHeader("Accept-Language", getRandomAcceptLanguage())
-                .addHeader("Accept-Encoding", getRandomAcceptEncoding())
                 .addHeader("Sec-Ch-Ua", getRandomSecChUa())
                 .addHeader("Sec-Ch-Ua-Mobile", "?0")
                 .addHeader("Sec-Ch-Ua-Platform", "\"Windows\"")
@@ -231,7 +210,6 @@ public class NetworkUtil {
                 .addHeader("User-Agent", getRandomUserAgent())
                 .addHeader("Accept", "application/json,text/plain,*/*;q=0.9")
                 .addHeader("Accept-Language", getRandomAcceptLanguage())
-                .addHeader("Accept-Encoding", getRandomAcceptEncoding())
                 .addHeader("Connection", "keep-alive")
                 .addHeader("Cache-Control", "no-cache");
     }

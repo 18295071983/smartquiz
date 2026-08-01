@@ -170,8 +170,8 @@ public class AIToolCreatorTool implements AITool {
         additionalInfo.put("tool_description", analysis.toolDescription);
         additionalInfo.put("reason", analysis.reason);
         additionalInfo.put("parameters", analysis.parameters);
-        
-        return new AIToolResult(result.toString(), additionalInfo);
+
+        return AIToolResult.success(result.toString(), additionalInfo);
     }
     
     private AIToolResult handleCreate(Map<String, Object> parameters) {
@@ -254,7 +254,7 @@ public class AIToolCreatorTool implements AITool {
                 additionalInfo.put("code", creationResult.spec.code);
             }
             
-            return new AIToolResult(result.toString(), additionalInfo);
+            return AIToolResult.success(result.toString(), additionalInfo);
         } else {
             StringBuilder result = new StringBuilder();
             result.append("❌ 工具创建失败\n\n");
@@ -323,7 +323,7 @@ public class AIToolCreatorTool implements AITool {
             additionalInfo.put("stdout", result.stdout);
             additionalInfo.put("result", result.result);
             
-            return new AIToolResult(output.toString(), additionalInfo);
+            return AIToolResult.success(output.toString(), additionalInfo);
         } else {
             output.append("❌ 工具执行失败\n\n");
             
@@ -371,8 +371,8 @@ public class AIToolCreatorTool implements AITool {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("count", tools.size());
         additionalInfo.put("tools", tools);
-        
-        return new AIToolResult(result.toString(), additionalInfo);
+
+        return AIToolResult.success(result.toString(), additionalInfo);
     }
     
     private AIToolResult handleDelete(Map<String, Object> parameters) {
@@ -393,7 +393,7 @@ public class AIToolCreatorTool implements AITool {
             additionalInfo.put("tool_name", toolName);
             additionalInfo.put("success", true);
             
-            return new AIToolResult("✅ 工具已删除: " + toolName, additionalInfo);
+            return AIToolResult.success("✅ 工具已删除: " + toolName, additionalInfo);
         } else {
             return createErrorResult("工具删除失败: " + toolName);
         }
@@ -467,6 +467,6 @@ public class AIToolCreatorTool implements AITool {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("error", message);
         additionalInfo.put("success", false);
-        return new AIToolResult("❌ " + message, additionalInfo);
+        return AIToolResult.fail("❌ " + message, additionalInfo);
     }
 }

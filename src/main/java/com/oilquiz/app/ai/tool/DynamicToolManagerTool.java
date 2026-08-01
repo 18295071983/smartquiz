@@ -162,8 +162,8 @@ public class DynamicToolManagerTool implements AITool {
             additionalInfo.put("tool_name", toolName);
             additionalInfo.put("action", "create");
             additionalInfo.put("success", true);
-            
-            return new AIToolResult(result.toString(), additionalInfo);
+
+            return AIToolResult.success(result.toString(), additionalInfo);
         } else {
             return createErrorResult("工具创建失败");
         }
@@ -202,7 +202,7 @@ public class DynamicToolManagerTool implements AITool {
             additionalInfo.put("action", "update");
             additionalInfo.put("success", true);
             
-            return new AIToolResult("✅ 动态工具更新成功: " + toolName, additionalInfo);
+            return AIToolResult.success("✅ 动态工具更新成功: " + toolName, additionalInfo);
         } else {
             return createErrorResult("工具更新失败");
         }
@@ -229,7 +229,7 @@ public class DynamicToolManagerTool implements AITool {
         additionalInfo.put("action", "delete");
         additionalInfo.put("success", true);
         
-        return new AIToolResult("✅ 动态工具已删除: " + toolName, additionalInfo);
+        return AIToolResult.success("✅ 动态工具已删除: " + toolName, additionalInfo);
     }
     
     private AIToolResult handleList(Map<String, Object> parameters) {
@@ -272,8 +272,8 @@ public class DynamicToolManagerTool implements AITool {
         additionalInfo.put("action", "list");
         additionalInfo.put("count", dynamicTools.size());
         additionalInfo.put("tools", dynamicTools);
-        
-        return new AIToolResult(result.toString(), additionalInfo);
+
+        return AIToolResult.success(result.toString(), additionalInfo);
     }
     
     private String getStringParam(Map<String, Object> parameters, String key, String defaultValue) {
@@ -322,6 +322,6 @@ public class DynamicToolManagerTool implements AITool {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("error", message);
         additionalInfo.put("success", false);
-        return new AIToolResult("❌ " + message, additionalInfo);
+        return AIToolResult.fail("❌ " + message, additionalInfo);
     }
 }

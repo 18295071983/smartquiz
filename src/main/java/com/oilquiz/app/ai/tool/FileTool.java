@@ -91,10 +91,19 @@ public class FileTool implements AITool {
         if (filePath == null) {
             return new AIToolResult("Missing required parameter: file_path", parameters);
         }
-        
+
         File file = new File(filePath);
-        if (!file.exists() || !file.isFile()) {
-            return new AIToolResult("File does not exist or is not a file", parameters);
+        if (!file.exists()) {
+            // 尝试在应用文件目录中查找
+            File appFile = new File(context.getFilesDir(), filePath);
+            if (appFile.exists()) {
+                file = appFile;
+            } else {
+                return new AIToolResult("文件不存在: " + filePath + "\n可先用 file_generator 工具创建文件", parameters);
+            }
+        }
+        if (!file.isFile()) {
+            return new AIToolResult("不是文件: " + filePath, parameters);
         }
         
         try {
@@ -114,13 +123,16 @@ public class FileTool implements AITool {
     
     private AIToolResult listFiles(Map<String, Object> parameters) {
         String directoryPath = (String) parameters.get("directory_path");
-        if (directoryPath == null) {
-            return new AIToolResult("Missing required parameter: directory_path", parameters);
+        // 未指定目录时默认列出应用文件目录
+        if (directoryPath == null || directoryPath.trim().isEmpty() || directoryPath.equals("/")) {
+            directoryPath = context.getFilesDir().getAbsolutePath();
         }
-        
+
         File directory = new File(directoryPath);
         if (!directory.exists() || !directory.isDirectory()) {
-            return new AIToolResult("Directory does not exist or is not a directory", parameters);
+            // 回退到应用文件目录
+            directory = context.getFilesDir();
+            directoryPath = directory.getAbsolutePath();
         }
         
         File[] files = directory.listFiles();

@@ -98,8 +98,8 @@ public class PythonDynamicTool implements AITool {
                 additionalInfo.put("stdout", result.stdout);
                 additionalInfo.put("result", result.result);
                 additionalInfo.put("fixes_applied", result.fixes.size());
-                
-                return new AIToolResult(output.toString(), additionalInfo);
+
+                return AIToolResult.success(output.toString(), additionalInfo);
             } else {
                 StringBuilder output = new StringBuilder();
                 output.append("❌ 工具执行失败\n\n");

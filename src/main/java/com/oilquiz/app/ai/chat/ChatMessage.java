@@ -313,8 +313,8 @@ public class ChatMessage {
         public String result;
         public ToolCallStatus status;
         public long executionTimeMs;
-        /** 参数区域是否展开 */
-        public boolean paramsExpanded = false;
+        /** 参数区域是否展开（默认展开，让用户直接看到构建参数） */
+        public boolean paramsExpanded = true;
         /** 结果区域是否展开 */
         public boolean resultExpanded = true;
 
@@ -1202,6 +1202,21 @@ public class ChatMessage {
                 .thinkingSteps(List.of(step))
                 .status(MessageStatus.IN_PROGRESS)
                 .build();
+    }
+
+    /**
+     * 创建Agent多轮思考消息（每轮思考独立一个消息块）
+     * @param round 当前思考轮次（从1开始）
+     */
+    public static ChatMessage createThinkingRoundMessage(int round) {
+        ChatMessage msg = new Builder(MessageType.THINKING)
+                .status(MessageStatus.IN_PROGRESS)
+                .thinkingContent("")
+                .agentMode(true)
+                .taskProgress(round)
+                .build();
+        msg.thinkingExpanded = true;
+        return msg;
     }
 
     /**
