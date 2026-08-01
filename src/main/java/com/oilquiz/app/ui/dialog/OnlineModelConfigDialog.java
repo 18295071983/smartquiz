@@ -20,11 +20,13 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.model.UsageInfo;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.service.UsageTracker;
+import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ui.adapter.ModelListAdapter;
 
 import java.util.ArrayList;
@@ -65,6 +67,7 @@ public class OnlineModelConfigDialog {
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
     private OnlineModelManager modelManager;
+    private APIKeyManager apiKeyManager;
     
     private String selectedModelId;
     private List<ApiModel> fetchedModels = new ArrayList<>();
@@ -82,6 +85,7 @@ public class OnlineModelConfigDialog {
         this.modelListFetcher = ModelListFetcher.getInstance(context);
         this.usageTracker = UsageTracker.getInstance(context);
         this.modelManager = OnlineModelManager.getInstance(context);
+        this.apiKeyManager = APIKeyManager.getInstance(context);
     }
 
     public OnlineModelConfigDialog setExistingConfig(OnlineModelManager.OnlineModelConfig config) {
@@ -293,7 +297,7 @@ public class OnlineModelConfigDialog {
         String name = nameInput.getText().toString().trim();
         String url = urlInput.getText().toString().trim();
         String key = keyInput.getText().toString().trim();
-        
+
         if (name.isEmpty()) {
             Toast.makeText(context, "请填写模型名称", Toast.LENGTH_SHORT).show();
             return;
@@ -306,56 +310,65 @@ public class OnlineModelConfigDialog {
             Toast.makeText(context, "请填写 API 密钥", Toast.LENGTH_SHORT).show();
             return;
         }
-        
-        // 创建配置
-        OnlineModelManager.OnlineModelConfig config = new OnlineModelManager.OnlineModelConfig();
-        config.id = java.util.UUID.randomUUID().toString();
-        config.name = name;
-        config.apiUrl = url;
-        config.apiKey = key;
-        config.enabled = true;
-        config.createdAt = System.currentTimeMillis();
-        config.autoFetchModels = true;
-        
+
         // 设置选择的模型
+        String selectedModel;
         if (selectedModelId != null && !selectedModelId.isEmpty()) {
-            config.selectedModel = selectedModelId;
-            config.modelName = selectedModelId;
+            selectedModel = selectedModelId;
         } else {
-            config.modelName = "gpt-3.5-turbo"; // 默认模型
-            config.selectedModel = "gpt-3.5-turbo";
+            selectedModel = "gpt-3.5-turbo"; // 默认模型
         }
-        
-        // 保存缓存的模型列表
+
+        // 保存缓存的模型列表（使用 JSON 数组格式以保持与 OnlineModelAdapter.parseCachedModels 兼容）
+        String cachedModelsJson = null;
         if (!fetchedModels.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (ApiModel model : fetchedModels) {
-                if (sb.length() > 0) sb.append(",");
-                sb.append(model.id);
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray();
+                for (ApiModel model : fetchedModels) {
+                    org.json.JSONObject obj = new org.json.JSONObject();
+                    obj.put("id", model.id);
+                    obj.put("name", model.getName());
+                    arr.put(obj);
+                }
+                cachedModelsJson = arr.toString();
+            } catch (Exception e) {
+                cachedModelsJson = null;
             }
-            config.cachedModelsJson = sb.toString();
+        }
+
+        // 通过 addModel 创建配置，然后直接在同一对象上设置扩展字段
+        OnlineModelManager.OnlineModelConfig config =
+                modelManager.addModel(name, url, selectedModel, key);
+        config.selectedModel = selectedModel;
+        config.autoFetchModels = true;
+        if (cachedModelsJson != null) {
+            config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();
         }
-        
-        // 保存配置
-        modelManager.addModel(config.name, config.apiUrl, config.selectedModel, config.apiKey);
-        
-        // 更新完整配置
-        List<OnlineModelManager.OnlineModelConfig> configs = modelManager.getModelList();
-        for (OnlineModelManager.OnlineModelConfig c : configs) {
-            if (c.name.equals(name)) {
-                c.selectedModel = config.selectedModel;
-                c.cachedModelsJson = config.cachedModelsJson;
-                c.lastFetchTime = config.lastFetchTime;
-                modelManager.updateModelConfig(c);
-                break;
-            }
+        // 通过 updateModelConfig 持久化扩展字段
+        modelManager.updateModelConfig(config);
+
+        // 反向同步到 APIKeyManager，确保数据源互通
+        try {
+            APIConfig apiConfig = new APIConfig();
+            apiConfig.setId(config.id);
+            apiConfig.setName(name);
+            apiConfig.setApiKey(key);
+            apiConfig.setApiHost(url);
+            apiConfig.setModelName(selectedModel);
+            apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
+            apiConfig.setCategory(APIConfig.Category.AI);
+            apiConfig.setActive(true);
+            apiConfig.setStatus(APIConfig.Status.UNKNOWN);
+            apiKeyManager.saveAPIConfig(apiConfig);
+        } catch (Exception ignored) {
+            // 反向同步失败不影响 OnlineModelManager 的保存
         }
-        
+
         if (saveListener != null) {
             saveListener.onConfigSaved(config);
         }
-        
+
         Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show();
         dialog.dismiss();
     }
@@ -364,13 +377,44 @@ public class OnlineModelConfigDialog {
         if (cachedJson == null || cachedJson.isEmpty()) {
             return;
         }
-        
+
         List<ApiModel> models = new ArrayList<>();
-        String[] modelIds = cachedJson.split(",");
-        for (String id : modelIds) {
-            models.add(new ApiModel(id.trim()));
+
+        // 优先尝试 JSON 数组格式（新格式）
+        boolean parsedAsJson = false;
+        String trimmed = cachedJson.trim();
+        if (trimmed.startsWith("[")) {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray(trimmed);
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject obj = arr.getJSONObject(i);
+                    String id = obj.optString("id", null);
+                    String name = obj.optString("name", null);
+                    if (id != null) {
+                        ApiModel m = new ApiModel(id);
+                        if (name != null) {
+                            m.displayName = name;
+                        }
+                        models.add(m);
+                    }
+                }
+                parsedAsJson = true;
+            } catch (Exception ignored) {
+                // 解析失败，回退到旧格式
+            }
         }
-        
+
+        // 回退到逗号分隔格式（旧格式）
+        if (!parsedAsJson) {
+            String[] modelIds = cachedJson.split(",");
+            for (String id : modelIds) {
+                String trimmedId = id.trim();
+                if (!trimmedId.isEmpty()) {
+                    models.add(new ApiModel(trimmedId));
+                }
+            }
+        }
+
         if (!models.isEmpty()) {
             fetchedModels = models;
             modelsAdapter.updateData(models, selectedModelId);

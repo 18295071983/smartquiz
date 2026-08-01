@@ -110,8 +110,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp"
-                android:visibility="gone">
+                android:padding="16dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -134,7 +133,7 @@
                         android:textColor="@color/on_primary"
                         app:cornerRadius="8dp"
                         android:textAllCaps="false"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"/>
+                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
                 </LinearLayout>
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/online_models_recycler"
@@ -143,6 +142,18 @@
                     android:layout_marginTop="8dp"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+                <TextView
+                    android:id="@+id/online_models_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:padding="16dp"
+                    android:gravity="center"
+                    android:text="暂无在线模型，点击右上角“+ 添加”配置 API"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_tertiary"
+                    android:background="@drawable/empty_bg_dashed"
+                    android:visibility="gone"/>
             </LinearLayout>
 
             <!-- 本地模型区域 -->
@@ -151,20 +162,49 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="16dp">
-                <TextView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="本地模型"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:layout_marginBottom="8dp"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="本地模型"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/import_local_model_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="+ 导入"
+                        app:backgroundTint="@color/primary"
+                        android:textColor="@color/on_primary"
+                        app:cornerRadius="8dp"
+                        android:textAllCaps="false"
+                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+                </LinearLayout>
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/models_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+                <TextView
+                    android:id="@+id/local_models_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:padding="16dp"
+                    android:gravity="center"
+                    android:text="暂无本地模型，点击右上角“+ 导入”导入模型文件"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_tertiary"
+                    android:background="@drawable/empty_bg_dashed"
+                    android:visibility="gone"/>
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

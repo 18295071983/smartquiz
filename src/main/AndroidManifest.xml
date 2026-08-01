@@ -164,6 +164,7 @@
         <activity
             android:name=".ui.activity.ImportActivity"
             android:exported="false" />
+        <activity android:name=".ui.activity.AIImportActivity" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" />
         <activity
             android:name=".ui.activity.ImportGuideActivity"
             android:exported="false" />

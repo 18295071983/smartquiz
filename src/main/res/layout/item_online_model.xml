@@ -5,15 +5,18 @@
     android:layout_height="wrap_content"
     android:layout_marginBottom="8dp"
     app:cardCornerRadius="12dp"
-    app:cardElevation="2dp"
+    app:cardElevation="1dp"
+    app:strokeWidth="1dp"
+    app:strokeColor="@color/outline"
     app:cardBackgroundColor="@color/card_background">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="14dp">
 
+        <!-- 顶部信息行 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -30,24 +33,28 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="12dp"
+                android:layout_marginStart="10dp"
                 android:orientation="vertical">
                 <TextView
                     android:id="@+id/online_model_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="模型名称"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="@color/text_primary"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
                 <TextView
                     android:id="@+id/online_model_type"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="gpt-4"
-                    android:textSize="14sp"
+                    android:textSize="12sp"
                     android:textColor="@color/text_secondary"
-                    android:layout_marginTop="2dp"/>
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
             </LinearLayout>
 
             <TextView
@@ -56,17 +63,22 @@
                 android:layout_height="wrap_content"
                 android:text="点击切换"
                 android:textSize="12sp"
-                android:textColor="@color/primary"/>
+                android:textColor="@color/primary"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="3dp"/>
         </LinearLayout>
 
+        <!-- API 地址 -->
         <TextView
             android:id="@+id/online_model_url"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="api.openai.com"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textColor="@color/text_tertiary"
-            android:layout_marginTop="4dp"/>
+            android:layout_marginTop="6dp"
+            android:maxLines="1"
+            android:ellipsize="end"/>
 
         <!-- 模型选择行 -->
         <LinearLayout
@@ -74,19 +86,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/fetch_models_button"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="获取模型"
-                android:textSize="11sp"
-                app:backgroundTint="@color/primary"
-                android:textColor="@android:color/white"
-                app:cornerRadius="8dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="8dp"/>
+            android:layout_marginTop="10dp">
 
             <Spinner
                 android:id="@+id/model_spinner"
@@ -95,15 +95,28 @@
                 android:layout_weight="1"
                 android:spinnerMode="dropdown"
                 android:minHeight="36dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fetch_models_button"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="刷新模型"
+                android:textSize="11sp"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="8dp"
+                android:textAllCaps="false"
+                android:layout_marginStart="8dp"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
         </LinearLayout>
 
-        <!-- 操作按钮行 -->
+        <!-- 底部操作按钮行 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="end"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="10dp">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/enable_button"
@@ -111,11 +124,13 @@
                 android:layout_height="32dp"
                 android:text="@string/disable"
                 android:textSize="11sp"
-                app:backgroundTint="@color/warning"
+                app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="8dp"
                 android:textAllCaps="false"
                 android:layout_marginEnd="8dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
                 style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
 
             <com.google.android.material.button.MaterialButton
@@ -128,6 +143,8 @@
                 android:textColor="@android:color/white"
                 app:cornerRadius="8dp"
                 android:textAllCaps="false"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
                 style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
         </LinearLayout>
 

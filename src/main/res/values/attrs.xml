@@ -32,4 +32,26 @@
         <attr name="temp_min_range" format="float"/>
         <attr name="temp_bar_color" format="color"/>
     </declare-styleable>
+
+    <!-- ArcIndicatorView: 直接复用 CircularGaugeView 的属性，作为语义别名 -->
+    <declare-styleable name="ArcIndicatorView">
+        <attr name="arc_progress" format="float"/>
+        <attr name="arc_max" format="float"/>
+        <attr name="arc_stroke_width" format="dimension"/>
+        <attr name="arc_start_color" format="color"/>
+        <attr name="arc_end_color" format="color"/>
+        <attr name="arc_center_text" format="string"/>
+        <attr name="arc_center_subtext" format="string"/>
+        <attr name="arc_level_text" format="string"/>
+        <attr name="arc_text_color" format="color"/>
+    </declare-styleable>
+
+    <!-- DailyTempBarView: 直接复用 TempRangeBarView 的属性 -->
+    <declare-styleable name="DailyTempBarView">
+        <attr name="dtb_low" format="integer"/>
+        <attr name="dtb_high" format="integer"/>
+        <attr name="dtb_current" format="integer"/>
+        <attr name="dtb_global_min" format="integer"/>
+        <attr name="dtb_global_max" format="integer"/>
+    </declare-styleable>
 </resources>

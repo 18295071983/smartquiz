@@ -807,55 +807,18 @@ public class UnifiedAgentEngine {
 
     private String buildReActPrompt(String userMessage) {
         trimContextIfNeeded();
-        
+
         StringBuilder sb = new StringBuilder();
-        sb.append("[ReAct推理模式 - 严格遵循以下规则]\n\n");
-        sb.append("=== 重要规则 ===\n");
-        sb.append("1. 你是一个AI助手，可以使用工具来完成任务。\n");
-        sb.append("2. 每次只能调用一个工具，等待工具返回结果后再决定下一步。\n");
-        sb.append("3. 严格按照指定格式输出，否则系统无法解析你的回复。\n");
-        sb.append("4. 当你有足够信息回答用户问题时，直接给出答案，不需要调用工具。\n\n");
-        
-        sb.append("=== 工具调用格式（必须严格遵循） ===\n");
-        sb.append("当你需要调用工具时，只输出以下内容，不要有其他文字：\n\n");
+        sb.append("[ReAct模式] 每次只调一个工具，等结果后决定下一步。不需工具时直接回答。\n\n");
+        sb.append("工具调用格式（TOOLS_CALL和TOOLS_END独占一行，中间是有效JSON）：\n");
         sb.append("TOOLS_CALL\n");
         sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n\n");
-        
-        sb.append("=== 格式说明 ===\n");
-        sb.append("- TOOLS_CALL 和 TOOLS_END 必须独占一行\n");
-        sb.append("- 中间必须是有效的JSON格式，包含 name 和 arguments\n");
-        sb.append("- arguments 必须是一个JSON对象\n");
-        sb.append("- JSON格式必须严格正确，引号、逗号都不能少\n\n");
-        
-        sb.append("=== 正确示例 ===\n");
-        sb.append("查询北京天气：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"weather\", \"arguments\": {\"city\": \"北京\"}}\n");
-        sb.append("TOOLS_END\n\n");
-        
-        sb.append("数学计算：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"calculator\", \"arguments\": {\"expression\": \"3+5*2\"}}\n");
-        sb.append("TOOLS_END\n\n");
-        
-        sb.append("=== 错误示例（不要这样做） ===\n");
-        sb.append("❌ \"我需要调用weather工具来查询北京天气\"\n");
-        sb.append("❌ 让我查一下天气...\n");
-        sb.append("❌ TOOLS_CALL\n");
-        sb.append("   name: weather\n");
-        sb.append("   city: 北京\n");
-        sb.append("   TOOLS_END（不是JSON格式）\n\n");
-        
-        sb.append("=== 最终答案格式 ===\n");
-        sb.append("当你有足够信息后，直接用自然语言回答用户问题。\n");
-        sb.append("答案要清晰、完整、有帮助。\n\n");
-        
-        sb.append("=== 可用工具列表 ===\n");
+        sb.append("TOOLS_END\n");
+        sb.append("示例：TOOLS_CALL\n{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\"}}\nTOOLS_END\n\n");
+        sb.append("=== 可用工具 ===\n");
         sb.append(buildToolListPrompt());
         sb.append("\n=== 用户问题 ===\n");
         sb.append(userMessage);
-        sb.append("\n\n现在请开始处理。如果需要调用工具，请严格按照 TOOLS_CALL 格式输出；如果可以直接回答，请直接给出答案。");
         return sb.toString();
     }
 
@@ -1149,10 +1112,10 @@ public class UnifiedAgentEngine {
         sb.append("3. 逐步推理，展示思考过程\n");
         sb.append("4. 基于推理结果，决定是否需要使用工具\n\n");
         sb.append("=== 工具调用 ===\n");
-        sb.append("如需工具，按以下格式调用：\n\n");
-        sb.append("   TOOLS_CALL\n");
-        sb.append("   {\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("   TOOLS_END\n\n");
+        sb.append("如需工具，按以下格式调用（TOOLS_CALL和TOOLS_END必须独占一行）：\n\n");
+        sb.append("TOOLS_CALL\n");
+        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
+        sb.append("TOOLS_END\n\n");
         sb.append("=== 可用工具 ===\n");
         sb.append(buildToolListPrompt());
         sb.append("\n=== 用户问题 ===\n");
@@ -1316,6 +1279,11 @@ public class UnifiedAgentEngine {
 
         sb.append("=== 可用工具 ===\n");
         sb.append(buildToolListPrompt());
+        sb.append("\n=== 工具调用格式 ===\n");
+        sb.append("执行步骤时如需调用工具，使用以下格式：\n");
+        sb.append("TOOLS_CALL\n");
+        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
+        sb.append("TOOLS_END\n");
         sb.append("\n=== 原始任务 ===\n");
         sb.append(userMessage);
         sb.append("\n\n请先制定执行计划：");
@@ -1896,20 +1864,13 @@ public class UnifiedAgentEngine {
         if (agentService == null) return "";
         StringBuilder sb = new StringBuilder();
         sb.append("【可用工具】\n");
-        List<AgentService.ToolSchema> schemas = agentService.getToolSchemas();
-        Map<String, AgentService.ToolSchema> uniqueTools = new LinkedHashMap<>();
-        for (AgentService.ToolSchema schema : schemas) {
-            SmartIntentRecognizer.Intent mapped = intentRecognizer.mapToolNameToIntentPublic(schema.name);
-            String key = mapped != null ? mapped.id : schema.name;
-            if (!uniqueTools.containsKey(key)) {
-                uniqueTools.put(key, schema);
+        for (AgentService.ToolSchema schema : agentService.getMainToolSchemas()) {
+            sb.append("- ").append(schema.name).append(": ").append(schema.description);
+            if (!schema.paramDesc.isEmpty()) {
+                sb.append(" | ").append(schema.paramDesc);
             }
+            sb.append("\n");
         }
-        for (AgentService.ToolSchema schema : uniqueTools.values()) {
-            sb.append("- ").append(schema.name).append(": ").append(schema.description)
-                .append("\n  ").append(schema.paramDesc).append("\n");
-        }
-        sb.append("\n你可以组合使用多个工具来完成任务。每次调用一个工具，等待结果后再决定下一步。\n");
         return sb.toString();
     }
 

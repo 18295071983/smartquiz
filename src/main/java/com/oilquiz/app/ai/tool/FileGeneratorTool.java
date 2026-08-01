@@ -58,6 +58,7 @@ public class FileGeneratorTool implements AITool {
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
+            normalizeParameters(parameters);
             String action = (String) parameters.get("action");
             if (action == null) {
                 action = "create";
@@ -90,7 +91,23 @@ public class FileGeneratorTool implements AITool {
             return new AIToolResult("文件生成失败: " + e.getMessage(), parameters);
         }
     }
-    
+
+    /**
+     * 规范化参数：工具Schema声明的参数名为 file_name，但内部实现读取 file_path。
+     * 这里将 file_name 映射到 file_path，保证LLM按Schema传参时工具能正常工作。
+     */
+    private void normalizeParameters(Map<String, Object> parameters) {
+        if (parameters == null) return;
+        if (!parameters.containsKey("file_path") && parameters.containsKey("file_name")) {
+            Object fileName = parameters.get("file_name");
+            // file_name 可能只是文件名，需要时可作为路径直接使用
+            parameters.put("file_path", fileName);
+        }
+        if (!parameters.containsKey("file_name") && parameters.containsKey("file_path")) {
+            parameters.put("file_name", parameters.get("file_path"));
+        }
+    }
+
     private AIToolResult createFile(Map<String, Object> parameters) {
         String filePath = (String) parameters.get("file_path");
         String content = (String) parameters.get("content");

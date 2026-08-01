@@ -1787,15 +1787,12 @@ public class AppToolkitAITool implements AITool {
         expression = expression.trim();
         
         try {
-            // 替换 ^ 为 ** (JavaScript幂运算语法)
-            String jsExpression = expression.replace("^", "**");
-            
-            // 验证表达式只包含安全的字符
-            if (!jsExpression.matches("[0-9+\\-*/.()% ]+")) {
+            // 验证表达式只包含安全的字符（支持 ^ 幂运算）
+            if (!expression.matches("[0-9+\\-*/.^%() ]+")) {
                 return new AIToolResult("表达式包含非法字符，仅支持数字和基本运算符 (+, -, *, /, ^, %)", parameters);
             }
-            
-            double result = evaluateExpression(jsExpression);
+
+            double result = evaluateExpression(expression);
             
             // 判断是否为整数
             String resultStr;
@@ -1843,12 +1840,12 @@ public class AppToolkitAITool implements AITool {
     }
     
     private double parseTerm(String expr, int[] pos) {
-        double left = parseFactor(expr, pos);
+        double left = parsePower(expr, pos);
         while (pos[0] < expr.length()) {
             char op = expr.charAt(pos[0]);
             if (op == '*' || op == '/') {
                 pos[0]++;
-                double right = parseFactor(expr, pos);
+                double right = parsePower(expr, pos);
                 if (op == '/') {
                     if (right == 0) throw new ArithmeticException("除数不能为零");
                     left /= right;
@@ -1861,7 +1858,18 @@ public class AppToolkitAITool implements AITool {
         }
         return left;
     }
-    
+
+    /** 解析幂运算：base ^ exponent（右结合，如 2^3^2 = 2^9 = 512） */
+    private double parsePower(String expr, int[] pos) {
+        double base = parseFactor(expr, pos);
+        if (pos[0] < expr.length() && expr.charAt(pos[0]) == '^') {
+            pos[0]++;
+            double exponent = parsePower(expr, pos); // 右结合
+            return Math.pow(base, exponent);
+        }
+        return base;
+    }
+
     private double parseFactor(String expr, int[] pos) {
         if (pos[0] >= expr.length()) throw new ArithmeticException("表达式不完整");
         

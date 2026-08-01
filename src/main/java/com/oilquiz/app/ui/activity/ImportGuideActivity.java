@@ -19,10 +19,13 @@ public class ImportGuideActivity extends BaseActivity {
 
     private static final int REQUEST_CODE_IMPORT = 1001;
     private static final int REQUEST_CODE_TEMPLATE = 1002;
+    private static final int REQUEST_CODE_AI_IMPORT = 1003;
 
+    private CardView cardAIImport;
     private CardView cardDirectImport;
     private CardView cardTemplateImport;
     private CardView cardHistory;
+    private MaterialButton btnAIImport;
     private MaterialButton btnDirectImport;
     private MaterialButton btnTemplateImport;
     private MaterialButton btnViewHistory;
@@ -43,9 +46,11 @@ public class ImportGuideActivity extends BaseActivity {
         // 设置Toolbar
         setupToolbar("题目导入");
 
+        cardAIImport = findViewById(R.id.cardAIImport);
         cardDirectImport = findViewById(R.id.cardDirectImport);
         cardTemplateImport = findViewById(R.id.cardTemplateImport);
         cardHistory = findViewById(R.id.cardHistory);
+        btnAIImport = findViewById(R.id.btnAIImport);
         btnDirectImport = findViewById(R.id.btnDirectImport);
         btnTemplateImport = findViewById(R.id.btnTemplateImport);
         btnViewHistory = findViewById(R.id.btnViewHistory);
@@ -62,6 +67,10 @@ public class ImportGuideActivity extends BaseActivity {
 
     @Override
     protected void initListener() {
+        // AI 导入
+        btnAIImport.setOnClickListener(v -> startAIImport());
+        cardAIImport.setOnClickListener(v -> startAIImport());
+
         // 直接导入
         btnDirectImport.setOnClickListener(v -> startDirectImport());
         cardDirectImport.setOnClickListener(v -> startDirectImport());
@@ -96,6 +105,11 @@ public class ImportGuideActivity extends BaseActivity {
         }
     }
 
+    private void startAIImport() {
+        Intent intent = new Intent(this, AIImportActivity.class);
+        startActivityForResult(intent, REQUEST_CODE_AI_IMPORT);
+    }
+
     private void startDirectImport() {
         Intent intent = new Intent(this, ImportActivity.class);
         startActivityForResult(intent, REQUEST_CODE_IMPORT);
@@ -116,7 +130,8 @@ public class ImportGuideActivity extends BaseActivity {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (resultCode == RESULT_OK) {
-            if (requestCode == REQUEST_CODE_IMPORT || requestCode == REQUEST_CODE_TEMPLATE) {
+            if (requestCode == REQUEST_CODE_IMPORT || requestCode == REQUEST_CODE_TEMPLATE
+                    || requestCode == REQUEST_CODE_AI_IMPORT) {
                 // 导入成功，可以显示提示或刷新界面
                 Toast.makeText(this, "导入完成", Toast.LENGTH_SHORT).show();
             }

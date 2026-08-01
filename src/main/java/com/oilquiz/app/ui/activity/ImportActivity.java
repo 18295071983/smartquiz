@@ -118,7 +118,7 @@ public class ImportActivity extends BaseActivity {
                 finish();
             }
         });
-        
+
         // 直接开始导入
         importQuestions();
     }

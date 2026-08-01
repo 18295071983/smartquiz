@@ -239,7 +239,7 @@ public class AgentService {
         registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("location", "位置查询工具，获取当前位置信息", "action(操作类型: get_current/get_city/get_coordinates,默认get_current)");
         registerToolSchema("get_location", "获取位置信息", "action(操作类型: get_current/get_city/get_coordinates)");
-        registerToolSchema("network_search", "网络搜索工具，搜索网络信息", "action(操作类型: search/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,必填), keyword(搜索关键词别名,可选), limit(结果数量限制,默认5), num_results(结果数量别名,默认5), url(网页URL,可选)");
+        registerToolSchema("network_search", "网络搜索工具，支持搜索、智能问答、网页读取", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(结果数量,默认5), num_results(结果数量别名,默认5)");
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(结果数量限制,默认5)");
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
@@ -249,7 +249,7 @@ public class AgentService {
         registerToolSchema("translate", "翻译文本", "text(待翻译文本,必填), target_lang(目标语言,可选)");
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
-        registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能，自动完成搜索→选择→阅读→摘要的完整研究流程", "topic(研究主题,必填), depth(研究深度,默认1), maxResults(最大结果数,默认5)");
+        registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能", "action(操作类型: research/quick_search/deep_read/summarize_topic,默认research), topic(研究主题,research用), query(搜索关键词,quick_search用), url(网页URL,deep_read用), depth(研究深度,默认1), maxResults(最大结果数,默认5), includeDetails(是否包含详情,默认false)");
         registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info,默认open_app), app_name(应用名称,可选), url(URL地址,可选), phone_number(电话号码,可选), message(短信内容,可选), params(附加参数JSON,可选)");
         registerToolSchema("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面", "action(操作类型: navigate/list_pages/go_home/go_back,默认navigate), page(页面名称:user/question/quiz/study_plan/wrong_question/note/ocr/ai等,可选)");
         registerToolSchema("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件", "action(操作类型: get_file_info/read_file/list_files,必填), file_path(文件路径,可选), directory_path(目录路径,可选)");
@@ -273,12 +273,14 @@ public class AgentService {
             new ToolParamSchema("action", "string", "操作类型：get_current(获取完整位置), get_city(获取城市), get_coordinates(获取坐标)", false, "get_current"));
 
         registerToolParamSchema("network_search",
-            new ToolParamSchema("action", "string", "操作类型：search(搜索), get_webpage(获取网页), extract_info(提取信息), summarize(摘要), search_and_read(搜索并阅读), smart_search(智能搜索)", false, "search"),
-            new ToolParamSchema("query", "string", "搜索关键词", true, null),
+            new ToolParamSchema("action", "string", "操作类型：search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage(获取网页)/extract_info(提取信息)/summarize(摘要)/search_and_read(搜索并阅读)/smart_search(智能搜索)", false, "search"),
+            new ToolParamSchema("query", "string", "搜索关键词（search/smart_search等用）", false, null),
+            new ToolParamSchema("question", "string", "智能问答问题（ask用）", false, null),
+            new ToolParamSchema("url", "string", "网页URL（read_url/get_webpage用）", false, null),
             new ToolParamSchema("keyword", "string", "搜索关键词（query的别名）", false, null),
             new ToolParamSchema("limit", "int", "结果数量限制", false, 5),
             new ToolParamSchema("num_results", "int", "返回结果数量（limit的别名）", false, 5),
-            new ToolParamSchema("url", "string", "网页URL", false, null));
+            new ToolParamSchema("model", "string", "问答模式：concise/detail/research（ask用）", false, "concise"));
 
         registerToolParamSchema("python_calculate",
             new ToolParamSchema("expression", "string", "数学表达式，如：2+3*4", true, null),
@@ -290,9 +292,13 @@ public class AgentService {
             new ToolParamSchema("source_lang", "string", "源语言，如：zh, en, ja, ko", false, null));
 
         registerToolParamSchema("smart_research",
-            new ToolParamSchema("topic", "string", "研究主题", true, null),
+            new ToolParamSchema("action", "string", "操作类型：research(完整研究)/quick_search(快速搜索)/deep_read(深度阅读)/summarize_topic(主题摘要)", false, "research"),
+            new ToolParamSchema("topic", "string", "研究主题（research/summarize_topic用）", false, null),
+            new ToolParamSchema("query", "string", "搜索关键词（quick_search用）", false, null),
+            new ToolParamSchema("url", "string", "网页URL（deep_read用）", false, null),
             new ToolParamSchema("depth", "int", "研究深度(默认1)", false, 1),
-            new ToolParamSchema("maxResults", "int", "最大结果数(默认5)", false, 5));
+            new ToolParamSchema("maxResults", "int", "最大结果数(默认5)", false, 5),
+            new ToolParamSchema("includeDetails", "boolean", "是否包含详情", false, false));
 
         registerToolParamSchema("app_operation",
             new ToolParamSchema("action", "string", "操作类型：navigate(导航), list_pages(列出页面), go_home(返回主页), go_back(返回上一页)", false, "navigate"),
@@ -473,7 +479,7 @@ public class AgentService {
             sb.append("  ").append(tool.paramDesc).append("\n\n");
         }
         sb.append("重要规则：\n");
-        sb.append("1. 工具调用必须以 TOOLS_CALL 开头，TOOLS_END 结尾\n");
+        sb.append("1. 工具调用使用上述 JSON 格式输出（{\"tool_calls\":[{\"name\":\"...\",\"arguments\":{...}}]}\n");
         sb.append("2. 每次只调用一个工具\n");
         sb.append("3. 不需要工具时，直接回答用户问题\n");
         sb.append("4. 工具返回结果后，基于结果回答用户\n");
@@ -1419,6 +1425,22 @@ public class AgentService {
     }
 
     public List<ToolSchema> getToolSchemas() { return toolSchemas; }
+
+    /**
+     * 只返回在 AIToolManager 注册的主工具 schema（不含别名），用于节约提示词 tokens。
+     * 别名仍通过 toolNameAliases 被 isKnownOrAliasedTool 识别。
+     */
+    public List<ToolSchema> getMainToolSchemas() {
+        if (toolManager == null) return toolSchemas;
+        java.util.Set<String> registered = new java.util.HashSet<>(toolManager.getRegisteredToolNames());
+        List<ToolSchema> main = new ArrayList<>();
+        for (ToolSchema schema : toolSchemas) {
+            if (registered.contains(schema.name)) {
+                main.add(schema);
+            }
+        }
+        return main;
+    }
     public int getMaxToolLoops() { return MAX_TOOL_LOOPS; }
     public Map<String, String> getToolNameAliases() { return new HashMap<>(toolNameAliases); }
     public boolean isToolAvailable(String toolName) {

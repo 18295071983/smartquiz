@@ -262,4 +262,38 @@
     <color name="agent_summary_success">#10B981</color>
     <color name="agent_summary_error">#EF4444</color>
 
+    <!-- ===== 未来天气主题颜色 ===== -->
+    <color name="future_bg_top">#0C4A6E</color>
+    <color name="future_bg_mid">#1E40AF</color>
+    <color name="future_bg_bot">#2563EB</color>
+    <color name="future_card_bg">#4DFFFFFF</color>
+    <color name="future_card_border">#66FFFFFF</color>
+    <color name="future_text_primary">#FFFFFF</color>
+    <color name="future_text_secondary">#F1F5F9</color>
+    <color name="future_text_tertiary">#E2E8F0</color>
+
+    <!-- 预警等级色 -->
+    <color name="warn_red_bg">#B91C1C</color>
+    <color name="warn_red_text">#FFFFFF</color>
+    <color name="warn_orange_bg">#C2410C</color>
+    <color name="warn_yellow_bg">#A16207</color>
+    <color name="warn_blue_bg">#1D4ED8</color>
+
+    <!-- 紫外线渐变 -->
+    <color name="uv_low">#10B981</color>
+    <color name="uv_mid">#F59E0B</color>
+    <color name="uv_high">#EF4444</color>
+    <color name="uv_vhigh">#7C3AED</color>
+    <color name="uv_extreme">#991B1B</color>
+
+    <!-- 湿度渐变 -->
+    <color name="humidity_dry">#FB923C</color>
+    <color name="humidity_comfort">#22D3EE</color>
+    <color name="humidity_wet">#8B5CF6</color>
+
+    <!-- 温度条渐变 -->
+    <color name="tempbar_cold">#60A5FA</color>
+    <color name="tempbar_warm">#FB923C</color>
+    <color name="tempbar_hot">#EF4444</color>
+
 </resources>

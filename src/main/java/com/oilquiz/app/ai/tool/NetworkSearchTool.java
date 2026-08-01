@@ -11,6 +11,7 @@ import java.net.URLEncoder;
 import java.net.URL;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import java.util.ArrayList;
@@ -28,12 +29,14 @@ import org.json.JSONObject;
 
 @Tool(
     value = "network_search",
-    description = "网络搜索工具，支持搜索网络信息、获取网页内容、内容切片、关键信息提取、智能摘要生成、动态网页解析和搜索结果详情阅读",
+    description = "网络搜索工具（由秘塔搜索引擎驱动），支持网络搜索、智能问答、网页读取、内容提取、摘要生成和动态网页解析",
     category = "search",
     aliases = {"search", "web_search", "bing_search"},
     actions = {
         @Action(name = "search", description = "执行网络搜索"),
-        @Action(name = "get_webpage", description = "获取网页内容"),
+        @Action(name = "ask", description = "秘塔智能问答（搜索增强生成，返回答案+引用来源）"),
+        @Action(name = "read_url", description = "秘塔网页读取（服务端抓取，返回结构化markdown，能处理JS渲染页）"),
+        @Action(name = "get_webpage", description = "获取网页内容（本地Jsoup抓取）"),
         @Action(name = "extract_info", description = "提取网页关键信息"),
         @Action(name = "summarize", description = "生成搜索结果摘要"),
         @Action(name = "search_and_read", description = "搜索并阅读详情"),
@@ -42,19 +45,25 @@ import org.json.JSONObject;
         @Action(name = "smart_read", description = "智能阅读")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作类型: search/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", required = false),
+        @Param(name = "action", type = "string", description = "操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", required = false),
         @Param(name = "query", type = "string", description = "搜索查询（用于search、search_and_read、smart_search操作）", required = false),
         @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false),
+        @Param(name = "question", type = "string", description = "问题（用于ask操作，秘塔智能问答）", required = false),
+        @Param(name = "model", type = "string", description = "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", required = false),
         @Param(name = "limit", type = "int", description = "结果数量限制(默认5)", required = false),
         @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false),
-        @Param(name = "url", type = "string", description = "网页URL（用于get_webpage、extract_info和get_dynamic_content操作）", required = false),
+        @Param(name = "url", type = "string", description = "网页URL（用于read_url、get_webpage、extract_info和get_dynamic_content操作）", required = false),
         @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
         @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false)
     }
 )
 public class NetworkSearchTool implements AITool {
     private static final String TAG = "NetworkSearchTool";
-    private static final String BING_SEARCH_API_URL = "https://api.bing.microsoft.com/v7.0/search";
+    // 秘塔搜索API（Bing搜索API已于2025年8月下线，改用秘塔作为主要搜索引擎）
+    private static final String METASO_SEARCH_API_URL = "https://metaso.cn/api/v1/search";
+    private static final String METASO_READER_API_URL = "https://metaso.cn/api/v1/reader";
+    private static final String METASO_CHAT_API_URL = "https://metaso.cn/api/open/search/v2";
+    private static final String DEFAULT_METASO_API_KEY = "mk-3B07FA8984EE0A485E5BB237C2B7D517";
     private final Context context;
     
     private static final Pattern TITLE_PATTERN = Pattern.compile("<title[^>]*>([^<]*)</title>", Pattern.CASE_INSENSITIVE);
@@ -102,6 +111,10 @@ public class NetworkSearchTool implements AITool {
             switch (action) {
                 case "search":
                     return search(parameters);
+                case "ask":
+                    return askMetaso(parameters);
+                case "read_url":
+                    return readUrlMetaso(parameters);
                 case "get_webpage":
                     return getWebpage(parameters);
                 case "extract_info":
@@ -152,18 +165,14 @@ public class NetworkSearchTool implements AITool {
         }
 
         try {
+            // 秘塔搜索：优先用用户配置的Key，未配置则用内置默认Key
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.BING_SEARCH);
-
-            List<Map<String, String>> searchResults;
-            String note = null;
-
+            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
             if (apiKey == null || apiKey.isEmpty()) {
-                AILogger.w(TAG, "Bing Search API 密钥未配置");
-                return new AIToolResult("Bing Search API 密钥未配置，请在设置中配置API密钥", parameters);
-            } else {
-                searchResults = bingSearch(query, limit, apiKey);
+                apiKey = DEFAULT_METASO_API_KEY;
             }
+
+            List<Map<String, String>> searchResults = metasoSearch(query, limit, apiKey);
 
             if (searchResults == null || searchResults.isEmpty()) {
                 return new AIToolResult(
@@ -177,9 +186,7 @@ public class NetworkSearchTool implements AITool {
             result.put("count", searchResults.size());
             result.put("status", "success");
             result.put("results", searchResults);
-            if (note != null) {
-                result.put("note", note);
-            }
+            result.put("engine", "Metaso");
 
             return new AIToolResult(result, parameters);
 
@@ -189,70 +196,91 @@ public class NetworkSearchTool implements AITool {
         }
     }
 
-    private List<Map<String, String>> bingSearch(String query, int count, String apiKey) throws Exception {
+    private List<Map<String, String>> metasoSearch(String query, int count, String apiKey) throws Exception {
         List<Map<String, String>> results = new ArrayList<>();
 
         try {
-            String encodedQuery = URLEncoder.encode(query, "UTF-8");
-            String urlString = BING_SEARCH_API_URL + "?q=" + encodedQuery + "&count=" + count + "&responseFilter=WebPages";
+            // 构造秘塔搜索请求体（参数严格对照秘塔API文档）
+            JSONObject bodyJson = new JSONObject();
+            bodyJson.put("q", query);
+            bodyJson.put("scope", "webpage");
+            bodyJson.put("includeSummary", false);
+            bodyJson.put("includeRawContent", false);
+            bodyJson.put("size", count); // 文档规定为 integer
 
-            AILogger.i(TAG, "Bing Search URL: " + urlString);
+            RequestBody body = RequestBody.create(bodyJson.toString(),
+                    okhttp3.MediaType.parse("application/json; charset=utf-8"));
 
-            Request request = NetworkUtil.createApiRequestBuilder(urlString)
-                    .addHeader("Ocp-Apim-Subscription-Key", apiKey)
+            // 使用 NetworkUtil 统一构造请求（带 User-Agent 等 header，与 AIWeatherManager 等保持一致）
+            Request request = NetworkUtil.createApiRequestBuilder(METASO_SEARCH_API_URL)
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .post(body)
                     .build();
+
+            AILogger.i(TAG, "Metaso Search: " + query);
 
             try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
                 int responseCode = response.code();
-                AILogger.i(TAG, "Bing Search Response Code: " + responseCode);
+                AILogger.i(TAG, "Metaso Search Response Code: " + responseCode);
+
+                String responseBody = response.body() != null ? response.body().string() : "";
 
                 if (response.isSuccessful()) {
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    results = parseBingSearchResponse(responseBody);
+                    results = parseMetasoSearchResponse(responseBody);
                     AILogger.i(TAG, "Parsed " + results.size() + " search results");
                 } else if (responseCode == 401) {
-                    AILogger.e(TAG, "Bing Search API 认证失败");
-                    throw new Exception("Bing Search API 认证失败，请检查API密钥是否正确");
+                    throw new Exception("秘塔搜索API认证失败，请检查API密钥是否正确");
                 } else if (responseCode == 429) {
-                    AILogger.e(TAG, "Bing Search API 请求频率超限");
-                    throw new Exception("Bing Search API 请求频率超限，请稍后再试");
+                    throw new Exception("秘塔搜索API请求频率超限，请稍后再试");
                 } else {
-                    AILogger.e(TAG, "Bing Search API 返回错误码: " + responseCode);
-                    throw new Exception("Bing Search API 返回错误码: " + responseCode);
+                    // 秘塔可能返回HTTP 200但body含业务错误码，解析错误消息
+                    String errMsg = parseMetasoError(responseBody);
+                    throw new Exception(errMsg != null ? errMsg : "秘塔搜索API返回错误码: " + responseCode);
                 }
             }
 
         } catch (Exception e) {
-            AILogger.e(TAG, "Bing Search API 调用失败: " + e.getMessage(), e);
+            AILogger.e(TAG, "Metaso Search API 调用失败: " + e.getMessage(), e);
             throw e;
         }
 
         return results;
     }
 
-    private List<Map<String, String>> parseBingSearchResponse(String jsonResponse) {
+    private List<Map<String, String>> parseMetasoSearchResponse(String jsonResponse) {
         List<Map<String, String>> results = new ArrayList<>();
 
         try {
             JSONObject responseJson = new JSONObject(jsonResponse);
-            JSONObject webPages = responseJson.optJSONObject("webPages");
-            if (webPages == null) {
-                AILogger.w(TAG, "未在响应中找到webPages");
+
+            // 秘塔可能返回业务错误码 {code:5000,message:...}，code非0表示失败
+            if (responseJson.has("code") && responseJson.optInt("code", 0) != 0) {
+                AILogger.w(TAG, "秘塔搜索返回业务错误: " + responseJson.optString("message", "未知错误"));
                 return results;
             }
 
-            JSONArray values = webPages.optJSONArray("value");
+            // 秘塔搜索结果在 "webpages" 数组中（实测响应结构）
+            JSONArray values = responseJson.optJSONArray("webpages");
             if (values == null) {
-                AILogger.w(TAG, "未在响应中找到搜索结果");
+                // 兼容性回退：尝试其他可能的结果数组字段名
+                values = findResultsArray(responseJson);
+            }
+            if (values == null) {
+                AILogger.w(TAG, "未在秘塔响应中找到搜索结果");
                 return results;
             }
 
             for (int i = 0; i < values.length(); i++) {
-                JSONObject item = values.getJSONObject(i);
+                JSONObject item = values.optJSONObject(i);
+                if (item == null) continue;
+
                 Map<String, String> resultItem = new HashMap<>();
-                resultItem.put("title", item.optString("name", ""));
-                resultItem.put("url", item.optString("url", ""));
-                resultItem.put("snippet", item.optString("snippet", ""));
+                // 字段名对齐秘塔实测响应：title/link/snippet/date
+                resultItem.put("title", firstNonEmpty(item, "title", "name", "subject"));
+                resultItem.put("url", firstNonEmpty(item, "link", "url", "linkUrl", "href"));
+                resultItem.put("snippet", firstNonEmpty(item, "snippet", "summary", "description", "content", "abstract"));
+                resultItem.put("source", firstNonEmpty(item, "source", "siteName", "domain"));
+                resultItem.put("date", firstNonEmpty(item, "date", "publishTime", "publishDate", "time"));
 
                 if (!resultItem.get("title").isEmpty() && !resultItem.get("url").isEmpty()) {
                     results.add(resultItem);
@@ -260,10 +288,204 @@ public class NetworkSearchTool implements AITool {
             }
 
         } catch (Exception e) {
-            AILogger.e(TAG, "解析 Bing Search 响应失败: " + e.getMessage(), e);
+            AILogger.e(TAG, "解析秘塔搜索响应失败: " + e.getMessage(), e);
         }
 
         return results;
+    }
+
+    /** 在JSON对象中查找搜索结果数组，兼容多种嵌套结构 */
+    private JSONArray findResultsArray(JSONObject json) {
+        String[] directKeys = {"webpages", "results", "data", "searchResults", "items", "list", "value"};
+        for (String key : directKeys) {
+            JSONArray arr = json.optJSONArray(key);
+            if (arr != null && arr.length() > 0) return arr;
+        }
+        // 嵌套在 data 对象里
+        JSONObject data = json.optJSONObject("data");
+        if (data != null) {
+            for (String key : directKeys) {
+                JSONArray arr = data.optJSONArray(key);
+                if (arr != null && arr.length() > 0) return arr;
+            }
+        }
+        return null;
+    }
+
+    /** 返回JSON对象中第一个非空字符串字段 */
+    private String firstNonEmpty(JSONObject obj, String... keys) {
+        for (String key : keys) {
+            String val = obj.optString(key, "");
+            if (!val.isEmpty()) return val;
+        }
+        return "";
+    }
+
+    /** 解析秘塔业务错误消息（HTTP 200但body含错误码的情况） */
+    private String parseMetasoError(String responseBody) {
+        try {
+            JSONObject json = new JSONObject(responseBody);
+            int code = json.optInt("code", -1);
+            String message = json.optString("message", "");
+            if (code != -1) {
+                return "秘塔搜索失败[" + code + "]: " + message;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /** 秘塔智能问答：基于搜索增强生成（RAG）回答问题，返回答案+引用来源 */
+    private AIToolResult askMetaso(Map<String, Object> parameters) {
+        String question = (String) parameters.get("question");
+        if (question == null || question.trim().isEmpty()) {
+            return new AIToolResult("Missing required parameter: question", parameters);
+        }
+
+        String model = (String) parameters.get("model");
+        if (model == null || model.trim().isEmpty()) {
+            model = "concise"; // concise(简洁) / detail(深入) / research(研究)
+        }
+
+        try {
+            APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
+            if (apiKey == null || apiKey.isEmpty()) {
+                apiKey = DEFAULT_METASO_API_KEY;
+            }
+
+            JSONObject bodyJson = new JSONObject();
+            bodyJson.put("question", question);
+            bodyJson.put("model", model);
+            bodyJson.put("stream", false);
+
+            RequestBody body = RequestBody.create(bodyJson.toString(),
+                    okhttp3.MediaType.parse("application/json; charset=utf-8"));
+
+            Request request = NetworkUtil.createApiRequestBuilder(METASO_CHAT_API_URL)
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .post(body)
+                    .build();
+
+            AILogger.i(TAG, "Metaso Chat: " + question);
+
+            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                AILogger.i(TAG, "Metaso Chat Response Code: " + response.code());
+
+                if (response.isSuccessful()) {
+                    Map<String, Object> result = parseMetasoChatResponse(responseBody);
+                    if (result != null) {
+                        result.put("question", question);
+                        result.put("model", model);
+                        result.put("engine", "Metaso");
+                        return new AIToolResult(result, parameters);
+                    } else {
+                        return new AIToolResult("秘塔问答失败: " + responseBody, parameters);
+                    }
+                } else if (response.code() == 401) {
+                    return new AIToolResult("秘塔API认证失败，请检查API密钥", parameters);
+                } else {
+                    return new AIToolResult("秘塔问答请求失败，HTTP码: " + response.code(), parameters);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "Metaso Chat failed: " + e.getMessage(), e);
+            return new AIToolResult("秘塔问答失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /** 解析秘塔问答响应：{errCode:0, data:{text, references, balance}} */
+    private Map<String, Object> parseMetasoChatResponse(String jsonResponse) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            JSONObject json = new JSONObject(jsonResponse);
+            int errCode = json.optInt("errCode", -1);
+            if (errCode != 0) {
+                AILogger.w(TAG, "秘塔问答返回错误: " + json.optString("errMsg", "未知错误"));
+                return null;
+            }
+
+            JSONObject data = json.optJSONObject("data");
+            if (data == null) {
+                AILogger.w(TAG, "秘塔问答响应缺少data字段");
+                return null;
+            }
+
+            result.put("answer", data.optString("text", ""));
+            result.put("balance", data.optInt("balance", 0));
+
+            // 解析引用来源
+            JSONArray refs = data.optJSONArray("references");
+            if (refs != null) {
+                List<Map<String, String>> references = new ArrayList<>();
+                for (int i = 0; i < refs.length(); i++) {
+                    JSONObject ref = refs.optJSONObject(i);
+                    if (ref == null) continue;
+                    Map<String, String> refItem = new HashMap<>();
+                    refItem.put("title", ref.optString("title", ""));
+                    refItem.put("link", ref.optString("link", ""));
+                    refItem.put("date", ref.optString("date", ""));
+                    refItem.put("source", ref.optString("author", ""));
+                    references.add(refItem);
+                }
+                result.put("references", references);
+            }
+
+            return result;
+        } catch (Exception e) {
+            AILogger.e(TAG, "解析秘塔问答响应失败: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** 秘塔网页读取：服务端抓取并解析网页，返回结构化markdown文本（质量优于本地Jsoup，能处理JS渲染页） */
+    private AIToolResult readUrlMetaso(Map<String, Object> parameters) {
+        String url = (String) parameters.get("url");
+        if (url == null || url.trim().isEmpty()) {
+            return new AIToolResult("Missing required parameter: url", parameters);
+        }
+
+        try {
+            APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
+            if (apiKey == null || apiKey.isEmpty()) {
+                apiKey = DEFAULT_METASO_API_KEY;
+            }
+
+            JSONObject bodyJson = new JSONObject();
+            bodyJson.put("url", url);
+
+            RequestBody body = RequestBody.create(bodyJson.toString(),
+                    okhttp3.MediaType.parse("application/json; charset=utf-8"));
+
+            Request request = NetworkUtil.createApiRequestBuilder(METASO_READER_API_URL)
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .addHeader("Accept", "text/plain")
+                    .post(body)
+                    .build();
+
+            AILogger.i(TAG, "Metaso Reader: " + url);
+
+            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                AILogger.i(TAG, "Metaso Reader Response Code: " + response.code());
+
+                if (response.isSuccessful()) {
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("url", url);
+                    result.put("content", responseBody);
+                    result.put("engine", "Metaso");
+                    return new AIToolResult(result, parameters);
+                } else if (response.code() == 401) {
+                    return new AIToolResult("秘塔API认证失败，请检查API密钥", parameters);
+                } else {
+                    return new AIToolResult("秘塔网页读取失败，HTTP码: " + response.code(), parameters);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "Metaso Reader failed: " + e.getMessage(), e);
+            return new AIToolResult("秘塔网页读取失败: " + e.getMessage(), parameters);
+        }
     }
     
     private AIToolResult getWebpage(Map<String, Object> parameters) {

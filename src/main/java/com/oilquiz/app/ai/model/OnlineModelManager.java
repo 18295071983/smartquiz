@@ -479,18 +479,10 @@ public class OnlineModelManager {
         if (apiConfig == null) {
             return null;
         }
-        // 生成"服务商+模型名称"的格式
-        String serviceType = apiConfig.getServiceType();
-        String serviceName = getServiceTypeChineseName(serviceType);
-        String modelName = apiConfig.getModelName();
-        String displayName;
-        
-        if (modelName != null && !modelName.isEmpty()) {
-            displayName = serviceName + " · " + modelName;
-        } else {
-            displayName = apiConfig.getName() != null ? apiConfig.getName() : serviceName;
-        }
-        
+        // 显示名称优先使用用户在 API 配置中起的名字，避免多个同服务商配置无法区分
+        // 实际模型名称（modelName/selectedModel）单独存储并在 UI 副标题显示
+        String displayName = buildDisplayName(apiConfig);
+
         OnlineModelConfig config = new OnlineModelConfig(
             apiConfig.getId() != null ? apiConfig.getId() : UUID.randomUUID().toString(),
             displayName,
@@ -530,7 +522,7 @@ public class OnlineModelManager {
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
         List<APIConfig> apiConfigs = apiKeyManager.getAllAPIConfigs();
         int imported = 0;
-        
+
         for (APIConfig apiConfig : apiConfigs) {
             // 只导入AI类型的配置
             String category = apiConfig.getCategory();
@@ -542,17 +534,17 @@ public class OnlineModelManager {
                                     serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
                                     serviceType.equals(APIConfig.ServiceType.CUSTOM)
                                 ));
-            
+
             if (!isAIConfig) {
                 continue;
             }
-            
+
             // 检查必要字段
             if (apiConfig.getApiHost() == null || apiConfig.getApiHost().isEmpty() ||
                 apiConfig.getApiKey() == null || apiConfig.getApiKey().isEmpty()) {
                 continue;
             }
-            
+
             // 检查是否已存在
             boolean exists = false;
             for (OnlineModelConfig existing : modelList) {
@@ -566,7 +558,7 @@ public class OnlineModelManager {
                     break;
                 }
             }
-            
+
             if (!exists) {
                 OnlineModelConfig config = convertFromAPIConfig(apiConfig);
                 if (config != null) {
@@ -575,13 +567,246 @@ public class OnlineModelManager {
                 }
             }
         }
-        
+
         if (imported > 0) {
             saveToPrefs();
             notifyListChanged();
         }
-        
+
         return imported;
+    }
+
+    /**
+     * 全量同步 APIKeyManager 中的 AI 配置：新增、更新、删除
+     * - APIConfig 新增 -> 创建对应 OnlineModelConfig
+     * - APIConfig 更新 -> 更新对应 OnlineModelConfig 的字段
+     * - APIConfig 删除 -> 删除对应 OnlineModelConfig
+     * - 非 AI 类型的 APIConfig 不会被同步
+     * @return 发生变更的数量（新增 + 更新 + 删除）
+     */
+    public int syncFromAPIKeyManager() {
+        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+        List<APIConfig> apiConfigs = apiKeyManager.getAllAPIConfigs();
+
+        // 收集所有 AI 类型的 APIConfig ID
+        java.util.Set<String> aiConfigIds = new java.util.HashSet<>();
+        for (APIConfig apiConfig : apiConfigs) {
+            String category = apiConfig.getCategory();
+            String serviceType = apiConfig.getServiceType();
+            boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
+                                (serviceType != null && (
+                                    serviceType.equals(APIConfig.ServiceType.OPENAI) ||
+                                    serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
+                                    serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
+                                    serviceType.equals(APIConfig.ServiceType.CUSTOM)
+                                ));
+            if (!isAIConfig) {
+                continue;
+            }
+            if (apiConfig.getApiHost() == null || apiConfig.getApiHost().isEmpty() ||
+                apiConfig.getApiKey() == null || apiConfig.getApiKey().isEmpty()) {
+                continue;
+            }
+            aiConfigIds.add(apiConfig.getId());
+        }
+
+        int changes = 0;
+
+        // 注意：删除由 removeByAPIConfigId 显式触发，这里只处理新增和更新
+
+        // 新增 + 更新
+        for (APIConfig apiConfig : apiConfigs) {
+            if (!aiConfigIds.contains(apiConfig.getId())) {
+                continue;
+            }
+
+            OnlineModelConfig existing = getModel(apiConfig.getId());
+            if (existing == null) {
+                // 新增
+                OnlineModelConfig config = convertFromAPIConfig(apiConfig);
+                if (config != null) {
+                    modelList.add(config);
+                    changes++;
+                }
+            } else {
+                // 更新（仅当字段变化时）
+                boolean changed = false;
+                String newName = buildDisplayName(apiConfig);
+                if (!equals(existing.name, newName)) {
+                    existing.name = newName;
+                    changed = true;
+                }
+                if (!equals(existing.apiUrl, apiConfig.getApiHost() != null ? apiConfig.getApiHost() : "")) {
+                    existing.apiUrl = apiConfig.getApiHost() != null ? apiConfig.getApiHost() : "";
+                    changed = true;
+                }
+                if (!equals(existing.apiKey, apiConfig.getApiKey() != null ? apiConfig.getApiKey() : "")) {
+                    existing.apiKey = apiConfig.getApiKey() != null ? apiConfig.getApiKey() : "";
+                    changed = true;
+                }
+                String newModelName = apiConfig.getModelName() != null ? apiConfig.getModelName() : "";
+                if (!equals(existing.modelName, newModelName)) {
+                    existing.modelName = newModelName;
+                    if (newModelName != null && !newModelName.isEmpty()) {
+                        existing.selectedModel = newModelName;
+                    }
+                    changed = true;
+                }
+                if (existing.enabled != apiConfig.isActive()) {
+                    existing.enabled = apiConfig.isActive();
+                    changed = true;
+                }
+                if (changed) {
+                    changes++;
+                }
+            }
+        }
+
+        if (changes > 0) {
+            saveToPrefs();
+            notifyListChanged();
+        }
+
+        return changes;
+    }
+
+    /**
+     * 同步单个 APIConfig 到 OnlineModelManager（保存/更新时调用）
+     * @param apiConfigId APIConfig ID
+     * @return 是否发生变更
+     */
+    public boolean syncSingleAPIConfig(String apiConfigId) {
+        if (apiConfigId == null || apiConfigId.isEmpty()) {
+            return false;
+        }
+        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+        APIConfig apiConfig = apiKeyManager.getAPIConfigById(apiConfigId);
+        if (apiConfig == null) {
+            // APIConfig 已被删除，移除对应的 OnlineModelConfig
+            return removeByAPIConfigId(apiConfigId);
+        }
+
+        // 检查是否是 AI 类型
+        String category = apiConfig.getCategory();
+        String serviceType = apiConfig.getServiceType();
+        boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
+                            (serviceType != null && (
+                                serviceType.equals(APIConfig.ServiceType.OPENAI) ||
+                                serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
+                                serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
+                                serviceType.equals(APIConfig.ServiceType.CUSTOM)
+                            ));
+
+        OnlineModelConfig existing = getModel(apiConfigId);
+        if (!isAIConfig) {
+            // 非 AI 类型，如果存在对应 OnlineModelConfig 则移除
+            if (existing != null) {
+                modelList.remove(existing);
+                if (apiConfigId.equals(activeModelId)) {
+                    activeModelId = null;
+                    notifyActiveChanged();
+                }
+                saveToPrefs();
+                notifyListChanged();
+                return true;
+            }
+            return false;
+        }
+
+        // 检查必要字段
+        if (apiConfig.getApiHost() == null || apiConfig.getApiHost().isEmpty() ||
+            apiConfig.getApiKey() == null || apiConfig.getApiKey().isEmpty()) {
+            return false;
+        }
+
+        if (existing == null) {
+            // 新增
+            OnlineModelConfig config = convertFromAPIConfig(apiConfig);
+            if (config != null) {
+                modelList.add(config);
+                saveToPrefs();
+                notifyListChanged();
+                return true;
+            }
+            return false;
+        } else {
+            // 更新
+            boolean changed = false;
+            String newName = buildDisplayName(apiConfig);
+            if (!equals(existing.name, newName)) {
+                existing.name = newName;
+                changed = true;
+            }
+            if (!equals(existing.apiUrl, apiConfig.getApiHost() != null ? apiConfig.getApiHost() : "")) {
+                existing.apiUrl = apiConfig.getApiHost() != null ? apiConfig.getApiHost() : "";
+                changed = true;
+            }
+            if (!equals(existing.apiKey, apiConfig.getApiKey() != null ? apiConfig.getApiKey() : "")) {
+                existing.apiKey = apiConfig.getApiKey() != null ? apiConfig.getApiKey() : "";
+                changed = true;
+            }
+            String newModelName = apiConfig.getModelName() != null ? apiConfig.getModelName() : "";
+            if (!equals(existing.modelName, newModelName)) {
+                existing.modelName = newModelName;
+                if (newModelName != null && !newModelName.isEmpty()) {
+                    existing.selectedModel = newModelName;
+                }
+                changed = true;
+            }
+            if (existing.enabled != apiConfig.isActive()) {
+                existing.enabled = apiConfig.isActive();
+                changed = true;
+            }
+            if (changed) {
+                saveToPrefs();
+                notifyListChanged();
+                return true;
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 根据 APIConfig ID 移除对应的 OnlineModelConfig
+     * @param apiConfigId APIConfig ID
+     * @return 是否发生变更
+     */
+    public boolean removeByAPIConfigId(String apiConfigId) {
+        if (apiConfigId == null || apiConfigId.isEmpty()) {
+            return false;
+        }
+        boolean removed = modelList.removeIf(c -> apiConfigId.equals(c.id));
+        if (removed) {
+            if (apiConfigId.equals(activeModelId)) {
+                activeModelId = null;
+                notifyActiveChanged();
+            }
+            saveToPrefs();
+            notifyListChanged();
+        }
+        return removed;
+    }
+
+    private String buildDisplayName(APIConfig apiConfig) {
+        // 优先使用用户在 API 配置中起的名称，这是用户识别配置的依据
+        String userName = apiConfig.getName();
+        if (userName != null && !userName.isEmpty()) {
+            return userName;
+        }
+        // 回退：服务商名 + 模型名
+        String serviceType = apiConfig.getServiceType();
+        String serviceName = getServiceTypeChineseName(serviceType);
+        String modelName = apiConfig.getModelName();
+        if (modelName != null && !modelName.isEmpty()) {
+            return serviceName + " · " + modelName;
+        }
+        return serviceName;
+    }
+
+    private boolean equals(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
     }
 
     /**
