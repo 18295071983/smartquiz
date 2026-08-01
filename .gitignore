@@ -207,3 +207,17 @@ tools/GenKey.class
 dev-site/
 qweather-android-sdk/
 Icons/
+
+# ============ Temp screenshots/logs ============
+screen*.png
+screenshot*.png
+test_screenshot.png
+bo*.txt
+install_output.log
+fix_chat_adapter.ps1
+
+# ============ Worktree copies ============
+/feat-check-agent-function-SwdOZa/
+
+# ============ Decompiled classes ============
+libs/com/

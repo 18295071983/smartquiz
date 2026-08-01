@@ -966,6 +966,7 @@ public class APIKeyManager {
         public static final String OPENAI = "openai";
         public static final String GOOGLE_MAPS = "google_maps";
         public static final String BING_SEARCH = "bing_search";
+        public static final String METASO_SEARCH = "metaso_search";
         public static final String CUSTOM = "custom";
     }
 }

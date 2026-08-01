@@ -51,7 +51,10 @@ public class ModelSelectorActivity extends AppCompatActivity
     private TextView currentModelTypeTextView;
     private MaterialButton refreshButton;
     private MaterialButton addOnlineModelButton;
+    private MaterialButton importLocalModelButton;
     private LinearLayout onlineModelsSection;
+    private View onlineModelsEmptyView;
+    private View localModelsEmptyView;
     private View serviceStatusBar;
     private View statusIndicator;
     private TextView tvServiceStatus;
@@ -74,7 +77,10 @@ public class ModelSelectorActivity extends AppCompatActivity
             onlineModelsRecycler = findViewById(R.id.online_models_recycler);
             refreshButton = findViewById(R.id.refresh_button);
             addOnlineModelButton = findViewById(R.id.add_online_model_button);
+            importLocalModelButton = findViewById(R.id.import_local_model_button);
             onlineModelsSection = findViewById(R.id.online_models_section);
+            onlineModelsEmptyView = findViewById(R.id.online_models_empty);
+            localModelsEmptyView = findViewById(R.id.local_models_empty);
 
             // 初始化服务状态栏
             serviceStatusBar = findViewById(R.id.service_status_bar);
@@ -92,15 +98,22 @@ public class ModelSelectorActivity extends AppCompatActivity
                 refreshButton.setOnClickListener(v -> refreshModels());
             }
             if (addOnlineModelButton != null) {
-                addOnlineModelButton.setOnClickListener(v -> {
-                    Intent intent = new Intent(this, ApiConfigActivity.class);
-                    startActivity(intent);
-                });
+                addOnlineModelButton.setOnClickListener(v -> showAddOnlineModelDialog());
+            }
+            if (importLocalModelButton != null) {
+                importLocalModelButton.setOnClickListener(v -> importModel());
             }
 
             // 初始化在线模型列表
             setupOnlineModelsRecycler();
-            
+
+            // 启动时同步一次 API 配置，确保显示名称与 APIKeyManager 一致
+            try {
+                onlineModelManager.syncFromAPIKeyManager();
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "启动同步在线模型配置失败: " + e.getMessage());
+            }
+
             refreshModels();
             
             // 注册监听器
@@ -156,11 +169,15 @@ public class ModelSelectorActivity extends AppCompatActivity
                 } else {
                     modelAdapter.updateData(modelList, currentModel);
                 }
+                modelsRecycler.setVisibility(modelList.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            if (localModelsEmptyView != null) {
+                localModelsEmptyView.setVisibility(modelList.isEmpty() ? View.VISIBLE : View.GONE);
             }
 
             // 刷新在线模型
             refreshOnlineModels();
-            
+
             // 更新当前模型显示
             updateCurrentModelDisplay();
 
@@ -177,15 +194,20 @@ public class ModelSelectorActivity extends AppCompatActivity
         if (onlineModelsSection == null || onlineModelAdapter == null) {
             return;
         }
-        
+
+        // 标题区始终可见，仅切换列表与空提示
+        onlineModelsSection.setVisibility(View.VISIBLE);
+
         List<OnlineModelManager.OnlineModelConfig> onlineModels = onlineModelManager.getModelList();
-        if (onlineModels.isEmpty()) {
-            onlineModelsSection.setVisibility(View.GONE);
-        } else {
-            onlineModelsSection.setVisibility(View.VISIBLE);
-            String activeId = onlineModelManager.getActiveModel() != null ? 
-                onlineModelManager.getActiveModel().id : null;
-            onlineModelAdapter.updateData(onlineModels, activeId);
+        String activeId = onlineModelManager.getActiveModel() != null
+                ? onlineModelManager.getActiveModel().id : null;
+        onlineModelAdapter.updateData(onlineModels, activeId);
+
+        if (onlineModelsEmptyView != null) {
+            onlineModelsEmptyView.setVisibility(onlineModels.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+        if (onlineModelsRecycler != null) {
+            onlineModelsRecycler.setVisibility(onlineModels.isEmpty() ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -315,6 +337,14 @@ public class ModelSelectorActivity extends AppCompatActivity
             .setMessage("确定要删除在线模型 \"" + config.name + "\" 吗？")
             .setPositiveButton("删除", (dialog, which) -> {
                 onlineModelManager.removeModel(configId);
+                // 同步删除 APIKeyManager 中对应的配置（如果存在）
+                try {
+                    APIKeyManager manager = APIKeyManager.getInstance(this);
+                    if (manager.getAPIConfigById(configId) != null) {
+                        manager.deleteAPIConfig(configId);
+                    }
+                } catch (Exception ignored) {
+                }
                 Toast.makeText(this, "在线模型已删除", Toast.LENGTH_SHORT).show();
                 refreshModels();
             })
@@ -329,6 +359,16 @@ public class ModelSelectorActivity extends AppCompatActivity
             if (config.name.equals(modelName)) {
                 config.enabled = enabled;
                 onlineModelManager.save();
+                // 同步启用/禁用状态到 APIKeyManager
+                try {
+                    APIKeyManager manager = APIKeyManager.getInstance(this);
+                    com.oilquiz.app.ai.model.APIConfig apiConfig = manager.getAPIConfigById(config.id);
+                    if (apiConfig != null && apiConfig.isActive() != enabled) {
+                        apiConfig.setActive(enabled);
+                        manager.saveAPIConfig(apiConfig);
+                    }
+                } catch (Exception ignored) {
+                }
                 refreshOnlineModels();
                 Toast.makeText(this, enabled ? "已启用" : "已禁用", Toast.LENGTH_SHORT).show();
                 break;
@@ -338,8 +378,7 @@ public class ModelSelectorActivity extends AppCompatActivity
 
     @Override
     public void onAddClick() {
-        Intent intent = new Intent(this, ApiConfigActivity.class);
-        startActivity(intent);
+        showAddOnlineModelDialog();
     }
 
     @Override

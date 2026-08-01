@@ -236,7 +236,6 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     private List<DisplayItem> buildDisplayItemsFromOnlineModel(List<OnlineModel> models) {
         List<DisplayItem> items = new ArrayList<>();
-        items.add(DisplayItem.header("在线模型"));
 
         if (models == null || models.isEmpty()) {
             items.add(DisplayItem.empty());
@@ -268,7 +267,6 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
      */
     private List<DisplayItem> buildDisplayItemsFromConfig(List<OnlineModelManager.OnlineModelConfig> configs, String activeModelId) {
         List<DisplayItem> items = new ArrayList<>();
-        items.add(DisplayItem.header("在线模型"));
 
         if (configs == null || configs.isEmpty()) {
             items.add(DisplayItem.empty());
@@ -302,15 +300,29 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         if (cachedModelsJson == null || cachedModelsJson.isEmpty()) {
             return null;
         }
+        // 兼容旧格式（逗号分隔的 ID 字符串）
+        String trimmed = cachedModelsJson.trim();
+        if (!trimmed.startsWith("[")) {
+            List<String> legacyList = new ArrayList<>();
+            String[] ids = trimmed.split(",");
+            for (String id : ids) {
+                String t = id.trim();
+                if (!t.isEmpty()) {
+                    legacyList.add(t);
+                }
+            }
+            return legacyList.isEmpty() ? null : legacyList;
+        }
         try {
-            JSONArray arr = new JSONArray(cachedModelsJson);
+            JSONArray arr = new JSONArray(trimmed);
             List<String> modelList = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.getJSONObject(i);
-                if (obj.has("name")) {
-                    modelList.add(obj.getString("name"));
-                } else if (obj.has("id")) {
+                // 优先使用 id（API 调用需要模型 ID 而非显示名）
+                if (obj.has("id")) {
                     modelList.add(obj.getString("id"));
+                } else if (obj.has("name")) {
+                    modelList.add(obj.getString("name"));
                 }
             }
             return modelList;

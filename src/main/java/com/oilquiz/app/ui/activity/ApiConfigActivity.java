@@ -669,30 +669,17 @@ public class ApiConfigActivity extends BaseActivity {
             }
 
             apiKeyManager.saveAPIConfig(config);
-            
-            // 同步到在线模型管理器（仅AI类型的配置）
-            String category = config.getCategory();
-            String serviceType = config.getServiceType();
-            boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
-                                (serviceType != null && (
-                                    serviceType.equals(APIConfig.ServiceType.OPENAI) ||
-                                    serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
-                                    serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
-                                    serviceType.equals(APIConfig.ServiceType.CUSTOM)
-                                ));
-            
-            if (isAIConfig && config.getApiHost() != null && !config.getApiHost().isEmpty() &&
-                config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-                try {
-                    int imported = onlineModelManager.importFromAPIKeyManager();
-                    if (imported > 0) {
-                        Log.d(TAG, "同步了 " + imported + " 个配置到在线模型管理器");
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
+
+            // 同步单个配置到在线模型管理器（增量同步：新增/更新/转非AI时移除）
+            try {
+                boolean changed = onlineModelManager.syncSingleAPIConfig(config.getId());
+                if (changed) {
+                    Log.d(TAG, "已同步配置到在线模型管理器: " + config.getName());
                 }
+            } catch (Exception e) {
+                Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
             }
-            
+
             loadApiConfigs();
             Toast.makeText(this, "保存成功", Toast.LENGTH_SHORT).show();
         });
@@ -725,7 +712,14 @@ public class ApiConfigActivity extends BaseActivity {
             .setTitle("确认删除")
             .setMessage("确定要删除 \"" + config.getName() + "\" 吗？此操作不可撤销。")
             .setPositiveButton("删除", (dialog, which) -> {
-                apiKeyManager.deleteAPIConfig(config.getId());
+                String configId = config.getId();
+                apiKeyManager.deleteAPIConfig(configId);
+                // 同步删除 OnlineModelManager 中对应的配置
+                try {
+                    onlineModelManager.removeByAPIConfigId(configId);
+                } catch (Exception e) {
+                    Log.e(TAG, "同步删除在线模型配置失败: " + e.getMessage());
+                }
                 loadApiConfigs();
                 Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show();
             })
@@ -862,6 +856,12 @@ public class ApiConfigActivity extends BaseActivity {
                     .setPositiveButton("导入", (dialog, which) -> {
                         for (APIConfig config : foundConfigs) {
                             apiKeyManager.saveAPIConfig(config);
+                            // 同步单个配置到在线模型管理器
+                            try {
+                                onlineModelManager.syncSingleAPIConfig(config.getId());
+                            } catch (Exception e) {
+                                Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
+                            }
                         }
                         loadApiConfigs();
                         Toast.makeText(this, "已导入 " + foundConfigs.size() + " 个配置", Toast.LENGTH_SHORT).show();
@@ -1101,6 +1101,12 @@ public class ApiConfigActivity extends BaseActivity {
                     reader.close();
 
                     int imported = apiKeyManager.importFromJson(jsonBuilder.toString());
+                    // 同步到在线模型管理器
+                    try {
+                        onlineModelManager.syncFromAPIKeyManager();
+                    } catch (Exception e) {
+                        Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
+                    }
                     loadApiConfigs();
                     Toast.makeText(this, "已导入 " + imported + " 个新配置", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
@@ -1223,6 +1229,12 @@ public class ApiConfigActivity extends BaseActivity {
                 if (selected != null) {
                     APIConfig config = (APIConfig) selected.getTag();
                     apiKeyManager.saveAPIConfig(config);
+                    // 同步单个配置到在线模型管理器
+                    try {
+                        onlineModelManager.syncSingleAPIConfig(config.getId());
+                    } catch (Exception e) {
+                        Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
+                    }
                     loadApiConfigs();
                     Toast.makeText(this, "已导入: " + config.getName(), Toast.LENGTH_SHORT).show();
                 }

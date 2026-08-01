@@ -65,8 +65,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LocationTool implements AITool {
     private static final String TAG = "LocationTool";
     private static final long LOCATION_TIMEOUT_MS = 8000;
-    private static final long RETRY_DELAY_MS = 300;
-    private static final int MAX_RETRY_ATTEMPTS = 1;
     private final Context context;
     private final Handler mainHandler;
 
@@ -316,121 +314,6 @@ public class LocationTool implements AITool {
         return new AIToolResult(result, new HashMap<>());
     }
 
-    private LocationInfo requestLocation() {
-        LocationManager locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        if (locationManager == null) {
-            AILogger.e(TAG, "LocationManager is null");
-            return null;
-        }
-
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-                && ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            AILogger.w(TAG, "Location permission not granted");
-            return getLastKnownLocation(locationManager);
-        }
-
-        LocationInfo lastKnown = getLastKnownLocation(locationManager);
-        if (lastKnown != null && (System.currentTimeMillis() - lastKnown.timestamp) < 300000) {
-            return lastKnown;
-        }
-
-        final AtomicReference<LocationInfo> resultRef = new AtomicReference<>(null);
-        final CountDownLatch latch = new CountDownLatch(1);
-        final AtomicBoolean callbackInvoked = new AtomicBoolean(false);
-
-        final LocationListener locationListener = new LocationListener() {
-            @Override
-            public void onLocationChanged(Location location) {
-                if (location != null && callbackInvoked.compareAndSet(false, true)) {
-                    resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
-                            location.getAccuracy(), location.getProvider(), location.getTime()));
-                    latch.countDown();
-                }
-            }
-
-            @Override
-            public void onStatusChanged(String provider, int status, Bundle extras) {}
-
-            @Override
-            public void onProviderEnabled(String provider) {}
-
-            @Override
-            public void onProviderDisabled(String provider) {
-                if (callbackInvoked.compareAndSet(false, true)) {
-                    latch.countDown();
-                }
-            }
-        };
-
-        try {
-            boolean gpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
-            boolean networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                CancellationSignal cancellationSignal = new CancellationSignal();
-                
-                if (gpsEnabled) {
-                    locationManager.getCurrentLocation(
-                            LocationManager.GPS_PROVIDER, 
-                            cancellationSignal, 
-                            Executors.newSingleThreadExecutor(),
-                            location -> {
-                                if (location != null && callbackInvoked.compareAndSet(false, true)) {
-                                    resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
-                                            location.getAccuracy(), location.getProvider(), location.getTime()));
-                                    latch.countDown();
-                                }
-                            }
-                    );
-                }
-                if (networkEnabled) {
-                    locationManager.getCurrentLocation(
-                            LocationManager.NETWORK_PROVIDER, 
-                            cancellationSignal, 
-                            Executors.newSingleThreadExecutor(),
-                            location -> {
-                                if (location != null && callbackInvoked.compareAndSet(false, true)) {
-                                    resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
-                                            location.getAccuracy(), location.getProvider(), location.getTime()));
-                                    latch.countDown();
-                                }
-                            }
-                    );
-                }
-            } else {
-                if (gpsEnabled) {
-                    try {
-                        locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, locationListener, Looper.getMainLooper());
-                    } catch (Exception e) {
-                        AILogger.w(TAG, "GPS single update failed: " + e.getMessage());
-                    }
-                }
-                if (networkEnabled) {
-                    try {
-                        locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, locationListener, Looper.getMainLooper());
-                    } catch (Exception e) {
-                        AILogger.w(TAG, "Network single update failed: " + e.getMessage());
-                    }
-                }
-            }
-
-            boolean received = latch.await(LOCATION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            
-            try {
-                locationManager.removeUpdates(locationListener);
-            } catch (Exception ignored) {}
-
-            if (received && resultRef.get() != null) {
-                return resultRef.get();
-            }
-        } catch (Exception e) {
-            AILogger.e(TAG, "Request location error: " + e.getMessage(), e);
-            try { locationManager.removeUpdates(locationListener); } catch (Exception ignored) {}
-        }
-
-        return getLastKnownLocation(locationManager);
-    }
-
     private LocationInfo getLastKnownLocation(LocationManager locationManager) {
         try {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
@@ -516,14 +399,6 @@ public class LocationTool implements AITool {
             }
         }
         return null;
-    }
-
-    private void sleepRetry() {
-        try {
-            Thread.sleep(RETRY_DELAY_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     private LocationInfo requestLocationByProvider(String providerType) {

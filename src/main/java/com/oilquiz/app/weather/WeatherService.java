@@ -25,7 +25,26 @@ public class WeatherService {
     private static String locationKey(double lat, double lon) {
         return String.format(java.util.Locale.US, "%.2f_%.2f", lat, lon);
     }
-    
+
+    /** 检查响应是否为错误，错误响应不缓存 */
+    private static boolean isValidForCache(String data) {
+        if (data == null || data.isEmpty()) return false;
+        String lower = data.toLowerCase();
+        return !data.contains("失败") && !data.contains("暂无权限") && !data.contains("无权限")
+            && !data.contains("错误") && !data.contains("异常") && !data.contains("403")
+            && !data.contains("查询失败") && !data.contains("请稍后")
+            && !lower.contains("error") && !lower.contains("forbidden");
+    }
+
+    /** 仅缓存有效响应，跳过错误响应 */
+    private void saveCacheIfValid(String key, String data) {
+        if (isValidForCache(data)) {
+            cacheManager.saveCache(key, data);
+        } else {
+            Log.w(TAG, "Skipping cache for invalid/error response: " + key);
+        }
+    }
+
     private static String extractFxLink(String data) {
         if (data == null) return null;
         int index = data.indexOf("链接: ");
@@ -111,13 +130,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getCurrentWeather(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getCurrentWeather(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -139,19 +158,19 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getCurrentWeather(location, cityName).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("异常") && !result.contains("SDK未初始化")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 Log.w(TAG, "SDK weather failed, falling back to HTTP");
                 return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(httpResult -> {
-                    cacheManager.saveCache(cacheKey, httpResult);
+                    saveCacheIfValid(cacheKey, httpResult);
                     return httpResult;
                 });
             }).exceptionally(e -> {
                 Log.w(TAG, "SDK weather failed, falling back to HTTP", e);
                 try {
                     String httpResult = weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).get();
-                    cacheManager.saveCache(cacheKey, httpResult);
+                    saveCacheIfValid(cacheKey, httpResult);
                     return httpResult;
                 } catch (Exception ex) {
                     return "天气信息解析失败";
@@ -160,7 +179,7 @@ public class WeatherService {
         }
 
         return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -179,7 +198,7 @@ public class WeatherService {
         }
 
         return weatherManager.getCurrentWeatherByLocationDirect(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -196,13 +215,13 @@ public class WeatherService {
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
         if (sdkManager.isInitialized()) {
             return sdkManager.getDailyForecast(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengForecastByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -219,13 +238,13 @@ public class WeatherService {
         String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
         if (sdkManager.isInitialized()) {
             return sdkManager.getHourlyForecast(location).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengHourlyByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -245,20 +264,20 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getAirQuality(location).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 // SDK 失败，回退到 HTTP
-                Log.w(TAG, "SDK air quality failed, falling back to HTTP");
+                Log.w(TAG, "SDK air quality failed, falling back to HTTP. SDK result: " + result);
                 return weatherManager.getHefengAirQualityByLocation(lat, lon).thenApply(r -> {
-                    cacheManager.saveCache(cacheKey, r);
+                    saveCacheIfValid(cacheKey, r);
                     return r;
                 });
             });
         }
 
         return weatherManager.getHefengAirQualityByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -278,14 +297,14 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getWeatherAlerts(location).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 // SDK 失败，回退到 HTTP
-                Log.w(TAG, "SDK alerts failed, falling back to HTTP");
+                Log.w(TAG, "SDK alerts failed, falling back to HTTP. SDK result: " + result);
                 return weatherManager.getHefengAlertsByLocation(lat, lon).thenCompose(httpResult -> {
                     if (httpResult != null && !httpResult.contains("失败") && !httpResult.contains("无权限") && !httpResult.contains("异常")) {
-                        cacheManager.saveCache(cacheKey, httpResult);
+                        saveCacheIfValid(cacheKey, httpResult);
                         return CompletableFuture.completedFuture(httpResult);
                     }
                     // HTTP 也失败，尝试备用API (国家预警中心数据)
@@ -295,7 +314,7 @@ public class WeatherService {
                         if (finalResult == null) {
                             finalResult = "天气预警:\n当前无天气预警";
                         }
-                        cacheManager.saveCache(cacheKey, finalResult);
+                        saveCacheIfValid(cacheKey, finalResult);
                         return finalResult;
                     });
                 });
@@ -305,7 +324,7 @@ public class WeatherService {
         // 直接使用 HTTP，失败则尝试备用API
         return weatherManager.getHefengAlertsByLocation(lat, lon).thenCompose(result -> {
             if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return CompletableFuture.completedFuture(result);
             }
             // HTTP 失败，尝试备用API
@@ -315,7 +334,7 @@ public class WeatherService {
                 if (finalResult == null) {
                     finalResult = "天气预警:\n当前无天气预警";
                 }
-                cacheManager.saveCache(cacheKey, finalResult);
+                saveCacheIfValid(cacheKey, finalResult);
                 return finalResult;
             });
         });
@@ -336,20 +355,20 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getIndices(location).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("解析失败")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 // SDK 失败，回退到 HTTP
                 Log.w(TAG, "SDK indices failed, falling back to HTTP");
                 return weatherManager.getHefengIndicesByLocation(lat, lon).thenApply(r -> {
-                    cacheManager.saveCache(cacheKey, r);
+                    saveCacheIfValid(cacheKey, r);
                     return r;
                 });
             });
         }
 
         return weatherManager.getHefengIndicesByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -369,13 +388,13 @@ public class WeatherService {
             return sdkManager.getMinutelyByLocation(location).thenCompose(result -> {
                 Log.d(TAG, "SDK minutely result: " + result);
                 if (result != null && !result.contains("失败") && !result.contains("异常")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 Log.w(TAG, "SDK minutely failed, falling back to HTTP");
                 return weatherManager.getHefengMinutelyByLocation(lat, lon).thenApply(r -> {
                     Log.d(TAG, "HTTP minutely result: " + r);
-                    cacheManager.saveCache(cacheKey, r);
+                    saveCacheIfValid(cacheKey, r);
                     return r;
                 });
             });
@@ -383,7 +402,7 @@ public class WeatherService {
 
         return weatherManager.getHefengMinutelyByLocation(lat, lon).thenApply(result -> {
             Log.d(TAG, "HTTP minutely result: " + result);
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -403,20 +422,20 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getSunByLocation(location).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("异常")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 // SDK 失败，回退到 HTTP
                 Log.w(TAG, "SDK sun failed, falling back to HTTP");
                 return weatherManager.getHefengSunByLocation(lat, lon).thenApply(r -> {
-                    cacheManager.saveCache(cacheKey, r);
+                    saveCacheIfValid(cacheKey, r);
                     return r;
                 });
             });
         }
 
         return weatherManager.getHefengSunByLocation(lat, lon).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -432,13 +451,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getSun(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengSun(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -454,13 +473,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getDailyForecast(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengForecast(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -476,13 +495,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getHourlyForecast(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengHourly(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -498,13 +517,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getAirQuality(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengAirQuality(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -520,13 +539,13 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getWeatherAlerts(city).thenApply(result -> {
-                cacheManager.saveCache(cacheKey, result);
+                saveCacheIfValid(cacheKey, result);
                 return result;
             });
         }
 
         return weatherManager.getHefengAlerts(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -543,19 +562,19 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getIndices(city).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("解析失败")) {
-                    cacheManager.saveCache(cacheKey, result);
+                    saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 Log.w(TAG, "SDK indices failed, falling back to HTTP");
                 return weatherManager.getHefengIndices(city).thenApply(r -> {
-                    cacheManager.saveCache(cacheKey, r);
+                    saveCacheIfValid(cacheKey, r);
                     return r;
                 });
             });
         }
 
         return weatherManager.getHefengIndices(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -570,7 +589,7 @@ public class WeatherService {
         }
 
         return weatherManager.getHefengMinutely(city).thenApply(result -> {
-            cacheManager.saveCache(cacheKey, result);
+            saveCacheIfValid(cacheKey, result);
             return result;
         });
     }
@@ -586,6 +605,8 @@ public class WeatherService {
         cacheManager.removeCache("weather_air_" + city);
         cacheManager.removeCache("weather_alerts_" + city);
         cacheManager.removeCache("weather_indices_" + city);
+        cacheManager.removeCache("weather_minutely_" + city);
+        cacheManager.removeCache("weather_sun_" + city);
     }
 
     public static class WeatherBatchResult {
@@ -717,6 +738,8 @@ public class WeatherService {
         cacheManager.removeCache("weather_air_" + key);
         cacheManager.removeCache("weather_alerts_" + key);
         cacheManager.removeCache("weather_indices_" + key);
+        cacheManager.removeCache("weather_minutely_" + key);
+        cacheManager.removeCache("weather_sun_" + key);
     }
 
     public long getCacheSize() {

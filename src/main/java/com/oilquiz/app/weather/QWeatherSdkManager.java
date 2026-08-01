@@ -10,23 +10,28 @@ import com.qweather.sdk.QWeather;
 import com.qweather.sdk.TokenGenerator;
 import com.qweather.sdk.basic.Lang;
 import com.qweather.sdk.basic.Unit;
-import com.qweather.sdk.parameter.air.AirParameter;
+import com.qweather.sdk.parameter.air.AirV1Parameter;
+import com.qweather.sdk.parameter.alert.WeatherAlertCurrentParameter;
 import com.qweather.sdk.parameter.astronomy.AstronomySunParameter;
 import com.qweather.sdk.basic.Indices;
 import com.qweather.sdk.parameter.indices.IndicesParameter;
 import com.qweather.sdk.parameter.minutely.MinutelyParameter;
-import com.qweather.sdk.parameter.warning.WarningNowParameter;
 import com.qweather.sdk.parameter.weather.WeatherParameter;
-import com.qweather.sdk.response.air.AirNow;
 import com.qweather.sdk.response.air.AirNowResponse;
+import com.qweather.sdk.response.air.v1.AirIndex;
+import com.qweather.sdk.response.air.v1.AirV1CurrentResponse;
+import com.qweather.sdk.response.air.v1.Pollutant;
+import com.qweather.sdk.response.air.v1.PollutantConcentration;
+import com.qweather.sdk.response.air.v1.PrimaryPollutant;
+import com.qweather.sdk.response.alert.WeatherAlert;
+import com.qweather.sdk.response.alert.WeatherAlertCurrentResponse;
+import com.qweather.sdk.response.alert.WeatherAlertEventType;
 import com.qweather.sdk.response.astronomy.AstronomySunResponse;
 import com.qweather.sdk.response.error.ErrorResponse;
 import com.qweather.sdk.response.indices.IndicesDaily;
 import com.qweather.sdk.response.indices.IndicesDailyResponse;
 import com.qweather.sdk.response.minutely.Minutely;
 import com.qweather.sdk.response.minutely.MinutelyResponse;
-import com.qweather.sdk.response.warning.Warning;
-import com.qweather.sdk.response.warning.WarningResponse;
 import com.qweather.sdk.response.weather.WeatherDaily;
 import com.qweather.sdk.response.weather.WeatherDailyResponse;
 import com.qweather.sdk.response.weather.WeatherHourly;
@@ -302,16 +307,22 @@ public class QWeatherSdkManager {
             return CompletableFuture.completedFuture("空气质量SDK未初始化");
         }
 
+        // v1 API 仅支持经纬度，不支持城市ID
+        double[] latLon = parseLatLonFromLocation(location);
+        if (latLon == null) {
+            return CompletableFuture.completedFuture("空气质量: v1 API需要经纬度坐标");
+        }
+
         CompletableFuture<String> future = new CompletableFuture<>();
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
-            AirParameter parameter = new AirParameter(location);
-            parameter.lang(Lang.ZH_HANS);
+            AirV1Parameter parameter = new AirV1Parameter(latLon[0], latLon[1]);
+            parameter.setLang(Lang.ZH_HANS);
 
-            QWeather.getInstance(context, apiHost).airNow(parameter, new Callback<AirNowResponse>() {
+            QWeather.getInstance(context, apiHost).airCurrent(parameter, new Callback<AirV1CurrentResponse>() {
                 @Override
-                public void onSuccess(AirNowResponse response) {
+                public void onSuccess(AirV1CurrentResponse response) {
                     try {
                         future.complete(parseAirResponse(response));
                     } finally {
@@ -341,7 +352,7 @@ public class QWeatherSdkManager {
             startTimeoutThread(latch, future, "空气质量查询超时");
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to call airNow", e);
+            Log.e(TAG, "Failed to call airCurrent", e);
             future.complete("空气质量查询失败: " + e.getMessage());
             latch.countDown();
         }
@@ -349,20 +360,45 @@ public class QWeatherSdkManager {
         return future;
     }
 
+    // 从 location 字符串解析经纬度，格式为 "经度,纬度"（与 v7 API 的 location 参数顺序一致）
+    private double[] parseLatLonFromLocation(String location) {
+        if (location == null || location.isEmpty()) {
+            return null;
+        }
+        String[] parts = location.split(",");
+        if (parts.length != 2) {
+            return null;
+        }
+        try {
+            double lon = Double.parseDouble(parts[0].trim());
+            double lat = Double.parseDouble(parts[1].trim());
+            return new double[]{lat, lon};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     public CompletableFuture<String> getWeatherAlerts(String location) {
         if (!initialized) {
             return CompletableFuture.completedFuture("天气预警SDK未初始化");
+        }
+
+        // v1 API 仅支持经纬度，不支持城市ID
+        double[] latLon = parseLatLonFromLocation(location);
+        if (latLon == null) {
+            return CompletableFuture.completedFuture("天气预警: v1 API需要经纬度坐标");
         }
 
         CompletableFuture<String> future = new CompletableFuture<>();
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
-            WarningNowParameter parameter = new WarningNowParameter(location);
+            WeatherAlertCurrentParameter parameter = new WeatherAlertCurrentParameter(latLon[0], latLon[1], true);
+            parameter.setLang(Lang.ZH_HANS);
 
-            QWeather.getInstance(context, apiHost).warningNow(parameter, new Callback<WarningResponse>() {
+            QWeather.getInstance(context, apiHost).weatherAlertCurrent(parameter, new Callback<WeatherAlertCurrentResponse>() {
                 @Override
-                public void onSuccess(WarningResponse response) {
+                public void onSuccess(WeatherAlertCurrentResponse response) {
                     try {
                         future.complete(parseAlerts(response));
                     } finally {
@@ -392,7 +428,7 @@ public class QWeatherSdkManager {
             startTimeoutThread(latch, future, "天气预警查询超时");
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to call warningNow", e);
+            Log.e(TAG, "Failed to call weatherAlertCurrent", e);
             future.complete("天气预警查询失败: " + e.getMessage());
             latch.countDown();
         }
@@ -759,53 +795,103 @@ public class QWeatherSdkManager {
         return sb.toString();
     }
 
-    private String parseAlerts(WarningResponse response) {
+    private String parseAlerts(WeatherAlertCurrentResponse response) {
         StringBuilder sb = new StringBuilder();
         sb.append("天气预警:\n");
 
-        String fxLink = response.getFxLink();
-        if (fxLink != null && !fxLink.isEmpty()) {
-            sb.append("链接: ").append(fxLink).append("\n");
-        }
-
-        List<Warning> warningList = response.getWarning();
-        if (warningList == null || warningList.isEmpty()) {
+        List<WeatherAlert> alertList = response.getAlerts();
+        if (alertList == null || alertList.isEmpty()) {
             sb.append("暂无预警信息");
         } else {
-            for (Warning warning : warningList) {
-                String level = warning.getLevel();
-                String type = warning.getType();
-                String typeName = warning.getTypeName();
-                String title = warning.getTitle();
-                String text = warning.getText();
-                String pubTime = warning.getPubTime();
-                String sender = warning.getSender();
+            for (WeatherAlert alert : alertList) {
+                String severity = alert.getSeverity();
+                String headline = alert.getHeadline();
+                String description = alert.getDescription();
+                String instruction = alert.getInstruction();
+                String sender = alert.getSenderName();
+                String issuedTime = alert.getIssuedTime();
+                String effectiveTime = alert.getEffectiveTime();
+                String expireTime = alert.getExpireTime();
 
-                if (level != null && !level.isEmpty()) {
-                    sb.append("【").append(level).append("】");
+                String typeName = "";
+                WeatherAlertEventType eventType = alert.getEventType();
+                if (eventType != null) {
+                    typeName = eventType.getName();
+                    if (typeName == null) typeName = "";
                 }
-                if (typeName != null && !typeName.isEmpty()) {
-                    sb.append(typeName).append("\n");
-                } else if (type != null && !type.isEmpty()) {
-                    sb.append(type).append("\n");
+
+                // v1 API: severity 是英文值 (minor/moderate/severe/extreme)
+                String level = convertSeverity(severity);
+                // v1 API: color.code 是英文颜色 (blue/yellow/orange/red)
+                String color = "";
+                com.qweather.sdk.response.alert.WeatherAlertColor colorObj = alert.getColor();
+                if (colorObj != null) {
+                    color = convertColorCode(colorObj.getCode());
                 }
-                if (title != null && !title.isEmpty()) {
-                    sb.append("标题: ").append(title).append("\n");
+
+                if (!typeName.isEmpty()) {
+                    if (!level.isEmpty()) {
+                        sb.append("【").append(level).append("】").append(typeName);
+                    } else {
+                        sb.append("【").append(typeName).append("】");
+                    }
+                    if (!color.isEmpty()) {
+                        sb.append("(").append(color).append(")");
+                    }
+                    sb.append("\n");
                 }
-                if (text != null && !text.isEmpty()) {
-                    sb.append("内容: ").append(text).append("\n");
+                if (headline != null && !headline.isEmpty()) {
+                    sb.append("标题: ").append(headline).append("\n");
                 }
                 if (sender != null && !sender.isEmpty()) {
-                    sb.append("发布单位: ").append(sender).append("\n");
+                    sb.append("发布机构: ").append(sender).append("\n");
                 }
-                if (pubTime != null && !pubTime.isEmpty()) {
-                    sb.append("发布时间: ").append(pubTime).append("\n");
+                if (!level.isEmpty()) {
+                    sb.append("预警等级: ").append(level).append("\n");
+                }
+                if (issuedTime != null && !issuedTime.isEmpty()) {
+                    sb.append("发布时间: ").append(issuedTime).append("\n");
+                }
+                if ((effectiveTime != null && !effectiveTime.isEmpty())
+                        || (expireTime != null && !expireTime.isEmpty())) {
+                    String start = effectiveTime != null ? effectiveTime : "";
+                    String end = expireTime != null ? expireTime : "";
+                    sb.append("生效时间: ").append(start).append(" ~ ").append(end).append("\n");
+                }
+                if (description != null && !description.isEmpty()) {
+                    sb.append("内容: ").append(description).append("\n");
+                }
+                if (instruction != null && !instruction.isEmpty()) {
+                    sb.append("防御指南:\n").append(instruction).append("\n");
                 }
                 sb.append("\n");
             }
         }
 
         return sb.toString();
+    }
+
+    private String convertSeverity(String severity) {
+        if (severity == null || severity.isEmpty()) return "";
+        switch (severity.toLowerCase()) {
+            case "extreme": return "特强";
+            case "severe": return "强烈";
+            case "moderate": return "中等";
+            case "minor": return "轻微";
+            default: return severity;
+        }
+    }
+
+    private String convertColorCode(String code) {
+        if (code == null || code.isEmpty()) return "";
+        switch (code.toLowerCase()) {
+            case "red": return "红色";
+            case "orange": return "橙色";
+            case "yellow": return "黄色";
+            case "blue": return "蓝色";
+            case "white": return "白色";
+            default: return code;
+        }
     }
 
     private String parseIndices(IndicesDailyResponse response) {
@@ -887,30 +973,20 @@ public class QWeatherSdkManager {
         return sb.toString();
     }
 
-    private String parseAirResponse(AirNowResponse response) {
+    private String parseAirResponse(AirV1CurrentResponse response) {
         StringBuilder sb = new StringBuilder();
         sb.append("空气质量:\n");
 
-        String fxLink = response.getFxLink();
-        if (fxLink != null && !fxLink.isEmpty()) {
-            sb.append("链接: ").append(fxLink).append("\n");
-        }
+        // v1 API: 解析 indexes 数组，取第一个作为主 AQI
+        List<AirIndex> indexes = response.getIndexes();
+        if (indexes != null && !indexes.isEmpty()) {
+            AirIndex index = indexes.get(0);
+            String aqiDisplay = index.getAqiDisplay();
+            String level = index.getLevel();
+            String category = index.getCategory();
 
-        AirNow now = response.getNow();
-        if (now != null) {
-            String aqi = now.getAqi();
-            String level = now.getLevel();
-            String category = now.getCategory();
-            String primary = now.getPrimary();
-            String pm2p5 = now.getPm2p5();
-            String pm10 = now.getPm10();
-            String no2 = now.getNo2();
-            String so2 = now.getSo2();
-            String co = now.getCo();
-            String o3 = now.getO3();
-
-            if (aqi != null && !aqi.isEmpty()) {
-                sb.append("AQI: ").append(aqi);
+            if (aqiDisplay != null && !aqiDisplay.isEmpty()) {
+                sb.append("AQI: ").append(aqiDisplay);
                 if (level != null && !level.isEmpty()) {
                     sb.append(" (等级").append(level);
                     if (category != null && !category.isEmpty()) {
@@ -921,17 +997,33 @@ public class QWeatherSdkManager {
                 sb.append("\n");
             }
 
-            if (primary != null && !primary.isEmpty() && !"NA".equals(primary)) {
-                sb.append("首要污染物: ").append(primary).append("\n");
+            PrimaryPollutant primary = index.getPrimaryPollutant();
+            if (primary != null) {
+                String primaryName = primary.getName();
+                if (primaryName != null && !primaryName.isEmpty()) {
+                    sb.append("首要污染物: ").append(primaryName).append("\n");
+                }
             }
+        }
 
+        // v1 API: 解析 pollutants 数组
+        List<Pollutant> pollutants = response.getPollutants();
+        if (pollutants != null && !pollutants.isEmpty()) {
             sb.append("\n污染物浓度:\n");
-            appendField(sb, "PM2.5", pm2p5, " μg/m³");
-            appendField(sb, "PM10", pm10, " μg/m³");
-            appendField(sb, "NO2", no2, " μg/m³");
-            appendField(sb, "SO2", so2, " μg/m³");
-            appendField(sb, "CO", co, " mg/m³");
-            appendField(sb, "O3", o3, " μg/m³");
+            for (Pollutant p : pollutants) {
+                String code = p.getCode();
+                String name = p.getName();
+                PollutantConcentration conc = p.getConcentration();
+                if (conc != null) {
+                    Double value = conc.getValue();
+                    String unit = conc.getUnit();
+                    if (value != null) {
+                        String displayName = (name != null && !name.isEmpty()) ? name : code;
+                        String displayUnit = (unit != null && !unit.isEmpty()) ? " " + unit : "";
+                        sb.append(displayName).append(": ").append(value).append(displayUnit).append("\n");
+                    }
+                }
+            }
         }
 
         if (sb.toString().equals("空气质量:\n")) {

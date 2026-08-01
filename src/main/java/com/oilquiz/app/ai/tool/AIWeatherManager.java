@@ -7,6 +7,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
+import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
@@ -62,9 +63,11 @@ public class AIWeatherManager implements AITool {
     private static final String DEFAULT_HEFENG_API_HOST = "https://m278m2y7ak.re.qweatherapi.com";
     private static final String HEFENG_INDICES_TYPE_ALL = "0";
 
-    // v7 API 端点 (空气质量、天气预警) - 使用 location 参数
+    // v1 API 端点 (空气质量、天气预警) - 使用路径参数 {latitude}/{longitude}
+    // v7/air/now 已于 2026-06-01 停止服务，v7/warning/now 将于 2026-09-01 停止服务
+    // v1 端点必须使用 JWT 专用主机 (apiHost)，公共主机 api.qweather.com 会返回 403
     private String getAirUrl(double lat, double lon) {
-        return apiHost + "/v7/air/now?location=" + String.format(java.util.Locale.US, "%.2f", lon) + "," + String.format(java.util.Locale.US, "%.2f", lat);
+        return apiHost + "/airquality/v1/current/" + String.format(java.util.Locale.US, "%.2f", lat) + "/" + String.format(java.util.Locale.US, "%.2f", lon);
     }
     private String getAlertUrl(double lat, double lon) {
         return apiHost + "/weatheralert/v1/current/" + String.format(java.util.Locale.US, "%.2f", lat) + "/" + String.format(java.util.Locale.US, "%.2f", lon);
@@ -205,6 +208,47 @@ public class AIWeatherManager implements AITool {
         return apiHost;
     }
 
+    /** 获取和风天气 API Key（从 APIKeyManager 或 APIConfig 中获取） */
+    private String getQWeatherApiKey() {
+        try {
+            APIKeyManager mgr = APIKeyManager.getInstance(context);
+            // 1. 尝试从旧式存储获取
+            String key = mgr.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
+            if (key != null && !key.isEmpty()) return key;
+            // 2. 尝试从 APIConfig 获取
+            APIConfig config = mgr.getAPIConfigByServiceType(APIConfig.ServiceType.HEFENG_WEATHER);
+            if (config != null && config.getApiKey() != null && !config.getApiKey().isEmpty()) {
+                return config.getApiKey();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting QWeather API Key", e);
+        }
+        return null;
+    }
+
+    /** 使用 API Key 认证 (X-QW-Api-Key) 发送 GET 请求 */
+    private String httpGetWithApiKey(String urlString, String apiKey) throws Exception {
+        Request.Builder requestBuilder = new Request.Builder()
+                .url(urlString)
+                .addHeader("User-Agent", "SmartQuiz/1.0")
+                .addHeader("Accept", "application/json")
+                .addHeader("Accept-Language", "zh-CN")
+                .addHeader("Accept-Encoding", "gzip, deflate")
+                .addHeader("X-QW-Api-Key", apiKey);
+
+        Request request = requestBuilder.build();
+        try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            if (response.isSuccessful()) {
+                return readResponseBody(response);
+            }
+            int statusCode = response.code();
+            String errorBody = "";
+            try { errorBody = readResponseBody(response); } catch (Exception ignored) {}
+            Log.w(TAG, "API Key HTTP " + statusCode + " for URL: " + urlString + " | Response: " + errorBody);
+            throw new Exception("HTTP " + statusCode + ". Body: " + errorBody);
+        }
+    }
+
     private String getOpenWeatherMapApiKey() {
         APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
         String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
@@ -235,6 +279,7 @@ public class AIWeatherManager implements AITool {
             String jwtToken = getHefengJwtToken();
             if (jwtToken != null) {
                 requestBuilder.addHeader("Authorization", "Bearer " + jwtToken);
+                Log.d(TAG, "HTTP GET: " + urlString + " | Token: " + jwtToken.substring(0, Math.min(50, jwtToken.length())) + "...");
             } else {
                 throw new Exception("JWT token not available");
             }
@@ -243,10 +288,17 @@ public class AIWeatherManager implements AITool {
 
             try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
                 if (response.isSuccessful()) {
-                    return response.body() != null ? response.body().string() : "";
+                    return readResponseBody(response);
                 }
 
                 int statusCode = response.code();
+                // 捕获错误响应体用于调试（处理gzip压缩）
+                String errorBody = "";
+                try {
+                    errorBody = readResponseBody(response);
+                } catch (Exception ignored) {}
+                Log.w(TAG, "HTTP " + statusCode + " for URL: " + urlString + " | Response: " + errorBody);
+
                 if (statusCode == 401 && jwtGenerator != null && retryCount < maxRetries) {
                     Log.w(TAG, "JWT token expired, refreshing...");
                     jwtGenerator.refreshToken();
@@ -263,10 +315,10 @@ public class AIWeatherManager implements AITool {
                         Thread.sleep(delay);
                         retryCount++;
                     } else {
-                        throw new Exception("HTTP " + statusCode + " after " + maxRetries + " retries");
+                        throw new Exception("HTTP " + statusCode + " after " + maxRetries + " retries. Body: " + errorBody);
                     }
                 } else {
-                    throw new Exception("HTTP " + statusCode);
+                    throw new Exception("HTTP " + statusCode + ". Body: " + errorBody);
                 }
             } catch (IOException e) {
                 if (retryCount < maxRetries) {
@@ -280,6 +332,24 @@ public class AIWeatherManager implements AITool {
         }
 
         throw new Exception("Max retries exceeded");
+    }
+
+    /** 读取响应体，自动处理gzip解压（NetworkUtil拦截器手动添加了Accept-Encoding:gzip，OkHttp不会自动解压） */
+    private String readResponseBody(Response response) throws IOException {
+        if (response.body() == null) return "";
+        String contentEncoding = response.header("Content-Encoding");
+        if (contentEncoding != null && contentEncoding.contains("gzip")) {
+            try (java.util.zip.GZIPInputStream gis = new java.util.zip.GZIPInputStream(response.body().byteStream())) {
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int len;
+                while ((len = gis.read(buffer)) != -1) {
+                    baos.write(buffer, 0, len);
+                }
+                return baos.toString("UTF-8");
+            }
+        }
+        return response.body().string();
     }
 
     public enum WeatherProvider {
@@ -1323,23 +1393,23 @@ public class AIWeatherManager implements AITool {
         });
     }
 
-    // 解析和风天气空气质量响应（智能识别数据格式）
+    // 解析和风天气空气质量响应（v1 API 格式）
     private String parseHefengAirQualityResponse(String response) {
         if (response == null || response.isEmpty()) {
             return "空气质量: 查询失败（响应为空）";
         }
-        
-        Log.d(TAG, "Air quality response: " + response.substring(0, Math.min(200, response.length())));
+
+        Log.d(TAG, "Air quality response: " + response.substring(0, Math.min(300, response.length())));
 
         try {
             JsonElement jsonElement = gson.fromJson(response, JsonElement.class);
-            
+
             if (jsonElement == null || !jsonElement.isJsonObject()) {
                 return "空气质量: 查询失败（响应格式错误）";
             }
-            
+
             JsonObject jsonObject = jsonElement.getAsJsonObject();
-            
+
             // 检查 v1 API 错误格式
             if (jsonObject.has("error") && !jsonObject.get("error").isJsonNull()) {
                 JsonElement errorElement = jsonObject.get("error");
@@ -1348,180 +1418,134 @@ public class AIWeatherManager implements AITool {
                     int status = error.has("status") ? error.get("status").getAsInt() : 0;
                     String title = error.has("title") ? error.get("title").getAsString() : "";
                     String detail = error.has("detail") ? error.get("detail").getAsString() : "";
-                    
                     if (status == 403) {
                         return "空气质量: 暂无权限（" + title + "）\n" + detail;
                     }
                     return "空气质量: 查询失败（" + title + "）";
                 }
             }
-            
-            // 检查 v7 API 错误格式
-            String code = "";
+
+            // 检查 v7 API 错误格式（兼容旧响应）
             if (jsonObject.has("code") && !jsonObject.get("code").isJsonNull()) {
-                code = jsonObject.get("code").getAsString();
-            }
-            
-            if (!"200".equals(code) && !code.isEmpty()) {
-                if ("403".equals(code)) {
-                    return "空气质量: 请在和风天气控制台开通权限";
+                String code = jsonObject.get("code").getAsString();
+                if (!"200".equals(code) && !code.isEmpty()) {
+                    if ("403".equals(code)) {
+                        return "空气质量: 请在和风天气控制台开通权限";
+                    }
+                    String msg = jsonObject.has("message") && !jsonObject.get("message").isJsonNull()
+                        ? jsonObject.get("message").getAsString() : "未知错误";
+                    return "空气质量: 查询失败（" + msg + "）";
                 }
-                String msg = jsonObject.has("message") && !jsonObject.get("message").isJsonNull() 
-                    ? jsonObject.get("message").getAsString() : "未知错误";
-                return "空气质量: 查询失败（" + msg + "）";
             }
 
             StringBuilder weatherInfo = new StringBuilder();
             weatherInfo.append("空气质量:\n");
-            
-            if (jsonObject.has("fxLink") && !jsonObject.get("fxLink").isJsonNull()) {
-                String fxLink = jsonObject.get("fxLink").getAsString();
-                weatherInfo.append("链接: ").append(fxLink).append("\n");
-            }
 
-            if (jsonObject.has("now") && !jsonObject.get("now").isJsonNull()) {
-                JsonElement nowElement = jsonObject.get("now");
-                if (nowElement.isJsonObject()) {
-                    JsonObject now = nowElement.getAsJsonObject();
-                    String aqi = now.has("aqi") && !now.get("aqi").isJsonNull() ? now.get("aqi").getAsString() : "--";
-                    String level = now.has("level") && !now.get("level").isJsonNull() ? now.get("level").getAsString() : "--";
-                    String category = now.has("category") && !now.get("category").isJsonNull() ? now.get("category").getAsString() : "--";
-                    String primary = now.has("primary") && !now.get("primary").isJsonNull() ? now.get("primary").getAsString() : "";
-                    
-                    if (!"--".equals(aqi)) {
-                        weatherInfo.append("  AQI: " + aqi);
-                        if (!"--".equals(level) && !"--".equals(category)) {
-                            weatherInfo.append(" (等级" + level + ", " + category + ")");
-                        }
-                        weatherInfo.append("\n");
-                    }
-                    if (!primary.isEmpty()) {
-                        weatherInfo.append("  首要污染物: " + primary + "\n");
-                    }
-
-                    String[] pollutantKeys = {"pm10", "pm2p5", "no2", "so2", "co", "o3"};
-                    String[] pollutantNames = {"PM10", "PM2.5", "NO2", "SO2", "CO", "O3"};
-                    boolean hasPollutants = false;
-                    
-                    for (int i = 0; i < pollutantKeys.length; i++) {
-                        if (now.has(pollutantKeys[i]) && !now.get(pollutantKeys[i]).isJsonNull()) {
-                            hasPollutants = true;
-                            break;
-                        }
-                    }
-                    
-                    if (hasPollutants) {
-                        weatherInfo.append("\n污染物浓度:\n");
-                        for (int i = 0; i < pollutantKeys.length; i++) {
-                            if (now.has(pollutantKeys[i]) && !now.get(pollutantKeys[i]).isJsonNull()) {
-                                String value = now.get(pollutantKeys[i]).getAsString();
-                                String unit = "μg/m³";
-                                if ("co".equals(pollutantKeys[i])) {
-                                    unit = "mg/m³";
-                                }
-                                weatherInfo.append("  " + pollutantNames[i] + ": " + value + " " + unit + "\n");
-                            }
-                        }
-                    }
-                }
-            }
-
+            // v1 API: 解析 indexes 数组，取第一个作为主 AQI
             if (jsonObject.has("indexes") && !jsonObject.get("indexes").isJsonNull()) {
-                JsonElement indexesElement = jsonObject.get("indexes");
-                if (indexesElement.isJsonArray()) {
-                    JsonArray indexes = indexesElement.getAsJsonArray();
-                    if (indexes != null && indexes.size() > 0) {
-                        for (int i = 0; i < indexes.size(); i++) {
-                            JsonElement indexElement = indexes.get(i);
-                            if (indexElement.isJsonObject()) {
-                                JsonObject index = indexElement.getAsJsonObject();
-                                String name = index.has("name") && !index.get("name").isJsonNull() ? index.get("name").getAsString() : "";
-                                String aqiDisplay = index.has("aqiDisplay") && !index.get("aqiDisplay").isJsonNull() ? index.get("aqiDisplay").getAsString() : "";
-                                String level = index.has("level") && !index.get("level").isJsonNull() ? index.get("level").getAsString() : "";
-                                String category = index.has("category") && !index.get("category").isJsonNull() ? index.get("category").getAsString() : "";
-                                
-                                if (!name.isEmpty()) {
-                                    weatherInfo.append("  " + name + ": " + aqiDisplay);
-                                    if (!level.isEmpty() && !category.isEmpty()) {
-                                        weatherInfo.append(" (等级" + level + ", " + category + ")");
-                                    }
-                                    weatherInfo.append("\n");
-                                }
-                                
-                                String primaryPollutant = "";
-                                if (index.has("primaryPollutant") && !index.get("primaryPollutant").isJsonNull()) {
-                                    JsonElement ppElement = index.get("primaryPollutant");
-                                    if (ppElement.isJsonObject()) {
-                                        JsonObject pp = ppElement.getAsJsonObject();
-                                        primaryPollutant = pp.has("name") && !pp.get("name").isJsonNull() ? pp.get("name").getAsString() : "";
-                                    }
-                                }
-                                if (!primaryPollutant.isEmpty()) {
-                                    weatherInfo.append("    首要污染物: " + primaryPollutant + "\n");
-                                }
-                                
-                                if (index.has("health") && !index.get("health").isJsonNull()) {
-                                    JsonElement healthElement = index.get("health");
-                                    if (healthElement.isJsonObject()) {
-                                        JsonObject health = healthElement.getAsJsonObject();
-                                        String effect = health.has("effect") && !health.get("effect").isJsonNull() ? health.get("effect").getAsString() : "";
-                                        if (!effect.isEmpty()) {
-                                            weatherInfo.append("    健康影响: " + effect + "\n");
-                                        }
-                                    }
-                                }
-                            }
+                JsonArray indexes = jsonObject.getAsJsonArray("indexes");
+                if (indexes != null && indexes.size() > 0) {
+                    JsonObject index = indexes.get(0).getAsJsonObject();
+                    String aqiDisplay = getJsonStr(index, "aqiDisplay");
+                    String level = getJsonStr(index, "level");
+                    String category = getJsonStr(index, "category");
+
+                    weatherInfo.append("AQI: ").append(aqiDisplay.isEmpty() ? "--" : aqiDisplay);
+                    if (!level.isEmpty() && !category.isEmpty()) {
+                        weatherInfo.append(" (等级").append(level).append(", ").append(category).append(")");
+                    }
+                    weatherInfo.append("\n");
+
+                    // 首要污染物
+                    if (index.has("primaryPollutant") && !index.get("primaryPollutant").isJsonNull() && index.get("primaryPollutant").isJsonObject()) {
+                        JsonObject pp = index.getAsJsonObject("primaryPollutant");
+                        String ppName = getJsonStr(pp, "name");
+                        if (!ppName.isEmpty()) {
+                            weatherInfo.append("首要污染物: ").append(ppName).append("\n");
                         }
                     }
                 }
             }
 
+            // v7 API 兼容: 解析 now 对象
+            if (jsonObject.has("now") && !jsonObject.get("now").isJsonNull() && jsonObject.get("now").isJsonObject()) {
+                JsonObject now = jsonObject.getAsJsonObject("now");
+                String aqi = getJsonStr(now, "aqi");
+                String level = getJsonStr(now, "level");
+                String category = getJsonStr(now, "category");
+                String primary = getJsonStr(now, "primary");
+
+                if (!aqi.isEmpty()) {
+                    weatherInfo.append("AQI: ").append(aqi);
+                    if (!level.isEmpty() && !category.isEmpty()) {
+                        weatherInfo.append(" (等级").append(level).append(", ").append(category).append(")");
+                    }
+                    weatherInfo.append("\n");
+                }
+                if (!primary.isEmpty()) {
+                    weatherInfo.append("首要污染物: ").append(primary).append("\n");
+                }
+
+                // v7 污染物
+                String[] pollutantKeys = {"pm10", "pm2p5", "no2", "so2", "co", "o3"};
+                String[] pollutantNames = {"PM10", "PM2.5", "NO2", "SO2", "CO", "O3"};
+                for (int i = 0; i < pollutantKeys.length; i++) {
+                    if (now.has(pollutantKeys[i]) && !now.get(pollutantKeys[i]).isJsonNull()) {
+                        String value = now.get(pollutantKeys[i]).getAsString();
+                        if (!value.isEmpty()) {
+                            if (!weatherInfo.toString().contains("污染物浓度")) weatherInfo.append("\n污染物浓度:\n");
+                            String unit = "co".equals(pollutantKeys[i]) ? "mg/m³" : "μg/m³";
+                            weatherInfo.append(pollutantNames[i]).append(": ").append(value).append(" ").append(unit).append("\n");
+                        }
+                    }
+                }
+            }
+
+            // v1 API: 解析 pollutants 数组
             if (jsonObject.has("pollutants") && !jsonObject.get("pollutants").isJsonNull()) {
-                JsonElement pollutantsElement = jsonObject.get("pollutants");
-                if (pollutantsElement.isJsonArray()) {
-                    JsonArray pollutants = pollutantsElement.getAsJsonArray();
-                    if (pollutants != null && pollutants.size() > 0) {
-                        boolean alreadyHasPollutants = weatherInfo.toString().contains("污染物浓度");
-                        if (!alreadyHasPollutants) {
-                            weatherInfo.append("\n污染物浓度:\n");
-                        }
-                        
-                        for (int i = 0; i < pollutants.size(); i++) {
-                            JsonElement pollutantElement = pollutants.get(i);
-                            if (pollutantElement.isJsonObject()) {
-                                JsonObject pollutant = pollutantElement.getAsJsonObject();
-                                String name = pollutant.has("name") && !pollutant.get("name").isJsonNull() ? pollutant.get("name").getAsString() : "";
-                                
-                                if (!name.isEmpty() && pollutant.has("concentration") && !pollutant.get("concentration").isJsonNull()) {
-                                    JsonElement concElement = pollutant.get("concentration");
-                                    if (concElement.isJsonObject()) {
-                                        JsonObject conc = concElement.getAsJsonObject();
-                                        String value = conc.has("value") && !conc.get("value").isJsonNull() ? conc.get("value").getAsString() : "";
-                                        String unit = conc.has("unit") && !conc.get("unit").isJsonNull() ? conc.get("unit").getAsString() : "";
-                                        if (!value.isEmpty()) {
-                                            weatherInfo.append("  " + name + ": " + value);
-                                            if (!unit.isEmpty()) {
-                                                weatherInfo.append(" " + unit);
-                                            }
-                                            weatherInfo.append("\n");
-                                        }
-                                    }
-                                }
+                JsonArray pollutants = jsonObject.getAsJsonArray("pollutants");
+                if (pollutants != null && pollutants.size() > 0) {
+                    weatherInfo.append("\n污染物浓度:\n");
+                    for (int i = 0; i < pollutants.size(); i++) {
+                        if (!pollutants.get(i).isJsonObject()) continue;
+                        JsonObject pollutant = pollutants.get(i).getAsJsonObject();
+                        String code = getJsonStr(pollutant, "code");
+                        String name = getJsonStr(pollutant, "name");
+                        // 标准化名称：PM 2.5 -> PM2.5
+                        String displayName = name.replace(" ", "");
+                        if (displayName.isEmpty()) displayName = code.toUpperCase();
+
+                        if (pollutant.has("concentration") && !pollutant.get("concentration").isJsonNull() && pollutant.get("concentration").isJsonObject()) {
+                            JsonObject conc = pollutant.getAsJsonObject("concentration");
+                            String value = getJsonStr(conc, "value");
+                            String unit = getJsonStr(conc, "unit");
+                            if (!value.isEmpty()) {
+                                weatherInfo.append(displayName).append(": ").append(value);
+                                if (!unit.isEmpty()) weatherInfo.append(" ").append(unit);
+                                weatherInfo.append("\n");
                             }
                         }
                     }
                 }
             }
 
-            if (weatherInfo.length() == 0 || weatherInfo.toString().equals("空气质量:\n")) {
+            if (weatherInfo.toString().trim().equals("空气质量:")) {
                 return "空气质量: 暂无数据";
             }
 
-            return weatherInfo.toString();
+            return weatherInfo.toString().trim();
+
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing Hefeng air quality response", e);
-            return "空气质量: 查询失败";
+            Log.e(TAG, "Error parsing air quality response", e);
+            return "空气质量: 查询失败（" + e.getMessage() + "）";
         }
+    }
+
+    private static String getJsonStr(JsonObject obj, String key) {
+        if (obj != null && obj.has(key) && !obj.get(key).isJsonNull()) {
+            return obj.get(key).getAsString();
+        }
+        return "";
     }
 
     // 获取和风天气预警信息
@@ -1693,7 +1717,7 @@ public class AIWeatherManager implements AITool {
         return null;
     }
 
-    // 解析和风天气预警响应 (v1 API: /weatheralert/v1/current)
+    // 解析和风天气预警响应 (v7 API: /v7/warning/now，兼容v1旧格式)
     private String parseHefengAlertsResponse(String response) {
         if (response == null || response.isEmpty()) {
             return "天气预警:\n查询失败（响应为空）";

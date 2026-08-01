@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 主渐变 深蓝→紫→玫红 -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="@color/future_bg_top"
+                android:centerColor="@color/future_bg_mid"
+                android:endColor="@color/future_bg_bot"
+                android:angle="135" />
+        </shape>
+    </item>
+    <!-- 顶部柔光（降低透明度避免过曝） -->
+    <item android:gravity="top|center_horizontal" android:height="500dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#3DFFFFFF"
+                android:endColor="#00FFFFFF"
+                android:angle="270" />
+        </shape>
+    </item>
+    <!-- 底部微微加深 -->
+    <item android:gravity="bottom" android:height="200dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#00000000"
+                android:endColor="#20000000"
+                android:angle="270" />
+        </shape>
+    </item>
+</layer-list>
