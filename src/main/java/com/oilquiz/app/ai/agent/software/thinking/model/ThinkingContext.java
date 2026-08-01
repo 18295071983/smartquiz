@@ -12,6 +12,7 @@ public class ThinkingContext {
     private List<String> keyPoints;
     private List<String> blindSpots;
     private List<String> nextSteps;
+    private List<String> exploredAspects;  // 已探索过的视角（去重）
     private ThinkingStyle preferredStyle;
     private int clarity;
     private int depth;
@@ -23,6 +24,7 @@ public class ThinkingContext {
         this.keyPoints = new ArrayList<>();
         this.blindSpots = new ArrayList<>();
         this.nextSteps = new ArrayList<>();
+        this.exploredAspects = new ArrayList<>();
         this.preferredStyle = ThinkingStyle.SOCRATIC;
     }
 
@@ -78,6 +80,18 @@ public class ThinkingContext {
     public void addNextStep(String step) {
         if (!nextSteps.contains(step)) {
             nextSteps.add(step);
+        }
+    }
+
+    /** 返回已探索过的视角列表（返回副本，保证外部不可直接修改内部） */
+    public List<String> getExploredAspects() {
+        return new ArrayList<>(exploredAspects);
+    }
+
+    /** 追加已探索的视角（自动去重） */
+    public void addExploredAspect(String aspect) {
+        if (aspect != null && !exploredAspects.contains(aspect)) {
+            exploredAspects.add(aspect);
         }
     }
 

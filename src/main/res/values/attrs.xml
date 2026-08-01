@@ -7,4 +7,29 @@
         <attr name="autoLoad" format="boolean"/>
         <attr name="defaultCity" format="string"/>
     </declare-styleable>
+
+    <!-- 仪表盘自定义 View 属性 -->
+    <declare-styleable name="CircularGaugeView">
+        <attr name="gauge_progress" format="float"/>
+        <attr name="gauge_max" format="float"/>
+        <attr name="gauge_stroke_width" format="dimension"/>
+        <attr name="gauge_color" format="color"/>
+        <attr name="gauge_bg_color" format="color"/>
+        <attr name="gauge_text_color" format="color"/>
+        <attr name="gauge_label_color" format="color"/>
+        <attr name="gauge_text" format="string"/>
+        <attr name="gauge_label" format="string"/>
+        <attr name="gauge_text_size" format="dimension"/>
+        <attr name="gauge_label_size" format="dimension"/>
+    </declare-styleable>
+
+    <!-- 温度条自定义 View 属性 -->
+    <declare-styleable name="TemperatureBarView">
+        <attr name="temp_high" format="float"/>
+        <attr name="temp_low" format="float"/>
+        <attr name="temp_current" format="float"/>
+        <attr name="temp_max_range" format="float"/>
+        <attr name="temp_min_range" format="float"/>
+        <attr name="temp_bar_color" format="color"/>
+    </declare-styleable>
 </resources>
