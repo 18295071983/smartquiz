@@ -28,7 +28,9 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
         android:textSize="11sp"
-        android:textColor="#80FFFFFF" />
+        android:textColor="#80FFFFFF"
+        android:maxLines="1"
+        android:ellipsize="end" />
 
     <TextView
         android:id="@+id/tv_hourly_temp"
@@ -38,4 +40,13 @@
         android:textSize="15sp"
         android:textColor="@color/future_text_primary"
         android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tv_hourly_pop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textSize="10sp"
+        android:textColor="@color/weather_primary"
+        android:visibility="gone" />
 </LinearLayout>

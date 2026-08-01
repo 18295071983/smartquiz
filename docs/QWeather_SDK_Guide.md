@@ -216,6 +216,41 @@ QWeather.instance.airCurrent(parameter, new Callback<AirV1CurrentResponse>() {
 });
 ```
 
+### 空气质量预报（v1 API）
+
+> 端点: `GET /airquality/v1/daily/{latitude}/{longitude}`
+> SDK 方法: `airDaily(AirV1Parameter, Callback<AirV1DailyResponse>)`
+> 返回未来 3 天的 AQI、污染物浓度和健康建议
+
+```java
+AirV1Parameter parameter = new AirV1Parameter(39.92, 116.41);
+parameter.setLang(Lang.ZH_HANS);
+
+QWeather.instance.airDaily(parameter, new Callback<AirV1DailyResponse>() {
+    @Override
+    public void onSuccess(AirV1DailyResponse response) {
+        // response.getDays() → 每日预报列表
+        //   day.getForecastStartTime() → 预报起始时间 (ISO8601)
+        //   day.getForecastEndTime()   → 预报结束时间 (ISO8601)
+        //   day.getIndexes() → AQI指数列表（与实况结构相同）
+        //     index.getAqiDisplay()    → AQI显示值
+        //     index.getLevel()         → 等级
+        //     index.getCategory()      → 类别（优/良/轻度污染等）
+        //     index.getPrimaryPollutant().getName() → 首要污染物
+        //     index.getHealth().getEffect()         → 健康影响
+        //     index.getHealth().getAdvice().getGeneralPopulation()  → 一般人群建议
+        //     index.getHealth().getAdvice().getSensitivePopulation() → 敏感人群建议
+        //   day.getPollutants() → 污染物浓度列表
+    }
+
+    @Override
+    public void onFailure(ErrorResponse errorResponse) {}
+
+    @Override
+    public void onException(Throwable e) {}
+});
+```
+
 ### 天气预警（v1 API）
 
 > ⚠️ **v7/warning/now 将于 2026-09-01 停止服务**，请迁移至 v1 API。
@@ -254,6 +289,7 @@ QWeather.instance.weatherAlertCurrent(parameter, new Callback<WeatherAlertCurren
 | 功能 | v7 方法（已弃用） | v1 方法（当前） | 状态 |
 |------|-------------------|----------------|------|
 | 空气质量 | `airNow(AirParameter)` | `airCurrent(AirV1Parameter)` | ⚠️ v7 已于 2026-06-01 停止服务 |
+| 空气质量预报 | — | `airDaily(AirV1Parameter)` | v1 新增，返回 `AirV1DailyResponse` |
 | 天气预警 | `warningNow(WarningNowParameter)` | `weatherAlertCurrent(WeatherAlertCurrentParameter)` | ⚠️ v7 将于 2026-09-01 停止服务 |
 
 ### 参数格式变化
@@ -399,6 +435,93 @@ QWeather.instance.weatherAlertCurrent(parameter, new Callback<WeatherAlertCurren
 | `getEventType()` | WeatherAlertEventType | 预警类型 |
 | `getColor()` | WeatherAlertColor | 预警颜色 |
 | `getIcon()` | String | 预警图标 |
+
+**MinutelyResponse（分钟级降水）**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getSummary()` | String | API 返回的降水摘要（如"未来2小时无降水"） |
+| `getMinutely()` | `List<Minutely>` | 每5分钟降水预测列表 |
+| `getFxLink()` | String | 和风天气网页链接 |
+
+**Minutely（5分钟降水条目）**
+
+| 方法 | 返回类型 | 说明 |
+|------|---------|------|
+| `getFxTime()` | String | 预测时间（ISO8601） |
+| `getPrecip()` | String | 降水量（mm，5分钟累计） |
+| `getType()` | String | 降水类型（rain/snow） |
+
+## UI 显示设计
+
+### 逐小时预报
+
+- 每个小时显示：时间、天气图标、**天气描述**（晴/大雨/小雨等）、温度、**降水概率**（仅 >0% 时显示💧图标）
+- 支持两种数据格式解析：SDK 单行格式和 AIWeatherManager 多行格式
+- 不再显示温度等级（舒适/宜人等），改为显示天气描述
+
+### 降水预报（分钟级）
+
+降水预报摘要包含以下信息（基于2小时每5分钟降水数据）：
+
+1. **降水类型**：雨/雪（从 API `type` 字段检测）
+2. **持续/间歇**：分析降水段数，1段为"持续"，多段为"间歇性"
+3. **持续时间**：降水总分钟数
+4. **间歇时间**：间歇段总分钟数（仅间歇性降水时显示）
+5. **累计降水量**：2小时所有5分钟降水值之和
+6. **降水等级**：基于2小时累计降水量分级
+   - 雨：小雨(<4mm)、中雨(<12mm)、大雨(<25mm)、暴雨(<50mm)、大暴雨(<100mm)、特大暴雨(≥100mm)
+   - 雪：小雪(<1mm)、中雪(<3mm)、大雪(<5mm)、暴雪(<10mm)、大暴雪(≥10mm)
+7. **雨停时间**：降水结束后首次为0的时间点，2小时内不停则显示"2小时内不会停"
+8. **API 摘要**：优先显示 API 返回的 `summary` 字段
+
+> ⚠️ 解析注意事项：数据行格式为 `14:05: 0.5mm雨`，必须使用 `lastIndexOf(':')` 提取冒号后的数值，否则会误取时间部分导致数值放大（如 0.5mm → 50.5mm）。
+
+### 天气简要信息（主页温度下方）
+
+在主页大号温度下方显示一段人性化的天气说明文字（`tv_weather_summary`），按以下顺序整合关键信息：
+
+1. **今日天气概述**：白天/夜间天气 + 温度范围 + 温差提醒（温差≥10°时）
+2. **当前状况**：当前温度 + 体感温度差异（差≥3°时提醒）+ 能见度等级（极差/差/一般/良好）
+3. **天气状况提醒**：暴雨/大雨/雨/雪/雾/沙尘等恶劣天气提醒，或适宜温度提醒
+4. **环境指标**：湿度（≤30%干燥/≥80%闷热）、紫外线（≥8很强/≥5较强）、风力（≥8极大/≥6较大），用逗号连接
+5. **降水预报**：分钟级降水摘要（持续/间歇、累计量、等级、雨停时间）
+6. **天气预警**：最新发布的预警关键信息（完整描述+防御指南）+ 其他预警类型概要
+
+### 天气预警摘要提取
+
+多条预警时按发布时间排序，取最新一条的完整信息：
+
+1. 从标题提取预警类型（如 `【橙色】雷电(橙色)` → `雷电`）和等级颜色
+2. 显示完整描述内容（`getDescription()`）
+3. 显示完整防御指南（`getInstruction()`）
+4. 其他预警仅显示等级+类型（如 `（另有黄色暴雨、蓝色大风）`）
+
+### 空气质量卡片布局
+
+- AQI 数值 + 等级水平居中显示
+- 6 种污染物（PM2.5/PM10/NO₂/SO₂/CO/O₃）以 3×2 网格排列，每个单元格垂直居中（标签在上、数值在下）
+- 两行之间有细分隔线
+- 首要污染物和健康建议在底部居中显示
+- 不隐藏任何污染物行，始终显示全部
+
+### 信息栏 chips
+
+主页温度下方显示4个信息标签，用竖线分隔：
+
+| 标签 | 数据来源 | 格式 |
+|------|---------|------|
+| 体感 | `feelsLike` | `体感 22°` |
+| 云量 | `cloud` | `云量 30%` |
+| 露点 | `dew` | `露点 15°` |
+| 能见度 | `vis` | `能见度 15km` |
+
+### 刷新机制
+
+点击 GPS 刷新按钮时：
+1. 调用 `WeatherService.clearCache()` 清空所有缓存
+2. 重置定位状态
+3. 重新获取 GPS 定位并加载天气数据
 
 ## 错误码
 

@@ -69,6 +69,9 @@ public class AIWeatherManager implements AITool {
     private String getAirUrl(double lat, double lon) {
         return apiHost + "/airquality/v1/current/" + String.format(java.util.Locale.US, "%.2f", lat) + "/" + String.format(java.util.Locale.US, "%.2f", lon);
     }
+    private String getAirDailyUrl(double lat, double lon) {
+        return apiHost + "/airquality/v1/daily/" + String.format(java.util.Locale.US, "%.2f", lat) + "/" + String.format(java.util.Locale.US, "%.2f", lon);
+    }
     private String getAlertUrl(double lat, double lon) {
         return apiHost + "/weatheralert/v1/current/" + String.format(java.util.Locale.US, "%.2f", lat) + "/" + String.format(java.util.Locale.US, "%.2f", lon);
     }
@@ -1456,6 +1459,12 @@ public class AIWeatherManager implements AITool {
                     }
                     weatherInfo.append("\n");
 
+                    // 指数名称和代码
+                    String idxName = getJsonStr(index, "name");
+                    String idxCode = getJsonStr(index, "code");
+                    if (!idxName.isEmpty()) weatherInfo.append("指数名称: ").append(idxName).append("\n");
+                    if (!idxCode.isEmpty()) weatherInfo.append("指数代码: ").append(idxCode).append("\n");
+
                     // 首要污染物
                     if (index.has("primaryPollutant") && !index.get("primaryPollutant").isJsonNull() && index.get("primaryPollutant").isJsonObject()) {
                         JsonObject pp = index.getAsJsonObject("primaryPollutant");
@@ -1463,6 +1472,24 @@ public class AIWeatherManager implements AITool {
                         if (!ppName.isEmpty()) {
                             weatherInfo.append("首要污染物: ").append(ppName).append("\n");
                         }
+                    }
+
+                    // 健康建议
+                    if (index.has("health") && !index.get("health").isJsonNull() && index.get("health").isJsonObject()) {
+                        JsonObject health = index.getAsJsonObject("health");
+                        String effect = getJsonStr(health, "effect");
+                        if (!effect.isEmpty()) {
+                            weatherInfo.append("健康影响: ").append(effect).append("\n");
+                        }
+                        if (health.has("advice") && !health.get("advice").isJsonNull() && health.get("advice").isJsonObject()) {
+                            JsonObject advice = health.getAsJsonObject("advice");
+                            String general = getJsonStr(advice, "generalPopulation");
+                            String sensitive = getJsonStr(advice, "sensitivePopulation");
+                            if (!general.isEmpty()) weatherInfo.append("一般人群: ").append(general).append("\n");
+                            if (!sensitive.isEmpty()) weatherInfo.append("敏感人群: ").append(sensitive).append("\n");
+                        }
+                        String tip = getJsonStr(health, "tip");
+                        if (!tip.isEmpty()) weatherInfo.append("健康提示: ").append(tip).append("\n");
                     }
                 }
             }
@@ -1511,8 +1538,7 @@ public class AIWeatherManager implements AITool {
                         JsonObject pollutant = pollutants.get(i).getAsJsonObject();
                         String code = getJsonStr(pollutant, "code");
                         String name = getJsonStr(pollutant, "name");
-                        // 标准化名称：PM 2.5 -> PM2.5
-                        String displayName = name.replace(" ", "");
+                        String displayName = name.replace(" ", "").toUpperCase();
                         if (displayName.isEmpty()) displayName = code.toUpperCase();
 
                         if (pollutant.has("concentration") && !pollutant.get("concentration").isJsonNull() && pollutant.get("concentration").isJsonObject()) {
@@ -1522,6 +1548,11 @@ public class AIWeatherManager implements AITool {
                             if (!value.isEmpty()) {
                                 weatherInfo.append(displayName).append(": ").append(value);
                                 if (!unit.isEmpty()) weatherInfo.append(" ").append(unit);
+                                // 全称
+                                String fullName = getJsonStr(pollutant, "fullName");
+                                if (!fullName.isEmpty() && !fullName.equals(displayName)) {
+                                    weatherInfo.append(" (").append(fullName).append(")");
+                                }
                                 weatherInfo.append("\n");
                             }
                         }
@@ -1543,7 +1574,23 @@ public class AIWeatherManager implements AITool {
 
     private static String getJsonStr(JsonObject obj, String key) {
         if (obj != null && obj.has(key) && !obj.get(key).isJsonNull()) {
-            return obj.get(key).getAsString();
+            JsonElement elem = obj.get(key);
+            if (elem.isJsonPrimitive()) {
+                com.google.gson.JsonPrimitive prim = elem.getAsJsonPrimitive();
+                if (prim.isString()) return prim.getAsString();
+                if (prim.isNumber()) {
+                    String raw = prim.toString();
+                    // 去除可能的 .0 后缀整数
+                    if (raw.endsWith(".0")) {
+                        try {
+                            long l = Long.parseLong(raw.substring(0, raw.length() - 2));
+                            return String.valueOf(l);
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    return raw;
+                }
+                if (prim.isBoolean()) return String.valueOf(prim.getAsBoolean());
+            }
         }
         return "";
     }
@@ -1869,6 +1916,19 @@ public class AIWeatherManager implements AITool {
                 if (!level.isEmpty()) {
                     weatherInfo.append("预警等级: " + level + "\n");
                 }
+
+                // 额外字段
+                String urgency = getJsonStr(alert, "urgency");
+                if (!urgency.isEmpty()) weatherInfo.append("紧急程度: ").append(urgency).append("\n");
+                String certainty = getJsonStr(alert, "certainty");
+                if (!certainty.isEmpty()) weatherInfo.append("确定性: ").append(certainty).append("\n");
+                String onsetTime = getJsonStr(alert, "onsetTime");
+                if (!onsetTime.isEmpty()) weatherInfo.append("起始时间: ").append(formatTime(onsetTime)).append("\n");
+                String alertId = getJsonStr(alert, "id");
+                if (!alertId.isEmpty()) weatherInfo.append("预警ID: ").append(alertId).append("\n");
+                String icon = getJsonStr(alert, "icon");
+                if (!icon.isEmpty()) weatherInfo.append("预警图标: ").append(icon).append("\n");
+
                 if (!pubTime.isEmpty()) {
                     String displayTime = formatTime(pubTime);
                     weatherInfo.append("发布时间: " + displayTime + "\n");
@@ -2177,6 +2237,119 @@ public class AIWeatherManager implements AITool {
                 return "空气质量:\n查询失败: " + e.getMessage();
             }
         });
+    }
+
+    public CompletableFuture<String> getHefengAirForecastByLocation(double lat, double lon) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String urlString = getAirDailyUrl(lat, lon);
+                Log.d(TAG, "Air forecast URL: " + urlString);
+                String response = httpGet(urlString);
+                return parseHefengAirForecastResponse(response);
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting Hefeng air forecast", e);
+                return "空气质量预报:\n查询失败: " + e.getMessage();
+            }
+        });
+    }
+
+    private String parseHefengAirForecastResponse(String response) {
+        if (response == null || response.isEmpty()) {
+            return "空气质量预报: 查询失败（响应为空）";
+        }
+
+        Log.d(TAG, "Air forecast response: " + response.substring(0, Math.min(300, response.length())));
+
+        try {
+            JsonElement jsonElement = gson.fromJson(response, JsonElement.class);
+            if (jsonElement == null || !jsonElement.isJsonObject()) {
+                return "空气质量预报: 查询失败（响应格式错误）";
+            }
+
+            JsonObject jsonObject = jsonElement.getAsJsonObject();
+
+            // 检查错误
+            if (jsonObject.has("error") && !jsonObject.get("error").isJsonNull()) {
+                JsonElement errorElement = jsonObject.get("error");
+                if (errorElement.isJsonObject()) {
+                    JsonObject error = errorElement.getAsJsonObject();
+                    String title = error.has("title") ? error.get("title").getAsString() : "";
+                    return "空气质量预报: 查询失败（" + title + "）";
+                }
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("空气质量预报:\n");
+
+            // v1 daily API: 解析 days 数组
+            // 文档: https://dev.qweather.com/en/docs/api/air-quality/air-daily-forecast/
+            if (jsonObject.has("days") && !jsonObject.get("days").isJsonNull()) {
+                JsonArray days = jsonObject.getAsJsonArray("days");
+                for (int i = 0; i < days.size(); i++) {
+                    if (!days.get(i).isJsonObject()) continue;
+                    JsonObject day = days.get(i).getAsJsonObject();
+
+                    // forecastStartTime: ISO8601 格式，提取日期部分
+                    String startTime = getJsonStr(day, "forecastStartTime");
+                    String date = startTime;
+                    int tIdx = startTime.indexOf('T');
+                    if (tIdx > 0) date = startTime.substring(0, tIdx);
+
+                    // indexes 数组，取第一个作为主 AQI
+                    if (day.has("indexes") && !day.get("indexes").isJsonNull() && day.get("indexes").isJsonArray()) {
+                        JsonArray indexes = day.getAsJsonArray("indexes");
+                        if (indexes.size() > 0) {
+                            JsonObject index = indexes.get(0).getAsJsonObject();
+                            String aqiDisplay = getJsonStr(index, "aqiDisplay");
+                            String level = getJsonStr(index, "level");
+                            String category = getJsonStr(index, "category");
+                            String idxName = getJsonStr(index, "name");
+
+                            if (!date.isEmpty()) {
+                                sb.append(date);
+                                if (!aqiDisplay.isEmpty()) sb.append(" AQI: ").append(aqiDisplay);
+                                if (!category.isEmpty()) sb.append(" (").append(category).append(")");
+                                sb.append("\n");
+                            }
+
+                            // 首要污染物
+                            if (index.has("primaryPollutant") && !index.get("primaryPollutant").isJsonNull() && index.get("primaryPollutant").isJsonObject()) {
+                                JsonObject pp = index.getAsJsonObject("primaryPollutant");
+                                String ppName = getJsonStr(pp, "name");
+                                if (!ppName.isEmpty()) {
+                                    sb.append("  首要污染物: ").append(ppName).append("\n");
+                                }
+                            }
+
+                            // 健康建议
+                            if (index.has("health") && !index.get("health").isJsonNull() && index.get("health").isJsonObject()) {
+                                JsonObject health = index.getAsJsonObject("health");
+                                String effect = getJsonStr(health, "effect");
+                                if (!effect.isEmpty()) {
+                                    sb.append("  健康影响: ").append(effect).append("\n");
+                                }
+                                if (health.has("advice") && !health.get("advice").isJsonNull() && health.get("advice").isJsonObject()) {
+                                    JsonObject advice = health.getAsJsonObject("advice");
+                                    String general = getJsonStr(advice, "generalPopulation");
+                                    String sensitive = getJsonStr(advice, "sensitivePopulation");
+                                    if (!general.isEmpty()) sb.append("  一般人群: ").append(general).append("\n");
+                                    if (!sensitive.isEmpty()) sb.append("  敏感人群: ").append(sensitive).append("\n");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (sb.toString().trim().equals("空气质量预报:")) {
+                sb.append("暂无预报数据");
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing air forecast response", e);
+            return "空气质量预报: 查询失败（解析错误）";
+        }
     }
 
     public CompletableFuture<String> getHefengAlertsByLocation(double lat, double lon) {

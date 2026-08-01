@@ -18,8 +18,12 @@ import com.qweather.sdk.parameter.indices.IndicesParameter;
 import com.qweather.sdk.parameter.minutely.MinutelyParameter;
 import com.qweather.sdk.parameter.weather.WeatherParameter;
 import com.qweather.sdk.response.air.AirNowResponse;
+import com.qweather.sdk.response.air.v1.AirDaily;
 import com.qweather.sdk.response.air.v1.AirIndex;
 import com.qweather.sdk.response.air.v1.AirV1CurrentResponse;
+import com.qweather.sdk.response.air.v1.AirV1DailyResponse;
+import com.qweather.sdk.response.air.v1.Health;
+import com.qweather.sdk.response.air.v1.HealthAdvice;
 import com.qweather.sdk.response.air.v1.Pollutant;
 import com.qweather.sdk.response.air.v1.PollutantConcentration;
 import com.qweather.sdk.response.air.v1.PrimaryPollutant;
@@ -27,6 +31,7 @@ import com.qweather.sdk.response.alert.WeatherAlert;
 import com.qweather.sdk.response.alert.WeatherAlertCurrentResponse;
 import com.qweather.sdk.response.alert.WeatherAlertEventType;
 import com.qweather.sdk.response.astronomy.AstronomySunResponse;
+import com.qweather.sdk.response.error.ErrorDetail;
 import com.qweather.sdk.response.error.ErrorResponse;
 import com.qweather.sdk.response.indices.IndicesDaily;
 import com.qweather.sdk.response.indices.IndicesDailyResponse;
@@ -360,6 +365,127 @@ public class QWeatherSdkManager {
         return future;
     }
 
+    public CompletableFuture<String> getAirForecast(String location) {
+        if (!initialized) {
+            return CompletableFuture.completedFuture("空气质量预报SDK未初始化");
+        }
+
+        double[] latLon = parseLatLonFromLocation(location);
+        if (latLon == null) {
+            return CompletableFuture.completedFuture("空气质量预报: v1 API需要经纬度坐标");
+        }
+
+        CompletableFuture<String> future = new CompletableFuture<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        try {
+            AirV1Parameter parameter = new AirV1Parameter(latLon[0], latLon[1]);
+            parameter.setLang(Lang.ZH_HANS);
+
+            QWeather.getInstance(context, apiHost).airDaily(parameter, new Callback<AirV1DailyResponse>() {
+                @Override
+                public void onSuccess(AirV1DailyResponse response) {
+                    try {
+                        future.complete(parseAirForecastResponse(response));
+                    } finally {
+                        latch.countDown();
+                    }
+                }
+
+                @Override
+                public void onFailure(ErrorResponse errorResponse) {
+                    try {
+                        future.complete("空气质量预报查询失败: " + parseError(errorResponse));
+                    } finally {
+                        latch.countDown();
+                    }
+                }
+
+                @Override
+                public void onException(Throwable e) {
+                    try {
+                        future.complete("空气质量预报查询异常: " + e.getMessage());
+                    } finally {
+                        latch.countDown();
+                    }
+                }
+            });
+
+            startTimeoutThread(latch, future, "空气质量预报查询超时");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to call airDaily", e);
+            future.complete("空气质量预报查询失败: " + e.getMessage());
+            latch.countDown();
+        }
+
+        return future;
+    }
+
+    private String parseAirForecastResponse(AirV1DailyResponse response) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("空气质量预报:\n");
+
+        List<AirDaily> days = response.getDays();
+        if (days != null && !days.isEmpty()) {
+            for (AirDaily day : days) {
+                String startTime = day.getForecastStartTime();
+                String date = "";
+                if (startTime != null && !startTime.isEmpty()) {
+                    int tIdx = startTime.indexOf('T');
+                    date = tIdx > 0 ? startTime.substring(0, tIdx) : startTime;
+                }
+
+                List<AirIndex> dayIndexes = day.getIndexes();
+                if (dayIndexes != null && !dayIndexes.isEmpty()) {
+                    AirIndex index = dayIndexes.get(0);
+                    String aqiDisplay = index.getAqiDisplay();
+                    String category = index.getCategory();
+
+                    if (!date.isEmpty()) {
+                        sb.append(date);
+                        if (aqiDisplay != null && !aqiDisplay.isEmpty())
+                            sb.append(" AQI: ").append(aqiDisplay);
+                        if (category != null && !category.isEmpty())
+                            sb.append(" (").append(category).append(")");
+                        sb.append("\n");
+                    }
+
+                    PrimaryPollutant primary = index.getPrimaryPollutant();
+                    if (primary != null) {
+                        String ppName = primary.getName();
+                        if (ppName != null && !ppName.isEmpty()) {
+                            sb.append("  首要污染物: ").append(ppName).append("\n");
+                        }
+                    }
+
+                    Health health = index.getHealth();
+                    if (health != null) {
+                        String effect = health.getEffect();
+                        if (effect != null && !effect.isEmpty()) {
+                            sb.append("  健康影响: ").append(effect).append("\n");
+                        }
+                        HealthAdvice advice = health.getAdvice();
+                        if (advice != null) {
+                            String general = advice.getGeneralPopulation();
+                            String sensitive = advice.getSensitivePopulation();
+                            if (general != null && !general.isEmpty())
+                                sb.append("  一般人群: ").append(general).append("\n");
+                            if (sensitive != null && !sensitive.isEmpty())
+                                sb.append("  敏感人群: ").append(sensitive).append("\n");
+                        }
+                    }
+                }
+            }
+        }
+
+        if (sb.toString().trim().equals("空气质量预报:")) {
+            sb.append("暂无预报数据");
+        }
+
+        return sb.toString();
+    }
+
     // 从 location 字符串解析经纬度，格式为 "经度,纬度"（与 v7 API 的 location 参数顺序一致）
     private double[] parseLatLonFromLocation(String location) {
         if (location == null || location.isEmpty()) {
@@ -630,16 +756,11 @@ public class QWeatherSdkManager {
         if (errorResponse == null) {
             return "未知错误";
         }
-        try {
-            if (errorResponse.getError() != null) {
-                Object error = errorResponse.getError();
-                Object status = error.getClass().getMethod("getStatus").invoke(error);
-                Object title = error.getClass().getMethod("getTitle").invoke(error);
-                Object detail = error.getClass().getMethod("getDetail").invoke(error);
-                return (title != null ? title : "") + " " + (detail != null ? detail : "");
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to parse error response", e);
+        ErrorDetail error = errorResponse.getError();
+        if (error != null) {
+            String title = error.getTitle();
+            String detail = error.getDetail();
+            return (title != null ? title : "") + " " + (detail != null ? detail : "");
         }
         return errorResponse.toString();
     }
@@ -849,6 +970,24 @@ public class QWeatherSdkManager {
                 if (!level.isEmpty()) {
                     sb.append("预警等级: ").append(level).append("\n");
                 }
+
+                String urgency = alert.getUrgency();
+                if (urgency != null && !urgency.isEmpty()) sb.append("紧急程度: ").append(urgency).append("\n");
+                String certainty = alert.getCertainty();
+                if (certainty != null && !certainty.isEmpty()) sb.append("确定性: ").append(certainty).append("\n");
+                String onsetTime = alert.getOnsetTime();
+                if (onsetTime != null && !onsetTime.isEmpty()) {
+                    sb.append("起始时间: ").append(onsetTime).append("\n");
+                }
+                String alertId = alert.getId();
+                if (alertId != null && !alertId.isEmpty()) {
+                    sb.append("预警ID: ").append(alertId).append("\n");
+                }
+                String icon = alert.getIcon();
+                if (icon != null && !icon.isEmpty()) {
+                    sb.append("预警图标: ").append(icon).append("\n");
+                }
+
                 if (issuedTime != null && !issuedTime.isEmpty()) {
                     sb.append("发布时间: ").append(issuedTime).append("\n");
                 }
@@ -929,6 +1068,14 @@ public class QWeatherSdkManager {
             sb.append("链接: ").append(fxLink).append("\n");
         }
 
+        // API 返回的降水摘要
+        try {
+            String summary = response.getSummary();
+            if (summary != null && !summary.isEmpty()) {
+                sb.append("摘要: ").append(summary).append("\n");
+            }
+        } catch (Exception ignored) {}
+
         List<Minutely> minutelyList = response.getMinutely();
         if (minutelyList == null || minutelyList.isEmpty()) {
             return "分钟级降水:\n暂无数据";
@@ -977,7 +1124,6 @@ public class QWeatherSdkManager {
         StringBuilder sb = new StringBuilder();
         sb.append("空气质量:\n");
 
-        // v1 API: 解析 indexes 数组，取第一个作为主 AQI
         List<AirIndex> indexes = response.getIndexes();
         if (indexes != null && !indexes.isEmpty()) {
             AirIndex index = indexes.get(0);
@@ -997,6 +1143,11 @@ public class QWeatherSdkManager {
                 sb.append("\n");
             }
 
+            String idxName = index.getName();
+            String idxCode = index.getCode();
+            if (idxName != null && !idxName.isEmpty()) sb.append("指数名称: ").append(idxName).append("\n");
+            if (idxCode != null && !idxCode.isEmpty()) sb.append("指数代码: ").append(idxCode).append("\n");
+
             PrimaryPollutant primary = index.getPrimaryPollutant();
             if (primary != null) {
                 String primaryName = primary.getName();
@@ -1004,9 +1155,23 @@ public class QWeatherSdkManager {
                     sb.append("首要污染物: ").append(primaryName).append("\n");
                 }
             }
+
+            Health health = index.getHealth();
+            if (health != null) {
+                String effect = health.getEffect();
+                if (effect != null && !effect.isEmpty()) {
+                    sb.append("健康影响: ").append(effect).append("\n");
+                }
+                HealthAdvice advice = health.getAdvice();
+                if (advice != null) {
+                    String general = advice.getGeneralPopulation();
+                    String sensitive = advice.getSensitivePopulation();
+                    if (general != null && !general.isEmpty()) sb.append("一般人群: ").append(general).append("\n");
+                    if (sensitive != null && !sensitive.isEmpty()) sb.append("敏感人群: ").append(sensitive).append("\n");
+                }
+            }
         }
 
-        // v1 API: 解析 pollutants 数组
         List<Pollutant> pollutants = response.getPollutants();
         if (pollutants != null && !pollutants.isEmpty()) {
             sb.append("\n污染物浓度:\n");
@@ -1018,9 +1183,14 @@ public class QWeatherSdkManager {
                     Double value = conc.getValue();
                     String unit = conc.getUnit();
                     if (value != null) {
-                        String displayName = (name != null && !name.isEmpty()) ? name : code;
+                        String displayName = (name != null && !name.isEmpty()) ? name.toUpperCase() : (code != null ? code.toUpperCase() : "");
                         String displayUnit = (unit != null && !unit.isEmpty()) ? " " + unit : "";
-                        sb.append(displayName).append(": ").append(value).append(displayUnit).append("\n");
+                        sb.append(displayName).append(": ").append(value).append(displayUnit);
+                        String fullName = p.getFullName();
+                        if (fullName != null && !fullName.isEmpty() && !fullName.equals(displayName)) {
+                            sb.append(" (").append(fullName).append(")");
+                        }
+                        sb.append("\n");
                     }
                 }
             }
@@ -1031,16 +1201,6 @@ public class QWeatherSdkManager {
         }
 
         return sb.toString();
-    }
-
-    private String safeInvokeString(Object obj, String methodName) {
-        try {
-            java.lang.reflect.Method method = obj.getClass().getMethod(methodName);
-            Object result = method.invoke(obj);
-            return result != null ? result.toString() : "";
-        } catch (Exception e) {
-            return "";
-        }
     }
 
     private void appendField(StringBuilder sb, String name, String value, String unit) {
