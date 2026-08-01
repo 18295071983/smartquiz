@@ -50,8 +50,7 @@
             android:layout_marginTop="8dp"
             android:textSize="14sp"
             android:textColor="?attr/colorOnSurface"
-            android:maxLines="15"
-            android:ellipsize="end" />
+            android:scrollbars="vertical" />
 
         <LinearLayout
             android:layout_width="wrap_content"

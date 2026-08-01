@@ -537,58 +537,11 @@ public class UnifiedAgentEngine {
                 }
                 // =====================================
 
-                SmartIntentRecognizer.IntentResult intent = analyzeIntentWithContext(message);
-                if (intent == null || intent.intent == null) {
-                    AILogger.w(TAG, "Intent result is null, using default CHAT mode");
-                    intent = SmartIntentRecognizer.IntentResult.defaultResult();
-                }
-
-                SmartIntentRecognizer.MultiIntentResult multiIntent = intentRecognizer.recognizeMultiIntent(message);
-                ReasoningMode mode = selectBestMode(intent, multiIntent);
-
-                AILogger.i(TAG, "Execute: intent=" + intent.intent.id + " conf=" + intent.confidence
-            + " mode=" + mode.name() + " needsTool=" + intent.needsTool()
-            + " multiIntents=" + (multiIntent != null ? multiIntent.intents.size() : 0));
-
-        // ========== 智能思考 ==========
-        // Agent 模式下跳过前置思考分析：ReAct/CoT 循环已有完整推理能力，
-        // 且 performThinking 的 generateSync 调用 nativeGenerateStream 会破坏 chat context 的 KV cache，
-        // 导致后续 chatSend 解码时 native 层 SIGSEGV 崩溃
-        boolean enablePreThinking = false;
-        if (enablePreThinking && enableThinking && !intent.intent.id.equals("chat")) {
-            String thinking = performThinking(message);
-            if (thinking != null && !thinking.isEmpty()) {
-                makeDecisionBasedOnThinking(thinking, message);
-            }
-        }
-        // =============================
-
-        String intentHint = buildIntentHint(intent, multiIntent, message);
-
-                StringBuilder stepInfo = new StringBuilder();
-                stepInfo.append(intent.intent.displayName).append(" (置信度:")
-                    .append(String.format("%.0f%%", intent.confidence * 100)).append(")")
-                    .append(" → ").append(mode.displayName);
-                if (multiIntent != null && multiIntent.hasMultipleIntents()) {
-                    stepInfo.append(" [多任务: ").append(multiIntent.intents.size()).append("]");
-                }
-                notifyStep("意图识别", stepInfo.toString());
-
-                switch (mode) {
-                    case REACT:
-                        executeReActLoop(message + intentHint, maxTokens, enableThinking);
-                        break;
-                    case CHAIN_OF_THOUGHT:
-                        executeCoTLoop(message + intentHint, maxTokens, enableThinking);
-                        break;
-                    case PLAN_EXECUTE:
-                        executePlanLoop(message + intentHint, maxTokens, enableThinking, intent, multiIntent);
-                        break;
-                    case DIRECT:
-                    default:
-                        executeDirect(message + intentHint, maxTokens, enableThinking);
-                        break;
-                }
+                // 离线Agent模式：直接走ReAct循环，模型通过TOOLS_CALL格式自主选择工具
+                // 已移除意图识别（SmartIntentRecognizer），改用快捷输入引导用户选择工具
+                notifyStep("Agent启动", "ReAct推理模式");
+                AILogger.i(TAG, "Execute via ReAct loop (intent recognition removed): " + message);
+                executeReActLoop(message, maxTokens, enableThinking);
             } catch (Throwable t) {
                 AILogger.e(TAG, "Error in execute: " + t.getMessage(), t);
                 finishGeneration();

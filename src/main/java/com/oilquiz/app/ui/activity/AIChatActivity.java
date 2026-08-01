@@ -10,6 +10,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -43,6 +44,7 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
 import com.oilquiz.app.ai.service.AIProcessingService;
+import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIEntertainmentManager;
@@ -57,6 +59,13 @@ import com.oilquiz.app.ai.agent.AgentExecutionEngine;
 import com.oilquiz.app.ai.agent.AgentExecutionState;
 import com.oilquiz.app.ai.agent.ExecutionEvent;
 import com.oilquiz.app.ai.agent.ExecutionEventListener;
+import com.oilquiz.app.ai.agent.ToolGuideFlow;
+import com.oilquiz.app.ai.agent.ToolContextProvider;
+import com.oilquiz.app.ai.agent.CompositeGuideFlow;
+import com.oilquiz.app.ai.agent.ToolResultStore;
+import com.oilquiz.app.ai.agent.ToolResultInterpreter;
+import com.oilquiz.app.ai.agent.ToolErrorRecovery;
+import com.oilquiz.app.ai.agent.ToolPreChecker;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.chat.ChatOrchestrator;
 import com.oilquiz.app.ai.chat.NativeEventBridge;
@@ -140,6 +149,8 @@ public class AIChatActivity extends BaseActivity {
     private Chip chipThinkingAssist;
     private Chip chipWeather;
     private Chip chipClear;
+    /** 自动获取的环境上下文（如定位得到的city/lat/lon），供引导流程注入 */
+    private Map<String, String> autoContext = new HashMap<>();
 
     private View emptyStateView;
     private com.google.android.material.chip.ChipGroup emptyStateChips;
@@ -320,8 +331,11 @@ public class AIChatActivity extends BaseActivity {
             ChipGroup quickActionsChipGroup = findViewById(R.id.quick_actions_chip_group);
             ImageView ivQuickExpand = findViewById(R.id.iv_quick_expand);
 
-            // 快捷工具栏折叠/展开功能
-            final boolean[] isExpanded = {false};
+            // 快捷工具栏折叠/展开功能（默认展开）
+            final boolean[] isExpanded = {true};
+            if (ivQuickExpand != null) {
+                ivQuickExpand.setImageResource(R.drawable.ic_collapse);
+            }
             if (quickBarHeader != null) {
                 quickBarHeader.setOnClickListener(v -> {
                     isExpanded[0] = !isExpanded[0];
@@ -459,6 +473,9 @@ public class AIChatActivity extends BaseActivity {
                                 // 滚动到最新消息
                                 scrollToBottom(true);
                             });
+                        } else {
+                            // 历史为空，显示新手引导
+                            runOnUiThread(() -> showWelcomeGuide());
                         }
                     }
                 } catch (Exception e) {
@@ -852,24 +869,40 @@ public class AIChatActivity extends BaseActivity {
                 updateModeButtonText();
                 // 注入模式切换指令到上下文
                 injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.AGENT);
-                addSystemMessage("🤖 Agent模式已启用\n\n功能特性：\n• 智能意图识别\n• 复杂任务分解\n• 工具调用执行\n• 思考链推理\n\n请发送消息开始使用。");
+                addSystemMessage("🤖 Agent模式已启用\n\n功能特性：\n• 工具智能选择与执行\n• ReAct推理循环\n• 思考链可视化\n• 快捷输入引导\n\n请点击下方工具快捷按钮或直接输入问题。");
             });
         });
-        if (chipWeather != null) chipWeather.setOnClickListener(v -> {
-            // 点击天气卡片：弹出/隐藏天气横幅
-            if (weatherBannerController != null) {
-                if (weatherBannerController.isVisible()) {
-                    weatherBannerController.hide();
-                } else {
-                    weatherBannerController.loadWeather();
-                }
-            }
-        });
+        if (chipWeather != null) chipWeather.setOnClickListener(v -> showToolGuideDialog("ai_weather"));
+
         if (chipClear != null) chipClear.setOnClickListener(v -> {
-            // 清空
             clearChat();
         });
-        
+
+        // 工具快捷输入引导：点击chip弹出参数引导表单
+        Chip chipSearch = findViewById(R.id.chip_search);
+        Chip chipTranslate = findViewById(R.id.chip_translate);
+        Chip chipDatabase = findViewById(R.id.chip_database);
+        Chip chipFile = findViewById(R.id.chip_file);
+        Chip chipLocation = findViewById(R.id.chip_location);
+        Chip chipApp = findViewById(R.id.chip_app);
+        Chip chipCalc = findViewById(R.id.chip_calc);
+
+        if (chipSearch != null) chipSearch.setOnClickListener(v -> showToolGuideDialog("network_search"));
+        if (chipTranslate != null) chipTranslate.setOnClickListener(v -> showToolGuideDialog("translation"));
+        if (chipDatabase != null) chipDatabase.setOnClickListener(v -> showToolGuideDialog("database"));
+        if (chipFile != null) chipFile.setOnClickListener(v -> showToolGuideDialog("file"));
+        if (chipLocation != null) chipLocation.setOnClickListener(v -> showToolGuideDialog("location"));
+        if (chipApp != null) chipApp.setOnClickListener(v -> showToolGuideDialog("app_operation"));
+        if (chipCalc != null) chipCalc.setOnClickListener(v -> showToolGuideDialog("app_toolkit"));
+
+        // 动态新增聚合方案入口 chip（出行准备🚗/学习查询📚/网页研究🔍），添加到快捷按钮 ChipGroup
+        com.google.android.material.chip.ChipGroup quickGroup = findViewById(R.id.quick_actions_chip_group);
+        if (quickGroup != null) {
+            addCompositeChip(quickGroup, "🚗 出行准备", "go_out");
+            addCompositeChip(quickGroup, "📚 学习查询", "study");
+            addCompositeChip(quickGroup, "🔍 网页研究", "research");
+        }
+
         // 模式切换快捷按钮
         Chip chipDeepThink = findViewById(R.id.chip_deep_think);
         Chip chipCreative = findViewById(R.id.chip_creative);
@@ -961,6 +994,1321 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error cancelling: " + e.getMessage());
         }
+    }
+
+    /**
+     * 快捷输入引导：填充模板到输入框并聚焦，光标置于末尾
+     */
+    private void fillQuickInput(String template) {
+        if (inputMessage == null) return;
+        inputMessage.setText(template);
+        inputMessage.requestFocus();
+        inputMessage.setSelection(template.length());
+        // 弹出软键盘
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+            getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(inputMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    /** dp 转 px 工具方法，供引导流程动态构建 UI 使用 */
+    private int dp(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /**
+     * 显示工具引导对话框：多步骤向导式UI，一次只展示一个步骤
+     */
+    private void showToolGuideDialog(String toolName) {
+        ToolGuideFlow flow = ToolGuideFlow.getFlow(toolName);
+        if (flow == null) {
+            android.widget.Toast.makeText(this, "暂未提供该工具的引导流程", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 每次新开工具引导流程，清空上一轮自动获取的上下文
+        autoContext.clear();
+
+        // 状态管理
+        final Map<String, String> selectedParams = new HashMap<>();
+        final int[] currentStepIdx = {0};
+        @SuppressWarnings("unchecked")
+        final List<ToolGuideFlow.GuideStep>[] activeStepsHolder = new List[]{flow.getActiveSteps(selectedParams)};
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+        dialog.show();
+    }
+
+    /**
+     * 渲染当前向导步骤。根据步骤类型（OPTION/INPUT/CONFIRM）动态构建内容并 setContentView。
+     */
+    @SuppressWarnings("unchecked")
+    private void renderStep(final com.google.android.material.bottomsheet.BottomSheetDialog dialog,
+                            final ToolGuideFlow flow, final String toolName,
+                            final Map<String, String> selectedParams,
+                            final int[] currentStepIdx,
+                            final List<ToolGuideFlow.GuideStep>[] activeStepsHolder) {
+        List<ToolGuideFlow.GuideStep> activeSteps = activeStepsHolder[0];
+
+        // 重新计算后若索引超出范围，跳到最后一个 CONFIRM 步骤
+        if (currentStepIdx[0] >= activeSteps.size()) {
+            int confirmIdx = -1;
+            for (int i = activeSteps.size() - 1; i >= 0; i--) {
+                if (activeSteps.get(i).type == ToolGuideFlow.GuideStep.StepType.CONFIRM) {
+                    confirmIdx = i;
+                    break;
+                }
+            }
+            if (confirmIdx >= 0) {
+                currentStepIdx[0] = confirmIdx;
+            } else {
+                dialog.dismiss();
+                return;
+            }
+        }
+
+        final ToolGuideFlow.GuideStep step = activeSteps.get(currentStepIdx[0]);
+
+        // 内容容器
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(48, 48, 48, 48);
+
+        // 顶部：工具名 + 步骤进度 + 上一步按钮（非第一步才显示）
+        LinearLayout headerLayout = new LinearLayout(this);
+        headerLayout.setOrientation(LinearLayout.HORIZONTAL);
+        headerLayout.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        TextView titleView = new TextView(this);
+        titleView.setText(flow.toolDisplayName + "  步骤 " + (currentStepIdx[0] + 1) + "/" + activeSteps.size());
+        titleView.setTextSize(16);
+        titleView.setTextColor(0xFF333333);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleView.setLayoutParams(titleParams);
+        headerLayout.addView(titleView);
+
+        if (currentStepIdx[0] > 0) {
+            android.widget.Button prevBtn = new android.widget.Button(this);
+            prevBtn.setText("上一步");
+            prevBtn.setBackgroundColor(0xFFEEEEEE);
+            prevBtn.setTextColor(0xFF666666);
+            LinearLayout.LayoutParams prevParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            prevBtn.setLayoutParams(prevParams);
+            prevBtn.setOnClickListener(v -> {
+                if (currentStepIdx[0] > 0) currentStepIdx[0]--;
+                // 重新计算 activeSteps，保留已选参数
+                activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
+                if (currentStepIdx[0] < 0) currentStepIdx[0] = 0;
+                renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+            });
+            headerLayout.addView(prevBtn);
+        }
+        container.addView(headerLayout);
+
+        // 分隔线
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFE0E0E0);
+        LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        divParams.topMargin = 16;
+        divParams.bottomMargin = 16;
+        divider.setLayoutParams(divParams);
+        container.addView(divider);
+
+        // 上下文提示条：若已有自动获取的上下文（如定位），在步骤内容顶部展示蓝色提示条
+        if (!autoContext.isEmpty()) {
+            LinearLayout ctxBar = new LinearLayout(this);
+            ctxBar.setOrientation(LinearLayout.HORIZONTAL);
+            ctxBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            ctxBar.setPadding(dp(12), dp(10), dp(12), dp(10));
+            android.graphics.drawable.GradientDrawable ctxBg = new android.graphics.drawable.GradientDrawable();
+            ctxBg.setColor(0xFFE3F2FD);
+            ctxBg.setCornerRadius(dp(8));
+            ctxBar.setBackground(ctxBg);
+            LinearLayout.LayoutParams ctxLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            ctxLp.bottomMargin = dp(12);
+            ctxBar.setLayoutParams(ctxLp);
+
+            // 左侧：已自动获取的上下文摘要
+            TextView ctxText = new TextView(this);
+            String ctxSummary;
+            if (autoContext.containsKey("city") && autoContext.get("city") != null && !autoContext.get("city").isEmpty()) {
+                ctxSummary = "📍 已自动获取: " + autoContext.get("city");
+            } else {
+                ctxSummary = "📍 已自动获取: " + autoContext.toString();
+            }
+            ctxText.setText(ctxSummary);
+            ctxText.setTextSize(13);
+            ctxText.setTextColor(0xFF1565C0);
+            ctxText.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            ctxBar.addView(ctxText);
+
+            // 右侧：修改按钮（清空自动上下文，回到手动输入）
+            TextView modifyBtn = new TextView(this);
+            modifyBtn.setText("修改");
+            modifyBtn.setTextSize(13);
+            modifyBtn.setTextColor(0xFF1565C0);
+            modifyBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+            modifyBtn.setPadding(dp(8), dp(4), dp(4), dp(4));
+            modifyBtn.setOnClickListener(v -> {
+                autoContext.clear();
+                renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+            });
+            ctxBar.addView(modifyBtn);
+
+            container.addView(ctxBar);
+        }
+
+        // 步骤标题与描述（CONFIRM 步骤使用专用标题"确认执行"）
+        if (step.type == ToolGuideFlow.GuideStep.StepType.CONFIRM) {
+            TextView stepTitle = new TextView(this);
+            stepTitle.setText("确认执行");
+            stepTitle.setTextSize(15);
+            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            container.addView(stepTitle);
+        } else {
+            TextView stepTitle = new TextView(this);
+            stepTitle.setText(step.title);
+            stepTitle.setTextSize(15);
+            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            container.addView(stepTitle);
+
+            if (step.description != null && !step.description.isEmpty()) {
+                TextView descView = new TextView(this);
+                descView.setText(step.description);
+                descView.setTextSize(13);
+                descView.setTextColor(0xFF666666);
+                LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                descParams.topMargin = 8;
+                descView.setLayoutParams(descParams);
+                container.addView(descView);
+            }
+        }
+
+        // 根据步骤类型渲染中部内容
+        if (step.type == ToolGuideFlow.GuideStep.StepType.OPTION) {
+            // 选项卡片列表：每个选项为带图标+文字的卡片
+            if (step.options != null) {
+                String[] optEmojis = {"🌤️","🔍","🌐","🗄️","📁","📍","📱","➗","💡","✨","📋","⚙️"};
+                for (int oi = 0; oi < step.options.size(); oi++) {
+                    final ToolGuideFlow.GuideStep.Option opt = step.options.get(oi);
+                    // 卡片容器（水平）：左侧emoji + 右侧label
+                    LinearLayout card = new LinearLayout(this);
+                    card.setOrientation(LinearLayout.HORIZONTAL);
+                    card.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    card.setPadding(dp(16), dp(16), dp(16), dp(16));
+                    card.setClickable(true);
+                    // 卡片背景：圆角16dp 白底 边框1dp
+                    final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
+                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setCornerRadius(dp(16));
+                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    card.setBackground(cardBg);
+                    card.setElevation(dp(2));
+                    LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    cardLp.topMargin = (oi == 0) ? 0 : dp(12);
+                    card.setLayoutParams(cardLp);
+
+                    // 左侧 emoji 图标
+                    TextView iconTv = new TextView(this);
+                    iconTv.setText(oi < optEmojis.length ? optEmojis[oi] : "🔹");
+                    iconTv.setTextSize(20);
+                    LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    iconLp.rightMargin = dp(12);
+                    iconTv.setLayoutParams(iconLp);
+                    card.addView(iconTv);
+
+                    // 右侧 label 文字
+                    TextView labelTv = new TextView(this);
+                    labelTv.setText(opt.label);
+                    labelTv.setTextSize(15);
+                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setLayoutParams(new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                    card.addView(labelTv);
+
+                    // 若该选项已被选中，使用选中色高亮
+                    if (opt.value.equals(selectedParams.get(step.paramKey))) {
+                        cardBg.setColor(0xFFE8EAF6);
+                    }
+
+                    card.setOnClickListener(v -> {
+                        // 选中瞬间高亮，记录选择后重新计算 activeSteps 并前进
+                        cardBg.setColor(0xFFE8EAF6);
+                        selectedParams.put(step.paramKey, opt.value);
+                        activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
+                        currentStepIdx[0]++;
+                        renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+                    });
+                    container.addView(card);
+                }
+            }
+        } else if (step.type == ToolGuideFlow.GuideStep.StepType.INPUT) {
+            // 文本输入框
+            final EditText editText = new EditText(this);
+            editText.setHint(step.hint != null ? step.hint : "请输入");
+            editText.setTextSize(14);
+            if (step.multiline) {
+                editText.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                editText.setMinLines(3);
+            }
+            // 回退后重新进入时预填已选值
+            if (selectedParams.containsKey(step.paramKey)) {
+                editText.setText(selectedParams.get(step.paramKey));
+            }
+            LinearLayout.LayoutParams etParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            etParams.topMargin = 16;
+            editText.setLayoutParams(etParams);
+            container.addView(editText);
+
+            // 下一步按钮
+            android.widget.Button nextBtn = new android.widget.Button(this);
+            nextBtn.setText("下一步");
+            nextBtn.setBackgroundColor(0xFF6200EE);
+            nextBtn.setTextColor(0xFFFFFFFF);
+            LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nextLp.topMargin = 24;
+            nextBtn.setLayoutParams(nextLp);
+            nextBtn.setOnClickListener(v -> {
+                String value = editText.getText().toString().trim();
+                if (step.required && value.isEmpty()) {
+                    android.widget.Toast.makeText(this, "此项为必填，请输入内容", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                selectedParams.put(step.paramKey, value);
+                activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
+                currentStepIdx[0]++;
+                renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+            });
+            container.addView(nextBtn);
+        } else if (step.type == ToolGuideFlow.GuideStep.StepType.CONFIRM) {
+            // 展示已选参数摘要
+            TextView summaryView = new TextView(this);
+            StringBuilder sb = new StringBuilder();
+            if (selectedParams.isEmpty()) {
+                sb.append("（无参数）");
+            } else {
+                for (Map.Entry<String, String> entry : selectedParams.entrySet()) {
+                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                        sb.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+                    }
+                }
+            }
+            summaryView.setText(sb.toString().trim());
+            summaryView.setTextSize(13);
+            summaryView.setTextColor(0xFF333333);
+            LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            sumLp.topMargin = 16;
+            summaryView.setLayoutParams(sumLp);
+            container.addView(summaryView);
+
+            // 执行工具按钮
+            android.widget.Button execBtn = new android.widget.Button(this);
+            execBtn.setText("⚡ 执行工具");
+            execBtn.setBackgroundColor(0xFF6200EE);
+            execBtn.setTextColor(0xFFFFFFFF);
+            LinearLayout.LayoutParams execLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            execLp.topMargin = 24;
+            execBtn.setLayoutParams(execLp);
+            execBtn.setOnClickListener(v -> {
+                // 收集参数
+                final Map<String, Object> execParams = new HashMap<>();
+                for (Map.Entry<String, String> entry : selectedParams.entrySet()) {
+                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                        execParams.put(entry.getKey(), entry.getValue());
+                    }
+                }
+                // 注入已自动获取的上下文（不覆盖用户已填值）
+                injectAutoContext(execParams);
+
+                // 执行前检查缺失的环境上下文
+                List<String> missing = ToolContextProvider.getMissingContext(flow, execParams);
+                if (missing.contains("location") && "ai_weather".equals(toolName)) {
+                    // 缺少位置且为天气工具：异步定位后再执行
+                    execBtn.setEnabled(false);
+                    execBtn.setText("正在定位...");
+                    addSystemMessage("📍 正在定位...");
+                    final android.widget.Button execBtnRef = execBtn;
+                    ToolContextProvider.getCurrentLocation(this, new ToolContextProvider.LocationCallback() {
+                        @Override
+                        public void onLocationReady(String city, double lat, double lon) {
+                            // 定位成功：注入坐标到执行参数与自动上下文，更新提示条后执行
+                            autoContext.put("city", city);
+                            autoContext.put("lat", String.valueOf(lat));
+                            autoContext.put("lon", String.valueOf(lon));
+                            execParams.put("city", city);
+                            execParams.put("lat", lat);   // Double类型，天气工具需要Double/Number
+                            execParams.put("lon", lon);   // Double类型，天气工具需要Double/Number
+                            addSystemMessage("📍 已定位到: " + city);
+                            runGuideToolExecution(dialog, toolName, execParams);
+                        }
+                        @Override
+                        public void onLocationFailed(String error) {
+                            // 定位失败：恢复按钮，提示用户手动输入，不执行工具
+                            execBtnRef.setEnabled(true);
+                            execBtnRef.setText("⚡ 执行工具");
+                            android.widget.Toast.makeText(AIChatActivity.this,
+                                "定位失败,请手动输入城市", android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    return;
+                }
+
+                // 无缺失上下文，直接执行
+                runGuideToolExecution(dialog, toolName, execParams);
+            });
+            container.addView(execBtn);
+        }
+
+        dialog.setContentView(container);
+    }
+
+    /** 将已自动获取的上下文合并进执行参数（不覆盖用户已填的值） */
+    private void injectAutoContext(Map<String, Object> execParams) {
+        if (autoContext == null || autoContext.isEmpty() || execParams == null) return;
+        for (Map.Entry<String, String> e : autoContext.entrySet()) {
+            if (e.getValue() != null && !e.getValue().isEmpty() && !execParams.containsKey(e.getKey())) {
+                // lat/lon 用 Double 类型注入，天气工具需要 Double/Number
+                if ("lat".equals(e.getKey()) || "lon".equals(e.getKey())) {
+                    try { execParams.put(e.getKey(), Double.parseDouble(e.getValue())); }
+                    catch (NumberFormatException ex) { execParams.put(e.getKey(), e.getValue()); }
+                } else {
+                    execParams.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+    }
+
+    /**
+     * 执行引导流程收集到的工具：关闭对话框→显示工具调用气泡→后台执行→
+     * 保存结果到 ToolResultStore→调用 ToolResultInterpreter 解析并显示摘要。
+     *
+     * @param dialog      引导对话框（可为 null，执行前会关闭）
+     * @param toolName    工具名
+     * @param execParams  执行参数
+     */
+    private void runGuideToolExecution(
+            final com.google.android.material.bottomsheet.BottomSheetDialog dialog,
+            final String toolName, final Map<String, Object> execParams) {
+        if (dialog != null) dialog.dismiss();
+
+        // 在聊天中显示工具调用消息（气泡占位）
+        String paramsStr = execParams.isEmpty() ? "{}" : new com.google.gson.Gson().toJson(execParams);
+        final int msgPos = addToolCallMessage(toolName, paramsStr);
+
+        // 使用预检+错误恢复的执行（预知性补充缺失参数，避免错误）
+        preCheckThenExecute(toolName, execParams, msgPos, 0, null);
+    }
+
+    /**
+     * 预检工具参数后执行（预知性补充缺失参数，避免错误）。
+     * 第一层：预检 - 工具执行前预知性补充参数
+     * 第二层：执行 - 预检通过后执行工具
+     * 第三层：错误恢复 - 执行失败后动态纠错（executeToolWithRecovery内部处理）
+     */
+    private void preCheckThenExecute(final String toolName,
+                                     final Map<String, Object> params,
+                                     final int msgPos,
+                                     final int retryCount,
+                                     final Runnable onComplete) {
+        ToolPreChecker.preCheck(this, toolName, params, new ToolPreChecker.PreCheckCallback() {
+            @Override
+            public void onReady(Map<String, Object> params, String autoFilledInfo) {
+                // 预检回调在后台线程，UI操作需切回主线程
+                runOnUiThread(() -> {
+                    // 预检完成，显示自动补充的信息
+                    if (autoFilledInfo != null && !autoFilledInfo.isEmpty()) {
+                        addSystemMessage("🔧 已预检补充: " + autoFilledInfo);
+                        scrollToBottom();
+                    }
+                    // 执行工具（带错误恢复）
+                    executeToolWithRecovery(toolName, params, msgPos, retryCount, onComplete);
+                });
+            }
+            @Override
+            public void onNeedUserInput(List<ToolErrorRecovery.MissingParam> missing) {
+                // 需要用户输入的参数缺失，弹出输入框（UI操作切回主线程）
+                runOnUiThread(() -> promptUserForMissingParams(toolName, params, msgPos, missing, retryCount, onComplete));
+            }
+        });
+    }
+
+    /**
+     * 执行工具，失败时智能检测错误原因并自动补充参数重试。
+     * 最多重试2次：第1次自动获取位置等可自动补充的参数，第2次弹出输入框让用户补充。
+     *
+     * @param toolName    工具名
+     * @param params      执行参数（会被修改：补充缺失参数）
+     * @param msgPos      工具调用气泡在聊天列表中的位置
+     * @param retryCount  当前重试次数（从0开始）
+     * @param onComplete  完成回调（可为null，聚合流程用）
+     */
+    private void executeToolWithRecovery(final String toolName,
+                                         final Map<String, Object> params,
+                                         final int msgPos,
+                                         final int retryCount,
+                                         final Runnable onComplete) {
+        if (retryCount > 0) {
+            addSystemMessage("🔧 检测到问题，正在自动修复并重试(" + retryCount + "/2)...");
+            scrollToBottom();
+        }
+        new Thread(() -> {
+            final AIToolResult result = AIToolManager.getInstance(this).executeTool(toolName, params);
+            runOnUiThread(() -> {
+                final boolean success = result != null && result.isSuccess();
+                if (success) {
+                    // === 成功：显示结果 + LLM解析 ===
+                    String resultStr = String.valueOf(result.getResult());
+                    updateToolCallResult(msgPos, true, resultStr);
+                    addSystemMessage("✅ 工具执行完成");
+                    scrollToBottom();
+                    // 保存到ToolResultStore
+                    try {
+                        ToolResultStore.save(toolName, params, result.getResult(), 0);
+                    } catch (Exception ignore) { }
+                    // LLM解析结果
+                    addSystemMessage("💡 正在用AI解读结果...");
+                    scrollToBottom();
+                    ToolResultInterpreter.interpret(this, toolName, result.getResult(),
+                        new ToolResultInterpreter.InterpretCallback() {
+                            @Override
+                            public void onInterpreted(String summary) {
+                                if (summary != null && !summary.isEmpty()) {
+                                    addAIMessage(summary);
+                                    scrollToBottom();
+                                }
+                                if (onComplete != null) onComplete.run();
+                            }
+                            @Override
+                            public void onError(String error) {
+                                if (onComplete != null) onComplete.run();
+                            }
+                        });
+                } else if (retryCount < 2) {
+                    // === 失败但可重试：智能恢复 ===
+                    String error = result != null ? result.getErrorMessage() : "未知错误";
+                    attemptToolRecovery(toolName, params, msgPos, error, retryCount, onComplete);
+                } else {
+                    // === 超过重试次数：最终失败 ===
+                    String error = result != null ? result.getErrorMessage() : "未知错误";
+                    updateToolCallResult(msgPos, false, error);
+                    addSystemMessage("❌ 工具执行失败: " + error);
+                    scrollToBottom();
+                    if (onComplete != null) onComplete.run();
+                }
+            });
+        }).start();
+    }
+
+    /**
+     * 智能恢复：分析错误原因，自动补充可获取的参数或弹出输入框让用户补充。
+     */
+    private void attemptToolRecovery(final String toolName,
+                                     final Map<String, Object> params,
+                                     final int msgPos,
+                                     final String errorMsg,
+                                     final int retryCount,
+                                     final Runnable onComplete) {
+        java.util.List<ToolErrorRecovery.MissingParam> missing =
+                ToolErrorRecovery.analyzeMissingParams(toolName, errorMsg, params);
+
+        if (missing.isEmpty()) {
+            // 无法识别缺失参数，直接失败
+            updateToolCallResult(msgPos, false, errorMsg);
+            addSystemMessage("❌ 工具执行失败: " + errorMsg);
+            scrollToBottom();
+            if (onComplete != null) onComplete.run();
+            return;
+        }
+
+        // 构建缺失参数描述
+        StringBuilder descSb = new StringBuilder("🔧 检测到缺失参数: ");
+        for (int i = 0; i < missing.size(); i++) {
+            if (i > 0) descSb.append("、");
+            descSb.append(missing.get(i).description);
+        }
+        addSystemMessage(descSb.toString());
+        scrollToBottom();
+
+        if (ToolErrorRecovery.allAutoFillable(missing)) {
+            // 全部可自动获取（如位置类参数）
+            addSystemMessage("📍 正在自动获取...");
+            scrollToBottom();
+            autoFillMissingParams(missing, params, new Runnable() {
+                @Override
+                public void run() {
+                    // 补充完成，重试执行
+                    executeToolWithRecovery(toolName, params, msgPos, retryCount + 1, onComplete);
+                }
+            });
+        } else {
+            // 需要用户输入，弹出输入框
+            promptUserForMissingParams(toolName, params, msgPos, missing, retryCount, onComplete);
+        }
+    }
+
+    /**
+     * 自动获取缺失参数（定位、时间等），补充到params中。
+     */
+    private void autoFillMissingParams(final java.util.List<ToolErrorRecovery.MissingParam> missing,
+                                       final Map<String, Object> params,
+                                       final Runnable onComplete) {
+        if (ToolErrorRecovery.needsLocation(missing)) {
+            // 需要定位
+            ToolContextProvider.getCurrentLocation(this, new ToolContextProvider.LocationCallback() {
+                @Override
+                public void onLocationReady(String city, double lat, double lon) {
+                    if (!hasParamValue(params, "city")) params.put("city", city);
+                    if (!hasParamValue(params, "lat")) params.put("lat", lat);
+                    if (!hasParamValue(params, "lon")) params.put("lon", lon);
+                    addSystemMessage("📍 已自动获取位置: " + city);
+                    scrollToBottom();
+                    // 补充时间类参数
+                    fillTimeParams(missing, params);
+                    onComplete.run();
+                }
+                @Override
+                public void onLocationFailed(String error) {
+                    addSystemMessage("⚠️ 自动定位失败: " + error + "，使用默认城市北京");
+                    if (!hasParamValue(params, "city")) params.put("city", "北京");
+                    // 北京坐标
+                    if (!hasParamValue(params, "lat")) params.put("lat", 39.9042);
+                    if (!hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                    scrollToBottom();
+                    fillTimeParams(missing, params);
+                    onComplete.run();
+                }
+            });
+        } else {
+            // 不需要定位，只补充时间类参数
+            fillTimeParams(missing, params);
+            onComplete.run();
+        }
+    }
+
+    /** 补充时间类参数 */
+    private void fillTimeParams(java.util.List<ToolErrorRecovery.MissingParam> missing, Map<String, Object> params) {
+        for (ToolErrorRecovery.MissingParam mp : missing) {
+            if ("time".equals(mp.key) || "datetime".equals(mp.key)) {
+                if (!hasParamValue(params, mp.key)) {
+                    params.put(mp.key, ToolContextProvider.getCurrentDateTime());
+                }
+            } else if ("date".equals(mp.key)) {
+                if (!hasParamValue(params, "date")) {
+                    params.put("date", ToolContextProvider.getCurrentDate());
+                }
+            }
+        }
+    }
+
+    /** 检查参数是否已有非空值 */
+    private boolean hasParamValue(Map<String, Object> params, String key) {
+        if (params == null) return false;
+        Object v = params.get(key);
+        if (v == null) return false;
+        if (v instanceof String) return !((String) v).trim().isEmpty();
+        return true;
+    }
+
+    /**
+     * 弹出输入框让用户补充缺失参数，补充后重试执行。
+     */
+    private void promptUserForMissingParams(final String toolName,
+                                            final Map<String, Object> params,
+                                            final int msgPos,
+                                            final java.util.List<ToolErrorRecovery.MissingParam> missing,
+                                            final int retryCount,
+                                            final Runnable onComplete) {
+        // 过滤出需要用户输入的参数
+        java.util.List<ToolErrorRecovery.MissingParam> userParams = new java.util.ArrayList<>();
+        for (ToolErrorRecovery.MissingParam mp : missing) {
+            if (!mp.autoFillable) {
+                userParams.add(mp);
+            }
+        }
+        if (userParams.isEmpty()) {
+            // 没有需要用户输入的，直接重试
+            executeToolWithRecovery(toolName, params, msgPos, retryCount + 1, onComplete);
+            return;
+        }
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        dialog.setTitle("🔧 需要补充信息");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(48, 48, 48, 48);
+
+        // 提示标题
+        TextView titleView = new TextView(this);
+        titleView.setText("工具执行缺少参数，请补充：");
+        titleView.setTextSize(15);
+        titleView.setTextColor(0xFF333333);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        layout.addView(titleView);
+
+        // 为每个缺失参数创建输入框
+        final java.util.Map<String, EditText> inputs = new java.util.HashMap<>();
+        for (ToolErrorRecovery.MissingParam mp : userParams) {
+            TextView label = new TextView(this);
+            label.setText(mp.description);
+            label.setTextSize(13);
+            label.setTextColor(0xFF666666);
+            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            labelLp.topMargin = 16;
+            label.setLayoutParams(labelLp);
+            layout.addView(label);
+
+            EditText input = new EditText(this);
+            input.setHint("请输入" + mp.description);
+            input.setTextSize(14);
+            LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            inputLp.topMargin = 4;
+            input.setLayoutParams(inputLp);
+            layout.addView(input);
+            inputs.put(mp.key, input);
+        }
+
+        // 提交按钮
+        android.widget.Button submitBtn = new android.widget.Button(this);
+        submitBtn.setText("提交并重试");
+        submitBtn.setBackgroundColor(0xFF6200EE);
+        submitBtn.setTextColor(0xFFFFFFFF);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        btnLp.topMargin = 24;
+        submitBtn.setLayoutParams(btnLp);
+        submitBtn.setOnClickListener(v -> {
+            boolean allFilled = true;
+            for (ToolErrorRecovery.MissingParam mp : userParams) {
+                EditText et = inputs.get(mp.key);
+                if (et != null) {
+                    String value = et.getText().toString().trim();
+                    if (value.isEmpty()) {
+                        allFilled = false;
+                    } else {
+                        params.put(mp.key, value);
+                    }
+                }
+            }
+            if (!allFilled) {
+                android.widget.Toast.makeText(this, "请填写所有参数", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            dialog.dismiss();
+            addSystemMessage("📝 已补充参数，正在重试...");
+            scrollToBottom();
+            executeToolWithRecovery(toolName, params, msgPos, retryCount + 1, onComplete);
+        });
+        layout.addView(submitBtn);
+
+        dialog.setContentView(layout);
+        dialog.show();
+    }
+
+    /** 聚合步骤参数收集回调 */
+    private interface CompositeParamCollector {
+        void onCollected(Map<String, String> params);
+    }
+
+    /** 动态创建一个聚合方案入口 Chip 并加入 ChipGroup */
+    private void addCompositeChip(com.google.android.material.chip.ChipGroup group,
+                                  String label, final String flowId) {
+        com.google.android.material.chip.Chip chip = new com.google.android.material.chip.Chip(this);
+        chip.setText(label);
+        chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(0xFFE8F5E9));
+        chip.setTextColor(0xFF1B5E20);
+        chip.setChipStrokeWidth(0f);
+        chip.setClickable(true);
+        chip.setOnClickListener(v -> showCompositeGuideDialog(flowId));
+        group.addView(chip);
+    }
+
+    /**
+     * 显示聚合引导方案对话框：展示方案介绍 + 步骤预览 + "开始执行"按钮。
+     *
+     * @param flowId 聚合流程ID（如 "go_out"）
+     */
+    private void showCompositeGuideDialog(String flowId) {
+        final CompositeGuideFlow flow = CompositeGuideFlow.getFlow(flowId);
+        if (flow == null) {
+            android.widget.Toast.makeText(this, "未找到该聚合方案", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(48, 48, 48, 48);
+
+        // 方案介绍：图标 + 名称
+        TextView titleView = new TextView(this);
+        titleView.setText((flow.icon != null ? flow.icon + " " : "") + flow.displayName);
+        titleView.setTextSize(18);
+        titleView.setTextColor(0xFF333333);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        container.addView(titleView);
+
+        // 方案描述
+        if (flow.description != null && !flow.description.isEmpty()) {
+            TextView descView = new TextView(this);
+            descView.setText(flow.description);
+            descView.setTextSize(13);
+            descView.setTextColor(0xFF666666);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dlp.topMargin = 8;
+            descView.setLayoutParams(dlp);
+            container.addView(descView);
+        }
+
+        // 分隔线
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFE0E0E0);
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        divLp.topMargin = 16;
+        divLp.bottomMargin = 16;
+        divider.setLayoutParams(divLp);
+        container.addView(divider);
+
+        // 步骤列表预览
+        TextView stepsTitle = new TextView(this);
+        stepsTitle.setText("执行步骤:");
+        stepsTitle.setTextSize(14);
+        stepsTitle.setTextColor(0xFF3F51B5);
+        stepsTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        container.addView(stepsTitle);
+        if (flow.steps != null) {
+            for (int i = 0; i < flow.steps.size(); i++) {
+                CompositeGuideFlow.CompositeStep s = flow.steps.get(i);
+                TextView stepView = new TextView(this);
+                stepView.setText((i + 1) + ". " + (s.icon != null ? s.icon + " " : "") + s.actionDescription);
+                stepView.setTextSize(14);
+                stepView.setTextColor(0xFF333333);
+                LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                slp.topMargin = 8;
+                stepView.setLayoutParams(slp);
+                container.addView(stepView);
+            }
+        }
+
+        // 开始执行按钮
+        android.widget.Button startBtn = new android.widget.Button(this);
+        startBtn.setText("🚀 开始执行");
+        startBtn.setBackgroundColor(0xFF6200EE);
+        startBtn.setTextColor(0xFFFFFFFF);
+        LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        startLp.topMargin = 24;
+        startBtn.setLayoutParams(startLp);
+        startBtn.setOnClickListener(v -> {
+            dialog.dismiss();
+            addSystemMessage("🚀 开始聚合方案: " + flow.displayName);
+            // 清空上一次聚合流程的中间结果
+            ToolResultStore.clear();
+            executeCompositeFlow(flow, 0);
+        });
+        container.addView(startBtn);
+
+        dialog.setContentView(container);
+        dialog.show();
+    }
+
+    /**
+     * 递归执行聚合流程。每执行完一步（含结果解析）后递归进入下一步，
+     * 全部完成后给出综合提示并清空中间结果存储。
+     *
+     * @param flow      聚合流程
+     * @param stepIndex 当前步骤索引
+     */
+    private void executeCompositeFlow(final CompositeGuideFlow flow, final int stepIndex) {
+        // 全部步骤完成
+        if (flow.steps == null || stepIndex >= flow.steps.size()) {
+            addSystemMessage("✅ " + flow.displayName + " 全部完成");
+            ToolResultStore.clear();
+            return;
+        }
+        final CompositeGuideFlow.CompositeStep step = flow.steps.get(stepIndex);
+        // 顶部进度提示
+        addSystemMessage("📋 [" + flow.displayName + "] 步骤 " + (stepIndex + 1) + "/" + flow.steps.size()
+                + " - 当前: " + step.actionDescription);
+        scrollToBottom();
+
+        // 需要用户补充参数时先弹出引导收集
+        if (step.guideSteps != null && !step.guideSteps.isEmpty() && !step.autoExecute) {
+            collectCompositeStepParams(step, collected -> {
+                Map<String, Object> params = buildCompositeParams(step, collected);
+                executeCompositeStep(flow, step, stepIndex, params);
+            });
+        } else {
+            // 自动执行或无引导步骤：直接构建参数执行
+            Map<String, Object> params = buildCompositeParams(step, null);
+            executeCompositeStep(flow, step, stepIndex, params);
+        }
+    }
+
+    /**
+     * 构建聚合步骤执行参数：合并 fixedParams + 解析 paramRefs（用 ToolResultStore.resolveRef）+ 引导收集的参数。
+     */
+    private Map<String, Object> buildCompositeParams(CompositeGuideFlow.CompositeStep step,
+                                                     Map<String, String> collected) {
+        Map<String, Object> params = new HashMap<>();
+        // 固定参数
+        if (step.fixedParams != null) {
+            for (Map.Entry<String, String> e : step.fixedParams.entrySet()) {
+                if (e.getValue() != null) params.put(e.getKey(), e.getValue());
+            }
+        }
+        // 参数引用：运行时解析（如 $prev.city）
+        if (step.paramRefs != null) {
+            for (Map.Entry<String, String> e : step.paramRefs.entrySet()) {
+                String resolved = ToolResultStore.resolveRef(e.getValue());
+                if (resolved != null && !resolved.isEmpty()) {
+                    params.put(e.getKey(), resolved);
+                }
+            }
+        }
+        // 引导步骤收集的参数
+        if (collected != null) {
+            for (Map.Entry<String, String> e : collected.entrySet()) {
+                if (e.getValue() != null && !e.getValue().isEmpty()) {
+                    params.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+        return params;
+    }
+
+    /**
+     * 执行单个聚合步骤：显示工具调用气泡→后台执行→保存结果→解析摘要→递归下一步。
+     */
+    private void executeCompositeStep(final CompositeGuideFlow flow,
+                                      final CompositeGuideFlow.CompositeStep step,
+                                      final int stepIndex, final Map<String, Object> params) {
+        // 显示工具调用气泡与"执行中"状态
+        String paramsStr = params.isEmpty() ? "{}" : new com.google.gson.Gson().toJson(params);
+        final int msgPos = addToolCallMessage(step.toolName, paramsStr);
+        addSystemMessage("⚡ 正在执行: " + step.actionDescription + "...");
+        scrollToBottom();
+
+        // 预检参数后执行（预知性补充缺失参数）
+        ToolPreChecker.preCheck(this, step.toolName, params, new ToolPreChecker.PreCheckCallback() {
+            @Override
+            public void onReady(Map<String, Object> params, String autoFilledInfo) {
+                runOnUiThread(() -> {
+                if (autoFilledInfo != null && !autoFilledInfo.isEmpty()) {
+                    addSystemMessage("🔧 已预检补充: " + autoFilledInfo);
+                    scrollToBottom();
+                }
+                // 预检通过，执行工具
+                new Thread(() -> {
+                    final AIToolResult result = AIToolManager.getInstance(AIChatActivity.this).executeTool(step.toolName, params);
+                    runOnUiThread(() -> {
+                        final boolean success = result != null && result.isSuccess();
+                        if (success) {
+                            // 成功：显示结果
+                            String resultStr = String.valueOf(result.getResult());
+                            updateToolCallResult(msgPos, true, resultStr);
+                            addSystemMessage("✅ " + step.actionDescription + " 完成");
+                            scrollToBottom();
+                            // 保存结果
+                            try {
+                                ToolResultStore.save(step.toolName, params, result.getResult(), stepIndex);
+                            } catch (Exception ignore) { }
+                            // LLM解析
+                            final int nextIndex = stepIndex + 1;
+                            ToolResultInterpreter.interpret(AIChatActivity.this, step.toolName, result.getResult(),
+                                new ToolResultInterpreter.InterpretCallback() {
+                                    @Override
+                                    public void onInterpreted(String summary) {
+                                        if (summary != null && !summary.isEmpty()) {
+                                            addAIMessage(summary);
+                                            scrollToBottom();
+                                        }
+                                        executeCompositeFlow(flow, nextIndex);
+                                    }
+                                    @Override
+                                    public void onError(String error) {
+                                        executeCompositeFlow(flow, nextIndex);
+                                    }
+                                });
+                        } else {
+                            // 失败：尝试智能恢复
+                            String error = result != null ? result.getErrorMessage() : "未知错误";
+                            recoverCompositeStep(flow, step, stepIndex, params, msgPos, error, 0);
+                        }
+                    });
+                }).start();
+                }); // runOnUiThread end
+            }
+            @Override
+            public void onNeedUserInput(List<ToolErrorRecovery.MissingParam> missing) {
+                // 聚合步骤需要用户输入参数
+                runOnUiThread(() -> promptUserForCompositeParams(flow, step, stepIndex, params, msgPos, missing, 0));
+            }
+        });
+    }
+
+    /**
+     * 聚合流程中的工具错误恢复。
+     */
+    private void recoverCompositeStep(final CompositeGuideFlow flow,
+                                      final CompositeGuideFlow.CompositeStep step,
+                                      final int stepIndex,
+                                      final Map<String, Object> params,
+                                      final int msgPos,
+                                      final String errorMsg,
+                                      final int retryCount) {
+        if (retryCount >= 2) {
+            // 超过重试次数
+            updateToolCallResult(msgPos, false, errorMsg);
+            addSystemMessage("❌ " + step.actionDescription + " 失败: " + errorMsg);
+            addSystemMessage("❌ " + flow.displayName + " 因步骤失败而终止");
+            ToolResultStore.clear();
+            scrollToBottom();
+            return;
+        }
+
+        java.util.List<ToolErrorRecovery.MissingParam> missing =
+                ToolErrorRecovery.analyzeMissingParams(step.toolName, errorMsg, params);
+
+        if (missing.isEmpty()) {
+            // 无法识别缺失参数，终止
+            updateToolCallResult(msgPos, false, errorMsg);
+            addSystemMessage("❌ " + step.actionDescription + " 失败: " + errorMsg);
+            addSystemMessage("❌ " + flow.displayName + " 因步骤失败而终止");
+            ToolResultStore.clear();
+            scrollToBottom();
+            return;
+        }
+
+        StringBuilder descSb = new StringBuilder("🔧 检测到缺失参数: ");
+        for (int i = 0; i < missing.size(); i++) {
+            if (i > 0) descSb.append("、");
+            descSb.append(missing.get(i).description);
+        }
+        addSystemMessage(descSb.toString());
+        scrollToBottom();
+
+        final int nextRetry = retryCount + 1;
+        if (ToolErrorRecovery.allAutoFillable(missing)) {
+            addSystemMessage("📍 正在自动获取...");
+            scrollToBottom();
+            autoFillMissingParams(missing, params, new Runnable() {
+                @Override
+                public void run() {
+                    // 重试执行该步骤
+                    retryCompositeStepExecution(flow, step, stepIndex, params, msgPos, nextRetry);
+                }
+            });
+        } else {
+            // 需要用户输入
+            promptUserForCompositeParams(flow, step, stepIndex, params, msgPos, missing, nextRetry);
+        }
+    }
+
+    /** 重试执行聚合步骤 */
+    private void retryCompositeStepExecution(final CompositeGuideFlow flow,
+                                             final CompositeGuideFlow.CompositeStep step,
+                                             final int stepIndex,
+                                             final Map<String, Object> params,
+                                             final int msgPos,
+                                             final int retryCount) {
+        addSystemMessage("🔧 正在重试" + step.actionDescription + "...");
+        scrollToBottom();
+        new Thread(() -> {
+            final AIToolResult result = AIToolManager.getInstance(this).executeTool(step.toolName, params);
+            runOnUiThread(() -> {
+                final boolean success = result != null && result.isSuccess();
+                if (success) {
+                    String resultStr = String.valueOf(result.getResult());
+                    updateToolCallResult(msgPos, true, resultStr);
+                    addSystemMessage("✅ " + step.actionDescription + " 完成");
+                    scrollToBottom();
+                    try {
+                        ToolResultStore.save(step.toolName, params, result.getResult(), stepIndex);
+                    } catch (Exception ignore) { }
+                    final int nextIndex = stepIndex + 1;
+                    ToolResultInterpreter.interpret(this, step.toolName, result.getResult(),
+                        new ToolResultInterpreter.InterpretCallback() {
+                            @Override
+                            public void onInterpreted(String summary) {
+                                if (summary != null && !summary.isEmpty()) {
+                                    addAIMessage(summary);
+                                    scrollToBottom();
+                                }
+                                executeCompositeFlow(flow, nextIndex);
+                            }
+                            @Override
+                            public void onError(String error) {
+                                executeCompositeFlow(flow, nextIndex);
+                            }
+                        });
+                } else {
+                    // 还是失败，继续恢复
+                    String error = result != null ? result.getErrorMessage() : "未知错误";
+                    recoverCompositeStep(flow, step, stepIndex, params, msgPos, error, retryCount);
+                }
+            });
+        }).start();
+    }
+
+    /** 聚合步骤参数用户输入 */
+    private void promptUserForCompositeParams(final CompositeGuideFlow flow,
+                                              final CompositeGuideFlow.CompositeStep step,
+                                              final int stepIndex,
+                                              final Map<String, Object> params,
+                                              final int msgPos,
+                                              final java.util.List<ToolErrorRecovery.MissingParam> missing,
+                                              final int retryCount) {
+        java.util.List<ToolErrorRecovery.MissingParam> userParams = new java.util.ArrayList<>();
+        for (ToolErrorRecovery.MissingParam mp : missing) {
+            if (!mp.autoFillable) userParams.add(mp);
+        }
+        if (userParams.isEmpty()) {
+            retryCompositeStepExecution(flow, step, stepIndex, params, msgPos, retryCount);
+            return;
+        }
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(48, 48, 48, 48);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("🔧 " + step.actionDescription + " 需要补充信息：");
+        titleView.setTextSize(15);
+        titleView.setTextColor(0xFF333333);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        layout.addView(titleView);
+
+        final java.util.Map<String, EditText> inputs = new java.util.HashMap<>();
+        for (ToolErrorRecovery.MissingParam mp : userParams) {
+            TextView label = new TextView(this);
+            label.setText(mp.description);
+            label.setTextSize(13);
+            label.setTextColor(0xFF666666);
+            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            labelLp.topMargin = 16;
+            label.setLayoutParams(labelLp);
+            layout.addView(label);
+
+            EditText input = new EditText(this);
+            input.setHint("请输入" + mp.description);
+            input.setTextSize(14);
+            LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            inputLp.topMargin = 4;
+            input.setLayoutParams(inputLp);
+            layout.addView(input);
+            inputs.put(mp.key, input);
+        }
+
+        android.widget.Button submitBtn = new android.widget.Button(this);
+        submitBtn.setText("提交并重试");
+        submitBtn.setBackgroundColor(0xFF6200EE);
+        submitBtn.setTextColor(0xFFFFFFFF);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        btnLp.topMargin = 24;
+        submitBtn.setLayoutParams(btnLp);
+        submitBtn.setOnClickListener(v -> {
+            boolean allFilled = true;
+            for (ToolErrorRecovery.MissingParam mp : userParams) {
+                EditText et = inputs.get(mp.key);
+                if (et != null) {
+                    String value = et.getText().toString().trim();
+                    if (value.isEmpty()) {
+                        allFilled = false;
+                    } else {
+                        params.put(mp.key, value);
+                    }
+                }
+            }
+            if (!allFilled) {
+                android.widget.Toast.makeText(this, "请填写所有参数", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            dialog.dismiss();
+            addSystemMessage("📝 已补充参数，正在重试...");
+            scrollToBottom();
+            retryCompositeStepExecution(flow, step, stepIndex, params, msgPos, retryCount);
+        });
+        layout.addView(submitBtn);
+
+        dialog.setContentView(layout);
+        dialog.show();
+    }
+
+    /**
+     * 弹出引导对话框收集聚合步骤所需参数（OPTION/INPUT），收集完成后回调。
+     */
+    private void collectCompositeStepParams(final CompositeGuideFlow.CompositeStep step,
+                                            final CompositeParamCollector callback) {
+        if (step.guideSteps == null || step.guideSteps.isEmpty()) {
+            callback.onCollected(new HashMap<>());
+            return;
+        }
+        final com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        final Map<String, String> collected = new HashMap<>();
+        final int[] idx = {0};
+        renderCompositeCollectStep(dialog, step, collected, idx, callback);
+        dialog.show();
+    }
+
+    /** 渲染聚合步骤参数收集的当前引导子步骤 */
+    private void renderCompositeCollectStep(final com.google.android.material.bottomsheet.BottomSheetDialog dialog,
+                                            final CompositeGuideFlow.CompositeStep step,
+                                            final Map<String, String> collected, final int[] idx,
+                                            final CompositeParamCollector callback) {
+        // 全部子步骤收集完成
+        if (idx[0] >= step.guideSteps.size()) {
+            dialog.dismiss();
+            callback.onCollected(collected);
+            return;
+        }
+        final ToolGuideFlow.GuideStep gs = step.guideSteps.get(idx[0]);
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(48, 48, 48, 48);
+
+        // 标题：步骤图标 + 子步骤标题 + 进度
+        TextView titleView = new TextView(this);
+        titleView.setText((step.icon != null ? step.icon + " " : "") + gs.title
+                + "  (" + (idx[0] + 1) + "/" + step.guideSteps.size() + ")");
+        titleView.setTextSize(16);
+        titleView.setTextColor(0xFF333333);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        container.addView(titleView);
+
+        // 描述
+        if (gs.description != null && !gs.description.isEmpty()) {
+            TextView descView = new TextView(this);
+            descView.setText(gs.description);
+            descView.setTextSize(13);
+            descView.setTextColor(0xFF666666);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dlp.topMargin = 8;
+            descView.setLayoutParams(dlp);
+            container.addView(descView);
+        }
+
+        if (gs.type == ToolGuideFlow.GuideStep.StepType.OPTION) {
+            // 选项卡片（与主引导流程保持一致的卡片样式）
+            if (gs.options != null) {
+                String[] optEmojis = {"🌤️", "🔍", "🌐", "🗄️", "📁", "📍", "📱", "➗", "💡", "✨", "📋", "⚙️"};
+                for (int oi = 0; oi < gs.options.size(); oi++) {
+                    final ToolGuideFlow.GuideStep.Option opt = gs.options.get(oi);
+                    LinearLayout card = new LinearLayout(this);
+                    card.setOrientation(LinearLayout.HORIZONTAL);
+                    card.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    card.setPadding(dp(16), dp(16), dp(16), dp(16));
+                    card.setClickable(true);
+                    final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
+                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setCornerRadius(dp(16));
+                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    card.setBackground(cardBg);
+                    card.setElevation(dp(2));
+                    LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    cardLp.topMargin = (oi == 0) ? dp(16) : dp(12);
+                    card.setLayoutParams(cardLp);
+
+                    TextView iconTv = new TextView(this);
+                    iconTv.setText(oi < optEmojis.length ? optEmojis[oi] : "🔹");
+                    iconTv.setTextSize(20);
+                    LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    iconLp.rightMargin = dp(12);
+                    iconTv.setLayoutParams(iconLp);
+                    card.addView(iconTv);
+
+                    TextView labelTv = new TextView(this);
+                    labelTv.setText(opt.label);
+                    labelTv.setTextSize(15);
+                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setLayoutParams(new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                    card.addView(labelTv);
+
+                    card.setOnClickListener(v -> {
+                        cardBg.setColor(0xFFE8EAF6);
+                        collected.put(gs.paramKey, opt.value);
+                        idx[0]++;
+                        renderCompositeCollectStep(dialog, step, collected, idx, callback);
+                    });
+                    container.addView(card);
+                }
+            }
+        } else if (gs.type == ToolGuideFlow.GuideStep.StepType.INPUT) {
+            // 文本输入
+            final EditText editText = new EditText(this);
+            editText.setHint(gs.hint != null ? gs.hint : "请输入");
+            editText.setTextSize(14);
+            if (gs.multiline) {
+                editText.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                editText.setMinLines(3);
+            }
+            if (collected.containsKey(gs.paramKey)) {
+                editText.setText(collected.get(gs.paramKey));
+            }
+            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            etLp.topMargin = dp(16);
+            editText.setLayoutParams(etLp);
+            container.addView(editText);
+
+            android.widget.Button nextBtn = new android.widget.Button(this);
+            nextBtn.setText("下一步");
+            nextBtn.setBackgroundColor(0xFF6200EE);
+            nextBtn.setTextColor(0xFFFFFFFF);
+            LinearLayout.LayoutParams nbLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nbLp.topMargin = dp(24);
+            nextBtn.setLayoutParams(nbLp);
+            nextBtn.setOnClickListener(v -> {
+                String value = editText.getText().toString().trim();
+                if (gs.required && value.isEmpty()) {
+                    android.widget.Toast.makeText(this, "此项为必填，请输入内容", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                collected.put(gs.paramKey, value);
+                idx[0]++;
+                renderCompositeCollectStep(dialog, step, collected, idx, callback);
+            });
+            container.addView(nextBtn);
+        }
+
+        dialog.setContentView(container);
     }
 
     private void sendMessage() {
@@ -1589,9 +2937,16 @@ public class AIChatActivity extends BaseActivity {
             // 根据当前模式决定处理方式
             ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
 
-            // Agent 模式优先：无论本地/在线模型，AGENT 模式都走 Agent 引擎（支持工具调用）
+            // Agent 模式优先：在线AGENT走ReAct（含友好引导），本地AGENT走友好引导（不走ReAct）
             if (currentMode == ChatModeManager.ChatMode.AGENT) {
-                processChatMessageWithAgent(message);
+                if (shouldUseOnlineModel()) {
+                    // 在线agent：先显示友好引导，再走ReAct
+                    showOnlineAgentFriendlyGuide(message);
+                    processChatMessageWithAgent(message);
+                } else {
+                    // 本地agent：不走ReAct，显示友好引导提示
+                    showLocalAgentFriendlyGuide(message);
+                }
                 return;
             }
 
@@ -1698,6 +3053,199 @@ public class AIChatActivity extends BaseActivity {
             endGeneration();
             addSystemMessage("处理消息时出错: " + e.getMessage());
         }
+    }
+
+    /**
+     * 显示新手引导信息（聊天历史为空时显示）。
+     * 帮助用户了解AI对话界面的各项功能和使用方式。
+     */
+    private void showWelcomeGuide() {
+        StringBuilder guide = new StringBuilder();
+        guide.append("👋 欢迎使用AI助手！\n\n");
+        guide.append("我是你的智能助手，可以帮你查天气、搜索、翻译、查题库等。\n\n");
+
+        guide.append("📋 功能使用指南\n");
+        guide.append("──────────────\n\n");
+
+        guide.append("🔝 顶部工具栏\n");
+        guide.append("  • 「💬普通 / 🤖Agent」— 切换对话模式\n");
+        guide.append("  • 「🤖模型」— 选择/配置AI模型\n");
+        guide.append("  • 「📋历史」— 查看历史对话\n");
+        guide.append("  • 「🗑️清空」— 清空当前对话\n\n");
+
+        guide.append("🔧 底部工具按钮（Agent模式）\n");
+        guide.append("  • 🚗 出行准备 — 一键查天气+空气+预警\n");
+        guide.append("  • 🌤 查天气 — 天气/预报/空气质量/预警\n");
+        guide.append("  • 🔍 搜索 — 联网搜索/智能问答/读网页\n");
+        guide.append("  • 📚 题库 — 搜索题目/分类统计\n");
+        guide.append("  • 🌐 翻译 — 多语言翻译\n");
+        guide.append("  • 📍 定位 — 获取当前位置\n");
+        guide.append("  • 📂 文件 — 文件操作\n");
+        guide.append("  • 🔧 计算 — 数学计算\n\n");
+
+        guide.append("💬 两种使用方式\n");
+        guide.append("──────────────\n\n");
+        guide.append("1️⃣ 离线引导模式（默认，无需网络）\n");
+        guide.append("  点击底部工具按钮，一步步引导你完成操作\n");
+        guide.append("  适合：明确知道要做什么的操作\n");
+        guide.append("  配置：点击顶部「🤖模型」选择本地模型即可离线使用\n\n");
+        guide.append("2️⃣ 在线Agent模式（完整功能）\n");
+        guide.append("  点击顶部「🤖模型」配置在线模型后\n");
+        guide.append("  直接输入需求，Agent自动推理+工具调用\n");
+        guide.append("  适合：复杂任务、多轮对话、智能组合工具\n\n");
+
+        guide.append("⚙️ 模型配置\n");
+        guide.append("──────────────\n");
+        guide.append("  点击顶部「🤖模型」按钮：\n");
+        guide.append("  • 本地模型 — 离线使用，无需网络，工具引导模式\n");
+        guide.append("  • 在线模型 — 联网使用，完整Agent，智能推理\n\n");
+
+        guide.append("💡 快速开始\n");
+        guide.append("──────────────\n");
+        guide.append("  • 点击下方工具按钮，立即开始操作\n");
+        guide.append("  • 或直接输入消息，我会帮你选择工具\n");
+        guide.append("  • 配置在线模型后，享受完整Agent体验\n\n");
+
+        guide.append("试试问我：「今天天气怎么样？」「帮我搜索最新油价」\n");
+        guide.append("或者直接点击下方工具按钮开始吧！🎯");
+
+        addAIMessage(guide.toString());
+        scrollToBottom();
+    }
+
+    private void showLocalAgentFriendlyGuide(String userMessage) {
+        StringBuilder guide = new StringBuilder();
+        String lower = userMessage.toLowerCase();
+
+        guide.append("你好！我是你的AI助手 🤖\n\n");
+
+        // 根据用户消息内容智能推荐工具
+        boolean matched = false;
+        if (containsKeyword(lower, "天气", "气温", "下雨", "温度", "weather", "空气质量", "预警")) {
+            guide.append("🌤 想查天气？点击下方「查天气」按钮\n");
+            guide.append("   可以查当前天气、预报、空气质量、预警等\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "搜索", "搜一下", "查一下", "查找", "search", "百度", "google")) {
+            guide.append("🔍 想搜索？点击下方「搜索」按钮\n");
+            guide.append("   支持联网搜索、智能问答、网页读取\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "翻译", "translate", "英文", "日文", "韩文")) {
+            guide.append("🌐 想翻译？点击下方「翻译」按钮\n");
+            guide.append("   支持中英日韩多语言互译\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "题", "题库", "题目", "quiz", "question", "考试")) {
+            guide.append("📚 想查题？点击下方「数据库」按钮\n");
+            guide.append("   可以搜索题目、查看分类统计\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "位置", "定位", "在哪", "location", "坐标")) {
+            guide.append("📍 想定位？点击下方「定位」按钮\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "出行", "出门", "准备", "带伞")) {
+            guide.append("🚗 准备出行？点击下方「出行准备」按钮\n");
+            guide.append("   一键查询定位→天气→空气→预警\n\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "计算", "算", "calculate", "+", "-", "×", "÷")) {
+            guide.append("🔧 想计算？点击下方「计算」按钮\n\n");
+            matched = true;
+        }
+
+        if (!matched) {
+            guide.append("你可以点击下方工具按钮来执行操作：\n\n");
+            guide.append("🚗 出行准备 — 一键查天气+空气+预警\n");
+            guide.append("🌤 查天气 — 天气/预报/空气质量/预警\n");
+            guide.append("🔍 搜索 — 联网搜索/智能问答/读网页\n");
+            guide.append("📚 题库 — 搜索题目/分类统计\n");
+            guide.append("🌐 翻译 — 多语言翻译\n");
+            guide.append("📍 定位 — 获取当前位置\n");
+            guide.append("📂 文件 — 文件操作\n");
+            guide.append("🔧 计算 — 数学计算\n\n");
+        }
+
+        guide.append("💡 提示：直接点击工具按钮，我会一步步引导你完成操作！\n\n");
+        guide.append("──────────────\n");
+        guide.append("🚀 想用完整Agent功能？\n");
+        guide.append("当前是离线引导模式（工具分步操作）。\n");
+        guide.append("点击顶部「🤖模型」按钮配置在线模型，即可启用完整Agent：\n");
+        guide.append("  • 直接输入需求，Agent自动推理+工具调用\n");
+        guide.append("  • 支持多轮对话和复杂任务\n");
+        guide.append("  • 智能组合多个工具完成需求\n");
+
+        addAIMessage(guide.toString());
+        scrollToBottom();
+    }
+
+    /** 关键词匹配辅助方法 */
+    private boolean containsKeyword(String text, String... keywords) {
+        if (text == null) return false;
+        for (String kw : keywords) {
+            if (kw != null && text.contains(kw.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 在线agent友好引导：在ReAct开始前显示，根据用户消息智能推荐可能用到的工具。
+     * 与本地agent不同，在线agent显示引导后仍走ReAct模式。
+     */
+    private void showOnlineAgentFriendlyGuide(String userMessage) {
+        StringBuilder guide = new StringBuilder();
+        String lower = userMessage.toLowerCase();
+
+        guide.append("收到你的消息，我正在处理 🤖\n\n");
+
+        // 根据用户消息内容智能推荐可能用到的工具
+        boolean matched = false;
+        if (containsKeyword(lower, "天气", "气温", "下雨", "温度", "weather", "空气质量", "预警")) {
+            guide.append("🌤 检测到你想查天气，我可能会调用天气工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "搜索", "搜一下", "查一下", "查找", "search", "百度", "google", "最新")) {
+            guide.append("🔍 需要联网搜索最新信息，我可能会调用搜索工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "翻译", "translate", "英文", "日文", "韩文")) {
+            guide.append("🌐 需要翻译，我可能会调用翻译工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "题", "题库", "题目", "quiz", "question", "考试")) {
+            guide.append("📚 需要查询题库，我可能会调用数据库工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "位置", "定位", "在哪", "location", "坐标", "附近")) {
+            guide.append("📍 需要位置信息，我可能会调用定位工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "出行", "出门", "准备", "带伞")) {
+            guide.append("🚗 准备出行，我可能会组合调用定位+天气+空气质量工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "计算", "算", "calculate", "+", "-", "×", "÷")) {
+            guide.append("🔧 需要计算，我可能会调用计算工具\n");
+            matched = true;
+        }
+        if (containsKeyword(lower, "时间", "日期", "今天", "明天", "几点", "星期")) {
+            guide.append("🕐 需要时间信息，我会自动获取当前时间\n");
+            matched = true;
+        }
+
+        if (matched) {
+            guide.append("\n");
+        } else {
+            guide.append("我会根据你的问题选择合适的工具来处理\n\n");
+        }
+
+        guide.append("⏳ 正在思考中，请稍候...");
+
+        addSystemMessage(guide.toString());
+        scrollToBottom();
     }
 
     private void processChatMessageWithAgent(String message) {

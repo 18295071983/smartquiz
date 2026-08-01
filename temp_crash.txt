@@ -1,0 +1,1 @@
+﻿08-01 17:48:22.366 27345 27345 F DEBUG   :       #19 pc 00000000000751f0  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68) (BuildId: 223a572c9f034c6a9337d8b3bedc75f3)
