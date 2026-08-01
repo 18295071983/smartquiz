@@ -7,6 +7,7 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.agent.SmartIntentRecognizer;
 import com.oilquiz.app.ai.agent.UnifiedAgentEngine;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
@@ -137,7 +138,7 @@ public class EnhancedAgentHandler {
             }
             
             @Override
-            public void onToolCallComplete(String toolName, AgentService.ToolResult result) {
+            public void onToolCallComplete(String toolName, OnlineToolResult result) {
                 if (callback != null) {
                     mainHandler.post(() -> {
                         boolean success = result != null && result.success;

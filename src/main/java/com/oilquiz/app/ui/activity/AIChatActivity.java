@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
@@ -56,6 +57,7 @@ import com.oilquiz.app.ai.agent.AgentExecutionEngine;
 import com.oilquiz.app.ai.agent.AgentExecutionState;
 import com.oilquiz.app.ai.agent.ExecutionEvent;
 import com.oilquiz.app.ai.agent.ExecutionEventListener;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.chat.ChatOrchestrator;
 import com.oilquiz.app.ai.chat.NativeEventBridge;
 import com.oilquiz.app.ai.chat.ChatMessage;
@@ -185,11 +187,21 @@ public class AIChatActivity extends BaseActivity {
     private volatile StringBuilder currentStreamingContent = null;
     private volatile StringBuilder currentThinkingContent = null;
     private volatile boolean isInThinking = false;
+    /** 标记上一轮思考已结束，用于在下一轮思考开始时插入分隔符 */
+    private volatile boolean thinkingRoundEnded = false;
+    /** 思考轮次计数（agent多轮迭代时递增） */
+    private volatile int thinkingRoundCount = 0;
     private volatile Boolean lastUseOnlineModel = null;
     private volatile boolean isInTag = false;
     private volatile StringBuilder tagBuffer = null;
+    // 流式 UI 更新节流：避免高频 token 导致主线程过载卡顿
+    private static final long UI_UPDATE_THROTTLE_MS = 80;
+    private volatile long lastTokenUiUpdateTime = 0;
+    private volatile long lastThinkingUiUpdateTime = 0;
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
+    /** 当前Agent思考消息在chatHistory中的位置（-1表示无活跃思考消息） */
+    private volatile int currentThinkingMessageIndex = -1;
     private volatile int agentToolLoopCount = 0;
     private final Object streamingLock = new Object();
     
@@ -444,6 +456,8 @@ public class AIChatActivity extends BaseActivity {
                                     chatAdapter.notifyDataSetChanged();
                                 }
                                 updateEmptyState();
+                                // 滚动到最新消息
+                                scrollToBottom(true);
                             });
                         }
                     }
@@ -458,14 +472,6 @@ public class AIChatActivity extends BaseActivity {
             // 4. 现在可以安全地使用模块了
             updateModelNameDisplay();
 
-            // 欢迎界面逻辑：只在真正没有历史记录时显示
-            // 检查是否有之前的会话记录
-            boolean hasPreviousSession = chatHistoryManager != null && chatHistoryManager.hasPreviousSession();
-            if (chatHistory.isEmpty() && !hasPreviousSession) {
-                // 首次使用，显示欢迎消息
-                addSystemMessage("欢迎使用AI对话功能！请输入您的问题，我会尽力回答。\n输入 '帮助' 查看更多功能。");
-            }
-            // 不再每次都添加"欢迎回来"消息
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing data: " + e.getMessage());
             showToast("数据初始化失败: " + e.getMessage());
@@ -1580,18 +1586,18 @@ public class AIChatActivity extends BaseActivity {
 
     private void processChatMessage(String message) {
         try {
-            // 检查是否应该使用在线模型
-            if (shouldUseOnlineModel()) {
-                processChatMessageWithOnlineModel(message);
+            // 根据当前模式决定处理方式
+            ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
+
+            // Agent 模式优先：无论本地/在线模型，AGENT 模式都走 Agent 引擎（支持工具调用）
+            if (currentMode == ChatModeManager.ChatMode.AGENT) {
+                processChatMessageWithAgent(message);
                 return;
             }
 
-            // 根据当前模式决定处理方式
-            ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
-            
-            // Agent 模式：所有消息都由 Agent 处理，等待 AI 服务初始化
-            if (currentMode == ChatModeManager.ChatMode.AGENT) {
-                processChatMessageWithAgent(message);
+            // 非 Agent 模式：检查是否应该使用在线模型（直接流式，无工具调用）
+            if (shouldUseOnlineModel()) {
+                processChatMessageWithOnlineModel(message);
                 return;
             }
 
@@ -1632,6 +1638,9 @@ public class AIChatActivity extends BaseActivity {
 
             synchronized (streamingLock) {
                 agentToolLoopCount = 0;
+                thinkingRoundEnded = false;
+                thinkingRoundCount = 1;
+                currentThinkingMessageIndex = -1;
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -1757,6 +1766,9 @@ public class AIChatActivity extends BaseActivity {
 
             synchronized (streamingLock) {
                 agentToolLoopCount = 0;
+                thinkingRoundEnded = false;
+                thinkingRoundCount = 1;
+                currentThinkingMessageIndex = -1;
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -1981,7 +1993,10 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             currentStreamingContent = null;
+            thinkingRoundEnded = false;
+            thinkingRoundCount = 1;
             currentStreamingMessageIndex = -1;
+            currentThinkingMessageIndex = -1;
             currentStreamingMessageId = null;
         });
     }
@@ -2464,6 +2479,8 @@ public class AIChatActivity extends BaseActivity {
             
             endGeneration();
             agentToolLoopCount = 0;
+            thinkingRoundEnded = false;
+            thinkingRoundCount = 1;
             if (messageIndex >= 0 && messageIndex < chatHistory.size()) {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
@@ -2580,7 +2597,7 @@ public class AIChatActivity extends BaseActivity {
         }
 
         @Override
-        public void onToolCallComplete(String toolName, AgentService.ToolResult result) {
+        public void onToolCallComplete(String toolName, OnlineToolResult result) {
             // 工具调用完成：更新工具调用结果
             runOnUiThread(() -> {
                 int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
@@ -2593,42 +2610,77 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onToken(String token) {
-            // 流式 token：追加到当前流式内容
+            // 流式 token：追加到当前流式内容（始终累积，不丢失）
             if (currentStreamingContent != null) {
                 currentStreamingContent.append(token);
-                runOnUiThread(() -> {
-                    safeUpdateMessage();
-                    scrollToBottom();
-                });
+                // 节流：距上次 UI 更新 ≥ 80ms 才刷新，避免高频 token 卡顿主线程
+                long now = System.currentTimeMillis();
+                if (now - lastTokenUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                    lastTokenUiUpdateTime = now;
+                    runOnUiThread(() -> {
+                        safeUpdateMessage();
+                        scrollToBottom();
+                    });
+                }
             }
         }
 
         @Override
         public void onThinkingToken(String token) {
-            // 思考 token：追加到思考内容并实时更新 UI
+            // 思考 token：每轮创建独立的思考消息块，自由插入到agent执行流中
+            // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用，
+            // 内部不能再 runOnUiThread（否则会post到队列，导致下一轮token先于addThinkingMessage执行）
+            boolean onUi =Looper.myLooper() == Looper.getMainLooper();
+            // 新一轮思考开始：上一轮已结束或还没有思考消息时，创建新消息
+            if (thinkingRoundEnded || currentThinkingMessageIndex < 0) {
+                thinkingRoundEnded = false;
+                thinkingRoundCount++;
+                currentThinkingContent = new StringBuilder();
+                if (onUi) {
+                    addThinkingMessage(thinkingRoundCount);
+                } else {
+                    runOnUiThread(() -> addThinkingMessage(thinkingRoundCount));
+                }
+            }
             if (currentThinkingContent != null) {
                 currentThinkingContent.append(token);
-                // 实时更新思考内容显示
-                runOnUiThread(() -> {
-                    if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
-                        ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
-                        msg.thinkingContent = currentThinkingContent.toString();
-                        if (chatAdapter != null) {
-                            chatAdapter.updateMessageThinkingContent(currentStreamingMessageIndex, currentThinkingContent.toString());
-                        }
+                // 节流：思考链可能很长，每 80ms 更新一次 UI
+                long now = System.currentTimeMillis();
+                if (now - lastThinkingUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                    lastThinkingUiUpdateTime = now;
+                    if (onUi) {
+                        updateThinkingMessageUi();
+                    } else {
+                        runOnUiThread(() -> updateThinkingMessageUi());
                     }
-                });
+                }
             }
         }
 
         @Override
         public void onThinkingEnd() {
             isInThinking = false;
+            // 标记本轮思考结束，下一轮 onThinkingToken 时创建新的思考消息
+            thinkingRoundEnded = true;
+            // 思考结束：强制最终更新 + 折叠当前思考消息
+            // 注意：必须在当前线程同步执行，不能post到队列，
+            // 否则下一轮 onThinkingToken 会先执行并重置 currentThinkingContent，导致本轮内容丢失
+            boolean onUi = Looper.myLooper() == Looper.getMainLooper();
+            if (onUi) {
+                finalizeThinkingMessage();
+            } else {
+                runOnUiThread(() -> finalizeThinkingMessage());
+            }
         }
 
         @Override
         public void onComplete(String fullText) {
             completeGeneration(fullText);
+            // Agent执行完成提示
+            runOnUiThread(() -> {
+                addSystemMessage("✅ Agent执行完成");
+                scrollToBottom();
+            });
         }
 
         @Override
@@ -3214,9 +3266,12 @@ public class AIChatActivity extends BaseActivity {
         currentStreamingContent = null;
         currentThinkingContent = null;
         isInThinking = false;
+        thinkingRoundEnded = false;
+        thinkingRoundCount = 1;
         isInTag = false;
         if (tagBuffer != null) tagBuffer.setLength(0);
         currentStreamingMessageIndex = -1;
+        currentThinkingMessageIndex = -1;
         currentStreamingMessageId = null;
         isGenerating = false;
         isDirectStreaming = false;
@@ -3342,12 +3397,70 @@ public class AIChatActivity extends BaseActivity {
         scrollToBottom();
     }
 
+    /**
+     * 添加Agent思考消息（每轮思考独立一个消息块，插入到流式AI消息前面）
+     * @param round 当前思考轮次
+     * @return 消息在chatHistory中的位置
+     */
+    private int addThinkingMessage(int round) {
+        if (chatHistory == null) return -1;
+
+        ChatMessage msg = ChatMessage.createThinkingRoundMessage(round);
+        // 插入到流式AI消息前面，使AI气泡始终显示在agent执行UI的最后面
+        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
+                ? currentStreamingMessageIndex : chatHistory.size();
+        chatHistory.add(insertPos, msg);
+        if (currentStreamingMessageIndex >= 0) {
+            currentStreamingMessageIndex++;
+        }
+        int pos = insertPos;
+        currentThinkingMessageIndex = pos;
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemInserted(pos);
+        }
+        scrollToBottom();
+        return pos;
+    }
+
+    /** 更新当前思考消息的UI显示（节流调用） */
+    private void updateThinkingMessageUi() {
+        if (currentThinkingMessageIndex >= 0 && currentThinkingMessageIndex < chatHistory.size()) {
+            ChatMessage msg = chatHistory.get(currentThinkingMessageIndex);
+            msg.thinkingContent = currentThinkingContent != null ? currentThinkingContent.toString() : "";
+            if (chatAdapter != null) {
+                chatAdapter.updateMessageThinkingContent(currentThinkingMessageIndex, msg.thinkingContent);
+            }
+            scrollToBottom();
+        }
+    }
+
+    /** 完成当前思考消息：设置最终内容、标记完成、折叠 */
+    private void finalizeThinkingMessage() {
+        if (currentThinkingContent != null && currentThinkingMessageIndex >= 0
+            && currentThinkingMessageIndex < chatHistory.size() && chatAdapter != null) {
+            ChatMessage msg = chatHistory.get(currentThinkingMessageIndex);
+            msg.thinkingContent = currentThinkingContent.toString();
+            msg.status = ChatMessage.MessageStatus.COMPLETED;
+            msg.thinkingExpanded = false;
+            chatAdapter.updateMessageThinkingContent(currentThinkingMessageIndex, currentThinkingContent.toString());
+            chatAdapter.notifyItemChanged(currentThinkingMessageIndex);
+        }
+        // 重置思考消息索引，下轮创建新消息
+        currentThinkingMessageIndex = -1;
+    }
+
     private int addToolCallMessage(String toolName, String parameters) {
         if (chatHistory == null) return -1;
 
         ChatMessage msg = ChatMessage.createToolCallMessage(toolName, parameters);
-        chatHistory.add(msg);
-        int pos = chatHistory.size() - 1;
+        // 插入到流式AI消息前面，使AI气泡始终显示在agent执行UI的最后面
+        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
+                ? currentStreamingMessageIndex : chatHistory.size();
+        chatHistory.add(insertPos, msg);
+        if (currentStreamingMessageIndex >= 0) {
+            currentStreamingMessageIndex++;
+        }
+        int pos = insertPos;
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(pos);
         }
@@ -3359,8 +3472,14 @@ public class AIChatActivity extends BaseActivity {
         if (chatHistory == null) return -1;
 
         ChatMessage msg = ChatMessage.createAgentStepMessage(stepInfo);
-        chatHistory.add(msg);
-        int pos = chatHistory.size() - 1;
+        // 插入到流式AI消息前面，保持AI气泡在最后面
+        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
+                ? currentStreamingMessageIndex : chatHistory.size();
+        chatHistory.add(insertPos, msg);
+        if (currentStreamingMessageIndex >= 0) {
+            currentStreamingMessageIndex++;
+        }
+        int pos = insertPos;
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(pos);
         }
@@ -3523,6 +3642,8 @@ public class AIChatActivity extends BaseActivity {
         super.onResume();
         updateModelNameDisplay();
         initAgentChatHandler();
+        // 再次进入页面时滚动到最新消息
+        scrollToBottom(true);
     }
 
     private String getFileNameFromUri(Uri uri) {
@@ -3751,13 +3872,14 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 更新空状态显示
+     * 更新空状态显示（已移除欢迎界面，始终显示消息列表）
      */
     private void updateEmptyState() {
         if (emptyStateView != null) {
-            boolean isEmpty = chatHistory == null || chatHistory.isEmpty();
-            emptyStateView.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
-            messageList.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+            emptyStateView.setVisibility(View.GONE);
+        }
+        if (messageList != null) {
+            messageList.setVisibility(View.VISIBLE);
         }
     }
 

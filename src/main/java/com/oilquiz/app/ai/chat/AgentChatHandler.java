@@ -12,11 +12,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.agent.AgentRouter;
 import com.oilquiz.app.ai.agent.SmartIntentRecognizer;
 import com.oilquiz.app.ai.agent.UnifiedAgentEngine;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.agent.software.AgentSoftwareLayer;
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
@@ -35,7 +37,7 @@ public class AgentChatHandler {
 
     public interface AgentChatCallback {
         void onToolCallStart(String toolName, String args);
-        void onToolCallComplete(String toolName, AgentService.ToolResult result);
+        void onToolCallComplete(String toolName, OnlineToolResult result);
         void onToken(String token);
         void onThinkingToken(String token);
         void onThinkingEnd();
@@ -52,7 +54,7 @@ public class AgentChatHandler {
     private final Activity activity;
     private final AgentService agentService;
     private final AgentChatCallback callback;
-    private final UnifiedAgentEngine engine;
+    private final AgentRouter engine;
     private final SmartIntentRecognizer intentRecognizer;
     private AgentSoftwareLayer softwareLayer;
     private volatile boolean isShutdown = false;
@@ -68,7 +70,8 @@ public class AgentChatHandler {
         this.activity = activity;
         this.agentService = agentService;
         this.callback = callback;
-        this.engine = new UnifiedAgentEngine(activity, aiService, inferenceRouter, agentService, useOnlineModel);
+        // 使用 AgentRouter 自动路由到本地/在线引擎
+        this.engine = new AgentRouter(activity, aiService, inferenceRouter, agentService);
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
         
         // 初始化新的 AgentSoftwareLayer
@@ -104,7 +107,9 @@ public class AgentChatHandler {
             @Override
             public void onToolCallComplete(String toolName, boolean success, String result) {
                 if (isValid()) {
-                    AgentService.ToolResult toolResult = new AgentService.ToolResult(toolName, result, success);
+                    OnlineToolResult toolResult = success
+                        ? OnlineToolResult.success(null, toolName, result, 0)
+                        : OnlineToolResult.failure(null, toolName, result, 0);
                     callback.onToolCallComplete(toolName, toolResult);
                     callback.onToolCallResultUI(-1, success, result);
                 }
@@ -157,7 +162,7 @@ public class AgentChatHandler {
             }
 
             @Override
-            public void onToolCallComplete(String toolName, AgentService.ToolResult result) {
+            public void onToolCallComplete(String toolName, OnlineToolResult result) {
                 if (isValid()) {
                     callback.onToolCallComplete(toolName, result);
                     // 保护：result可能为null
@@ -505,7 +510,14 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
-        // 使用新的 AgentSoftwareLayer 处理消息
+        // 在线模型激活时，使用 AgentRouter → OnlineAgentEngine（原生 function calling）
+        if (engine.getCurrentEngineType() == AgentRouter.EngineType.ONLINE) {
+            AILogger.i(TAG, "Online model active, routing to OnlineAgentEngine");
+            engine.execute(message, maxTokens, enableThinking);
+            return;
+        }
+
+        // 本地模型：使用 AgentSoftwareLayer 处理消息
         if (softwareLayer != null) {
             softwareLayer.processMessage(message);
             return;

@@ -24,17 +24,43 @@ public class AIToolUsageGuide {
 
     private static final String TAG = "AIToolUsageGuide";
 
+    // ========== 静态缓存 ==========
+    /** 缓存的 Agent 工具使用方法文本 */
+    private static String cachedAgentToolUsageMethod;
+    /** 缓存脏标记 */
+    private static boolean isCacheDirty = true;
+    /** 上次缓存的工具数量（用于检测变化） */
+    private static int lastCachedToolCount = -1;
+
+    /**
+     * 标记缓存为脏，下次 getAgentToolUsageMethod 调用时重建。
+     * 在工具注册/卸载后调用。
+     */
+    public static void markCacheDirty() {
+        isCacheDirty = true;
+    }
+
     // ==================== 面向AI Agent的工具调用方法 ====================
 
     /**
      * 获取AI Agent工具使用方法（面向LLM的调用规范）。
-     * 动态从 {@link AIToolManager} 读取已注册工具的真实定义，保证工具名/参数与实现一致。
-     * 可作为system prompt片段注入Agent上下文。
+     * 使用静态缓存避免重复构建字符串，工具数量变化时自动刷新。
      *
      * @param context 上下文
      * @return 工具调用规范文本
      */
     public static String getAgentToolUsageMethod(Context context) {
+        AIToolManager manager = AIToolManager.getInstance(context);
+        List<Map<String, Object>> tools = manager.getToolDescriptions();
+        int currentToolCount = tools.size();
+
+        // 检查缓存有效性：非脏且工具数量未变化
+        if (!isCacheDirty && cachedAgentToolUsageMethod != null 
+            && currentToolCount == lastCachedToolCount) {
+            return cachedAgentToolUsageMethod;
+        }
+
+        // 重建缓存
         StringBuilder sb = new StringBuilder();
 
         sb.append("═══════════════════════════════════════════════════════\n");
@@ -43,21 +69,24 @@ public class AIToolUsageGuide {
 
         // 1. 调用协议
         sb.append("【一、调用协议】\n");
-        sb.append("采用 OpenAI function calling 标准格式。当需要使用工具时，输出 tool_call：\n");
-        sb.append("  {\n");
-        sb.append("    \"name\": \"<工具名>\",\n");
-        sb.append("    \"arguments\": \"<JSON参数对象>\"\n");
-        sb.append("  }\n\n");
+        sb.append("使用 TOOLS_CALL / TOOLS_END 标记格式调用工具（标记必须独占一行）：\n");
+        sb.append("  TOOLS_CALL\n");
+        sb.append("  {\"name\": \"<工具名>\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
+        sb.append("  TOOLS_END\n\n");
         sb.append("说明：\n");
-        sb.append("  • arguments 必须是合法 JSON 字符串\n");
+        sb.append("  • TOOLS_CALL 和 TOOLS_END 必须各独占一行\n");
+        sb.append("  • 中间是合法 JSON，包含 name 和 arguments 两个字段\n");
+        sb.append("  • arguments 是 JSON 对象，不是字符串\n");
         sb.append("  • 参数名严格匹配下方工具定义，区分大小写\n");
-        sb.append("  • 必填参数缺失会导致工具执行失败\n");
-        sb.append("  • 工具调用支持别名（见各工具 aliases），但建议使用主名称\n\n");
+        sb.append("  • 必填参数缺失会导致工具执行失败\n\n");
+        sb.append("特殊命令：\n");
+        sb.append("  • 输出 [TOOL_INFO: 工具名] 可获取该工具的详细参数说明\n");
+        sb.append("  • 输出 [TOOL_GUIDE] 可再次查看本指南\n");
+        sb.append("  • 工具可组合使用，如查天气可先用 location 定位再用 ai_weather 查询\n");
+        sb.append("  • 工具失败时系统会自动分析原因：参数错误会提示修正，工具不适用会推荐替代工具\n\n");
 
         // 2. 工具清单（动态）
         sb.append("【二、可用工具清单】\n");
-        AIToolManager manager = AIToolManager.getInstance(context);
-        List<Map<String, Object>> tools = manager.getToolDescriptions();
         int idx = 0;
         for (Map<String, Object> tool : tools) {
             idx++;
@@ -86,7 +115,7 @@ public class AIToolUsageGuide {
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit。例如天气用 ai_weather，搜索用 network_search。\n");
         sb.append("  2. app_toolkit 仅在需要 OCR/图像处理/文件解析/网页解析等聚合能力时使用，通过 action 指定子操作。\n");
         sb.append("  3. 数学计算使用 python_calculate，复杂数据分析使用 python_analyze_data，Python代码执行使用 python_execute。\n");
-        sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回“文件不存在”。\n");
+        sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回文件不存在。\n");
         sb.append("  5. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
         sb.append("  6. 工具结果可能被自动摘要/截断，如需完整内容请细化查询条件。\n");
         sb.append("  7. 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n\n");
@@ -94,36 +123,50 @@ public class AIToolUsageGuide {
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");
         sb.append("  示例1 查询天气：\n");
-        sb.append("    name: ai_weather\n");
-        sb.append("    arguments: {\"action\":\"current\",\"city\":\"北京\"}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"ai_weather\", \"arguments\": {\"action\":\"current\",\"city\":\"北京\"}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例2 网络搜索并阅读：\n");
-        sb.append("    name: network_search\n");
-        sb.append("    arguments: {\"action\":\"search_and_read\",\"query\":\"量子计算最新进展\",\"limit\":5}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"network_search\", \"arguments\": {\"action\":\"search_and_read\",\"query\":\"量子计算最新进展\",\"limit\":5}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例3 数学计算：\n");
-        sb.append("    name: python_calculate\n");
-        sb.append("    arguments: {\"expression\":\"3.14*5*5\"}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"python_calculate\", \"arguments\": {\"expression\":\"3.14*5*5\"}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例4 翻译：\n");
-        sb.append("    name: translation\n");
-        sb.append("    arguments: {\"text\":\"Hello world\",\"target_lang\":\"zh\"}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"translation\", \"arguments\": {\"text\":\"Hello world\",\"target_lang\":\"zh\"}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例5 读取文件：\n");
-        sb.append("    name: file_reader\n");
-        sb.append("    arguments: {\"action\":\"read\",\"file_path\":\"/storage/emulated/0/note.txt\"}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"file_reader\", \"arguments\": {\"action\":\"read\",\"file_path\":\"/storage/emulated/0/note.txt\"}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例6 OCR识别（聚合工具）：\n");
-        sb.append("    name: app_toolkit\n");
-        sb.append("    arguments: {\"action\":\"ocr_recognize\",\"image_path\":\"/storage/emulated/0/test.jpg\"}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"app_toolkit\", \"arguments\": {\"action\":\"ocr_recognize\",\"image_path\":\"/storage/emulated/0/test.jpg\"}}\n");
+        sb.append("    TOOLS_END\n\n");
         sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：\n");
-        sb.append("    name: smart_research\n");
-        sb.append("    arguments: {\"topic\":\"可再生能源发展现状\",\"depth\":2,\"maxResults\":5}\n\n");
+        sb.append("    TOOLS_CALL\n");
+        sb.append("    {\"name\": \"smart_research\", \"arguments\": {\"topic\":\"可再生能源发展现状\",\"depth\":2,\"maxResults\":5}}\n");
+        sb.append("    TOOLS_END\n\n");
 
         // 5. 错误处理
         sb.append("【五、错误处理】\n");
-        sb.append("  • 工具返回 failure/错误信息时，检查参数名、路径、权限后最多重试1次。\n");
-        sb.append("  • “Tool not found”表示工具名错误，核对可用工具清单。\n");
-        sb.append("  • “参数验证失败”按提示补全必填参数。\n");
-        sb.append("  • “工具执行超时”多为网络/权限问题，提示用户检查后重试。\n\n");
+        sb.append("  • 工具失败时系统会自动分析原因并给出建议，请根据建议修正参数或更换工具。\n");
+        sb.append("  • 参数错误时系统会注入该工具的详细参数定义和缺失参数分析，请据此修正后重试。\n");
+        sb.append("  • 工具不适用时系统会推荐替代工具，请判断是否适合后调用。\n");
+        sb.append("  • 如不确定工具参数，可输出 [TOOL_INFO: 工具名] 获取详细说明。\n");
+        sb.append("  • 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
-        return sb.toString();
+
+        // 更新缓存
+        cachedAgentToolUsageMethod = sb.toString();
+        lastCachedToolCount = currentToolCount;
+        isCacheDirty = false;
+
+        return cachedAgentToolUsageMethod;
     }
 
     // ==================== 面向用户的工具使用教程 ====================
@@ -184,8 +227,8 @@ public class AIToolUsageGuide {
         guide.append("  • 研究一下 可再生能源 发展现状\n\n");
 
         guide.append("【调试】\n");
-        guide.append("  • “调试意图：你的请求” —— 查看意图识别结果\n");
-        guide.append("  • “分析我的请求”   —— 生成调试报告\n\n");
+        guide.append("  • 调试意图：你的请求 —— 查看意图识别结果\n");
+        guide.append("  • 分析我的请求   —— 生成调试报告\n\n");
 
         guide.append("═══════════════════════════════════════════════════════\n");
         return guide.toString();

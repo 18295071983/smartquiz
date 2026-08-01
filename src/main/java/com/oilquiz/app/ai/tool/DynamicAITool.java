@@ -61,13 +61,13 @@ public class DynamicAITool implements AITool {
             }
             
             String result = executor.execute(executionLogic, parameters);
-            
+
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", name);
             additionalInfo.put("isDynamic", true);
             additionalInfo.put("parameters", parameters);
-            
-            return new AIToolResult(result, additionalInfo);
+
+            return AIToolResult.success(result, additionalInfo);
             
         } catch (Exception e) {
             Log.e(TAG, "Error executing dynamic tool " + name + ": " + e.getMessage(), e);
@@ -99,6 +99,6 @@ public class DynamicAITool implements AITool {
         additionalInfo.put("isDynamic", true);
         additionalInfo.put("parameters", parameters);
         
-        return new AIToolResult(result.toString(), additionalInfo);
+        return AIToolResult.success(result.toString(), additionalInfo);
     }
 }

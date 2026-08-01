@@ -101,7 +101,7 @@ public class NetworkSearchTool implements AITool {
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
-            String action = (String) parameters.get("action");
+            String action = getStringParam(parameters, "action", "search");
             if (action == null) {
                 action = "search";
             }
@@ -142,25 +142,55 @@ public class NetworkSearchTool implements AITool {
     
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
-        
+
         if (parameters.containsKey("keyword") && !parameters.containsKey("query")) {
             parameters.put("query", parameters.get("keyword"));
         }
-        
+
         if (parameters.containsKey("num_results") && !parameters.containsKey("limit")) {
             parameters.put("limit", parameters.get("num_results"));
         }
     }
+
+    /** 类型安全的字符串参数提取（LLM可能传String/Number/Boolean） */
+    private String getStringParam(Map<String, Object> params, String key, String def) {
+        if (params == null) return def;
+        Object v = params.get(key);
+        if (v == null) return def;
+        return String.valueOf(v);
+    }
+
+    /** 类型安全的整数参数提取（LLM可能传"5"字符串或5.0浮点） */
+    private int getIntParam(Map<String, Object> params, String key, int def) {
+        if (params == null) return def;
+        Object v = params.get(key);
+        if (v == null) return def;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return def; }
+    }
+
+    /** 类型安全的布尔参数提取（LLM可能传"true"字符串） */
+    private boolean getBoolParam(Map<String, Object> params, String key, boolean def) {
+        if (params == null) return def;
+        Object v = params.get(key);
+        if (v == null) return def;
+        if (v instanceof Boolean) return (Boolean) v;
+        String s = String.valueOf(v).trim().toLowerCase();
+        if (s.equals("true") || s.equals("1") || s.equals("yes")) return true;
+        if (s.equals("false") || s.equals("0") || s.equals("no")) return false;
+        return def;
+    }
     
     private AIToolResult search(Map<String, Object> parameters) {
-        String query = (String) parameters.get("query");
-        Integer limit = (Integer) parameters.get("limit");
+        String query = getStringParam(parameters, "query", null);
+        int limit = getIntParam(parameters, "limit", 5);
 
-        if (query == null) {
+        if (query == null || query.trim().isEmpty()) {
             return new AIToolResult("Missing required parameter: query", parameters);
         }
 
-        if (limit == null || limit <= 0) {
+        if (limit <= 0) {
             limit = 5;
         }
 
@@ -336,14 +366,14 @@ public class NetworkSearchTool implements AITool {
 
     /** 秘塔智能问答：基于搜索增强生成（RAG）回答问题，返回答案+引用来源 */
     private AIToolResult askMetaso(Map<String, Object> parameters) {
-        String question = (String) parameters.get("question");
+        String question = getStringParam(parameters, "question", null);
         if (question == null || question.trim().isEmpty()) {
             return new AIToolResult("Missing required parameter: question", parameters);
         }
 
-        String model = (String) parameters.get("model");
-        if (model == null || model.trim().isEmpty()) {
-            model = "concise"; // concise(简洁) / detail(深入) / research(研究)
+        String model = getStringParam(parameters, "model", "concise");
+        if (model.trim().isEmpty()) {
+            model = "concise";
         }
 
         try {
@@ -440,7 +470,7 @@ public class NetworkSearchTool implements AITool {
 
     /** 秘塔网页读取：服务端抓取并解析网页，返回结构化markdown文本（质量优于本地Jsoup，能处理JS渲染页） */
     private AIToolResult readUrlMetaso(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
+        String url = getStringParam(parameters, "url", null);
         if (url == null || url.trim().isEmpty()) {
             return new AIToolResult("Missing required parameter: url", parameters);
         }
@@ -489,7 +519,7 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult getWebpage(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
+        String url = getStringParam(parameters, "url", null);
 
         if (url == null) {
             return new AIToolResult("Missing required parameter: url", parameters);
@@ -524,15 +554,15 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult searchAndRead(Map<String, Object> parameters) {
-        String query = (String) parameters.get("query");
-        Integer limit = (Integer) parameters.get("limit");
-        Integer detailIndex = (Integer) parameters.get("detailIndex");
+        String query = getStringParam(parameters, "query", null);
+        int limit = getIntParam(parameters, "limit", 3);
+        int detailIndex = getIntParam(parameters, "detailIndex", -1);
 
-        if (query == null) {
+        if (query == null || query.trim().isEmpty()) {
             return new AIToolResult("Missing required parameter: query", parameters);
         }
 
-        if (limit == null || limit <= 0) {
+        if (limit <= 0) {
             limit = 3;
         }
 
@@ -549,7 +579,7 @@ public class NetworkSearchTool implements AITool {
             Map<String, Object> searchData = (Map<String, Object>) searchResult.getResult();
             List<Map<String, String>> results = (List<Map<String, String>>) searchData.get("results");
             
-            if (detailIndex != null && detailIndex >= 0 && detailIndex < results.size()) {
+            if (detailIndex >= 0 && detailIndex < results.size()) {
                 Map<String, String> selectedResult = results.get(detailIndex);
                 String detailUrl = selectedResult.get("url");
                 
@@ -589,8 +619,8 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult getDynamicContent(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
-        String content = (String) parameters.get("content");
+        String url = getStringParam(parameters, "url", null);
+        String content = getStringParam(parameters, "content", null);
 
         if (url == null && content == null) {
             return new AIToolResult("Missing required parameter: url or content", parameters);
@@ -620,20 +650,16 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult smartSearch(Map<String, Object> parameters) {
-        String query = (String) parameters.get("query");
-        Integer maxResults = (Integer) parameters.get("maxResults");
-        Boolean autoRead = (Boolean) parameters.get("autoRead");
+        String query = getStringParam(parameters, "query", null);
+        int maxResults = getIntParam(parameters, "maxResults", 5);
+        boolean autoRead = getBoolParam(parameters, "autoRead", true);
 
-        if (query == null) {
+        if (query == null || query.trim().isEmpty()) {
             return new AIToolResult("Missing required parameter: query", parameters);
         }
 
-        if (maxResults == null || maxResults <= 0) {
+        if (maxResults <= 0) {
             maxResults = 5;
-        }
-
-        if (autoRead == null) {
-            autoRead = true;
         }
 
         try {
@@ -712,8 +738,16 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult smartRead(Map<String, Object> parameters) {
-        List<Map<String, Object>> results = (List<Map<String, Object>>) parameters.get("results");
-        String query = (String) parameters.get("query");
+        String query = getStringParam(parameters, "query", null);
+        List<Map<String, Object>> results = null;
+        try {
+            Object raw = parameters.get("results");
+            if (raw instanceof List) {
+                results = (List<Map<String, Object>>) raw;
+            }
+        } catch (ClassCastException e) {
+            AILogger.w(TAG, "results参数类型不匹配: " + e.getMessage());
+        }
 
         if (results == null || results.isEmpty()) {
             return new AIToolResult("Missing required parameter: results", parameters);
@@ -721,12 +755,12 @@ public class NetworkSearchTool implements AITool {
 
         try {
             List<Map<String, Object>> analyzedResults = new ArrayList<>();
-            
+
             for (int i = 0; i < results.size(); i++) {
                 Map<String, Object> result = results.get(i);
-                String title = (String) result.get("title");
-                String snippet = (String) result.get("snippet");
-                String url = (String) result.get("url");
+                String title = String.valueOf(result.get("title"));
+                String snippet = String.valueOf(result.get("snippet"));
+                String url = String.valueOf(result.get("url"));
                 
                 Map<String, Object> analysis = analyzeResult(title, snippet, url, query, i);
                 analyzedResults.add(analysis);
@@ -1105,8 +1139,8 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult extractInfo(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
-        String content = (String) parameters.get("content");
+        String url = getStringParam(parameters, "url", null);
+        String content = getStringParam(parameters, "content", null);
 
         if (url == null && content == null) {
             return new AIToolResult("Missing required parameter: url or content", parameters);
@@ -1145,7 +1179,7 @@ public class NetworkSearchTool implements AITool {
     
     private AIToolResult summarizeResults(Map<String, Object> parameters) {
         List<Map<String, Object>> results = (List<Map<String, Object>>) parameters.get("results");
-        String query = (String) parameters.get("query");
+        String query = getStringParam(parameters, "query", null);
 
         if (results == null || results.isEmpty()) {
             return new AIToolResult("Missing required parameter: results", parameters);

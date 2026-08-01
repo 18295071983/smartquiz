@@ -33,6 +33,11 @@ public class SmartIntentRecognizer {
     private final Map<String, IntentResult> resultCache = new ConcurrentHashMap<>();
     private final Map<String, MultiIntentResult> multiIntentCache = new ConcurrentHashMap<>();
 
+    // LLM 意图识别开关。
+    // 本地 Agent 模式下必须关闭：recognizeByLLM 调用 LlamaHelper.generate（nativeGenerate），
+    // 会破坏 chat context 的 KV cache，导致后续 chatSend（nativeChatSend）解码时 SIGSEGV 崩溃。
+    private volatile boolean llmRecognitionEnabled = true;
+
     public enum Intent {
         WEATHER("weather", "天气查询", true),
         SEARCH("search", "搜索查询", true),
@@ -429,6 +434,14 @@ public class SmartIntentRecognizer {
         buildToolMapping();
     }
 
+    /**
+     * 启用/禁用 LLM 意图识别。
+     * 本地 Agent 模式下应禁用：recognizeByLLM 调用 nativeGenerate 会破坏 chat context。
+     */
+    public void setLLMRecognitionEnabled(boolean enabled) {
+        this.llmRecognitionEnabled = enabled;
+    }
+
     private void buildToolMapping() {
         toolNameToIntent.clear();
         toolDescToIntent.clear();
@@ -582,7 +595,9 @@ public class SmartIntentRecognizer {
         List<IntentItem> allMatches = new ArrayList<>();
         boolean modelAvailable = LlamaHelper.isModelInitialized();
 
-        if (modelAvailable) {
+        // LLM 意图识别会调用 nativeGenerate，破坏 chat context 的 KV cache，
+        // 在本地 Agent 模式下必须禁用，否则后续 chatSend 会 SIGSEGV 崩溃
+        if (modelAvailable && llmRecognitionEnabled) {
             try {
                 IntentResult aiResult = recognizeByLLM(message);
                 if (aiResult != null && aiResult.confidence >= CONFIDENCE_LOW) {

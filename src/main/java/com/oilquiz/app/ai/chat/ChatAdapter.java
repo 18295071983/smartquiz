@@ -327,6 +327,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     handleLongContent(aiHolder, message);
                 } else if (holder instanceof UserMessageViewHolder) {
                     ((UserMessageViewHolder) holder).messageText.setText(message.content);
+                } else if (holder instanceof ThinkingMessageViewHolder) {
+                    ((ThinkingMessageViewHolder) holder).bind(message);
                 }
             } else if (PAYLOAD_STATUS_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
@@ -1617,37 +1619,54 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         void bind(ChatMessage message) {
+            // 构建标签文字：Agent多轮思考显示轮次
+            String label;
+            boolean isAgentRound = message.agentMode && message.taskProgress != null && message.taskProgress > 0;
+            if (isAgentRound) {
+                label = "💭 第" + message.taskProgress + "轮思考";
+            } else {
+                label = "🧠 思考过程";
+            }
+
             // 处理思考内容
             if (messageText != null) {
+                String displayContent = "";
                 if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
                     // 清理思考标签
-                    String cleanedContent = message.thinkingContent
+                    displayContent = message.thinkingContent
                         .replaceAll("<think[^>]*>", "")
                         .replace("</think>", "")
                         .replace("<think>", "")
                         .trim();
-                    
-                    if (!cleanedContent.isEmpty()) {
-                        messageText.setText(cleanedContent);
-                        if (thinkingLabel != null) {
-                            thinkingLabel.setVisibility(View.VISIBLE);
-                            thinkingLabel.setText("🧠 思考过程");
-                        }
-                    } else {
-                        messageText.setText(message.content != null ? message.content : "");
-                        if (thinkingLabel != null) {
-                            thinkingLabel.setVisibility(View.GONE);
-                        }
-                    }
-                } else if (message.content != null) {
-                    messageText.setText(message.content);
+                }
+                if (displayContent.isEmpty() && message.content != null) {
+                    displayContent = message.content;
+                }
+                if (displayContent.isEmpty() && message.status == ChatMessage.MessageStatus.IN_PROGRESS) {
+                    displayContent = "思考中...";
+                }
+
+                messageText.setText(displayContent);
+
+                // 展开/折叠控制
+                if (message.thinkingExpanded) {
+                    messageText.setVisibility(View.VISIBLE);
                     if (thinkingLabel != null) {
-                        thinkingLabel.setVisibility(View.GONE);
+                        thinkingLabel.setText(label);
+                    }
+                } else {
+                    messageText.setVisibility(View.GONE);
+                    if (thinkingLabel != null) {
+                        thinkingLabel.setText(label + " (已折叠)");
                     }
                 }
             }
 
-            // 处理进度条
+            if (thinkingLabel != null) {
+                thinkingLabel.setVisibility(View.VISIBLE);
+            }
+
+            // 处理进度条：思考进行中显示不确定进度动画
             if (thinkingProgress != null) {
                 if (message.status == ChatMessage.MessageStatus.GENERATING ||
                     message.status == ChatMessage.MessageStatus.IN_PROGRESS) {
@@ -1657,16 +1676,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     thinkingProgress.setVisibility(View.GONE);
                 }
             }
-            
-            // 添加点击折叠/展开功能
+
+            // 点击标签折叠/展开
             if (thinkingLabel != null) {
                 thinkingLabel.setOnClickListener(v -> {
-                    if (messageText.getVisibility() == View.VISIBLE) {
-                        messageText.setVisibility(View.GONE);
-                        thinkingLabel.setText("🧠 思考过程 (已折叠)");
-                    } else {
+                    message.thinkingExpanded = !message.thinkingExpanded;
+                    if (message.thinkingExpanded) {
                         messageText.setVisibility(View.VISIBLE);
-                        thinkingLabel.setText("🧠 思考过程");
+                        thinkingLabel.setText(label);
+                    } else {
+                        messageText.setVisibility(View.GONE);
+                        thinkingLabel.setText(label + " (已折叠)");
                     }
                 });
             }

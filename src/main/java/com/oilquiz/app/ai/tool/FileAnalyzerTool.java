@@ -110,14 +110,31 @@ public class FileAnalyzerTool implements AITool {
     
     private AIToolResult analyzeFile(Map<String, Object> parameters) {
         String filePath = (String) parameters.get("file_path");
-        
+
         if (filePath == null) {
             return new AIToolResult("缺少参数: file_path", parameters);
         }
-        
+
         File file = new File(filePath);
         if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
+            // 尝试在应用文件目录中查找
+            File appFile = new File(context.getFilesDir(), filePath);
+            if (appFile.exists()) {
+                file = appFile;
+            } else {
+                // 列出应用目录中可用的文件
+                File[] files = context.getFilesDir().listFiles();
+                StringBuilder hint = new StringBuilder("文件不存在: " + filePath);
+                if (files != null && files.length > 0) {
+                    hint.append("\n应用目录中可用的文件:");
+                    for (File f : files) {
+                        hint.append("\n  - ").append(f.getName());
+                    }
+                } else {
+                    hint.append("\n应用目录为空，可先用 file_generator 工具创建文件");
+                }
+                return new AIToolResult(hint.toString(), parameters);
+            }
         }
         
         try {

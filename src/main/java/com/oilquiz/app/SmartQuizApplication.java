@@ -44,7 +44,17 @@ public class SmartQuizApplication extends Application {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        
+
+        // 在主线程初始化 Chaquopy Python 解释器（Chaquopy 要求主线程调用）
+        try {
+            if (!com.chaquo.python.Python.isStarted()) {
+                com.chaquo.python.Python.start(new com.chaquo.python.android.AndroidPlatform(this));
+                com.oilquiz.app.util.AILogger.i(TAG, "Chaquopy Python 解释器已在主线程初始化");
+            }
+        } catch (Exception e) {
+            com.oilquiz.app.util.AILogger.e(TAG, "Chaquopy Python 初始化失败: " + e.getMessage(), e);
+        }
+
         // 在后台线程初始化所有耗时组件，避免主线程阻塞
         new Thread(() -> {
             try {

@@ -108,11 +108,13 @@ public class AIWeatherManager implements AITool {
     private WeatherProvider currentProvider = WeatherProvider.HEFENG;
     private QWeatherJwtGenerator jwtGenerator;
     private String apiHost = DEFAULT_HEFENG_API_HOST;
+    private com.oilquiz.app.weather.QWeatherSdkManager sdkManager;
 
     public AIWeatherManager(Context context) {
         this.context = context;
         this.gson = new Gson();
         tryLoadJwtCredentials();
+        initSdkManager();
     }
 
     public AIWeatherManager(Context context, WeatherProvider provider) {
@@ -120,6 +122,50 @@ public class AIWeatherManager implements AITool {
         this.gson = new Gson();
         this.currentProvider = provider;
         tryLoadJwtCredentials();
+        initSdkManager();
+    }
+
+    /** 初始化 QWeather SDK Manager（优先走SDK路径，自动处理JWT/压缩/JSON解析） */
+    private void initSdkManager() {
+        try {
+            sdkManager = com.oilquiz.app.weather.QWeatherSdkManager.getInstance(context);
+            if (!sdkManager.isInitialized()) {
+                sdkManager.initializeFromStorage();
+            }
+            if (sdkManager.isInitialized()) {
+                Log.i(TAG, "QWeather SDK initialized for AI weather tool");
+            } else {
+                Log.w(TAG, "QWeather SDK not initialized, will use HTTP fallback");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to init QWeather SDK, will use HTTP fallback: " + e.getMessage());
+            sdkManager = null;
+        }
+    }
+
+    /** 构建SDK所需的location参数（坐标或位置ID） */
+    private String buildSdkLocation(String city, Double lat, Double lon, boolean useLocation) {
+        if (useLocation && lat != null && lon != null) {
+            return String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
+        } else if (city != null && !city.isEmpty()) {
+            try {
+                String locationId = getHefengLocationId(city);
+                if (locationId != null && !locationId.isEmpty()) {
+                    return locationId;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to get location ID for city: " + city, e);
+            }
+            return city;
+        }
+        return null;
+    }
+
+    /** 检查SDK返回结果是否为有效天气数据（非错误） */
+    private boolean isSdkResultValid(String result) {
+        return result != null && !result.isEmpty()
+            && !result.contains("查询失败") && !result.contains("查询异常")
+            && !result.contains("SDK未初始化") && !result.contains("超时");
     }
 
     public void setWeatherProvider(WeatherProvider provider) {
@@ -1033,7 +1079,14 @@ public class AIWeatherManager implements AITool {
         if (response == null || response.isEmpty()) {
             return "天气信息:\n查询失败（响应为空）";
         }
-        
+
+        // 前置检查：非 JSON 响应（如 HTML 错误页、压缩内容）直接返回，避免 Gson 抛异常
+        String trimmed = response.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            return "天气信息:\n查询失败（响应非JSON格式: "
+                + trimmed.substring(0, Math.min(100, trimmed.length())) + "）";
+        }
+
         try {
             JsonElement jsonElement = gson.fromJson(response, JsonElement.class);
             
@@ -1150,7 +1203,7 @@ public class AIWeatherManager implements AITool {
             return "天气信息:\n" + weatherInfo.toString();
         } catch (Exception e) {
             Log.e(TAG, "Error parsing Hefeng weather response", e);
-            return "天气信息:\n查询失败";
+            return "天气信息:\n查询失败（" + e.getClass().getSimpleName() + ": " + e.getMessage() + "）";
         }
     }
 
@@ -1178,7 +1231,13 @@ public class AIWeatherManager implements AITool {
         if (response == null || response.isEmpty()) {
             return "天气预报:\n查询失败（响应为空）";
         }
-        
+
+        String trimmed = response.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            return "天气预报:\n查询失败（响应非JSON格式: "
+                + trimmed.substring(0, Math.min(100, trimmed.length())) + "）";
+        }
+
         try {
             JsonElement jsonElement = gson.fromJson(response, JsonElement.class);
             
@@ -1257,7 +1316,7 @@ public class AIWeatherManager implements AITool {
             return "天气预报:\n" + weatherInfo.toString();
         } catch (Exception e) {
             Log.e(TAG, "Error parsing Hefeng forecast response", e);
-            return "天气预报:\n查询失败";
+            return "天气预报:\n查询失败（" + e.getClass().getSimpleName() + ": " + e.getMessage() + "）";
         }
     }
 
@@ -1285,7 +1344,13 @@ public class AIWeatherManager implements AITool {
         if (response == null || response.isEmpty()) {
             return "24小时预报:\n查询失败（响应为空）";
         }
-        
+
+        String trimmed = response.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            return "24小时预报:\n查询失败（响应非JSON格式: "
+                + trimmed.substring(0, Math.min(100, trimmed.length())) + "）";
+        }
+
         try {
             JsonElement jsonElement = gson.fromJson(response, JsonElement.class);
             
@@ -1370,7 +1435,7 @@ public class AIWeatherManager implements AITool {
             return "24小时预报:\n" + weatherInfo.toString();
         } catch (Exception e) {
             Log.e(TAG, "Error parsing Hefeng hourly response", e);
-            return "24小时预报:\n查询失败";
+            return "24小时预报:\n查询失败（" + e.getClass().getSimpleName() + ": " + e.getMessage() + "）";
         }
     }
 
@@ -3096,15 +3161,36 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getCurrentWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getCurrentWeatherByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getCurrentWeather(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            // 优先使用SDK（自动处理JWT/压缩/JSON解析）
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getCurrentWeather(location, city).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK current weather failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK current weather exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            // HTTP回退
+            if (result == null) {
+                if (useLocation) {
+                    result = getCurrentWeatherByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getCurrentWeather(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             resultMap.put("type", "current");
             return new AIToolResult(resultMap, new HashMap<>());
@@ -3116,15 +3202,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getForecastAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengForecastByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengForecast(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getDailyForecast(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK forecast failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK forecast exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengForecastByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengForecast(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             resultMap.put("type", "forecast");
             return new AIToolResult(resultMap, new HashMap<>());
@@ -3136,15 +3241,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getHourlyAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengHourlyByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengHourly(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getHourlyForecast(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK hourly failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK hourly exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengHourlyByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengHourly(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
@@ -3155,15 +3279,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getAirQualityAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengAirQualityByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengAirQuality(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getAirQuality(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK air quality failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK air quality exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengAirQualityByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengAirQuality(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
@@ -3174,15 +3317,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getAlertsAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengAlertsByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengAlerts(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getWeatherAlerts(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK alerts failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK alerts exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengAlertsByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengAlerts(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
@@ -3193,15 +3355,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getIndicesAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengIndicesByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengIndices(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getIndices(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK indices failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK indices exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengIndicesByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengIndices(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
@@ -3212,15 +3393,34 @@ public class AIWeatherManager implements AITool {
     
     private AIToolResult getMinutelyAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
-            String result;
-            if (useLocation) {
-                result = getHefengMinutelyByLocation(lat, lon).get();
-            } else if (city != null && !city.isEmpty()) {
-                result = getHefengMinutely(city).get();
-            } else {
-                return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+            String result = null;
+
+            if (sdkManager != null && sdkManager.isInitialized()) {
+                try {
+                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    if (location != null) {
+                        result = sdkManager.getMinutelyByLocation(location).get(15, TimeUnit.SECONDS);
+                        if (!isSdkResultValid(result)) {
+                            Log.w(TAG, "SDK minutely failed, falling back to HTTP: " + result);
+                            result = null;
+                        }
+                    }
+                } catch (Exception sdkEx) {
+                    Log.w(TAG, "SDK minutely exception, falling back to HTTP: " + sdkEx.getMessage());
+                    result = null;
+                }
             }
-            
+
+            if (result == null) {
+                if (useLocation) {
+                    result = getHefengMinutelyByLocation(lat, lon).get();
+                } else if (city != null && !city.isEmpty()) {
+                    result = getHefengMinutely(city).get();
+                } else {
+                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
+                }
+            }
+
             Map<String, Object> resultMap = parseWeatherResultToMap(result);
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
@@ -3234,42 +3434,55 @@ public class AIWeatherManager implements AITool {
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");
             resultMap.put("type", "all");
-            
-            CompletableFuture<String> currentFuture = useLocation ? 
-                getCurrentWeatherByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取当前天气失败: " + e.getMessage() + "\"}") : 
-                getCurrentWeather(city).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取当前天气失败: " + e.getMessage() + "\"}");
-            CompletableFuture<String> forecastFuture = useLocation ?
-                getHefengForecastByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取天气预报失败: " + e.getMessage() + "\"}") : 
-                getHefengForecast(city != null ? city : "北京").exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取天气预报失败: " + e.getMessage() + "\"}");
-            CompletableFuture<String> hourlyFuture = useLocation ?
-                getHefengHourlyByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取小时预报失败: " + e.getMessage() + "\"}") : 
-                getHefengHourly(city != null ? city : "北京").exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取小时预报失败: " + e.getMessage() + "\"}");
-            CompletableFuture<String> airFuture = useLocation ?
-                getHefengAirQualityByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取空气质量失败: " + e.getMessage() + "\"}") : 
-                getHefengAirQuality(city != null ? city : "北京").exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取空气质量失败: " + e.getMessage() + "\"}");
-            CompletableFuture<String> alertsFuture = useLocation ?
-                getHefengAlertsByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取天气预警失败: " + e.getMessage() + "\"}") : 
-                getHefengAlerts(city != null ? city : "北京").exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取天气预警失败: " + e.getMessage() + "\"}");
-            CompletableFuture<String> indicesFuture = useLocation ?
-                getHefengIndicesByLocation(lat, lon).exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取生活指数失败: " + e.getMessage() + "\"}") : 
-                getHefengIndices(city != null ? city : "北京").exceptionally(e -> "{\"code\":\"500\",\"message\":\"获取生活指数失败: " + e.getMessage() + "\"}");
-            
+
+            String sdkLocation = (sdkManager != null && sdkManager.isInitialized())
+                ? buildSdkLocation(city, lat, lon, useLocation) : null;
+
+            CompletableFuture<String> currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture;
+
+            if (sdkLocation != null) {
+                // SDK路径：自动处理JWT/压缩/JSON解析
+                currentFuture = sdkManager.getCurrentWeather(sdkLocation, city).exceptionally(e -> "查询失败: " + e.getMessage());
+                forecastFuture = sdkManager.getDailyForecast(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+                hourlyFuture = sdkManager.getHourlyForecast(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+                airFuture = sdkManager.getAirQuality(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+                alertsFuture = sdkManager.getWeatherAlerts(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+                indicesFuture = sdkManager.getIndices(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+            } else {
+                // HTTP回退路径
+                currentFuture = useLocation
+                    ? getCurrentWeatherByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getCurrentWeather(city).exceptionally(e -> "查询失败: " + e.getMessage());
+                forecastFuture = useLocation
+                    ? getHefengForecastByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getHefengForecast(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                hourlyFuture = useLocation
+                    ? getHefengHourlyByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getHefengHourly(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                airFuture = useLocation
+                    ? getHefengAirQualityByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getHefengAirQuality(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                alertsFuture = useLocation
+                    ? getHefengAlertsByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getHefengAlerts(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                indicesFuture = useLocation
+                    ? getHefengIndicesByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
+                    : getHefengIndices(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+            }
+
             CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get(30, TimeUnit.SECONDS);
-            
+
             mergeWeatherResult(resultMap, parseWeatherResultToMap(currentFuture.get()));
             mergeWeatherResult(resultMap, parseWeatherResultToMap(forecastFuture.get()));
             mergeWeatherResult(resultMap, parseWeatherResultToMap(hourlyFuture.get()));
             mergeWeatherResult(resultMap, parseWeatherResultToMap(airFuture.get()));
             mergeWeatherResult(resultMap, parseWeatherResultToMap(alertsFuture.get()));
             mergeWeatherResult(resultMap, parseWeatherResultToMap(indicesFuture.get()));
-            
+
             return new AIToolResult(resultMap, new HashMap<>());
         } catch (Exception e) {
             Log.e(TAG, "Error getting all weather: " + e.getMessage(), e);
-            Map<String, Object> errorMap = new HashMap<>();
-            errorMap.put("status", "error");
-            errorMap.put("error", "获取完整天气信息失败: " + e.getMessage());
-            return new AIToolResult(errorMap, new HashMap<>());
+            return AIToolResult.fail("获取完整天气信息失败: " + e.getMessage(), new HashMap<>());
         }
     }
     
@@ -3914,6 +4127,14 @@ public class AIWeatherManager implements AITool {
         }
 
         try {
+            // 前置检查：非JSON响应（如SDK格式化文本、HTML错误页）直接存储，避免Gson抛异常
+            String trimmed = result.trim();
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+                resultMap.put("formatted_result", result);
+                resultMap.put("status", "success");
+                return resultMap;
+            }
+
             JsonElement jsonElement = gson.fromJson(result, JsonElement.class);
             if (jsonElement != null && jsonElement.isJsonObject()) {
                 JsonObject jsonObject = jsonElement.getAsJsonObject();
@@ -4124,7 +4345,8 @@ public class AIWeatherManager implements AITool {
                     if (sun.has("sunset")) resultMap.put("sunset", sun.get("sunset").getAsString());
                 }
 
-            } else if (result.contains("天气信息") || result.contains("天气预报") || result.contains("24小时预报")) {
+            } else {
+                // SDK返回的格式化文本或其他非JSON结果，直接存储
                 resultMap.put("formatted_result", result);
             }
             

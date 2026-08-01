@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent;
 
 import android.app.Activity;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.ChatModeManager;
@@ -9,6 +10,7 @@ import com.oilquiz.app.ai.python.PythonToolManager;
 import com.oilquiz.app.ai.refactor.UnifiedContextManager;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.tool.AIToolUsageGuide;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
@@ -17,9 +19,11 @@ import com.oilquiz.app.util.AILogger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -176,60 +180,17 @@ public class UnifiedAgentEngine {
         public void setContent(String content) { this.output = content; }
     }
 
-    public interface AgentCallback {
-        void onToken(String token);
-        void onThinkingToken(String token);
-        void onThinkingEnd();
-        void onToolCallStart(String toolName, String args);
-        void onToolCallComplete(String toolName, AgentService.ToolResult result);
-        void onStepUpdate(String step, String detail);
-        void onComplete(String fullText);
-        void onError(String error);
-        
-        /**
-         * 需要更多用户信息时调用
-         * @param missingInfo 缺失信息的描述
-         * @param context 当前上下文/任务描述
-         * @param suggestions 可能的补充建议
-         */
-        default void onNeedMoreInfo(String missingInfo, String context, java.util.List<String> suggestions) {}
-        
-        /**
-         * 执行已暂停，等待用户输入
-         */
-        default void onExecutionPaused(String reason, String currentState) {}
-        
-        /**
-         * 用户已提供信息，执行即将恢复
-         */
-        default void onExecutionResuming(String userInput) {}
-        
-        /**
-         * 思考过程输出
-         * @param thought 思考内容
-         */
-        default void onThinking(String thought) {}
-        
-        /**
-         * 思考阶段变化
-         * @param stage 当前阶段描述
-         */
-        default void onThinkingStage(String stage) {}
-        
-        /**
-         * 输入验证结果
-         * @param paramName 参数名称
-         * @param result 验证结果
-         */
-        default void onInputValidationResult(String paramName, com.oilquiz.app.ai.agent.InputValidator.ValidationResult result) {}
-    }
+    /**
+     * Agent 回调接口 —— 继承独立接口，保持向后兼容。
+     * 外部代码可继续使用 UnifiedAgentEngine.AgentCallback，
+     * 也可直接使用 {@link com.oilquiz.app.ai.agent.AgentCallback}。
+     */
+    public interface AgentCallback extends com.oilquiz.app.ai.agent.AgentCallback {}
 
     /**
-     * 推理进度监听器 - 用于更新UI上的推理速度显示
+     * 推理进度监听器 —— 继承独立接口，保持向后兼容。
      */
-    public interface InferenceProgressListener {
-        void onProgressUpdate(int tokenCount, float tokensPerSecond);
-    }
+    public interface InferenceProgressListener extends com.oilquiz.app.ai.agent.InferenceProgressListener {}
 
     private final Activity activity;
     private final AIService aiService;
@@ -270,10 +231,24 @@ public class UnifiedAgentEngine {
     private final List<com.oilquiz.app.ai.chat.ChatMessage> onlineModelConversationHistory = Collections.synchronizedList(new ArrayList<>());
 
     private ReasoningMode currentMode = ReasoningMode.AUTO;
-    private int maxToolLoops = 5;
-    private AgentCallback callback;
-    private InferenceProgressListener inferenceProgressListener;
+    private int maxToolLoops = 8;
+    private com.oilquiz.app.ai.agent.AgentCallback callback;
+    private com.oilquiz.app.ai.agent.InferenceProgressListener inferenceProgressListener;
     private ServiceRouter serviceRouter;  // AIAgentEngine 兼容
+
+    // ========== 工具索引缓存 ==========
+    /** 工具名 -> ToolSchema 的 HashMap 索引，O(1) 查找 */
+    private Map<String, AgentService.ToolSchema> toolIndexCache;
+    /** 预构建的工具列表简版字符串 */
+    private String toolListBriefCache;
+    /** 预构建的工具列表完整字符串（含参数） */
+    private String toolListPromptCache;
+    /** 预构建的工具名速查字符串 */
+    private String toolNamesOnlyCache;
+    /** 预构建的关键词-工具映射 */
+    private Map<String, String> keywordToToolCache;
+    /** 缓存脏标记：工具列表变化时置 true，下次访问时重建 */
+    private boolean isToolCacheDirty = true;
 
     private static final int TOOL_RESULT_MAX_LENGTH = 2000;
     private static final int MAX_PROMPT_LENGTH = 16000;          // Prompt 最大长度
@@ -321,6 +296,13 @@ public class UnifiedAgentEngine {
         this.useOnlineModel = useOnlineModel;
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
         this.intentRecognizer.setAgentService(agentService);
+        // 本地 Agent 模式下禁用 LLM 意图识别：
+        // recognizeByLLM 调用 LlamaHelper.generate（nativeGenerate）会破坏 chat context 的 KV cache，
+        // 导致后续 chatSend（nativeChatSend）解码时 SIGSEGV 崩溃。
+        // ReAct/CoT 循环本身已具备完整推理能力，意图识别改用规则匹配即可。
+        if (!useOnlineModel) {
+            this.intentRecognizer.setLLMRecognitionEnabled(false);
+        }
         this.executor = Executors.newFixedThreadPool(EXECUTOR_THREAD_COUNT, r -> {
             Thread t = new Thread(r, "UnifiedAgent-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
@@ -341,11 +323,11 @@ public class UnifiedAgentEngine {
     }
     
 
-    public void setCallback(AgentCallback callback) {
+    public void setCallback(com.oilquiz.app.ai.agent.AgentCallback callback) {
         this.callback = callback;
     }
 
-    public void setInferenceProgressListener(InferenceProgressListener listener) {
+    public void setInferenceProgressListener(com.oilquiz.app.ai.agent.InferenceProgressListener listener) {
         this.inferenceProgressListener = listener;
     }
 
@@ -540,8 +522,13 @@ public class UnifiedAgentEngine {
                 }
 
                 // ========== Python 自动执行 ==========
-                // 如果消息包含 Python 触发关键词，自动执行并注入结果
-                if (shouldUsePython(message)) {
+                // 本地 Agent 模式下跳过：autoExecutePython -> generatePythonCodeForTask -> generateSync
+                // 调用 nativeGenerateStream 会破坏 chat context 的 KV cache，
+                // 导致后续 chatSend 解码时 native 层 SIGSEGV 崩溃。
+                // Python 工具改由 ReAct/CoT 循环通过工具调用流程触发。
+                if (!useOnlineModel && shouldUsePython(message)) {
+                    AILogger.i(TAG, "Skipping auto Python execution in local Agent mode to protect chat context: " + message);
+                } else if (useOnlineModel && shouldUsePython(message)) {
                     AILogger.i(TAG, "Auto-detected Python task: " + message);
                     String pythonResult = autoExecutePython(message);
                     if (pythonResult != null) {
@@ -564,8 +551,11 @@ public class UnifiedAgentEngine {
             + " multiIntents=" + (multiIntent != null ? multiIntent.intents.size() : 0));
 
         // ========== 智能思考 ==========
-        // 在执行前进行智能思考分析
-        if (enableThinking && !intent.intent.id.equals("chat")) {
+        // Agent 模式下跳过前置思考分析：ReAct/CoT 循环已有完整推理能力，
+        // 且 performThinking 的 generateSync 调用 nativeGenerateStream 会破坏 chat context 的 KV cache，
+        // 导致后续 chatSend 解码时 native 层 SIGSEGV 崩溃
+        boolean enablePreThinking = false;
+        if (enablePreThinking && enableThinking && !intent.intent.id.equals("chat")) {
             String thinking = performThinking(message);
             if (thinking != null && !thinking.isEmpty()) {
                 makeDecisionBasedOnThinking(thinking, message);
@@ -808,21 +798,54 @@ public class UnifiedAgentEngine {
     private String buildReActPrompt(String userMessage) {
         trimContextIfNeeded();
 
+        boolean isFirstRound = (toolLoopCount.get() == 0);
         StringBuilder sb = new StringBuilder();
-        sb.append("[ReAct模式] 每次只调一个工具，等结果后决定下一步。不需工具时直接回答。\n\n");
-        sb.append("工具调用格式（TOOLS_CALL和TOOLS_END独占一行，中间是有效JSON）：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n");
-        sb.append("示例：TOOLS_CALL\n{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\"}}\nTOOLS_END\n\n");
-        sb.append("=== 可用工具 ===\n");
-        sb.append(buildToolListPrompt());
-        sb.append("\n=== 用户问题 ===\n");
-        sb.append(userMessage);
+
+        if (isFirstRound) {
+            // 首轮：格式说明 + 精简工具列表（只有名+描述，不含参数详情）
+            sb.append("[ReAct模式] 每次只调一个工具，等结果后决定下一步。不需工具时直接回答。\n\n");
+            sb.append("工具调用格式（TOOLS_CALL和TOOLS_END独占一行，中间是有效JSON）：\n");
+            sb.append("TOOLS_CALL\n");
+            sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
+            sb.append("TOOLS_END\n");
+            sb.append("示例：TOOLS_CALL\n{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\"}}\nTOOLS_END\n\n");
+            sb.append("如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]，系统将返回该工具的完整说明。\n");
+            sb.append("如需查看完整工具调用指南（含示例和规则），输出 [TOOL_GUIDE]。\n");
+            sb.append("工具可以组合使用，如查天气可先用 location 定位再用 ai_weather 查询。\n\n");
+            sb.append("=== 可用工具 ===\n");
+            sb.append(buildToolListBrief());
+            sb.append("\n=== 用户问题 ===\n");
+            sb.append(userMessage);
+        } else {
+            // 后续轮：工具结果/指令 + 工具名速查（极小），不重复完整列表和格式说明
+            sb.append(userMessage);
+            sb.append("\n\n[工具速查] ").append(buildToolNamesOnly());
+            sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
+        }
         return sb.toString();
     }
 
     private void handleReActToolCall(String responseText, int maxTokens) {
+        // 0a. 检测完整工具指南请求 [TOOL_GUIDE]
+        if (responseText != null && responseText.contains("[TOOL_GUIDE]")) {
+            AILogger.i(TAG, "AI requested full tool guide");
+            String guidePrompt = "[工具调用指南]\n" + AIToolUsageGuide.getAgentToolUsageMethod(activity)
+                + "\n请根据以上指南，继续完成用户任务。";
+            resetBuffers();
+            executeReActLoop(guidePrompt, maxTokens, false);
+            return;
+        }
+
+        // 0b. 检测主动工具详情请求 [TOOL_INFO: 工具名]
+        String toolInfoRequest = extractToolInfoRequest(responseText);
+        if (toolInfoRequest != null) {
+            AILogger.i(TAG, "AI requested tool info: " + toolInfoRequest);
+            String infoPrompt = buildToolInfoResponsePrompt(toolInfoRequest);
+            resetBuffers();
+            executeReActLoop(infoPrompt, maxTokens, false);
+            return;
+        }
+
         List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
         if (toolCalls.isEmpty()) {
             if (likelyWantsToCallTool(responseText)) {
@@ -856,8 +879,7 @@ public class UnifiedAgentEngine {
                 AILogger.w(TAG, "用户取消了工具调用: " + call.name);
                 activity.runOnUiThread(() -> {
                     if (callback != null && isValid()) {
-                        callback.onToolCallComplete(call.name,
-                            new AgentService.ToolResult(call.name, "用户取消", false));
+                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
                     }
                 });
                 if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
@@ -875,14 +897,14 @@ public class UnifiedAgentEngine {
             AgentService.ToolResult result = executeToolWithTimeout(validatedCall);
             if (result == null) {
                 AILogger.e(TAG, "executeTool returned null for: " + call.name);
-                activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
+                activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "Tool execution failed", 0)); });
                 contextSummary.add("工具结果: 执行失败");
-                String nextPrompt = "[继续] 工具调用失败，请尝试其他方式完成。";
+                String nextPrompt = buildFallbackSuggestionPrompt(call.name, "工具执行返回空结果", call.arguments);
                 resetBuffers();
                 executeReActLoop(nextPrompt, maxTokens, false);
                 return;
             }
-            activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, result); });
+            activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, OnlineToolResult.fromAgentServiceResult(call.name, result)); });
             boolean success = result.success;
             String resultStr = result.result;
             String toolResultStr = success ? resultStr : "工具执行失败: " + resultStr;
@@ -897,11 +919,11 @@ public class UnifiedAgentEngine {
             AILogger.i(TAG, "Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
 
             if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
-                // 结果不满足，提示AI调整参数重试
+                // 结果不满足，提示AI调整参数重试，并注入替代工具建议
                 String retryPrompt = "[工具结果不满足] 工具 " + call.name + " 返回的结果不完整。\n"
                     + "原因: " + analysis.reason + "\n"
-                    + "建议: " + analysis.suggestion + "\n"
-                    + "请调整参数重新调用工具，或使用其他工具完成任务。";
+                    + "建议: " + analysis.suggestion + "\n\n"
+                    + buildFallbackSuggestionPrompt(call.name, analysis.reason, call.arguments);
                 resetBuffers();
                 executeReActLoop(retryPrompt, maxTokens, false);
                 return;
@@ -978,22 +1000,32 @@ public class UnifiedAgentEngine {
             sb.append("...\n");
         }
         sb.append("\n\n");
-        
+
         sb.append("=== 正确格式 ===\n");
         sb.append("TOOLS_CALL\n");
         sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
         sb.append("TOOLS_END\n\n");
-        
+
         sb.append("=== 重要提醒 ===\n");
         sb.append("1. TOOLS_CALL 和 TOOLS_END 必须独占一行\n");
         sb.append("2. 中间必须是有效的JSON格式\n");
         sb.append("3. JSON必须包含 name 和 arguments 两个字段\n");
         sb.append("4. arguments 必须是一个JSON对象\n\n");
-        
-        sb.append("=== 可用工具 ===\n");
-        sb.append(buildToolListPrompt());
+
+        // 自动检测模型想调用的工具，注入该工具的详细参数定义
+        String detectedTool = extractToolNameFromResponse(incorrectResponse);
+        if (detectedTool != null) {
+            String detail = buildToolDetailPrompt(detectedTool);
+            if (!detail.isEmpty()) {
+                sb.append("=== 你要调用的工具详情 ===\n");
+                sb.append(detail).append("\n");
+            }
+        }
+        // 其他工具只给名字列表（极小体积）
+        sb.append("=== 其他可用工具 ===\n");
+        sb.append(buildToolNamesOnly());
         sb.append("\n\n请重新使用正确的格式调用工具，或者直接回答用户问题。");
-        
+
         return sb.toString();
     }
 
@@ -1023,8 +1055,7 @@ public class UnifiedAgentEngine {
                         AILogger.w(TAG, "用户取消了工具调用: " + call.name);
                         activity.runOnUiThread(() -> {
                             if (callback != null) {
-                                callback.onToolCallComplete(call.name,
-                                    new AgentService.ToolResult(call.name, "用户取消", false));
+                                callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
                             }
                         });
                         if (isCancelled.get()) { finishGeneration(); return; }
@@ -1044,7 +1075,7 @@ public class UnifiedAgentEngine {
                     // =================================
                     if (result == null) {
                         AILogger.e(TAG, "executeTool returned null for: " + call.name);
-                        activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, new AgentService.ToolResult(call.name, "Tool execution failed", false)); });
+                        activity.runOnUiThread(() -> { if (callback != null) callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "Tool execution failed", 0)); });
                         if (isCancelled.get()) { finishGeneration(); return; }
                         contextSummary.add("工具结果: 执行失败");
                         String nextPrompt = "[继续] 工具调用失败，请尝试其他方式完成。";
@@ -1052,7 +1083,7 @@ public class UnifiedAgentEngine {
                         executeDirect(nextPrompt, maxTokens, false);
                         return;
                     }
-                    activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, result); });
+                    activity.runOnUiThread(() -> { if (callback != null && isValid()) callback.onToolCallComplete(call.name, OnlineToolResult.fromAgentServiceResult(call.name, result)); });
                     if (isCancelled.get()) { finishGeneration(); return; }
                     boolean success = result.success;
                     String resultStr = result.result;
@@ -1104,27 +1135,59 @@ public class UnifiedAgentEngine {
     private String buildCoTPrompt(String userMessage) {
         trimContextIfNeeded();
 
+        boolean isFirstRound = (toolLoopCount.get() == 0);
         StringBuilder sb = new StringBuilder();
-        sb.append("[链式思维模式]\n\n");
-        sb.append("=== 思考步骤 ===\n");
-        sb.append("1. 分析问题的核心和关键点\n");
-        sb.append("2. 识别需要的信息和知识\n");
-        sb.append("3. 逐步推理，展示思考过程\n");
-        sb.append("4. 基于推理结果，决定是否需要使用工具\n\n");
-        sb.append("=== 工具调用 ===\n");
-        sb.append("如需工具，按以下格式调用（TOOLS_CALL和TOOLS_END必须独占一行）：\n\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n\n");
-        sb.append("=== 可用工具 ===\n");
-        sb.append(buildToolListPrompt());
-        sb.append("\n=== 用户问题 ===\n");
-        sb.append(userMessage);
-        sb.append("\n\n请开始链式思维推理：");
+
+        if (isFirstRound) {
+            sb.append("[链式思维模式]\n\n");
+            sb.append("=== 思考步骤 ===\n");
+            sb.append("1. 分析问题的核心和关键点\n");
+            sb.append("2. 识别需要的信息和知识\n");
+            sb.append("3. 逐步推理，展示思考过程\n");
+            sb.append("4. 基于推理结果，决定是否需要使用工具\n\n");
+            sb.append("=== 工具调用 ===\n");
+            sb.append("如需工具，按以下格式调用（TOOLS_CALL和TOOLS_END必须独占一行）：\n\n");
+            sb.append("TOOLS_CALL\n");
+            sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
+            sb.append("TOOLS_END\n\n");
+            sb.append("如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]，系统将返回该工具的完整说明。\n");
+            sb.append("如需查看完整工具调用指南（含示例和规则），输出 [TOOL_GUIDE]。\n");
+            sb.append("工具可以组合使用，如查天气可先用 location 定位再用 ai_weather 查询。\n\n");
+            sb.append("=== 可用工具 ===\n");
+            sb.append(buildToolListBrief());
+            sb.append("\n=== 用户问题 ===\n");
+            sb.append(userMessage);
+            sb.append("\n\n请开始链式思维推理：");
+        } else {
+            // 后续轮：工具结果/指令 + 工具名速查（极小）
+            sb.append(userMessage);
+            sb.append("\n\n[工具速查] ").append(buildToolNamesOnly());
+            sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
+        }
         return sb.toString();
     }
 
     private void handleCoTToolCall(String responseText, int maxTokens) {
+        // 0a. 检测完整工具指南请求 [TOOL_GUIDE]
+        if (responseText != null && responseText.contains("[TOOL_GUIDE]")) {
+            AILogger.i(TAG, "CoT AI requested full tool guide");
+            String guidePrompt = "[工具调用指南]\n" + AIToolUsageGuide.getAgentToolUsageMethod(activity)
+                + "\n请根据以上指南，继续完成用户任务。";
+            resetBuffers();
+            executeCoTLoop(guidePrompt, maxTokens, false);
+            return;
+        }
+
+        // 0b. 检测主动工具详情请求 [TOOL_INFO: 工具名]
+        String toolInfoRequest = extractToolInfoRequest(responseText);
+        if (toolInfoRequest != null) {
+            AILogger.i(TAG, "CoT AI requested tool info: " + toolInfoRequest);
+            String infoPrompt = buildToolInfoResponsePrompt(toolInfoRequest);
+            resetBuffers();
+            executeCoTLoop(infoPrompt, maxTokens, false);
+            return;
+        }
+
         List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(responseText);
         if (toolCalls.isEmpty()) {
             contextSummary.add("助手: " + truncateForContext(responseText));
@@ -1149,8 +1212,7 @@ public class UnifiedAgentEngine {
                 AILogger.w(TAG, "用户取消了工具调用: " + call.name);
                 activity.runOnUiThread(() -> {
                     if (callback != null) {
-                        callback.onToolCallComplete(call.name,
-                            new AgentService.ToolResult(call.name, "用户取消", false));
+                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
                     }
                 });
                 contextSummary.add("工具结果: 用户取消");
@@ -1168,7 +1230,7 @@ public class UnifiedAgentEngine {
             // =================================
 
             activity.runOnUiThread(() -> {
-                if (callback != null && isValid()) callback.onToolCallComplete(call.name, result);
+                if (callback != null && isValid()) callback.onToolCallComplete(call.name, OnlineToolResult.fromAgentServiceResult(call.name, result));
             });
 
             if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
@@ -1187,11 +1249,11 @@ public class UnifiedAgentEngine {
             AILogger.i(TAG, "CoT Tool result analysis: sufficient=" + analysis.sufficient + ", reason=" + analysis.reason);
 
             if (!analysis.sufficient && toolLoopCount.get() < maxToolLoops) {
-                // 结果不满足，提示AI调整参数重试
+                // 结果不满足，提示AI调整参数重试，并注入替代工具建议
                 String retryPrompt = "[工具结果不满足] 工具 " + call.name + " 返回的结果不完整。\n"
                     + "原因: " + analysis.reason + "\n"
-                    + "建议: " + analysis.suggestion + "\n"
-                    + "请调整参数重新调用工具，或基于已有信息继续推理。";
+                    + "建议: " + analysis.suggestion + "\n\n"
+                    + buildFallbackSuggestionPrompt(call.name, analysis.reason, call.arguments);
                 resetBuffers();
                 executeCoTLoop(retryPrompt, maxTokens, false);
                 return;
@@ -1278,7 +1340,7 @@ public class UnifiedAgentEngine {
         sb.append("...\n\n");
 
         sb.append("=== 可用工具 ===\n");
-        sb.append(buildToolListPrompt());
+        sb.append(buildToolListBrief());
         sb.append("\n=== 工具调用格式 ===\n");
         sb.append("执行步骤时如需调用工具，使用以下格式：\n");
         sb.append("TOOLS_CALL\n");
@@ -1383,8 +1445,7 @@ public class UnifiedAgentEngine {
                 AILogger.w(TAG, "用户取消了工具调用: " + call.name);
                 activity.runOnUiThread(() -> {
                     if (callback != null) {
-                        callback.onToolCallComplete(call.name,
-                            new AgentService.ToolResult(call.name, "用户取消", false));
+                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
                     }
                 });
                 // 继续下一步
@@ -1401,7 +1462,7 @@ public class UnifiedAgentEngine {
             // =================================
 
             activity.runOnUiThread(() -> {
-                if (callback != null) callback.onToolCallComplete(call.name, result);
+                if (callback != null) callback.onToolCallComplete(call.name, OnlineToolResult.fromAgentServiceResult(call.name, result));
             });
 
             if (isCancelled.get()) { finishGeneration(); return; }
@@ -1860,17 +1921,426 @@ public class UnifiedAgentEngine {
         return new AgentService.ToolResult(validatedCall.name, "工具执行失败", false, 0, TOOL_EXECUTION_MAX_RETRIES);
     }
 
-    private String buildToolListPrompt() {
-        if (agentService == null) return "";
-        StringBuilder sb = new StringBuilder();
-        sb.append("【可用工具】\n");
-        for (AgentService.ToolSchema schema : agentService.getMainToolSchemas()) {
-            sb.append("- ").append(schema.name).append(": ").append(schema.description);
-            if (!schema.paramDesc.isEmpty()) {
-                sb.append(" | ").append(schema.paramDesc);
-            }
-            sb.append("\n");
+    /**
+     * 刷新工具索引缓存。仅在 dirty 时重建，确保高效。
+     */
+    private void refreshToolCacheIfNeeded() {
+        if (!isToolCacheDirty || agentService == null) return;
+
+        List<AgentService.ToolSchema> schemas = agentService.getMainToolSchemas();
+
+        // 1. 构建 HashMap 索引 —— O(1) 查找工具名
+        toolIndexCache = new HashMap<>();
+        for (AgentService.ToolSchema schema : schemas) {
+            toolIndexCache.put(schema.name, schema);
         }
+
+        // 2. 预构建完整工具列表（含参数）
+        StringBuilder promptSb = new StringBuilder();
+        promptSb.append("【可用工具】\n");
+        for (AgentService.ToolSchema schema : schemas) {
+            promptSb.append("- ").append(schema.name).append(": ").append(schema.description);
+            if (!schema.paramDesc.isEmpty()) {
+                promptSb.append(" | ").append(schema.paramDesc);
+            }
+            promptSb.append("\n");
+        }
+        toolListPromptCache = promptSb.toString();
+
+        // 3. 预构建精简工具列表（不含参数）
+        StringBuilder briefSb = new StringBuilder();
+        for (AgentService.ToolSchema schema : schemas) {
+            briefSb.append("- ").append(schema.name).append(": ").append(schema.description).append("\n");
+        }
+        toolListBriefCache = briefSb.toString();
+
+        // 4. 预构建工具名速查
+        StringBuilder namesSb = new StringBuilder();
+        for (AgentService.ToolSchema schema : schemas) {
+            if (namesSb.length() > 0) namesSb.append(" | ");
+            namesSb.append(schema.name);
+        }
+        toolNamesOnlyCache = namesSb.toString();
+
+        // 5. 预构建关键词-工具映射（用于联想匹配）
+        keywordToToolCache = new HashMap<>();
+        String[][] keywordMap = {
+            {"weather", "天气", "气温", "温度", "预报", "下雨", "storm", "降水", "ai_weather"},
+            {"search", "搜索", "查找", "检索", "网上查", "network_search"},
+            {"research", "研究", "smart_research"},
+            {"webpage", "网页", "网站", "url", "webpage_reader"},
+            {"translate", "翻译", "translation"},
+            {"calculate", "计算", "算", "数学", "python_calculate"},
+            {"python", "代码执行", "python_execute"},
+            {"analyze", "分析数据", "python_analyze_data"},
+            {"location", "位置", "定位", "gps", "经纬度", "location"},
+            {"file", "文件", "读取文件", "file_reader"},
+            {"ocr", "识别图片", "文字识别", "app_toolkit"},
+            {"database", "数据库", "题库", "错题", "database"},
+            {"open", "打开应用", "启动", "system_resource"},
+            {"permission", "权限", "permission_manager"},
+            {"generate", "生成文件", "file_generator"},
+        };
+        for (String[] entry : keywordMap) {
+            String toolName = entry[entry.length - 1];
+            if (!toolIndexCache.containsKey(toolName)) continue;
+            for (int i = 0; i < entry.length - 1; i++) {
+                keywordToToolCache.put(entry[i].toLowerCase(), toolName);
+            }
+        }
+
+        isToolCacheDirty = false;
+    }
+
+    /**
+     * 标记工具缓存为脏，下次访问时自动重建。
+     * 在工具列表变化（如注册/卸载工具）时调用。
+     */
+    public void markToolCacheDirty() {
+        isToolCacheDirty = true;
+    }
+
+    private String buildToolListPrompt() {
+        refreshToolCacheIfNeeded();
+        return toolListPromptCache == null ? "" : toolListPromptCache;
+    }
+
+    /**
+     * 精简工具列表 —— 只有工具名和一行描述，不含参数详情。
+     * 用于首次推理，大幅减少提示词体积。
+     */
+    private String buildToolListBrief() {
+        refreshToolCacheIfNeeded();
+        return toolListBriefCache == null ? "" : toolListBriefCache;
+    }
+
+    /**
+     * 单个工具的详细参数定义。
+     * 通过 HashMap 索引 O(1) 查找，避免线性遍历。
+     *
+     * @param toolName 工具名
+     * @return 工具详情文本，找不到时返回空串
+     */
+    private String buildToolDetailPrompt(String toolName) {
+        refreshToolCacheIfNeeded();
+        if (toolIndexCache == null || toolName == null) return "";
+        AgentService.ToolSchema schema = toolIndexCache.get(toolName);
+        if (schema == null) return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("工具: ").append(toolName).append("\n");
+        sb.append("功能: ").append(schema.description).append("\n");
+        if (!schema.paramDesc.isEmpty()) {
+            sb.append("参数: ").append(schema.paramDesc).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 极简工具名列表 —— 只有工具名，空格分隔，单行。
+     * 用于后续推理轮的"工具速查"，让 agent 知道有哪些工具可选，体积极小。
+     */
+    private String buildToolNamesOnly() {
+        refreshToolCacheIfNeeded();
+        return toolNamesOnlyCache == null ? "" : toolNamesOnlyCache;
+    }
+
+    /**
+     * 通过 HashMap 索引直接获取 ToolSchema，O(1) 操作。
+     */
+    private AgentService.ToolSchema getToolSchema(String toolName) {
+        refreshToolCacheIfNeeded();
+        if (toolIndexCache == null) return null;
+        return toolIndexCache.get(toolName);
+    }
+
+    /**
+     * 从缓存的关键词映射中查找工具名。
+     */
+    private String lookupToolByKeyword(String keyword) {
+        refreshToolCacheIfNeeded();
+        if (keywordToToolCache == null || keyword == null) return null;
+        return keywordToToolCache.get(keyword.toLowerCase());
+    }
+
+    /**
+     * 从模型的不正确回复中提取它想调用的工具名。
+     * 使用缓存索引进行高效匹配。
+     *
+     * @param response 模型的不正确回复
+     * @return 匹配到的工具名，未匹配返回 null
+     */
+    private String extractToolNameFromResponse(String response) {
+        if (response == null || response.isEmpty() || agentService == null) return null;
+        refreshToolCacheIfNeeded();
+        if (toolIndexCache == null) return null;
+
+        String lower = response.toLowerCase();
+
+        // 1. 精确匹配：遍历缓存的工具名集合
+        for (String toolName : toolIndexCache.keySet()) {
+            if (response.contains(toolName)) {
+                return toolName;
+            }
+        }
+
+        // 2. 模糊匹配：工具名去前缀后的核心词（如 ai_weather → weather）
+        for (AgentService.ToolSchema schema : toolIndexCache.values()) {
+            String core = schema.name;
+            int underscore = core.indexOf('_');
+            if (underscore > 0 && underscore < core.length() - 1) {
+                core = core.substring(underscore + 1);
+            }
+            if (core.length() >= 3 && lower.contains(core.toLowerCase())) {
+                return schema.name;
+            }
+        }
+
+        // 3. 关键词联想：直接从缓存的关键词映射中查找
+        for (Map.Entry<String, String> entry : keywordToToolCache.entrySet()) {
+            if (lower.contains(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
+    }
+
+    // ========== 工具链组合推理 ==========
+
+    /**
+     * 工具关联关系映射 —— 当某工具失败/不满足时，建议的替代/补充工具。
+     * 每行第一个是失败工具，后续是建议的替代工具（按优先级排列）。
+     */
+    private static final String[][] TOOL_FALLBACK_MAP = {
+        {"ai_weather", "location", "network_search"},
+        {"network_search", "smart_research", "webpage_reader"},
+        {"file_reader", "app_toolkit", "file"},
+        {"python_calculate", "python_execute"},
+        {"translation", "network_search"},
+        {"location", "network_search"},
+        {"smart_research", "network_search", "webpage_reader"},
+        {"database", "network_search"},
+        {"app_toolkit", "file_reader", "network_search"},
+    };
+
+    /**
+     * 获取某工具失败时的替代工具列表（已验证工具存在）。
+     */
+    private List<String> getFallbackTools(String failedTool) {
+        List<String> result = new ArrayList<>();
+        if (failedTool == null || agentService == null) return result;
+        refreshToolCacheIfNeeded();
+        for (String[] entry : TOOL_FALLBACK_MAP) {
+            if (entry[0].equals(failedTool)) {
+                for (int i = 1; i < entry.length; i++) {
+                    if (toolIndexCache != null && toolIndexCache.containsKey(entry[i])) {
+                        result.add(entry[i]);
+                    }
+                }
+                break;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 构建工具失败时的提示词（不带已提供参数，委托给带参数版本）。
+     */
+    private String buildFallbackSuggestionPrompt(String failedTool, String failReason) {
+        return buildFallbackSuggestionPrompt(failedTool, failReason, null);
+    }
+
+    /**
+     * 构建工具失败时的提示词。
+     * - 参数错误：分析缺失参数，判断能否自动补充/需调工具获取/需问用户，让模型修正后重试
+     * - 工具不适用：联想替代工具（预定义映射 → 通用全量列表），让模型自行判断
+     *
+     * @param providedArgsJson 模型提供的参数 JSON（可为 null）
+     */
+    private String buildFallbackSuggestionPrompt(String failedTool, String failReason, String providedArgsJson) {
+        StringBuilder sb = new StringBuilder();
+
+        boolean likelyParamError = isLikelyParamError(failReason);
+
+        if (likelyParamError) {
+            // 参数错误：分析缺失参数，给出具体补充建议
+            sb.append("[工具参数可能错误] ").append(failedTool).append(" 执行失败。\n");
+            sb.append("原因: ").append(failReason).append("\n\n");
+            String detail = buildToolDetailPrompt(failedTool);
+            if (!detail.isEmpty()) {
+                sb.append("=== 该工具的详细参数 ===\n");
+                sb.append(detail).append("\n");
+            }
+
+            // 智能分析缺失参数
+            List<String> requiredParams = parseParamNames(failedTool);
+            Set<String> providedParams = parseProvidedParams(providedArgsJson);
+            List<String> missingParams = new ArrayList<>();
+            for (String p : requiredParams) {
+                if (!providedParams.contains(p)) {
+                    missingParams.add(p);
+                }
+            }
+
+            if (!missingParams.isEmpty()) {
+                sb.append("=== 缺失参数分析 ===\n");
+                for (String param : missingParams) {
+                    sb.append("- ").append(param);
+                    if (isLocationParam(param)) {
+                        sb.append(": 位置参数，可先调用 location 工具获取当前位置\n");
+                    } else if (isTimeParam(param)) {
+                        sb.append(": 时间参数，可使用当前时间\n");
+                    } else {
+                        sb.append(": 需要从用户输入或上下文获取\n");
+                    }
+                }
+                sb.append("\n请根据以上分析：\n");
+                sb.append("1. 能自动补充的参数（如当前时间）请直接填入\n");
+                sb.append("2. 需要调工具获取的参数（如位置）请先调用对应工具\n");
+                sb.append("3. 修正参数后重新调用该工具\n\n");
+            } else {
+                // 参数齐全但值不对（如枚举值错误）
+                sb.append("参数齐全但值可能有误，请检查参数值是否正确后重新调用。\n\n");
+            }
+        } else {
+            // 工具本身不适用：建议替代工具
+            sb.append("[工具失败] ").append(failedTool).append(" 未能完成任务。\n");
+            sb.append("原因: ").append(failReason).append("\n\n");
+        }
+
+        // 联想替代工具：优先用预定义映射，无匹配时给全量简列表让模型自行判断
+        List<String> fallbacks = getFallbackTools(failedTool);
+        if (!fallbacks.isEmpty()) {
+            sb.append("=== 替代工具建议 ===\n");
+            for (String toolName : fallbacks) {
+                String detail = buildToolDetailPrompt(toolName);
+                if (!detail.isEmpty()) {
+                    sb.append(detail).append("\n");
+                }
+            }
+        } else {
+            // 通用联想：所有工具的简列表，让模型自行判断哪些可能有帮助
+            sb.append("=== 其他可用工具 ===\n");
+            sb.append(buildToolListBrief());
+        }
+        sb.append("\n请判断以上工具是否适合完成当前任务。如适合请调用，不适合可直接回答用户。\n\n");
+        sb.append("[工具速查] ").append(buildToolNamesOnly());
+        sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
+        sb.append("\n如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]。");
+        sb.append("\n如需查看完整工具调用指南，输出 [TOOL_GUIDE]。");
+        return sb.toString();
+    }
+
+    /**
+     * 判断工具失败原因是否可能是参数错误（而非工具本身不适用）。
+     * 参数错误时应优先修正参数重试，而非武断更换工具。
+     */
+    private boolean isLikelyParamError(String failReason) {
+        if (failReason == null) return false;
+        String lower = failReason.toLowerCase();
+        return lower.contains("参数") || lower.contains("parameter") || lower.contains("argument")
+            || lower.contains("无效") || lower.contains("invalid") || lower.contains("缺失") || lower.contains("missing")
+            || lower.contains("格式") || lower.contains("format") || lower.contains("类型错误")
+            || lower.contains("空值") || lower.contains("null") || lower.contains("empty")
+            || lower.contains("找不到") || lower.contains("not found") || lower.contains("未找到")
+            || lower.contains("非法") || lower.contains("illegal");
+    }
+
+    /**
+     * 从工具的 paramDesc 中解析参数名列表。
+     * paramDesc 格式: "city(城市名), action(current/forecast/hourly/air/alert)"
+     */
+    private List<String> parseParamNames(String toolName) {
+        List<String> params = new ArrayList<>();
+        if (agentService == null || toolName == null) return params;
+        AgentService.ToolSchema schema = getToolSchema(toolName);
+        if (schema == null) return params;
+        String desc = schema.paramDesc;
+        if (desc == null || desc.equals("无参数")) return params;
+        // 解析 paramName(description) 格式
+        int i = 0;
+        while (i < desc.length()) {
+            int parenStart = desc.indexOf('(', i);
+            if (parenStart <= 0) break;
+            String name = desc.substring(i, parenStart).trim();
+            // 去除前导逗号空格
+            if (name.endsWith(",")) name = name.substring(0, name.length() - 1).trim();
+            if (!name.isEmpty()) params.add(name);
+            int parenEnd = desc.indexOf(')', parenStart);
+            if (parenEnd < 0) break;
+            i = parenEnd + 1;
+            // 跳过逗号空格
+            while (i < desc.length() && (desc.charAt(i) == ',' || desc.charAt(i) == ' ')) i++;
+        }
+        return params;
+    }
+
+    /**
+     * 从模型提供的 JSON 参数中提取已提供的参数名集合。
+     */
+    private Set<String> parseProvidedParams(String argsJson) {
+        Set<String> params = new HashSet<>();
+        if (argsJson == null || argsJson.isEmpty()) return params;
+        try {
+            org.json.JSONObject json = new org.json.JSONObject(argsJson);
+            java.util.Iterator<String> keys = json.keys();
+            while (keys.hasNext()) {
+                params.add(keys.next());
+            }
+        } catch (Exception e) {
+            // JSON 解析失败，返回空集
+        }
+        return params;
+    }
+
+    /**
+     * 判断参数是否为位置相关参数（可通过 location 工具获取）。
+     */
+    private boolean isLocationParam(String paramName) {
+        if (paramName == null) return false;
+        String lower = paramName.toLowerCase();
+        return lower.contains("city") || lower.contains("lat") || lower.contains("lon")
+            || lower.contains("location") || lower.contains("address") || lower.contains("位置")
+            || lower.contains("城市");
+    }
+
+    /**
+     * 判断参数是否为时间相关参数（可自动填充当前时间）。
+     */
+    private boolean isTimeParam(String paramName) {
+        if (paramName == null) return false;
+        String lower = paramName.toLowerCase();
+        return lower.contains("date") || lower.contains("time") || lower.contains("timestamp");
+    }
+
+    /**
+     * 从模型回复中提取主动工具详情请求 [TOOL_INFO: 工具名]。
+     *
+     * @return 请求的工具名，无请求返回 null
+     */
+    private String extractToolInfoRequest(String response) {
+        if (response == null) return null;
+        int idx = response.indexOf("[TOOL_INFO:");
+        if (idx < 0) return null;
+        int end = response.indexOf("]", idx);
+        if (end < 0) return null;
+        return response.substring(idx + 11, end).trim();
+    }
+
+    /**
+     * 构建工具详情响应提示词（用于模型主动请求工具详情后注入）。
+     */
+    private String buildToolInfoResponsePrompt(String requestedTool) {
+        String detail = buildToolDetailPrompt(requestedTool);
+        StringBuilder sb = new StringBuilder();
+        if (detail.isEmpty()) {
+            sb.append("[工具详情] 未找到工具: ").append(requestedTool).append("\n");
+            sb.append("[工具速查] ").append(buildToolNamesOnly());
+        } else {
+            sb.append("[工具详情]\n").append(detail).append("\n");
+        }
+        sb.append("\n请根据以上信息，决定是否调用该工具。如需调用，使用 TOOLS_CALL/TOOLS_END 格式。");
         return sb.toString();
     }
 

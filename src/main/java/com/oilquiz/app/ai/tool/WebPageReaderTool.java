@@ -75,6 +75,24 @@ public class WebPageReaderTool implements AITool {
     public WebPageReaderTool(Context context) {
         this.context = context;
     }
+
+    // ===== 类型安全的参数提取 =====
+
+    private String getStringParam(Map<String, Object> params, String key, String def) {
+        if (params == null) return def;
+        Object v = params.get(key);
+        if (v == null) return def;
+        return String.valueOf(v);
+    }
+
+    private int getIntParam(Map<String, Object> params, String key, int def) {
+        if (params == null) return def;
+        Object v = params.get(key);
+        if (v == null) return def;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return def; }
+    }
     
     @Override
     public String getName() {
@@ -88,7 +106,7 @@ public class WebPageReaderTool implements AITool {
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
-        String action = (String) parameters.get("action");
+        String action = getStringParam(parameters, "action", "read");
         if (action == null) {
             action = "read";
         }
@@ -115,7 +133,7 @@ public class WebPageReaderTool implements AITool {
     }
     
     private AIToolResult readWebpage(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
+        String url = getStringParam(parameters, "url", null);
         if (url == null || url.isEmpty()) {
             return new AIToolResult("Missing required parameter: url", parameters);
         }
@@ -137,8 +155,8 @@ public class WebPageReaderTool implements AITool {
     }
     
     private AIToolResult extractInfo(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
-        String content = (String) parameters.get("content");
+        String url = getStringParam(parameters, "url", null);
+        String content = getStringParam(parameters, "content", null);
         
         if (url == null && content == null) {
             return new AIToolResult("Missing required parameter: url or content", parameters);
@@ -171,9 +189,9 @@ public class WebPageReaderTool implements AITool {
     }
     
     private AIToolResult summarizeWebpage(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
-        String content = (String) parameters.get("content");
-        String query = (String) parameters.get("query");
+        String url = getStringParam(parameters, "url", null);
+        String content = getStringParam(parameters, "content", null);
+        String query = getStringParam(parameters, "query", null);
         
         if (url == null && content == null) {
             return new AIToolResult("Missing required parameter: url or content", parameters);
@@ -194,9 +212,18 @@ public class WebPageReaderTool implements AITool {
     }
     
     private AIToolResult readMultiple(Map<String, Object> parameters) {
-        @SuppressWarnings("unchecked")
-        List<String> urls = (List<String>) parameters.get("urls");
-        
+        List<String> urls = null;
+        try {
+            Object raw = parameters.get("urls");
+            if (raw instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> casted = (List<String>) raw;
+                urls = casted;
+            }
+        } catch (ClassCastException e) {
+            AILogger.w(TAG, "urls参数类型不匹配: " + e.getMessage());
+        }
+
         if (urls == null || urls.isEmpty()) {
             return new AIToolResult("Missing required parameter: urls", parameters);
         }
@@ -235,17 +262,17 @@ public class WebPageReaderTool implements AITool {
     }
     
     private AIToolResult followLinks(Map<String, Object> parameters) {
-        String url = (String) parameters.get("url");
-        Integer maxDepth = (Integer) parameters.get("maxDepth");
-        Integer maxLinks = (Integer) parameters.get("maxLinks");
-        String query = (String) parameters.get("query");
-        
+        String url = getStringParam(parameters, "url", null);
+        int maxDepth = getIntParam(parameters, "maxDepth", 2);
+        int maxLinks = getIntParam(parameters, "maxLinks", 10);
+        String query = getStringParam(parameters, "query", null);
+
         if (url == null) {
             return new AIToolResult("Missing required parameter: url", parameters);
         }
-        
-        if (maxDepth == null) maxDepth = 2;
-        if (maxLinks == null) maxLinks = 10;
+
+        if (maxDepth <= 0) maxDepth = 2;
+        if (maxLinks <= 0) maxLinks = 10;
         
         try {
             Set<String> visitedUrls = new HashSet<>();
@@ -277,7 +304,11 @@ public class WebPageReaderTool implements AITool {
             Map<String, Object> parsed = parseWebpage(content, url);
             
             @SuppressWarnings("unchecked")
-            List<Map<String, Object>> links = (List<Map<String, Object>>) parsed.get("links");
+            List<Map<String, Object>> links = null;
+            Object linksObj = parsed.get("links");
+            if (linksObj instanceof List) {
+                links = (List<Map<String, Object>>) linksObj;
+            }
             
             Map<String, Object> result = new HashMap<>();
             result.put("url", url);
@@ -315,8 +346,52 @@ public class WebPageReaderTool implements AITool {
             if (!response.isSuccessful()) {
                 throw new Exception("HTTP Error: " + response.code());
             }
-            
-            return response.body() != null ? response.body().string() : "";
+
+            if (response.body() == null) return "";
+
+            // 读取原始字节，手动检测编码，避免服务端未声明charset时乱码
+            byte[] bytes = response.body().bytes();
+            String contentType = response.header("Content-Type", "");
+            return decodeHtmlBytes(bytes, contentType);
+        }
+    }
+
+    /** 根据Content-Type和HTML meta标签检测编码并解码 */
+    private String decodeHtmlBytes(byte[] bytes, String contentType) {
+        String charset = null;
+
+        // 1. 优先从Content-Type header提取charset
+        if (contentType != null) {
+            for (String part : contentType.split(";")) {
+                part = part.trim().toLowerCase();
+                if (part.startsWith("charset=")) {
+                    charset = part.substring("charset=".length()).replace("\"", "").trim();
+                    break;
+                }
+            }
+        }
+
+        // 2. 如果header没有charset，先以ASCII预览HTML前2KB，尝试从meta标签提取
+        if (charset == null || charset.isEmpty()) {
+            String head = new String(bytes, 0, Math.min(bytes.length, 2048), java.nio.charset.StandardCharsets.ISO_8859_1);
+            // <meta charset="utf-8">
+            java.util.regex.Matcher m1 = java.util.regex.Pattern.compile(
+                "<meta[^>]+charset=[\"']?([a-zA-Z0-9_-]+)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(head);
+            if (m1.find()) {
+                charset = m1.group(1);
+            }
+        }
+
+        // 3. 默认UTF-8
+        if (charset == null || charset.isEmpty()) {
+            charset = "UTF-8";
+        }
+
+        try {
+            return new String(bytes, charset);
+        } catch (Exception e) {
+            AILogger.w(TAG, "Unsupported charset: " + charset + ", falling back to UTF-8");
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
         }
     }
     

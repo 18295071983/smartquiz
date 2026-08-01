@@ -70,18 +70,25 @@ public class FileGeneratorTool implements AITool {
                 case "append":
                     return appendToFile(parameters);
                 case "write_json":
+                case "json":
                     return writeJson(parameters);
                 case "create_config":
+                case "config":
                     return createConfig(parameters);
                 case "create_markdown":
+                case "markdown":
                     return createMarkdown(parameters);
                 case "create_template":
+                case "template":
                     return createTemplate(parameters);
                 case "generate_report":
+                case "report":
                     return generateReport(parameters);
                 case "delete_file":
+                case "delete":
                     return deleteFile(parameters);
                 case "copy_file":
+                case "copy":
                     return copyFile(parameters);
                 default:
                     return createFile(parameters);
@@ -95,6 +102,7 @@ public class FileGeneratorTool implements AITool {
     /**
      * 规范化参数：工具Schema声明的参数名为 file_name，但内部实现读取 file_path。
      * 这里将 file_name 映射到 file_path，保证LLM按Schema传参时工具能正常工作。
+     * 同时将相对路径或不可写的路径解析到应用文件目录下。
      */
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
@@ -105,6 +113,18 @@ public class FileGeneratorTool implements AITool {
         }
         if (!parameters.containsKey("file_name") && parameters.containsKey("file_path")) {
             parameters.put("file_name", parameters.get("file_path"));
+        }
+        // 解析文件路径：相对路径或根路径映射到应用文件目录
+        Object fpObj = parameters.get("file_path");
+        if (fpObj instanceof String) {
+            String fp = (String) fpObj;
+            if (fp == null || fp.trim().isEmpty() || fp.equals("/") || !fp.startsWith("/")) {
+                // 相对路径或根路径 → 拼接到应用文件目录
+                String baseDir = context.getFilesDir().getAbsolutePath();
+                String fileNameOnly = (fp == null || fp.trim().isEmpty() || fp.equals("/"))
+                    ? "generated_file.txt" : fp;
+                parameters.put("file_path", baseDir + "/" + fileNameOnly);
+            }
         }
     }
 
