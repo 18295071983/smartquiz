@@ -210,7 +210,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ===== 预警醒目条 ===== -->
+        <!-- ===== 动态信息横幅 ===== -->
         <LinearLayout
             android:id="@+id/card_alerts_banner"
             android:layout_width="match_parent"
@@ -220,63 +220,103 @@
             android:orientation="vertical"
             android:visibility="gone">
 
+            <!-- 横幅主体（可点击） -->
             <LinearLayout
                 android:id="@+id/alert_bar_clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/weather_card_warning_red"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="12dp">
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/weather_card_glass"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="10dp">
 
+                <!-- 左侧图标 -->
+                <TextView
+                    android:id="@+id/banner_icon"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:gravity="center"
+                    android:text="📢"
+                    android:textSize="16sp" />
+
+                <!-- 中间文字区 -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/banner_title"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="天气信息"
+                            android:textColor="@color/future_text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:maxLines="1"
+                            android:ellipsize="end" />
+
+                        <TextView
+                            android:id="@+id/banner_tag"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/weather_card_glass"
+                            android:paddingHorizontal="6dp"
+                            android:paddingVertical="1dp"
+                            android:text=""
+                            android:textColor="#FFFFFF"
+                            android:textSize="10sp"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/banner_summary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="--"
+                        android:textColor="@color/future_text_secondary"
+                        android:textSize="12sp"
+                        android:maxLines="1"
+                        android:ellipsize="end" />
+                </LinearLayout>
+
+                <!-- 右侧：指示器 + 展开箭头 -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/alert_banner_title"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:text="天气预警"
-                        android:textColor="@color/future_text_primary"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/alert_banner_level"
+                    <LinearLayout
+                        android:id="@+id/banner_dots"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:background="@drawable/weather_card_glass"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="2dp"
-                        android:text="预警"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp" />
+                        android:orientation="horizontal" />
 
                     <ImageView
                         android:id="@+id/alert_expand_arrow"
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginStart="6dp"
                         android:src="@drawable/ic_expand_more"
-                        android:tint="#FFFFFF" />
+                        android:tint="@color/future_text_tertiary" />
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/alert_banner_summary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="--"
-                    android:textColor="#FFFFFFCC"
-                    android:textSize="12sp"
-                    android:maxLines="1"
-                    android:ellipsize="end" />
             </LinearLayout>
 
+            <!-- 展开区域（预警详情） -->
             <LinearLayout
                 android:id="@+id/alert_expanded_area"
                 android:layout_width="match_parent"

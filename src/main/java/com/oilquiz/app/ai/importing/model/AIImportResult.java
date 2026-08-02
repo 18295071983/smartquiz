@@ -54,6 +54,9 @@ public class AIImportResult implements Serializable {
     /** 整体失败原因（success=false 时填充） */
     private String errorMessage;
 
+    /** v4: 扩展信息（parseMethod/formatDetected 等） */
+    private Map<String, String> extraInfo;
+
     /** 默认构造 */
     public AIImportResult() {
     }
@@ -144,6 +147,14 @@ public class AIImportResult implements Serializable {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Map<String, String> getExtraInfo() {
+        return extraInfo;
+    }
+
+    public void setExtraInfo(Map<String, String> extraInfo) {
+        this.extraInfo = extraInfo;
     }
 
     /** 返回有效题目数 */

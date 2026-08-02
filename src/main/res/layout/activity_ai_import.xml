@@ -100,7 +100,78 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 阶段图标行：4 个阶段 TextView(PROFILE/DISCOVER/INGEST/DONE)，未激活置灰(alpha) -->
+        <!-- 模型选择区 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="12dp"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="AI 模型"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:id="@+id/tvModelInfo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="自动选择"
+                        android:textSize="12sp"
+                        android:textColor="@color/primary"
+                        android:layout_marginEnd="8dp"
+                        android:singleLine="true"
+                        android:ellipsize="end"
+                        android:maxWidth="180dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSwitchModel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="切换"
+                        android:textSize="12sp"
+                        app:backgroundTint="@color/secondary"
+                        android:textColor="@color/on_secondary"
+                        app:cornerRadius="8dp"
+                        android:textAllCaps="false"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp" />
+                </LinearLayout>
+
+                <!-- 在线模型配置入口（仅在线模式显示） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnConfigOnline"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="8dp"
+                    android:text="配置在线模型"
+                    android:textSize="12sp"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    app:cornerRadius="8dp"
+                    android:textAllCaps="false"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 阶段图标行：4 个阶段(PROFILE/FORMAT/INGEST/DONE)，未激活置灰(alpha) -->
         <LinearLayout
             android:id="@+id/stageIndicatorContainer"
             android:layout_width="match_parent"
@@ -115,7 +186,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:text="🤖"
+                android:text="📄"
                 android:textSize="22sp"
                 android:alpha="0.3" />
 
