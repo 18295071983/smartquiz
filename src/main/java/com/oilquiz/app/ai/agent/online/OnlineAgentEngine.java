@@ -42,7 +42,7 @@ public class OnlineAgentEngine {
 
     private static final String TAG = "OnlineAgentEngine";
     /** 辅助模式最大迭代轮数 */
-    private static final int MAX_ITERATIONS = 20;
+    private static final int MAX_ITERATIONS = 30;
     /** 接管模式最大迭代轮数（模型自主控制，放宽上限） */
     private static final int MAX_ITERATIONS_TAKEOVER = 30;
     private static final int MAX_TOKENS = 4096;
@@ -228,10 +228,13 @@ public class OnlineAgentEngine {
 
             // 检查是否有工具调用
             if (result.toolCalls == null || result.toolCalls.isEmpty()) {
-                // 没有工具调用，输出最终回答
-                AILogger.i(TAG, "No tool calls, final response. content_len=" + result.content.length()
-                    + " finish_reason=" + result.finishReason);
+                // 没有工具调用，可能是最终回答，也可能是需要继续思考
+                AILogger.i(TAG, "No tool calls, content_len=" + result.content.length()
+                    + " finish_reason=" + result.finishReason
+                    + " iteration=" + iteration + "/" + maxIterations);
+                
                 String finalAnswer = result.content;
+                
                 // 处理异常 finish_reason
                 if ("length".equals(result.finishReason)) {
                     AILogger.w(TAG, "Response truncated due to max_tokens (finish_reason=length)");
@@ -242,9 +245,35 @@ public class OnlineAgentEngine {
                         finalAnswer = "（回答被内容过滤机制拦截，请尝试调整问题后重试）";
                     }
                 }
-                notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
-                notifyComplete(finalAnswer);
-                return;
+                
+                // 核心逻辑：将回复加入历史，让模型自主决定是否还需要进一步行动
+                JsonObject assistantMsg = new JsonObject();
+                assistantMsg.addProperty("role", "assistant");
+                assistantMsg.addProperty("content", finalAnswer);
+                messageHistory.add(assistantMsg);
+                
+                // 如果已达到最大轮次，强制结束
+                if (iteration >= maxIterations) {
+                    AILogger.i(TAG, "Reached max iterations (" + maxIterations + "), finalizing...");
+                    notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
+                    notifyComplete(finalAnswer);
+                    return;
+                }
+                
+                // 发送系统消息提示模型：已收到回复，请判断是否需要继续行动或完成任务
+                JsonObject confirmMsg = new JsonObject();
+                confirmMsg.addProperty("role", "system");
+                confirmMsg.addProperty("content",
+                    "【回复已记录】\n"
+                  + "你刚才的回复已被接收。请评估：\n"
+                  + "1. 用户的问题是否已经得到完整回答？\n"
+                  + "2. 是否还需要更多信息或工具来完善答案？\n"
+                  + "3. 如果已完成，请在下一轮直接给出最终结论；如果还需要工作，请明确说明并继续执行。\n"
+                  + "注意：如果还有未完成的任務，主动调用工具获取所需信息。");
+                messageHistory.add(confirmMsg);
+                
+                AILogger.i(TAG, "Continuing for model self-assessment (iteration " + iteration + ")");
+                continue; // 继续下一轮，让模型自主决策
             }
 
             // 有工具调用但 finish_reason=length：工具参数可能被截断，记录警告
