@@ -35,6 +35,11 @@ public class ImportValidator {
     /** 单个字母答案正则(A/B/C/D/E...) */
     private static final Pattern LETTER_ANSWER = Pattern.compile("^[A-Za-z]$");
 
+    /** 判断题答案正则：对/错/正确/错误/A/B/T/F/TRUE/FALSE/√/×/✓/✗ */
+    private static final Pattern TF_ANSWER = Pattern.compile(
+            "^(对|错|正确|错误|[A-Za-z]|TRUE|FALSE|√|×|✓|✗)$",
+            Pattern.CASE_INSENSITIVE);
+
     /** 字段覆盖率统计字段集合 */
     private static final String[] COVERAGE_FIELDS = {
             "questionText", "optionA", "optionB", "optionC", "optionD",
@@ -211,6 +216,53 @@ public class ImportValidator {
         return repaired;
     }
 
+    // ======================== 三层 JSON 解析防线（v3） ========================
+
+    /**
+     * 三层 JSON 解析防线：逐层尝试解析 LLM 输出，任一成功即返回。
+     * <p>
+     * 防线 1：直接 JSON 解析（最快，成功率 ~80%）
+     * 防线 2：提取 JSON 片段后解析（处理 markdown 包裹、前后说明文字）
+     * 防线 3：修复常见错误后解析（单引号、尾逗号、未闭合括号）
+     * <p>
+     * 三层均失败返回 null，不抛异常。
+     *
+     * @param raw LLM 原始输出文本
+     * @return 解析后的 JSONObject，失败返回 null
+     */
+    public static JSONObject parseStructuredOutput(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return null;
+
+        // 防线 1：直接解析
+        try {
+            return new JSONObject(raw.trim());
+        } catch (JSONException ignored) {
+            // 进入防线 2
+        }
+
+        // 防线 2：提取 JSON 片段后解析
+        String extracted = extractJson(raw);
+        if (!extracted.isEmpty()) {
+            try {
+                return new JSONObject(extracted);
+            } catch (JSONException ignored) {
+                // 进入防线 3
+            }
+        }
+
+        // 防线 3：修复后解析
+        String repaired = repairJson(raw);
+        if (!repaired.isEmpty()) {
+            try {
+                return new JSONObject(repaired);
+            } catch (JSONException ignored) {
+                // 全部失败
+            }
+        }
+
+        return null;
+    }
+
     // ======================== 题目校验 ========================
 
     /**
@@ -237,6 +289,18 @@ public class ImportValidator {
         String ca = q.getCorrectAnswer();
         if (ca == null || ca.trim().isEmpty()) {
             errors.add(new ValidationError(index, "correctAnswer", "正确答案为空"));
+        }
+
+        // 题型限制:必填,且必须是 5 种合法题型之一(单选/多选/判断/填空/简答)
+        String rawType = q.getQuestionType();
+        if (rawType == null || rawType.trim().isEmpty()) {
+            errors.add(new ValidationError(index, "questionType", "题型为空"));
+        } else {
+            String type = normalizeType(rawType);
+            if (type == null) {
+                errors.add(new ValidationError(index, "questionType",
+                        "题型非法,应为 单选/多选/判断/填空/简答 之一,实际为: " + rawType));
+            }
         }
 
         // difficulty 范围:0 视为未设置可放过,负数或 >5 报错
@@ -271,18 +335,26 @@ public class ImportValidator {
 
     /**
      * 校验答案与题型的一致性。
-     * 单选/判断:应为单个字母;多选:可为多个字母(如 ABC 或 A,B,C);填空/简答:不校验。
+     * 单选:应为单个字母;判断:可为 对/错/A/B/T/F/√/× 等;多选:可为多个字母(如 ABC 或 A,B,C);填空/简答:不校验。
      */
     private static void validateAnswerConsistency(String type, String ca, int index, List<ValidationError> errors) {
         if (type == null) return;
         switch (type) {
-            case "single":
-            case "truefalse": {
-                // 单选/判断:correctAnswer 应为单个字母
+            case "single": {
+                // 单选:correctAnswer 应为单个字母
                 String trimmed = ca.trim();
                 if (!LETTER_ANSWER.matcher(trimmed).matches()) {
                     errors.add(new ValidationError(index, "correctAnswer",
-                            "单选/判断题答案应为单个字母,实际为: " + ca));
+                            "单选题答案应为单个字母,实际为: " + ca));
+                }
+                break;
+            }
+            case "truefalse": {
+                // 判断:correctAnswer 可为 对/错/正确/错误/A/B/T/F/TRUE/FALSE/√/×/✓/✗
+                String trimmed = ca.trim();
+                if (!TF_ANSWER.matcher(trimmed).matches()) {
+                    errors.add(new ValidationError(index, "correctAnswer",
+                            "判断题答案应为 对/错/A/B/T/F 等,实际为: " + ca));
                 }
                 break;
             }

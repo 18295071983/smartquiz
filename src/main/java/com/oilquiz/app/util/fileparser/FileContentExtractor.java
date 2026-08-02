@@ -144,7 +144,7 @@ public class FileContentExtractor {
         StringBuilder sb = new StringBuilder();
         int rowCount = 0;
         for (String[] row : data) {
-            if (rowCount > 100) {
+            if (rowCount > 1000) {
                 sb.append("\n... (数据过多，已截断)\n");
                 break;
             }
@@ -152,7 +152,12 @@ public class FileContentExtractor {
                 if (i > 0) {
                     sb.append("\t");
                 }
-                sb.append(row[i] != null ? row[i] : "");
+                // 替换单元格内的换行符为空格，避免破坏 Tab 分隔表格行结构
+                String cellVal = row[i];
+                if (cellVal != null) {
+                    cellVal = cellVal.replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
+                }
+                sb.append(cellVal != null ? cellVal : "");
             }
             sb.append("\n");
             rowCount++;

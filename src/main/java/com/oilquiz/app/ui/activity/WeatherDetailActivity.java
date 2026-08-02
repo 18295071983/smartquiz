@@ -9,7 +9,10 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -71,15 +74,42 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private TextView tvAirSummary;
     private TextView tvWindSummary;
 
-    // 预警醒目条
+    // 动态信息横幅
     private LinearLayout cardAlertsBanner;
     private LinearLayout alertBarClickable;
     private LinearLayout alertExpandedArea;
-    private TextView alertBannerTitle;
-    private TextView alertBannerLevel;
-    private TextView alertBannerSummary;
+    private TextView bannerIcon;
+    private TextView bannerTitle;
+    private TextView bannerTag;
+    private TextView bannerSummary;
+    private LinearLayout bannerDots;
     private ImageView alertExpandArrow;
     private boolean alertExpanded = false;
+
+    // 横幅轮播
+    private static class BannerItem {
+        final String icon;
+        final String title;
+        final String tag;
+        final String summary;
+        final int bgResId;
+        final int tagBgResId;
+        final boolean isAlert;
+
+        BannerItem(String icon, String title, String tag, String summary, int bgResId, int tagBgResId, boolean isAlert) {
+            this.icon = icon;
+            this.title = title;
+            this.tag = tag;
+            this.summary = summary;
+            this.bgResId = bgResId;
+            this.tagBgResId = tagBgResId;
+            this.isAlert = isAlert;
+        }
+    }
+    private final List<BannerItem> bannerItems = new ArrayList<>();
+    private int bannerIndex = 0;
+    private final Handler bannerHandler = new Handler(Looper.getMainLooper());
+    private static final int BANNER_INTERVAL = 5000;
 
     // 空气质量预报
     private LinearLayout cardAirForecast;
@@ -171,6 +201,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private String currentDew = "";
     private String currentPressure = "";
     private String currentVisibility = "";
+    private String currentWindDir = "";
+    private String currentAirAqi = "";
+    private String currentAirCategory = "";
+    private String currentAirPrimary = "";
+    private List<AlertInfo> currentAlertInfos = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -337,9 +372,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
         cardAlertsBanner = findViewById(R.id.card_alerts_banner);
         alertBarClickable = findViewById(R.id.alert_bar_clickable);
         alertExpandedArea = findViewById(R.id.alert_expanded_area);
-        alertBannerTitle = findViewById(R.id.alert_banner_title);
-        alertBannerLevel = findViewById(R.id.alert_banner_level);
-        alertBannerSummary = findViewById(R.id.alert_banner_summary);
+        bannerIcon = findViewById(R.id.banner_icon);
+        bannerTitle = findViewById(R.id.banner_title);
+        bannerTag = findViewById(R.id.banner_tag);
+        bannerSummary = findViewById(R.id.banner_summary);
+        bannerDots = findViewById(R.id.banner_dots);
         alertExpandArrow = findViewById(R.id.alert_expand_arrow);
         llAlerts = findViewById(R.id.ll_alerts);
 
@@ -347,7 +384,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
         llAirForecast = findViewById(R.id.ll_air_forecast);
 
         if (alertBarClickable != null) {
-            alertBarClickable.setOnClickListener(v -> toggleAlertExpand());
+            alertBarClickable.setOnClickListener(v -> {
+                // 如果当前是预警条目，展开/收起预警详情
+                if (!bannerItems.isEmpty() && bannerItems.get(bannerIndex).isAlert) {
+                    toggleAlertExpand();
+                } else {
+                    // 非预警条目：点击切换下一条
+                    advanceBanner();
+                }
+            });
         }
 
         rvHourly = findViewById(R.id.rv_hourly);
@@ -415,6 +460,210 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (tvView15d != null) tvView15d.setOnClickListener(v -> openLink(fxLinkDaily));
         if (tvCity != null) tvCity.setOnClickListener(v -> openCitySearchDialog());
         if (tvIndicesIcon != null) tvIndicesIcon.setOnClickListener(v -> openLink(fxLinkIndices));
+    }
+
+    // =====================================================
+    // 横幅轮播逻辑
+    // =====================================================
+
+    /** 重建横幅条目并启动轮播 */
+    private void rebuildBannerItems() {
+        bannerItems.clear();
+        bannerIndex = 0;
+
+        // 1. 预警条目（最高优先级）
+        if (!alertSummary.isEmpty() && currentAlertInfos != null && !currentAlertInfos.isEmpty()) {
+            for (AlertInfo ai : currentAlertInfos) {
+                String type = extractAlertType(ai.title);
+                String level = ai.level.isEmpty() ? extractAlertColor(ai.title) : ai.level;
+                String tagText = level.isEmpty() ? "预警" : level;
+                String summary = ai.description.isEmpty() ? ai.summary : ai.description;
+                if (summary.length() > 60) summary = summary.substring(0, 60) + "...";
+                int bg = alertBgDrawable(level);
+                bannerItems.add(new BannerItem("⚠️", type + "预警", tagText, summary, bg, R.drawable.weather_card_glass, true));
+            }
+        }
+
+        // 2. 当前天气
+        if (!currentWeatherText.isEmpty()) {
+            String summary = currentTempVal + "° " + currentWeatherText;
+            if (!currentFeelsLike.isEmpty()) summary += "，体感" + currentFeelsLike + "°";
+            bannerItems.add(new BannerItem("🌤", "当前天气", "", summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 3. 空气质量
+        if (currentAirAqi != null && !currentAirAqi.isEmpty() && !currentAirAqi.equals("--")) {
+            String summary = "AQI " + currentAirAqi;
+            if (currentAirCategory != null && !currentAirCategory.isEmpty()) summary += " " + currentAirCategory;
+            if (!currentAirPrimary.isEmpty()) summary += "，首要污染物 " + currentAirPrimary;
+            bannerItems.add(new BannerItem("🌬", "空气质量", "", summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 4. 降水预报
+        if (!minutelySummary.isEmpty()) {
+            bannerItems.add(new BannerItem("🌧", "降水预报", "", minutelySummary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 5. 紫外线
+        if (!currentUv.isEmpty()) {
+            int uv = 0;
+            try { uv = Integer.parseInt(currentUv); } catch (Exception ignored) {}
+            String level = uvLevelText(uv);
+            String summary = "指数 " + currentUv + "（" + level + "）";
+            if (uv >= 8) summary += "，务必防晒";
+            else if (uv >= 5) summary += "，建议防晒";
+            bannerItems.add(new BannerItem("☀️", "紫外线", level, summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 6. 风力风向
+        if (!currentWindScale.isEmpty()) {
+            String summary = currentWindScale + "级";
+            if (!currentWindDir.isEmpty()) summary += " " + currentWindDir;
+            try {
+                int scale = Integer.parseInt(currentWindScale);
+                if (scale >= 8) summary += "，大风注意安全";
+                else if (scale >= 6) summary += "，风力较大";
+            } catch (Exception ignored) {}
+            bannerItems.add(new BannerItem("💨", "风力风向", "", summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 7. 湿度
+        if (!currentHumidity.isEmpty()) {
+            int h = 0;
+            try { h = Integer.parseInt(currentHumidity); } catch (Exception ignored) {}
+            String summary = currentHumidity + "%（" + humidityComfort(h) + "）";
+            if (h <= 30) summary += "，注意补水";
+            else if (h >= 80) summary += "，体感闷热";
+            bannerItems.add(new BannerItem("💧", "湿度", "", summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 8. 能见度
+        if (!currentVisibility.isEmpty()) {
+            double v = 0;
+            try { v = Double.parseDouble(currentVisibility); } catch (Exception ignored) {}
+            String level;
+            if (v < 1) level = "极差";
+            else if (v < 5) level = "差";
+            else if (v < 10) level = "一般";
+            else level = "良好";
+            bannerItems.add(new BannerItem("👁", "能见度", level, currentVisibility + "km", R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 9. 今日温度
+        if (!todayHighTemp.isEmpty() && !todayLowTemp.isEmpty()) {
+            String summary = todayLowTemp + "~" + todayHighTemp + "°";
+            try {
+                int hi = Integer.parseInt(todayHighTemp);
+                int lo = Integer.parseInt(todayLowTemp);
+                int diff = hi - lo;
+                summary += "，温差" + diff + "°";
+                if (diff >= 10) summary += "，注意增减衣物";
+            } catch (Exception ignored) {}
+            bannerItems.add(new BannerItem("🌡", "今日温度", "", summary, R.drawable.weather_card_glass, 0, false));
+        }
+
+        // 启动或更新轮播
+        if (bannerItems.isEmpty()) {
+            if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.GONE);
+            stopBannerRotation();
+        } else {
+            if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.VISIBLE);
+            showBannerItem(0);
+            startBannerRotation();
+        }
+    }
+
+    /** 显示指定位置的横幅条目 */
+    private void showBannerItem(int index) {
+        if (bannerItems.isEmpty() || index < 0 || index >= bannerItems.size()) return;
+        bannerIndex = index;
+        BannerItem item = bannerItems.get(index);
+
+        if (bannerIcon != null) bannerIcon.setText(item.icon);
+        if (bannerTitle != null) bannerTitle.setText(item.title);
+        if (bannerSummary != null) bannerSummary.setText(item.summary);
+
+        // 标签
+        if (bannerTag != null) {
+            if (item.tag != null && !item.tag.isEmpty()) {
+                bannerTag.setText(item.tag);
+                bannerTag.setVisibility(View.VISIBLE);
+            } else {
+                bannerTag.setVisibility(View.GONE);
+            }
+        }
+
+        // 背景
+        if (alertBarClickable != null) {
+            alertBarClickable.setBackgroundResource(item.bgResId);
+        }
+
+        // 指示器圆点
+        updateBannerDots();
+
+        // 非预警条目收起展开区
+        if (!item.isAlert && alertExpanded) {
+            alertExpanded = false;
+            if (alertExpandedArea != null) alertExpandedArea.setVisibility(View.GONE);
+            if (alertExpandArrow != null) alertExpandArrow.setRotation(0f);
+        }
+        // 展开箭头：只有预警才显示
+        if (alertExpandArrow != null) {
+            alertExpandArrow.setVisibility(item.isAlert ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** 更新指示器圆点 */
+    private void updateBannerDots() {
+        if (bannerDots == null) return;
+        bannerDots.removeAllViews();
+        int count = bannerItems.size();
+        if (count <= 1) return;
+        for (int i = 0; i < count; i++) {
+            View dot = new View(this);
+            int size = dp(5);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            if (i > 0) lp.setMarginStart(dp(3));
+            dot.setLayoutParams(lp);
+            if (i == bannerIndex) {
+                dot.setBackgroundResource(R.drawable.weather_card_glass);
+                dot.setAlpha(1.0f);
+            } else {
+                dot.setBackgroundResource(R.drawable.weather_card_glass);
+                dot.setAlpha(0.3f);
+            }
+            bannerDots.addView(dot);
+        }
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /** 切换到下一条 */
+    private void advanceBanner() {
+        if (bannerItems.isEmpty()) return;
+        int next = (bannerIndex + 1) % bannerItems.size();
+        showBannerItem(next);
+    }
+
+    /** 启动自动轮播 */
+    private void startBannerRotation() {
+        bannerHandler.removeCallbacksAndMessages(null);
+        if (bannerItems.size() <= 1) return;
+        bannerHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                advanceBanner();
+                bannerHandler.postDelayed(this, BANNER_INTERVAL);
+            }
+        }, BANNER_INTERVAL);
+    }
+
+    /** 停止自动轮播 */
+    private void stopBannerRotation() {
+        bannerHandler.removeCallbacksAndMessages(null);
     }
 
     private void toggleAlertExpand() {
@@ -524,6 +773,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
         alertExpanded = false;
         if (alertExpandedArea != null) alertExpandedArea.setVisibility(View.GONE);
         if (alertExpandArrow != null) alertExpandArrow.setRotation(0f);
+        stopBannerRotation();
+        bannerItems.clear();
+        bannerIndex = 0;
 
         if (tvAirSummary != null) tvAirSummary.setText("-- 空气质量");
         if (tvWindSummary != null) tvWindSummary.setText("--");
@@ -582,6 +834,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
         currentDew = "";
         currentPressure = "";
         currentVisibility = "";
+        currentWindDir = "";
+        currentAirAqi = "";
+        currentAirCategory = "";
+        currentAirPrimary = "";
+        currentAlertInfos = null;
 
         if (gaugeUvArc != null) {
             gaugeUvArc.setProgressImmediate(0);
@@ -628,9 +885,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     if (tvAirCategory != null) tvAirCategory.setText("需要定位才能查询");
                     if (tvAirSummary != null) tvAirSummary.setText("无GPS坐标");
                     if (tvAirAqi != null) tvAirAqi.setText("--");
-                    if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.GONE);
                     if (tvAirPrimaryPollutant != null) tvAirPrimaryPollutant.setVisibility(View.GONE);
                     if (tvAirHealth != null) tvAirHealth.setVisibility(View.GONE);
+                    currentAlertInfos = null;
+                    alertSummary = "";
+                    rebuildBannerItems();
                 }
 
                 if (result.indices != null) parseAndUpdateIndices(result.indices);
@@ -658,6 +917,24 @@ public class WeatherDetailActivity extends AppCompatActivity {
             });
             return null;
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startBannerRotation();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopBannerRotation();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopBannerRotation();
     }
 
     // =====================================================
@@ -922,12 +1199,14 @@ public class WeatherDetailActivity extends AppCompatActivity {
         currentTempVal = temp;
         currentFeelsLike = feelsLike;
         currentWindScale = windScale;
+        currentWindDir = windDir;
         currentHumidity = humidity;
         currentUv = uv;
         currentDew = dew;
         currentPressure = pressure;
         currentVisibility = visibility;
         updateWeatherSummary();
+        rebuildBannerItems();
     }
 
     private void parseAndUpdateHourlyWeather(String weatherText) {
@@ -1192,6 +1471,10 @@ public class WeatherDetailActivity extends AppCompatActivity {
             if (tvAirSummary != null) tvAirSummary.setText("空气质量查询失败");
             if (tvAirHealth != null) tvAirHealth.setVisibility(View.GONE);
             if (tvAirPrimaryPollutant != null) tvAirPrimaryPollutant.setVisibility(View.GONE);
+            currentAirAqi = "";
+            currentAirCategory = "";
+            currentAirPrimary = "";
+            rebuildBannerItems();
             return;
         }
 
@@ -1292,6 +1575,12 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (tvAirSummary != null && !aqi.equals("--")) {
             tvAirSummary.setText(aqi + " " + category);
         }
+
+        // 保存空气质量数据供横幅使用
+        currentAirAqi = aqi;
+        currentAirCategory = category;
+        currentAirPrimary = primaryPollutant;
+        rebuildBannerItems();
     }
 
     private void setAirPollutantDisplay(TextView label, TextView value, String val, String fullName, String defaultLabel) {
@@ -1387,9 +1676,10 @@ public class WeatherDetailActivity extends AppCompatActivity {
         }
 
         if (alertTexts.isEmpty()) {
-            if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.GONE);
+            currentAlertInfos = null;
             alertSummary = "";
             updateWeatherSummary();
+            rebuildBannerItems();
             return;
         }
 
@@ -1398,24 +1688,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         for (String[] item : alertTexts) {
             alertInfos.add(parseAlertInfo(item[0]));
         }
-
-        // 显示 banner
-        if (cardAlertsBanner != null) {
-            cardAlertsBanner.setVisibility(View.VISIBLE);
-            AlertInfo first = alertInfos.get(0);
-            String bannerTitle = first.title;
-            if (alertInfos.size() > 1) {
-                bannerTitle = first.title + " (共" + alertInfos.size() + "条)";
-            }
-            if (alertBannerTitle != null) alertBannerTitle.setText(bannerTitle);
-            if (alertBannerLevel != null) alertBannerLevel.setText(first.level);
-            if (alertBannerSummary != null) alertBannerSummary.setText(first.summary.isEmpty() ? first.description : first.summary);
-
-            int bgRes = alertBgDrawable(first.level);
-            if (alertBarClickable != null) {
-                alertBarClickable.setBackgroundResource(bgRes);
-            }
-        }
+        currentAlertInfos = alertInfos;
 
         // 生成预警摘要
         alertSummary = buildAlertSummary(alertInfos);
@@ -1427,6 +1700,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
             View card = buildAlertCard(info, i > 0);
             llAlerts.addView(card);
         }
+
+        // 重建横幅（预警 + 天气信息轮播）
+        rebuildBannerItems();
     }
 
     /** 构建预警摘要：取最新发布的预警提取关键信息，附其他预警数量 */

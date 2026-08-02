@@ -20,8 +20,10 @@ import com.oilquiz.app.ai.chat.AgentExecutionView;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
 import com.oilquiz.app.ai.importing.ExcelSheetPicker;
 import com.oilquiz.app.ai.importing.model.AIImportResult;
+import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.ui.base.BaseActivity;
+import com.oilquiz.app.ui.dialog.OnlineModelConfigDialog;
 import com.oilquiz.app.util.render.ExcelUtil;
 import com.oilquiz.app.util.render.ExcelUtil.FileFormat;
 
@@ -42,8 +44,10 @@ import dagger.hilt.android.AndroidEntryPoint;
 /**
  * 题库 AI 导入页面。
  * <p>
- * 串联 {@link AIImportOrchestrator} 四阶段流水线(PROFILE/DISCOVER/INGEST/DONE),通过 {@link AgentExecutionView}
+ * 串联 {@link AIImportOrchestrator} 四阶段流水线(PROFILE/FORMAT/INGEST/DONE),通过 {@link AgentExecutionView}
  * 实时展示推理过程、阶段切换、流式指标与抽取预览,完成后给出统计与字段覆盖率。
+ * <p>
+ * v4: 混合管道 — 规则优先 + AI 兜底，4 阶段流水线。
  * <p>
  * 加载动画复用 {@link AgentExecutionView} 内置能力,不单独实现机器人脉冲。
  */
@@ -62,7 +66,7 @@ public class AIImportActivity extends BaseActivity {
     // Agent 执行区
     private AgentExecutionView agentView;
 
-    // 阶段图标行(PROFILE/DISCOVER/INGEST/DONE 共 4 个)
+    // 阶段图标行(PROFILE/FORMAT/INGEST/DONE 共 4 个)
     private final TextView[] stageViews = new TextView[4];
 
     // 流式指标区
@@ -95,6 +99,12 @@ public class AIImportActivity extends BaseActivity {
     private final List<Question> previewList = new ArrayList<>();
     /** 预览列表适配器 */
     private PreviewAdapter previewAdapter;
+
+    // 模型选择区
+    private TextView tvModelInfo;
+    private MaterialButton btnSwitchModel;
+    private MaterialButton btnConfigOnline;
+    private OnlineModelManager onlineModelManager;
 
     @Override
     protected int getLayoutId() {
@@ -141,12 +151,29 @@ public class AIImportActivity extends BaseActivity {
         tvFailedCount = findViewById(R.id.tvFailedCount);
         tvTotalCount = findViewById(R.id.tvTotalCount);
         tvDupCount = findViewById(R.id.tvDupCount);
+
+        // 模型选择区
+        tvModelInfo = findViewById(R.id.tvModelInfo);
+        btnSwitchModel = findViewById(R.id.btnSwitchModel);
+        btnConfigOnline = findViewById(R.id.btnConfigOnline);
     }
 
     @Override
     protected void initData() {
         // 创建编排引擎
         orchestrator = new AIImportOrchestrator(this);
+        onlineModelManager = OnlineModelManager.getInstance(this);
+
+        // 设置代理错误回调，通知 UI 本地模型故障
+        orchestrator.setAgentErrorCallback(msg -> {
+            runOnUiThread(() -> {
+                showLongToast(msg);
+                refreshModelInfo();
+            });
+        });
+
+        // 刷新模型信息显示
+        refreshModelInfo();
 
         // 预览 RecyclerView:线性布局 + 内置简单适配器(TextView 展示题号+题干预览)
         previewAdapter = new PreviewAdapter(previewList);
@@ -180,10 +207,19 @@ public class AIImportActivity extends BaseActivity {
             }
             showToast("已取消");
         });
+
+        // 模型切换
+        btnSwitchModel.setOnClickListener(v -> showModelSwitchDialog());
+
+        // 配置在线模型
+        btnConfigOnline.setOnClickListener(v -> showOnlineModelConfig());
     }
 
     /** 启动导入流水线并绑定 8 个回调 */
     private void startImport() {
+        // 刷新模型信息
+        refreshModelInfo();
+
         // 重置预览与统计
         previewList.clear();
         previewAdapter.notifyDataSetChanged();
@@ -243,9 +279,17 @@ public class AIImportActivity extends BaseActivity {
 
             @Override
             public void onComplete(AIImportResult result) {
-                agentView.completeExecution("导入完成");
+                // 显示解析方法信息
+                String parseMethod = "AI 解析";
+                if (result.getExtraInfo() != null) {
+                    String method = result.getExtraInfo().get("parseMethod");
+                    if ("rule".equals(method)) parseMethod = "规则引擎";
+                    else if ("hybrid".equals(method)) parseMethod = "混合模式";
+                }
+                agentView.completeExecution("导入完成 (" + parseMethod + ")");
                 updateStats(result);
                 updateCoverage(result);
+                refreshModelInfo();
                 // 存在无效题目时弹窗提示错误数
                 if (result.getInvalidCount() > 0) {
                     showInvalidDialog(result.getInvalidCount());
@@ -255,6 +299,7 @@ public class AIImportActivity extends BaseActivity {
             @Override
             public void onError(String message, Throwable error) {
                 agentView.failExecution(message);
+                refreshModelInfo();
                 showLongToast("导入失败:" + message);
             }
         };
@@ -308,20 +353,102 @@ public class AIImportActivity extends BaseActivity {
                 .show();
     }
 
-    /** 阶段 emoji 映射(PROFILE/DISCOVER/INGEST/DONE 4 阶段) */
+    /** 阶段 emoji 映射(PROFILE/FORMAT/INGEST/DONE 4 阶段) */
     private String stageEmoji(AIImportOrchestrator.Stage stage) {
         switch (stage) {
             case PROFILE:
-                return "🤖";
-            case DISCOVER:
+                return "📄";
+            case FORMAT:
                 return "🔍";
             case INGEST:
                 return "⚙️";
             case DONE:
                 return "✅";
             default:
-                return "🤖";
+                return "📄";
         }
+    }
+
+    // ======================== 模型选择 ========================
+
+    /** 刷新模型信息显示 */
+    private void refreshModelInfo() {
+        if (orchestrator == null || tvModelInfo == null) return;
+        String info = orchestrator.getCurrentModelInfo();
+        tvModelInfo.setText(info);
+
+        // 根据模式显示/隐藏配置按钮
+        AIImportOrchestrator.ModelMode mode = orchestrator.getModelMode();
+        boolean isOnlineMode = (mode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
+                || mode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED);
+        btnConfigOnline.setVisibility(isOnlineMode ? View.VISIBLE : View.GONE);
+    }
+
+    /** 弹出模型切换对话框 */
+    private void showModelSwitchDialog() {
+        final AIImportOrchestrator.ModelMode currentMode = orchestrator.getModelMode();
+        final boolean hasOnline = onlineModelManager.getActiveModel() != null;
+
+        String[] items = new String[]{
+                "自动选择 (推荐)",
+                "优先在线模型",
+                "仅使用在线模型",
+                "仅使用本地模型"
+        };
+
+        int checked = 0;
+        switch (currentMode) {
+            case AUTO: checked = 0; break;
+            case ONLINE_PREFERRED: checked = 1; break;
+            case ONLINE_ONLY: checked = 2; break;
+            case LOCAL_ONLY: checked = 3; break;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("选择 AI 模型模式")
+                .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                    AIImportOrchestrator.ModelMode newMode;
+                    switch (which) {
+                        case 0: newMode = AIImportOrchestrator.ModelMode.AUTO; break;
+                        case 1: newMode = AIImportOrchestrator.ModelMode.ONLINE_PREFERRED; break;
+                        case 2: newMode = AIImportOrchestrator.ModelMode.ONLINE_ONLY; break;
+                        case 3: newMode = AIImportOrchestrator.ModelMode.LOCAL_ONLY; break;
+                        default: newMode = AIImportOrchestrator.ModelMode.AUTO; break;
+                    }
+
+                    // 检查在线模型可用性
+                    if ((newMode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
+                            || newMode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED)
+                            && !hasOnline) {
+                        showLongToast("当前没有已激活的在线模型，请先配置在线模型");
+                    }
+
+                    orchestrator.setModelMode(newMode);
+                    refreshModelInfo();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 弹出在线模型配置对话框 */
+    private void showOnlineModelConfig() {
+        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
+        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
+            @Override
+            public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
+                // 激活新配置的模型
+                onlineModelManager.setActiveModel(config.id);
+                refreshModelInfo();
+                showToast("在线模型已配置并激活");
+            }
+
+            @Override
+            public void onConfigCancelled() {
+                // 取消
+            }
+        });
+        dialog.show();
     }
 
     @Override
