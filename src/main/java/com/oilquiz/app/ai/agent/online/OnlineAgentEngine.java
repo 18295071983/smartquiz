@@ -43,9 +43,9 @@ public class OnlineAgentEngine {
 
     private static final String TAG = "OnlineAgentEngine";
     /** 辅助模式最大迭代轮数 */
-    private static final int MAX_ITERATIONS = 8;
-    /** 接管模式最大迭代轮数（模型自主控制，但有限制） */
-    private static final int MAX_ITERATIONS_TAKEOVER = 12;
+    private static final int MAX_ITERATIONS = 20;
+    /** 接管模式最大迭代轮数（模型自主控制，放宽上限） */
+    private static final int MAX_ITERATIONS_TAKEOVER = 30;
     private static final int MAX_TOKENS = 4096;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
@@ -739,11 +739,12 @@ public class OnlineAgentEngine {
 
     /**
      * 检测文本中是否"暗示了要调用工具但未使用标准 tool_calls 格式"。
-     * 典型模式：
-     *   - 明确写到"我要调用 XX 工具""使用 XX 工具""执行 XX 工具"
-     *   - 写到具体的工具名：env_loc, weather, search, wiki, calc 等
-     *   - 写到工具类动词却没有最终答案："我需要先查询天气""先获取位置信息""让我搜索一下"
-     *   - 用了"调用""执行""查询""获取""搜索""计算""查阅""解析"等动作词 + "工具"或具体工具领域词
+     *
+     * 设计原则（避免误伤正常回答）：
+     *   1. 不匹配单独的英文/中文工具名词（如 "weather"、"天气"）—— 这些在解释概念时也会出现
+     *   2. 不匹配常见的过渡语（如 "首先查询"、"接下来获取"）—— 这些是模型正常推理过渡
+     *   3. 只匹配"动作动词 + 紧邻的工具标识符"这种明确意图
+     *   4. 匹配伪代码调用语法（如 "weather(...)"）和 JSON 片段中的工具名
      *
      * @return true 表示文本中强烈暗示要调用工具却没有正确输出 tool_calls
      */
@@ -751,98 +752,69 @@ public class OnlineAgentEngine {
         if (content == null) return false;
         String text = content.trim();
         if (text.isEmpty()) return false;
-        // 只取前 600 字做判断，避免长文本拖慢性能
-        if (text.length() > 600) text = text.substring(0, 600);
+        // 只取前 800 字做判断，避免长文本拖慢性能
+        if (text.length() > 800) text = text.substring(0, 800);
         String lower = text.toLowerCase(java.util.Locale.ROOT);
 
-        // 1. 明确提到"调用/执行/使用 ... 工具"模式
-        java.util.regex.Pattern pCallTool = java.util.regex.Pattern.compile(
-            "(调用|执行|使用|运用|启用|需要用|需要调用|将调用|来调用|我会调用|我将使用)"
-          + "[^，。,.\\n]{0,20}"
-          + "(工具|函数|接口|api)");
-        if (pCallTool.matcher(text).find()) return true;
-
-        // 2. 直接写出具体工具名（中英文）
-        String[] knownTools = {
-            "env_loc", "env_time", "location", "定位", "位置信息", "获取位置", "当前位置",
-            "weather", "天气", "天气预报", "查询天气", "获取天气",
-            "web_search", "search_tool", "搜索", "联网搜索", "网络搜索", "百度搜索", "谷歌搜索",
-            "wiki", "wikipedia", "百科", "维基百科", "百度百科",
-            "calculator", "calc", "计算器", "计算一下", "计算结果", "进行计算",
-            "note_tool", "note", "笔记", "记事本", "备忘录",
-            "drawing_tool", "draw", "绘图", "画图", "canvas"
+        // 工具标识符列表（仅作为"紧邻动词"或"伪代码调用"判断使用，不单独匹配）
+        final String[] toolIds = {
+            "env_loc", "env_time", "weather", "web_search", "search_tool",
+            "wiki", "wikipedia", "calculator", "calc", "note_tool", "drawing_tool"
         };
-        for (String t : knownTools) {
-            if (t.length() >= 5 && lower.contains(t.toLowerCase(java.util.Locale.ROOT))) {
-                // 排除真正回答天气/位置结果的情况（只在包含"调用/查询/获取"等动词时才算"要调工具"）
-                if (t.equals("天气") || t.equals("天气预报") || t.equals("定位")
-                    || t.equals("位置信息") || t.equals("当前位置")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(查询|获取|查看|查一下|查查|看看|需要|要|我想|让我)"
-                      + "[^，。,.\\n]{0,10}" + t);
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                if (t.equals("搜索") || t.equals("联网搜索") || t.equals("网络搜索")
-                    || t.equals("百度搜索") || t.equals("谷歌搜索")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(搜索|查找|查一下|检索|我搜|让我搜|用.*搜|去搜)");
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                if (t.equals("百科") || t.equals("维基百科") || t.equals("百度百科")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(查|查一下|去查|看看|翻|翻一下|查阅|翻阅)[^，。,.\\n]{0,10}百科");
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                if (t.equals("计算器") || t.equals("计算一下") || t.equals("计算结果")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(计算|算一下|算一算|用计算器|运算|求值)");
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                if (t.equals("笔记") || t.equals("记事本") || t.equals("备忘录")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(记笔记|记录|保存|写到|添加|新建)[^，。,.\\n]{0,10}(笔记|记事本|备忘录)");
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                if (t.equals("绘图") || t.equals("画图") || t.equals("canvas")) {
-                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
-                        "(画|绘制|绘图|生成|制作|画一张|画个)[^，。,.\\n]{0,15}(图|图片|画|canvas)");
-                    if (pVerb.matcher(text).find()) return true;
-                    continue;
-                }
-                // 英文名直接匹配到就算（env_loc, weather, search_tool 等）
-                if (lower.contains(t.toLowerCase(java.util.Locale.ROOT))) return true;
-            }
-        }
 
-        // 3. 典型"要做下一步"句式："让我先…""我需要先…""接下来我要…""下一步：" + 具体动作
-        java.util.regex.Pattern pNext = java.util.regex.Pattern.compile(
-            "(让我先|我需要先|接下来|下一步|首先|第一步|然后|随后|接着)"
-          + "[^，。,.\\n]{0,25}"
-          + "(查询|获取|搜索|查找|计算|调用|执行|定位|检测|查看|核对|核实|确认)");
-        if (pNext.matcher(text).find()) {
-            // 排除真的只是"我先说明一下"这种非工具意图
-            if (!text.contains("说明") && !text.contains("解释") && !text.contains("回答")) {
+        // 1. 伪代码调用语法：工具名 + 紧跟左括号（半角或全角）
+        for (String tid : toolIds) {
+            String tLower = tid.toLowerCase(java.util.Locale.ROOT);
+            if (lower.contains(tLower + "(") || lower.contains(tLower + " (")
+                || lower.contains(tLower + "（") || lower.contains(tLower + " （")) {
+                AILogger.i(TAG, "hintForToolCall matched: pseudo-call '" + tid + "(...)'");
                 return true;
             }
         }
 
-        // 4. 英文典型句式："I need to call", "I will use the ... tool", "Let me search", "Let me check ... first"
-        String[] enPatterns = {
-            "i need to call", "i need to use", "i'll use the", "i will use the",
-            "let me search", "let me check", "let me look up", "let me find",
-            "let me call", "i should use", "using the .* tool", "invoke the",
-            "tool call", "function call", "call the .* tool", "query the",
-            "get the current", "fetch the", "retrieve the"
-        };
-        for (String ep : enPatterns) {
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile(ep,
-                java.util.regex.Pattern.CASE_INSENSITIVE);
-            if (p.matcher(lower).find()) return true;
+        // 2. JSON 片段中的工具名（如 {"name": "weather"} 但未被解析成 tool_calls）
+        if (lower.contains("\"name\"")) {
+            for (String tid : toolIds) {
+                String tLower = tid.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("\"" + tLower + "\"")) {
+                    AILogger.i(TAG, "hintForToolCall matched: JSON tool name '" + tid + "'");
+                    return true;
+                }
+            }
+        }
+
+        // 3. 中文明确动作句式：动作动词 + 紧邻（≤6字）的工具标识符
+        // 必须同时有动词和具体工具名，避免"调用工具"这种空泛表达误触发
+        final String[] zhVerbs = {"调用", "使用", "执行", "运用", "启用", "需要调用", "我要调用", "我将调用", "准备调用"};
+        for (String verb : zhVerbs) {
+            int idx = text.indexOf(verb);
+            while (idx >= 0) {
+                int end = Math.min(text.length(), idx + verb.length() + 15);
+                String window = text.substring(idx, end).toLowerCase(java.util.Locale.ROOT);
+                for (String tid : toolIds) {
+                    if (window.contains(tid.toLowerCase(java.util.Locale.ROOT))) {
+                        AILogger.i(TAG, "hintForToolCall matched: zh verb '" + verb + "' + tool '" + tid + "'");
+                        return true;
+                    }
+                }
+                // 也支持"调用 weather 工具"这种"动词 + 工具名 + 工具"句式
+                if (window.contains("工具") || window.contains("函数") || window.contains("接口")) {
+                    AILogger.i(TAG, "hintForToolCall matched: zh verb '" + verb + "' + '工具/函数/接口'");
+                    return true;
+                }
+                idx = text.indexOf(verb, idx + 1);
+            }
+        }
+
+        // 4. 英文明确句式：必须同时含 (call/use/invoke) + (tool/function)
+        // 不匹配 "let me check"、"get the current" 等过宽短语
+        java.util.regex.Pattern pEnExplicit = java.util.regex.Pattern.compile(
+            "(i will|i'll|i am going to|i need to|i want to|let me|please)\\s+"
+          + "(call|use|invoke|execute)\\s+(the\\s+)?(\\w+\\s+)?(tool|function)",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+        if (pEnExplicit.matcher(lower).find()) {
+            AILogger.i(TAG, "hintForToolCall matched: en explicit tool/function call intent");
+            return true;
         }
 
         return false;
