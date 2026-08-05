@@ -372,27 +372,57 @@ public class LocationTool implements AITool {
         return null;
     }
 
+    /**
+     * 获取最具体的位置名（参考小米天气策略）：
+     *   1. 区 + 路/街道名（例：金凤区凤仪路）
+     *   2. 路 + 具体地标（例：科技园南路腾讯大厦）
+     *   3. 区 + 市
+     *   4. 路名 / 市名 / 地标名
+     */
     private String getAddressString(double latitude, double longitude) {
         if (android.location.Geocoder.isPresent()) {
             try {
                 Geocoder geocoder = new Geocoder(context, Locale.CHINA);
                 List<Address> addresses = geocoder.getFromLocation(latitude, longitude, 1);
                 if (addresses != null && !addresses.isEmpty()) {
-                    Address address = addresses.get(0);
-                    StringBuilder sb = new StringBuilder();
-                    String country = address.getCountryName();
-                    String adminArea = address.getAdminArea();
-                    String locality = address.getLocality();
-                    String subLocality = address.getSubLocality();
-                    String thoroughfare = address.getThoroughfare();
-                    
-                    if (country != null) sb.append(country);
-                    if (adminArea != null) sb.append(" ").append(adminArea);
-                    if (locality != null) sb.append(" ").append(locality);
-                    if (subLocality != null) sb.append(" ").append(subLocality);
-                    if (thoroughfare != null) sb.append(" ").append(thoroughfare);
-                    
-                    return sb.toString().trim();
+                    Address a = addresses.get(0);
+                    String district = a.getSubLocality();  // 区
+                    String city     = a.getLocality();     // 市
+                    String road     = a.getThoroughfare(); // 街道/路名（凤仪路）
+                    String feature  = a.getFeatureName();  // 地标（小区/大厦/门牌号）
+
+                    String result = null;
+                    // 1. 区 + 路（最优，最具体）
+                    if (district != null && !district.isEmpty()
+                        && road != null && !road.isEmpty()) {
+                        result = district + road;
+                    }
+                    // 2. 路 + 地标
+                    if ((result == null || result.isEmpty())
+                        && road != null && !road.isEmpty()
+                        && feature != null && !feature.isEmpty()) {
+                        result = road + feature;
+                    }
+                    // 3. 区 + 市
+                    if ((result == null || result.isEmpty())
+                        && district != null && !district.isEmpty()
+                        && city != null && !city.isEmpty()) {
+                        result = district + city;
+                    }
+                    // 4. 单路名
+                    if ((result == null || result.isEmpty())
+                        && road != null && !road.isEmpty()) {
+                        result = road;
+                    }
+                    // 5. 单区/单市/单地标
+                    if (result == null || result.isEmpty()) {
+                        if (district != null && !district.isEmpty()) result = district;
+                        else if (city != null && !city.isEmpty()) result = city;
+                        else if (feature != null && !feature.isEmpty()) result = feature;
+                    }
+                    if (result != null && !result.isEmpty()) {
+                        return result;
+                    }
                 }
             } catch (Exception e) {
                 AILogger.w(TAG, "Geocoder address lookup failed: " + e.getMessage());

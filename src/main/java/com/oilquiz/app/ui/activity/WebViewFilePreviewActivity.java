@@ -87,11 +87,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     private String defaultOption = "选项为空";
     private String defaultAnswer = "答案为空";
 
-    // 映射字段选项
-    private java.util.ArrayList<String> fieldOptions = new java.util.ArrayList<>(java.util.Arrays.asList(
-        "不映射", "题目", "选项A", "选项B", "选项C", "选项D", 
-        "正确答案", "解析", "难度", "分类", "题型"
-    ));
+    // 映射字段选项（从 QuestionField 动态生成，支持 A~L 选项和 12 个空答案字段）
+    private java.util.ArrayList<String> fieldOptions = new java.util.ArrayList<>(
+            com.oilquiz.app.model.QuestionField.getFieldOptions());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

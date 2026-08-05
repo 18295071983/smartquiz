@@ -162,6 +162,12 @@ public class AIProcessingService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // 组4.2：START_STICKY 系统被杀重启后 intent=null，直接 NPE 崩且反复重启形成黑洞
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand: null intent (system restart), stopping self");
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         // 启动前台服务
         startForegroundService();
         

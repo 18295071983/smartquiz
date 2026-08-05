@@ -363,7 +363,7 @@ public class Question implements java.io.Serializable {
 
     /**
      * 动态获取所有非空选项（包括额外选项）
-     * @return 选项列表，格式为 {"A": "选项内容", "B": "选项内容", ...}
+     * @return 选项列表，格式为 {"A": "选项内容", "B": "选项内容", ..., "L": ...}
      */
     public java.util.Map<String, String> getOptions() {
         java.util.Map<String, String> options = new java.util.HashMap<>();
@@ -379,7 +379,6 @@ public class Question implements java.io.Serializable {
         if (optionD != null && !optionD.isEmpty()) {
             options.put("D", optionD);
         }
-        
         // 解析额外选项
         if (extraOptions != null && !extraOptions.isEmpty()) {
             try {
@@ -387,16 +386,96 @@ public class Question implements java.io.Serializable {
                 java.util.Iterator<String> keys = jsonObject.keys();
                 while (keys.hasNext()) {
                     String key = keys.next();
-                    String value = jsonObject.getString(key);
-                    options.put(key, value);
+                    String value = jsonObject.optString(key, "");
+                    if (value != null && !value.isEmpty()) {
+                        options.put(key, value);
+                    }
                 }
             } catch (Exception e) {
                 // JSON解析失败，忽略
             }
         }
-        
         return options;
     }
+
+    /**
+     * 按字母（A~L）设置选项。A~D写入实体字段，E~L写入extraOptions JSON。
+     * @param letter 大写字母A/B/.../L
+     * @param value 选项内容（空或null清除该选项
+     */
+    public void setOptionByLetter(String letter, String value) {
+        String trimmedLetter = (letter == null) ? "" : letter.trim().toUpperCase();
+        if (trimmedLetter.isEmpty()) return;
+        char c = trimmedLetter.charAt(0);
+        String trimmedVal = (value == null) ? "" : value;
+        if ("A".equals(trimmedLetter)) { setOptionA(trimmedVal); return; }
+        if ("B".equals(trimmedLetter)) { setOptionB(trimmedVal); return; }
+        if ("C".equals(trimmedLetter)) { setOptionC(trimmedVal); return; }
+        if ("D".equals(trimmedLetter)) { setOptionD(trimmedVal); return; }
+        // E~L 存入 extraOptions (JSONObject
+        if (c >= 'E' && c <= 'L') {
+            org.json.JSONObject jo = new org.json.JSONObject();
+            try {
+                if (extraOptions != null && !extraOptions.isEmpty()) {
+                    jo = new org.json.JSONObject(extraOptions);
+                }
+            } catch (Exception ignore) {
+                jo = new org.json.JSONObject();
+            }
+            try {
+                if (trimmedVal == null || trimmedVal.isEmpty()) {
+                    jo.remove(trimmedLetter);
+                } else {
+                    jo.put(trimmedLetter, trimmedVal);
+                }
+                if (jo.length() == 0) extraOptions = null;
+                else extraOptions = jo.toString();
+            } catch (Exception ignore) {}
+        }
+    }
+
+    /**
+     * 按字母（A~L）读取选项。A~D读实体字段，E~L读extraOptions
+     */
+    public String getOptionByLetter(String letter) {
+        if (letter == null) return "";
+        String l = letter.trim().toUpperCase();
+        if (l.isEmpty()) return "";
+        if ("A".equals(l)) return getOptionA() == null ? "" : getOptionA();
+        if ("B".equals(l)) return getOptionB() == null ? "" : getOptionB();
+        if ("C".equals(l)) return getOptionC() == null ? "" : getOptionC();
+        if ("D".equals(l)) return getOptionD() == null ? "" : getOptionD();
+        char c = l.charAt(0);
+        if (c < 'A' || c > 'Z') return "";
+        // 从extraOptions读
+        if (extraOptions != null && !extraOptions.isEmpty()) {
+            try {
+                org.json.JSONObject jo = new org.json.JSONObject(extraOptions);
+                return jo.optString(l, "");
+            } catch (Exception ignore) {}
+        }
+        return "";
+    }
+
+    /**
+     * 统一便捷set方法：A~L通过letter直接setOptionByLetter
+     */
+    public void setOptionE(String v) { setOptionByLetter("E", v); }
+    public void setOptionF(String v) { setOptionByLetter("F", v); }
+    public void setOptionG(String v) { setOptionByLetter("G", v); }
+    public void setOptionH(String v) { setOptionByLetter("H", v); }
+    public void setOptionI(String v) { setOptionByLetter("I", v); }
+    public void setOptionJ(String v) { setOptionByLetter("J", v); }
+    public void setOptionK(String v) { setOptionByLetter("K", v); }
+    public void setOptionL(String v) { setOptionByLetter("L", v); }
+    public String getOptionE() { return getOptionByLetter("E"); }
+    public String getOptionF() { return getOptionByLetter("F"); }
+    public String getOptionG() { return getOptionByLetter("G"); }
+    public String getOptionH() { return getOptionByLetter("H"); }
+    public String getOptionI() { return getOptionByLetter("I"); }
+    public String getOptionJ() { return getOptionByLetter("J"); }
+    public String getOptionK() { return getOptionByLetter("K"); }
+    public String getOptionL() { return getOptionByLetter("L"); }
 
     /**
      * 获取选项数量

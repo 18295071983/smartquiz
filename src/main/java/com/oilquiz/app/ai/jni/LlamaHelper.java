@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.jni;
 import android.util.Log;
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
+import com.oilquiz.app.ai.callback.StreamCallback;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -116,12 +117,28 @@ public class LlamaHelper {
                 cachedModelInitialized = true;
                 lastModelInitCheckTime = System.currentTimeMillis();
             }
+            // 组3.4：模型加载成功后，读取模型元数据
+            if (result == 0) {
+                try {
+                    ModelMeta meta = new ModelMeta();
+                    meta.nCtxTrain = nativeGetMetaNCtxTrain();
+                    meta.nEmbd = nativeGetMetaNEmbd();
+                    meta.nLayer = nativeGetMetaNLayer();
+                    meta.nHead = nativeGetMetaNHead();
+                    meta.nParams = nativeGetMetaNParams();
+                    meta.modelName = nativeGetMetaModelName();
+                    meta.valid = nativeGetMetaValid();
+                    modelMeta = meta;
+                    AILogger.i(TAG, "ModelMeta: nCtxTrain=" + meta.nCtxTrain + ", nEmbd=" + meta.nEmbd +
+                            ", nLayer=" + meta.nLayer + ", nHead=" + meta.nHead +
+                            ", nParams=" + meta.nParams + ", name=" + meta.modelName);
+                } catch (UnsatisfiedLinkError e) {
+                    AILogger.w(TAG, "Failed to read model meta: " + e.getMessage());
+                }
+            }
             return result;
-        } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error initializing model: " + e.getMessage(), e);
-            return -1;
-        } catch (Exception e) {
-            AILogger.e(TAG, "Exception initializing model: " + e.getMessage(), e);
+        } catch (Throwable t) {
+            AILogger.e(TAG, "Error initializing model: " + t.getMessage(), t);
             return -1;
         }
     }
@@ -195,45 +212,230 @@ public class LlamaHelper {
     }
 
     public static String generate(String prompt, int maxTokens, float temperature, float topP, int topK) {
+        String threadName = Thread.currentThread().getName();
+        long entryTime = System.currentTimeMillis();
+
+        AILogger.i(TAG, "[generate-String] 入口: thread=" + threadName
+            + ", promptLen=" + (prompt != null ? prompt.length() : 0)
+            + ", maxTokens=" + maxTokens);
+
         if (!libraryLoaded) {
-            AILogger.w(TAG, "Library not loaded, cannot generate text");
+            AILogger.w(TAG, "[generate-String] 失败: Native库未加载, thread=" + threadName);
             return "Error: AI model not available";
         }
-        
+
         // 获取推理锁，确保不与 chatSend 并发执行
+        AILogger.i(TAG, "[generate-String] 尝试获取推理锁, thread=" + threadName
+            + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
+            + ", 等待队列长度=" + inferenceLock.getQueueLength());
+        long lockStart = System.currentTimeMillis();
         if (!acquireInferenceWriteLock()) {
-            AILogger.w(TAG, "Failed to acquire inference lock, generate timeout");
+            long lockWaitTime = System.currentTimeMillis() - lockStart;
+            AILogger.w(TAG, "[generate-String] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName);
             return "Error: Inference lock timeout";
         }
-        
+        long lockAcquireTime = System.currentTimeMillis() - lockStart;
+        AILogger.i(TAG, "[generate-String] ✅ 获取推理锁成功(" + lockAcquireTime + "ms), thread=" + threadName
+            + ", 持有数=" + inferenceLock.getWriteHoldCount());
+
         try {
-            return nativeGenerate(prompt, maxTokens, temperature, topP, topK);
+            AILogger.i(TAG, "[generate-String] 调用 nativeGenerate, thread=" + threadName);
+            long nativeStart = System.currentTimeMillis();
+            String result = nativeGenerate(prompt, maxTokens, temperature, topP, topK);
+            long nativeTime = System.currentTimeMillis() - nativeStart;
+            AILogger.i(TAG, "[generate-String] nativeGenerate 完成(" + nativeTime + "ms), thread=" + threadName
+                + ", resultLen=" + (result != null ? result.length() : 0));
+            return result;
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error generating text: " + e.getMessage(), e);
+            AILogger.e(TAG, "[generate-String] ❌ UnsatisfiedLinkError: " + e.getMessage()
+                + ", thread=" + threadName, e);
+            return "Error: AI generation failed";
+        } catch (Exception e) {
+            AILogger.e(TAG, "[generate-String] ❌ 异常: " + e.getClass().getSimpleName()
+                + ": " + e.getMessage() + ", thread=" + threadName, e);
             return "Error: AI generation failed";
         } finally {
+            AILogger.i(TAG, "[generate-String] 释放推理锁前, 持有数=" + inferenceLock.getWriteHoldCount()
+                + ", thread=" + threadName);
             releaseInferenceWriteLock();
+            long totalTime = System.currentTimeMillis() - entryTime;
+            AILogger.i(TAG, "[generate-String] ✅ 完成, 总耗时=" + totalTime + "ms, thread=" + threadName);
         }
     }
 
     private static native String nativeGenerate(String prompt, int maxTokens, float temperature, float topP, int topK);
 
+    // 生成文本（同步）- 接收消息列表，native 层用 llama_chat_apply_template 自动适配模型格式
+    // 不污染多轮对话状态，适合单次生成场景（翻译、题目生成等）
+    public static String generate(List<PromptBuilder.Message> messages, int maxTokens, float temperature) {
+        return generate(messages, maxTokens, temperature, 0.9f, 40);
+    }
+
+    public static String generate(List<PromptBuilder.Message> messages, int maxTokens, float temperature, float topP, int topK) {
+        String threadName = Thread.currentThread().getName();
+        long entryTime = System.currentTimeMillis();
+
+        AILogger.i(TAG, "[generate-Messages] 入口: thread=" + threadName
+            + ", msgCount=" + (messages != null ? messages.size() : 0)
+            + ", maxTokens=" + maxTokens);
+
+        if (!libraryLoaded) {
+            AILogger.w(TAG, "[generate-Messages] 失败: Native库未加载, thread=" + threadName);
+            return "Error: AI model not available";
+        }
+        if (messages == null || messages.isEmpty()) {
+            AILogger.e(TAG, "[generate-Messages] 失败: 消息列表为空, thread=" + threadName);
+            return "Error: Messages list is empty";
+        }
+
+        // 获取推理锁，确保不与 chatSend 并发执行
+        AILogger.i(TAG, "[generate-Messages] 尝试获取推理锁, thread=" + threadName
+            + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
+            + ", 等待队列长度=" + inferenceLock.getQueueLength());
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            long lockWaitTime = System.currentTimeMillis() - lockStart;
+            AILogger.w(TAG, "[generate-Messages] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName);
+            return "Error: Inference lock timeout";
+        }
+        long lockAcquireTime = System.currentTimeMillis() - lockStart;
+        AILogger.i(TAG, "[generate-Messages] ✅ 获取推理锁成功(" + lockAcquireTime + "ms), thread=" + threadName
+            + ", 持有数=" + inferenceLock.getWriteHoldCount());
+
+        try {
+            final StringBuilder result = new StringBuilder();
+            final String[] error = {null};
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+            AILogger.i(TAG, "[generate-Messages] 调用 generateStream(消息列表), thread=" + threadName);
+            // 注意: generateStream 内部会重入获取推理锁(ReentrantReadWriteLock 可重入)
+            generateStream(messages, maxTokens, temperature, topP, topK, false, new TokenCallback() {
+                @Override
+                public void onToken(String token) {
+                    if (token != null) {
+                        result.append(token);
+                    }
+                }
+
+                @Override
+                public void onComplete(String fullText) {
+                    // 优先使用 fullText，否则用累积的 token
+                    if (fullText != null && !fullText.isEmpty()) {
+                        result.setLength(0);
+                        result.append(fullText);
+                    }
+                    AILogger.i(TAG, "[generate-Messages] onComplete 回调, resultLen=" + result.length()
+                        + ", thread=" + threadName);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onError(String errorMsg) {
+                    AILogger.e(TAG, "[generate-Messages] onError 回调: " + errorMsg + ", thread=" + threadName);
+                    error[0] = errorMsg;
+                    latch.countDown();
+                }
+            });
+
+            // 等待生成完成（120 秒超时，与旧 generateSync 一致）
+            AILogger.i(TAG, "[generate-Messages] 等待 latch 完成(120s超时), thread=" + threadName);
+            long waitStart = System.currentTimeMillis();
+            if (!latch.await(120, java.util.concurrent.TimeUnit.SECONDS)) {
+                long waitTime = System.currentTimeMillis() - waitStart;
+                AILogger.e(TAG, "[generate-Messages] ❌ latch 等待超时(" + waitTime + "ms), thread=" + threadName);
+                return "Error: Generation timeout";
+            }
+            long waitTime = System.currentTimeMillis() - waitStart;
+            AILogger.i(TAG, "[generate-Messages] latch 完成, 等待耗时=" + waitTime + "ms, thread=" + threadName);
+
+            if (error[0] != null) {
+                AILogger.e(TAG, "[generate-Messages] ❌ 回调返回错误: " + error[0] + ", thread=" + threadName);
+                return "Error: " + error[0];
+            }
+
+            AILogger.i(TAG, "[generate-Messages] 生成成功, resultLen=" + result.length() + ", thread=" + threadName);
+            return result.toString();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            AILogger.e(TAG, "[generate-Messages] ❌ InterruptedException: " + e.getMessage()
+                + ", thread=" + threadName, e);
+            return "Error: Generation interrupted";
+        } catch (Exception e) {
+            AILogger.e(TAG, "[generate-Messages] ❌ 异常: " + e.getClass().getSimpleName()
+                + ": " + e.getMessage() + ", thread=" + threadName, e);
+            return "Error: AI generation failed";
+        } finally {
+            AILogger.i(TAG, "[generate-Messages] 释放推理锁前, 持有数=" + inferenceLock.getWriteHoldCount()
+                + ", thread=" + threadName);
+            releaseInferenceWriteLock();
+            long totalTime = System.currentTimeMillis() - entryTime;
+            AILogger.i(TAG, "[generate-Messages] ✅ 完成, 总耗时=" + totalTime + "ms, thread=" + threadName);
+        }
+    }
+
     // 生成文本（流式）
     public static void generateStream(String prompt, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
+        String threadName = Thread.currentThread().getName();
+        long threadId = Thread.currentThread().getId();
+        long entryTime = System.currentTimeMillis();
+
+        AILogger.i(TAG, "[generateStream-String] 入口: thread=" + threadName + "(" + threadId + ")"
+            + ", promptLen=" + (prompt != null ? prompt.length() : 0)
+            + ", maxTokens=" + maxTokens
+            + ", temp=" + temperature
+            + ", hasCallback=" + (callback != null));
+
         if (!libraryLoaded) {
-            AILogger.w(TAG, "Library not loaded, cannot generate stream");
+            AILogger.w(TAG, "[generateStream-String] 失败: Native库未加载, thread=" + threadName);
             if (callback != null) {
                 callback.onError("AI model not available");
             }
             return;
         }
+
+        // 获取推理锁，防止并发推理导致 native 层崩溃
+        // ReentrantReadWriteLock 写锁可重入，generate(List<Message>) 调用时不会死锁
+        AILogger.i(TAG, "[generateStream-String] 尝试获取推理锁, thread=" + threadName
+            + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
+            + ", 等待队列长度=" + inferenceLock.getQueueLength());
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            long lockWaitTime = System.currentTimeMillis() - lockStart;
+            AILogger.w(TAG, "[generateStream-String] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
+                + ", 可能存在并发推理");
+            if (callback != null) {
+                callback.onError("Generation already in progress");
+            }
+            return;
+        }
+        long lockAcquireTime = System.currentTimeMillis() - lockStart;
+        AILogger.i(TAG, "[generateStream-String] ✅ 获取推理锁成功(" + lockAcquireTime + "ms), thread=" + threadName
+            + ", 持有数=" + inferenceLock.getWriteHoldCount());
+
         try {
+            AILogger.i(TAG, "[generateStream-String] 调用 nativeGenerateStream, thread=" + threadName);
+            long nativeStart = System.currentTimeMillis();
             nativeGenerateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
+            long nativeTime = System.currentTimeMillis() - nativeStart;
+            AILogger.i(TAG, "[generateStream-String] nativeGenerateStream 完成(" + nativeTime + "ms), thread=" + threadName);
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error generating stream: " + e.getMessage(), e);
+            AILogger.e(TAG, "[generateStream-String] ❌ UnsatisfiedLinkError: " + e.getMessage()
+                + ", thread=" + threadName, e);
             if (callback != null) {
                 callback.onError("AI generation failed");
             }
+        } catch (Exception e) {
+            AILogger.e(TAG, "[generateStream-String] ❌ 异常: " + e.getClass().getSimpleName()
+                + ": " + e.getMessage() + ", thread=" + threadName, e);
+            if (callback != null) {
+                callback.onError("AI generation failed: " + e.getMessage());
+            }
+        } finally {
+            AILogger.i(TAG, "[generateStream-String] 释放推理锁前, 持有数=" + inferenceLock.getWriteHoldCount()
+                + ", thread=" + threadName);
+            releaseInferenceWriteLock();
+            long totalTime = System.currentTimeMillis() - entryTime;
+            AILogger.i(TAG, "[generateStream-String] ✅ 完成, 总耗时=" + totalTime + "ms, thread=" + threadName);
         }
     }
 
@@ -242,15 +444,25 @@ public class LlamaHelper {
     // 生成文本（流式）- 接收消息列表，native 层用 llama_chat_apply_template 自动适配模型格式
     // 不污染多轮对话状态，适合单次生成场景
     public static void generateStream(List<PromptBuilder.Message> messages, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
+        String threadName = Thread.currentThread().getName();
+        long threadId = Thread.currentThread().getId();
+        long entryTime = System.currentTimeMillis();
+
+        AILogger.i(TAG, "[generateStream-Messages] 入口: thread=" + threadName + "(" + threadId + ")"
+            + ", msgCount=" + (messages != null ? messages.size() : 0)
+            + ", maxTokens=" + maxTokens
+            + ", temp=" + temperature
+            + ", hasCallback=" + (callback != null));
+
         if (!libraryLoaded) {
-            AILogger.w(TAG, "Library not loaded, cannot generate stream from messages");
+            AILogger.w(TAG, "[generateStream-Messages] 失败: Native库未加载, thread=" + threadName);
             if (callback != null) {
                 callback.onError("AI model not available");
             }
             return;
         }
         if (messages == null || messages.isEmpty()) {
-            AILogger.e(TAG, "Messages list is null or empty");
+            AILogger.e(TAG, "[generateStream-Messages] 失败: 消息列表为空, thread=" + threadName);
             if (callback != null) {
                 callback.onError("Messages list is empty");
             }
@@ -264,13 +476,69 @@ public class LlamaHelper {
             roles[i] = msg.role();
             contents[i] = msg.content() == null ? new byte[0] : msg.content().getBytes(StandardCharsets.UTF_8);
         }
+        // 组3.6：最后一扇门——防超 n_ctx assert
+        int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+        int promptTokens = 0;
+        for (PromptBuilder.Message msg : messages) {
+            if (msg.content() != null) {
+                promptTokens += countTokens(msg.content());
+            }
+        }
+        AILogger.i(TAG, "[generateStream-Messages] Token检查: promptTokens=" + promptTokens
+            + ", maxTokens=" + maxTokens + ", safeRef=" + safeRef
+            + ", thread=" + threadName);
+        if (promptTokens + maxTokens >= safeRef) {
+            AILogger.w(TAG, "[generateStream-Messages] ❌ Prompt过长: " + promptTokens + "+" + maxTokens + ">=" + safeRef
+                + ", thread=" + threadName);
+            if (callback != null) {
+                callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+            }
+            return;
+        }
+
+        // 获取推理锁，防止并发推理导致 native 层崩溃
+        // ReentrantReadWriteLock 写锁可重入，generate(List<Message>) 调用时不会死锁
+        AILogger.i(TAG, "[generateStream-Messages] 尝试获取推理锁, thread=" + threadName
+            + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
+            + ", 等待队列长度=" + inferenceLock.getQueueLength());
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            long lockWaitTime = System.currentTimeMillis() - lockStart;
+            AILogger.w(TAG, "[generateStream-Messages] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
+                + ", 可能存在并发推理");
+            if (callback != null) {
+                callback.onError("Generation already in progress");
+            }
+            return;
+        }
+        long lockAcquireTime = System.currentTimeMillis() - lockStart;
+        AILogger.i(TAG, "[generateStream-Messages] ✅ 获取推理锁成功(" + lockAcquireTime + "ms), thread=" + threadName
+            + ", 持有数=" + inferenceLock.getWriteHoldCount());
+
         try {
+            AILogger.i(TAG, "[generateStream-Messages] 调用 nativeGenerateStreamFromMessages, thread=" + threadName);
+            long nativeStart = System.currentTimeMillis();
             nativeGenerateStreamFromMessages(roles, contents, maxTokens, temperature, topP, topK, enableThinking, callback);
+            long nativeTime = System.currentTimeMillis() - nativeStart;
+            AILogger.i(TAG, "[generateStream-Messages] nativeGenerateStreamFromMessages 完成(" + nativeTime + "ms), thread=" + threadName);
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error generating stream from messages: " + e.getMessage(), e);
+            AILogger.e(TAG, "[generateStream-Messages] ❌ UnsatisfiedLinkError: " + e.getMessage()
+                + ", thread=" + threadName, e);
             if (callback != null) {
                 callback.onError("AI generation failed");
             }
+        } catch (Exception e) {
+            AILogger.e(TAG, "[generateStream-Messages] ❌ 异常: " + e.getClass().getSimpleName()
+                + ": " + e.getMessage() + ", thread=" + threadName, e);
+            if (callback != null) {
+                callback.onError("AI generation failed: " + e.getMessage());
+            }
+        } finally {
+            AILogger.i(TAG, "[generateStream-Messages] 释放推理锁前, 持有数=" + inferenceLock.getWriteHoldCount()
+                + ", thread=" + threadName);
+            releaseInferenceWriteLock();
+            long totalTime = System.currentTimeMillis() - entryTime;
+            AILogger.i(TAG, "[generateStream-Messages] ✅ 完成, 总耗时=" + totalTime + "ms, thread=" + threadName);
         }
     }
 
@@ -278,21 +546,51 @@ public class LlamaHelper {
 
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
+        String threadName = Thread.currentThread().getName();
+        long threadId = Thread.currentThread().getId();
+        long entryTime = System.currentTimeMillis();
+
+        AILogger.i(TAG, "[generateStream-ChatRequest] 入口: thread=" + threadName + "(" + threadId + ")"
+            + ", hasRequest=" + (request != null)
+            + ", maxTokens=" + (request != null ? request.getMaxTokens() : 0)
+            + ", hasCallback=" + (callback != null));
+
         if (!libraryLoaded) {
-            AILogger.w(TAG, "Library not loaded, cannot generate stream");
+            AILogger.w(TAG, "[generateStream-ChatRequest] 失败: Native库未加载, thread=" + threadName);
             if (callback != null) {
                 callback.onError("AI model not available");
             }
             return;
         }
         if (request == null || request.getFullPromptUtf8() == null) {
-            AILogger.e(TAG, "Invalid ChatRequest");
+            AILogger.e(TAG, "[generateStream-ChatRequest] 失败: 无效的ChatRequest, thread=" + threadName);
             if (callback != null) {
                 callback.onError("Invalid request");
             }
             return;
         }
+
+        // 获取推理锁，防止并发推理导致 native 层崩溃
+        AILogger.i(TAG, "[generateStream-ChatRequest] 尝试获取推理锁, thread=" + threadName
+            + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
+            + ", 等待队列长度=" + inferenceLock.getQueueLength());
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            long lockWaitTime = System.currentTimeMillis() - lockStart;
+            AILogger.w(TAG, "[generateStream-ChatRequest] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
+                + ", 可能存在并发推理");
+            if (callback != null) {
+                callback.onError("Generation already in progress");
+            }
+            return;
+        }
+        long lockAcquireTime = System.currentTimeMillis() - lockStart;
+        AILogger.i(TAG, "[generateStream-ChatRequest] ✅ 获取推理锁成功(" + lockAcquireTime + "ms), thread=" + threadName
+            + ", 持有数=" + inferenceLock.getWriteHoldCount());
+
         try {
+            AILogger.i(TAG, "[generateStream-ChatRequest] 调用 nativeGenerateStreamBytes, thread=" + threadName);
+            long nativeStart = System.currentTimeMillis();
             nativeGenerateStreamBytes(
                 request.getFullPromptUtf8(),
                 request.getMaxTokens(),
@@ -302,11 +600,26 @@ public class LlamaHelper {
                 request.isEnableThinking(),
                 callback
             );
+            long nativeTime = System.currentTimeMillis() - nativeStart;
+            AILogger.i(TAG, "[generateStream-ChatRequest] nativeGenerateStreamBytes 完成(" + nativeTime + "ms), thread=" + threadName);
         } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error generating stream: " + e.getMessage(), e);
+            AILogger.e(TAG, "[generateStream-ChatRequest] ❌ UnsatisfiedLinkError: " + e.getMessage()
+                + ", thread=" + threadName, e);
             if (callback != null) {
                 callback.onError("AI generation failed");
             }
+        } catch (Exception e) {
+            AILogger.e(TAG, "[generateStream-ChatRequest] ❌ 异常: " + e.getClass().getSimpleName()
+                + ": " + e.getMessage() + ", thread=" + threadName, e);
+            if (callback != null) {
+                callback.onError("AI generation failed: " + e.getMessage());
+            }
+        } finally {
+            AILogger.i(TAG, "[generateStream-ChatRequest] 释放推理锁前, 持有数=" + inferenceLock.getWriteHoldCount()
+                + ", thread=" + threadName);
+            releaseInferenceWriteLock();
+            long totalTime = System.currentTimeMillis() - entryTime;
+            AILogger.i(TAG, "[generateStream-ChatRequest] ✅ 完成, 总耗时=" + totalTime + "ms, thread=" + threadName);
         }
     }
 
@@ -797,18 +1110,60 @@ public class LlamaHelper {
         }
         try {
             return nativeCountTokens(text);
-        } catch (UnsatisfiedLinkError e) {
-            AILogger.e(TAG, "Error counting tokens: " + e.getMessage(), e);
+        } catch (Throwable t) {
+            AILogger.e(TAG, "Error counting tokens: " + t.getMessage(), t);
             return 0;
         }
     }
     
     private static native int nativeCountTokens(String text);
 
+    // ========== 组3.2：模型元数据 + 纯净推理 JNI 声明 ==========
+    private static native int nativeGetMetaNCtxTrain();
+    private static native int nativeGetMetaNEmbd();
+    private static native int nativeGetMetaNLayer();
+    private static native int nativeGetMetaNHead();
+    private static native long nativeGetMetaNParams();
+    private static native String nativeGetMetaModelName();
+    private static native boolean nativeGetMetaValid();
+    private static native int nativeRunInferenceOnce(String prompt, int contextSize, int maxTokens, StreamCallback callback);
+    private static native void nativeInstallSignalHandlers();
+
+    /** 安装 native 信号处理器，在首次 initModel 之前调用 */
+    public static void installSignalHandlers() {
+        nativeInstallSignalHandlers();
+    }
+
+    // ========== 组3.1：模型元数据 POJO ==========
+    /** 模型元数据，与 C++ InferenceContext::ModelMeta 字段对齐 */
+    public static class ModelMeta {
+        public boolean valid = false;
+        public int nCtxTrain = 0;      // 模型训练时的上下文长度
+        public int nEmbd = 0;          // embedding 维度
+        public int nLayer = 0;         // 层数
+        public int nHead = 0;          // 注意力头数
+        public long nParams = 0;       // 参数量
+        public String modelName = "";  // 模型名称
+    }
+    private static volatile ModelMeta modelMeta = new ModelMeta();
+    public static ModelMeta getModelMeta() { return modelMeta; }
+
+    /**
+     * 组3.3：获取安全上下文大小参考值。
+     * 优先取 min(nCtxTrain, runtimeCtx)，取不到回退 runtimeCtx。
+     * 不强制覆盖 contextSize，仅用于裁剪/拦截参考。
+     */
+    public static int getSafeContextReference(int runtimeCtx) {
+        if (modelMeta != null && modelMeta.valid && modelMeta.nCtxTrain > 0) {
+            return Math.min(modelMeta.nCtxTrain, runtimeCtx);
+        }
+        return runtimeCtx;
+    }
+
     // ========== Native Chat Context API ==========
     private static volatile long chatContextHandle = 0;
-    private static int contextTotalSize = 0;
-    private static int contextUsedTokens = 0;
+    private static volatile int contextTotalSize = 0;
+    private static volatile int contextUsedTokens = 0;
 
     // 活跃生成任务标志，防止并发调用native层
     private static volatile boolean hasActiveGeneration = false;

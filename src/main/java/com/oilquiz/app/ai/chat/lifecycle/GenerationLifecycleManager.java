@@ -117,6 +117,25 @@ public class GenerationLifecycleManager {
         }
     }
 
+    /**
+     * 专门处理在线模型独立的 reasoning_content 流（通过 onThinkingToken 回调）。
+     * 与 handleToken 中解析 <think> 标签的逻辑独立，两种场景共存。
+     */
+    public void handleThinkingToken(String token) {
+        if (!isGenerating || token == null || token.isEmpty()) return;
+
+        totalTokensGenerated++;
+        currentThinkingContent.append(token);
+        tokenCountSinceLastUpdate++;
+
+        long now = System.currentTimeMillis();
+        if (tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT || (now - lastUpdateTime) >= BATCH_INTERVAL_MS) {
+            flushToUI();
+            tokenCountSinceLastUpdate = 0;
+            lastUpdateTime = now;
+        }
+    }
+
     public void completeGeneration(String fullContent, List<ChatMessage> chatHistory) {
         isGenerating = false;
 
@@ -203,6 +222,13 @@ public class GenerationLifecycleManager {
         if (!content.isEmpty()) {
             activity.runOnUiThread(() ->
                 callback.onUpdateMessageContent(currentStreamingMessageIndex, content)
+            );
+        }
+        // 思考链有内容时，也要通过回调更新 Adapter
+        String thinking = currentThinkingContent.toString();
+        if (!thinking.isEmpty()) {
+            activity.runOnUiThread(() ->
+                callback.onUpdateMessageThinking(currentStreamingMessageIndex, thinking)
             );
         }
     }

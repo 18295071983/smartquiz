@@ -1,6 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
 import android.content.Context;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -134,6 +135,13 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
      * 更新数据 - List<OnlineModel> 版本
      */
     public void updateData(List<OnlineModel> models) {
+        // 确保在主线程执行 DiffUtil.calculateDiff 和 dispatchUpdatesTo
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            android.os.Handler handler = new android.os.Handler(Looper.getMainLooper());
+            handler.post(() -> updateData(models));
+            return;
+        }
+
         List<DisplayItem> oldItems = new ArrayList<>(this.displayItems);
         List<DisplayItem> newItems = buildDisplayItemsFromOnlineModel(models);
 
@@ -187,6 +195,13 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
      * 更新数据 - OnlineModelConfig 版本（兼容旧代码）
      */
     public void updateData(List<OnlineModelManager.OnlineModelConfig> configs, String activeModelId) {
+        // 确保在主线程执行 DiffUtil.calculateDiff 和 dispatchUpdatesTo
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            android.os.Handler handler = new android.os.Handler(Looper.getMainLooper());
+            handler.post(() -> updateData(configs, activeModelId));
+            return;
+        }
+
         List<DisplayItem> oldItems = new ArrayList<>(this.displayItems);
         List<DisplayItem> newItems = buildDisplayItemsFromConfig(configs, activeModelId);
 

@@ -5,15 +5,19 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.oilquiz.app.ai.importing.FieldMappingRegistry;
 import com.oilquiz.app.model.Question;
+import com.oilquiz.app.util.CharsetDetector;
 
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -307,22 +311,54 @@ public class ExcelUtil {
         if (file == null || !file.exists()) {
             return sheets;
         }
+
+        // CSV/JSON 虚拟为单工作表
+        FileFormat fmt = detectFileFormat(file);
+        if (fmt == FileFormat.CSV) {
+            try {
+                List<List<String>> rows = readCsvFile(file);
+                SheetInfo info = new SheetInfo();
+                info.sheetName = "CSV数据";
+                info.sheetIndex = 0;
+                info.rowCount = rows.size();
+                info.columnCount = rows.isEmpty() ? 0 : rows.get(0).size();
+                sheets.add(info);
+                return sheets;
+            } catch (Exception e) { Log.w(TAG, "读取CSV工作表信息失败: " + e.getMessage()); }
+        } else if (fmt == FileFormat.JSON) {
+            try {
+                String raw = readJsonFile(file);
+                int count = 0;
+                int cols = 0;
+                try {
+                    org.json.JSONArray arr = new org.json.JSONArray(raw);
+                    count = arr.length();
+                    if (count > 0) {
+                        org.json.JSONObject first = arr.getJSONObject(0);
+                        cols = first.length();
+                    }
+                } catch (Exception e) {
+                    try {
+                        org.json.JSONObject obj = new org.json.JSONObject(raw);
+                        count = 1; cols = obj.length();
+                    } catch (Exception ignore) {}
+                }
+                SheetInfo info = new SheetInfo();
+                info.sheetName = "JSON数据";
+                info.sheetIndex = 0;
+                info.rowCount = count + 1; // +1 表头
+                info.columnCount = cols;
+                sheets.add(info);
+                return sheets;
+            } catch (Exception e) { Log.w(TAG, "读取JSON工作表信息失败: " + e.getMessage()); }
+        }
         
         FileInputStream fis = null;
         Workbook workbook = null;
         
         try {
             fis = new FileInputStream(file);
-            
-            // 根据文件扩展名创建对应的工作簿
-            String fileName = file.getName().toLowerCase();
-            if (fileName.endsWith(".xlsx")) {
-                workbook = new XSSFWorkbook(fis);
-            } else if (fileName.endsWith(".xls")) {
-                workbook = new HSSFWorkbook(fis);
-            } else {
-                return sheets;
-            }
+            workbook = WorkbookFactory.create(fis);
             
             // 获取所有工作表信息
             for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
@@ -366,22 +402,36 @@ public class ExcelUtil {
         if (file == null || !file.exists()) {
             return headers;
         }
+
+        // CSV 直接读第一行；JSON 取第一个对象的 key
+        FileFormat fmt = detectFileFormat(file);
+        if (fmt == FileFormat.CSV) {
+            return getCsvHeaders(file);
+        } else if (fmt == FileFormat.JSON) {
+            try {
+                String raw = readJsonFile(file);
+                org.json.JSONArray arr;
+                try {
+                    arr = new org.json.JSONArray(raw);
+                } catch (Exception e) {
+                    org.json.JSONObject obj = new org.json.JSONObject(raw);
+                    arr = new org.json.JSONArray(); arr.put(obj);
+                }
+                if (arr.length() > 0) {
+                    org.json.JSONObject first = arr.getJSONObject(0);
+                    java.util.Iterator<String> it = first.keys();
+                    while (it.hasNext()) headers.add(it.next());
+                }
+                return headers;
+            } catch (Exception e) { Log.w(TAG, "读取JSON表头失败: " + e.getMessage()); return headers; }
+        }
         
         FileInputStream fis = null;
         Workbook workbook = null;
         
         try {
             fis = new FileInputStream(file);
-            
-            // 根据文件扩展名创建对应的工作簿
-            String fileName = file.getName().toLowerCase();
-            if (fileName.endsWith(".xlsx")) {
-                workbook = new XSSFWorkbook(fis);
-            } else if (fileName.endsWith(".xls")) {
-                workbook = new HSSFWorkbook(fis);
-            } else {
-                return headers;
-            }
+            workbook = WorkbookFactory.create(fis);
             
             // 获取指定工作表
             Sheet sheet = workbook.getSheetAt(sheetIndex);
@@ -468,22 +518,40 @@ public class ExcelUtil {
         if (file == null || !file.exists()) {
             return data;
         }
+
+        // CSV 走 readCsvData；JSON 转成二维表格（首行key、后续行值）
+        FileFormat fmt = detectFileFormat(file);
+        if (fmt == FileFormat.CSV) {
+            return readCsvData(file, maxRows);
+        } else if (fmt == FileFormat.JSON) {
+            try {
+                List<String> headers = getExcelColumnHeaders(file, sheetIndex);
+                if (headers.isEmpty()) return data;
+                String raw = readJsonFile(file);
+                org.json.JSONArray arr;
+                try {
+                    arr = new org.json.JSONArray(raw);
+                } catch (Exception e) {
+                    org.json.JSONObject obj = new org.json.JSONObject(raw);
+                    arr = new org.json.JSONArray(); arr.put(obj);
+                }
+                int count = (maxRows <= 0) ? arr.length() : Math.min(arr.length(), maxRows);
+                for (int i = 0; i < count; i++) {
+                    List<String> row = new ArrayList<>();
+                    org.json.JSONObject jo = arr.getJSONObject(i);
+                    for (String h : headers) row.add(jo.optString(h, ""));
+                    data.add(row);
+                }
+                return data;
+            } catch (Exception e) { Log.w(TAG, "读取JSON数据失败: " + e.getMessage()); return data; }
+        }
         
         FileInputStream fis = null;
         Workbook workbook = null;
         
         try {
             fis = new FileInputStream(file);
-            
-            // 根据文件扩展名创建对应的工作簿
-            String fileName = file.getName().toLowerCase();
-            if (fileName.endsWith(".xlsx")) {
-                workbook = new XSSFWorkbook(fis);
-            } else if (fileName.endsWith(".xls")) {
-                workbook = new HSSFWorkbook(fis);
-            } else {
-                return data;
-            }
+            workbook = WorkbookFactory.create(fis);
             
             // 获取指定工作表
             Sheet sheet = workbook.getSheetAt(sheetIndex);
@@ -624,18 +692,10 @@ public class ExcelUtil {
             return report;
         }
         
-        // 获取必填字段的列索引
-        Integer questionColumn = finalFieldMapping.get("题目");
-        if (questionColumn == null) questionColumn = finalFieldMapping.get("question");
-        if (questionColumn == null) questionColumn = finalFieldMapping.get("问题");
-        
-        Integer answerColumn = finalFieldMapping.get("正确答案");
-        if (answerColumn == null) answerColumn = finalFieldMapping.get("answer");
-        if (answerColumn == null) answerColumn = finalFieldMapping.get("答案");
-        
-        Integer typeColumn = finalFieldMapping.get("题型");
-        if (typeColumn == null) typeColumn = finalFieldMapping.get("question_type");
-        if (typeColumn == null) typeColumn = finalFieldMapping.get("类型");
+        // 使用 FieldMappingRegistry 统一查找必填字段列索引
+        Integer questionColumn = resolveColumn(finalFieldMapping, "questionText");
+        Integer answerColumn = resolveColumn(finalFieldMapping, "correctAnswer");
+        Integer typeColumn = resolveColumn(finalFieldMapping, "questionType");
         
         // 读取数据并检测问题
         List<List<String>> data = readExcelData(file, sheetIndex, 0); // 读取所有行
@@ -722,16 +782,19 @@ public class ExcelUtil {
                 switch (issue.fieldName) {
                     case "题目":
                     case "question":
+                    case "questionText":
                         question.setQuestionText(issue.userCorrectedValue);
                         break;
                     case "正确答案":
                     case "answer":
                     case "答案":
+                    case "correctAnswer":
                         question.setCorrectAnswer(issue.userCorrectedValue);
                         break;
                     case "题型":
                     case "question_type":
                     case "类型":
+                    case "questionType":
                         question.setQuestionType(issue.userCorrectedValue);
                         break;
                 }
@@ -746,14 +809,8 @@ public class ExcelUtil {
             return questionTypes;
         }
         
-        // 获取题型列的索引
-        Integer typeColumnIndex = finalFieldMapping.get("题型");
-        if (typeColumnIndex == null) {
-            typeColumnIndex = finalFieldMapping.get("question_type");
-        }
-        if (typeColumnIndex == null) {
-            typeColumnIndex = finalFieldMapping.get("类型");
-        }
+        // 使用 FieldMappingRegistry 统一查找题型列索引
+        Integer typeColumnIndex = resolveColumn(finalFieldMapping, "questionType");
         
         if (typeColumnIndex == null) {
             return questionTypes;
@@ -781,11 +838,9 @@ public class ExcelUtil {
         }
         
         // 获取难度列的索引
-        Integer difficultyColumnIndex = finalFieldMapping.get("难度");
-        if (difficultyColumnIndex == null) {
-            difficultyColumnIndex = finalFieldMapping.get("difficulty");
-        }
-        
+        // 使用 FieldMappingRegistry 统一查找难度列索引
+        Integer difficultyColumnIndex = resolveColumn(finalFieldMapping, "difficulty");
+
         if (difficultyColumnIndex == null) {
             return difficultyLevels;
         }
@@ -812,14 +867,9 @@ public class ExcelUtil {
         }
         
         // 获取分类列的索引
-        Integer categoryColumnIndex = finalFieldMapping.get("分类");
-        if (categoryColumnIndex == null) {
-            categoryColumnIndex = finalFieldMapping.get("category");
-        }
-        if (categoryColumnIndex == null) {
-            categoryColumnIndex = finalFieldMapping.get("科目");
-        }
-        
+        // 使用 FieldMappingRegistry 统一查找分类列索引
+        Integer categoryColumnIndex = resolveColumn(finalFieldMapping, "category");
+
         if (categoryColumnIndex == null) {
             return categories;
         }
@@ -957,6 +1007,19 @@ public class ExcelUtil {
             }
             return;
         }
+
+        // ================ 智能格式分发：CSV/JSON 走各自的导入器（带CharsetDetector编码）============
+        FileFormat format = detectFileFormat(file);
+        if (format == FileFormat.CSV) {
+            Log.d(TAG, "检测到CSV格式，走importCsv分支（含智能编码检测）");
+            importCsv(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, callback);
+            return;
+        } else if (format == FileFormat.JSON) {
+            Log.d(TAG, "检测到JSON格式，走importJson分支（含智能编码检测）");
+            importJson(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, callback);
+            return;
+        }
+        // EXCEL / 其他格式继续走原有POI逻辑
         
         isImportCancelled = false;
         
@@ -977,19 +1040,7 @@ public class ExcelUtil {
             
             try {
                 fis = new FileInputStream(file);
-                
-                // 根据文件扩展名创建对应的工作簿
-                String fileName = file.getName().toLowerCase();
-                if (fileName.endsWith(".xlsx")) {
-                    workbook = new XSSFWorkbook(fis);
-                } else if (fileName.endsWith(".xls")) {
-                    workbook = new HSSFWorkbook(fis);
-                } else {
-                    if (callback != null) {
-                        callback.onError("不支持的文件格式");
-                    }
-                    return;
-                }
+                workbook = WorkbookFactory.create(fis);
                 
                 // 获取指定工作表
                 Sheet sheet = workbook.getSheetAt(sheetIndex);
@@ -1000,41 +1051,27 @@ public class ExcelUtil {
                     return;
                 }
                 
-                // 获取关键列索引
-                Integer questionColumn = finalFieldMapping.get("题目");
-                if (questionColumn == null) questionColumn = finalFieldMapping.get("question");
-                if (questionColumn == null) questionColumn = finalFieldMapping.get("问题");
-                
-                Integer answerColumn = finalFieldMapping.get("正确答案");
-                if (answerColumn == null) answerColumn = finalFieldMapping.get("answer");
-                if (answerColumn == null) answerColumn = finalFieldMapping.get("答案");
-                
-                Integer typeColumn = finalFieldMapping.get("题型");
-                if (typeColumn == null) typeColumn = finalFieldMapping.get("question_type");
-                if (typeColumn == null) typeColumn = finalFieldMapping.get("类型");
-                
-                Integer optionAColumn = finalFieldMapping.get("选项A");
-                if (optionAColumn == null) optionAColumn = finalFieldMapping.get("option_a");
-                
-                Integer optionBColumn = finalFieldMapping.get("选项B");
-                if (optionBColumn == null) optionBColumn = finalFieldMapping.get("option_b");
-                
-                Integer optionCColumn = finalFieldMapping.get("选项C");
-                if (optionCColumn == null) optionCColumn = finalFieldMapping.get("option_c");
-                
-                Integer optionDColumn = finalFieldMapping.get("选项D");
-                if (optionDColumn == null) optionDColumn = finalFieldMapping.get("option_d");
-                
-                Integer difficultyColumn = finalFieldMapping.get("难度");
-                if (difficultyColumn == null) difficultyColumn = finalFieldMapping.get("difficulty");
-                
-                Integer categoryColumn = finalFieldMapping.get("分类");
-                if (categoryColumn == null) categoryColumn = finalFieldMapping.get("category");
-                if (categoryColumn == null) categoryColumn = finalFieldMapping.get("科目");
-                
-                Integer explanationColumn = finalFieldMapping.get("解析");
-                if (explanationColumn == null) explanationColumn = finalFieldMapping.get("explanation");
-                if (explanationColumn == null) explanationColumn = finalFieldMapping.get("答案解析");
+                // 使用 FieldMappingRegistry 统一解析字段映射（消除硬编码中英文对应）
+                Integer questionColumn = resolveColumn(finalFieldMapping, "questionText");
+                Integer answerColumn = resolveColumn(finalFieldMapping, "correctAnswer");
+                Integer typeColumn = resolveColumn(finalFieldMapping, "questionType");
+                Integer optionAColumn = resolveColumn(finalFieldMapping, "optionA");
+                Integer optionBColumn = resolveColumn(finalFieldMapping, "optionB");
+                Integer optionCColumn = resolveColumn(finalFieldMapping, "optionC");
+                Integer optionDColumn = resolveColumn(finalFieldMapping, "optionD");
+                Integer difficultyColumn = resolveColumn(finalFieldMapping, "difficulty");
+                Integer categoryColumn = resolveColumn(finalFieldMapping, "category");
+                Integer explanationColumn = resolveColumn(finalFieldMapping, "explanation");
+                // —— 扩展：E~L 选项列 & 填空题 blankAnswer1~12 列 ——
+                Integer[] extraOptionColumns = new Integer[8]; // 0->E, 1->F, ..., 7->L
+                char[] extraLetters = new char[]{'E','F','G','H','I','J','K','L'};
+                for (int _i = 0; _i < extraLetters.length; _i++) {
+                    extraOptionColumns[_i] = resolveColumn(finalFieldMapping, "option" + extraLetters[_i]);
+                }
+                Integer[] blankAnswerColumns = new Integer[12];
+                for (int n = 0; n < 12; n++) {
+                    blankAnswerColumns[n] = resolveColumn(finalFieldMapping, "blankAnswer" + (n + 1));
+                }
                 
                 // 读取数据行（从第二行开始，第一行是表头）
                 int totalRows = sheet.getLastRowNum();
@@ -1069,11 +1106,25 @@ public class ExcelUtil {
                             question.setQuestionText(questionText);
                         }
                         
-                        // 设置正确答案
-                        if (answerColumn != null) {
-                            String answer = getCellValueAsString(row.getCell(answerColumn));
-                            question.setCorrectAnswer(answer);
+                        // 设置正确答案（含 blankAnswer1~12 合并）
+                        String answer = (answerColumn != null) ? getCellValueAsString(row.getCell(answerColumn)) : "";
+                        java.util.List<String> blankParts = new ArrayList<>();
+                        for (int bn = 0; bn < blankAnswerColumns.length; bn++) {
+                            Integer bc = blankAnswerColumns[bn];
+                            if (bc != null) {
+                                String bv = getCellValueAsString(row.getCell(bc));
+                                if (bv != null && !bv.trim().isEmpty()) blankParts.add(bv.trim());
+                            }
                         }
+                        if (!blankParts.isEmpty()) {
+                            String joined = String.join("；", blankParts);
+                            if (answer == null || answer.trim().isEmpty()) {
+                                answer = joined;
+                            } else if (!answer.contains(joined)) {
+                                answer = answer + "；" + joined;
+                            }
+                        }
+                        if (answer != null) question.setCorrectAnswer(answer);
                         
                         // 设置题型
                         if (typeColumn != null) {
@@ -1087,7 +1138,7 @@ public class ExcelUtil {
                             question.setQuestionType(finalSettings.defaultQuestionType);
                         }
                         
-                        // 设置选项
+                        // 设置选项（A~D）
                         if (optionAColumn != null) {
                             question.setOptionA(getCellValueAsString(row.getCell(optionAColumn)));
                         }
@@ -1099,6 +1150,16 @@ public class ExcelUtil {
                         }
                         if (optionDColumn != null) {
                             question.setOptionD(getCellValueAsString(row.getCell(optionDColumn)));
+                        }
+                        // —— 扩展：E~L 选项（通过 setOptionByLetter 写入 extraOptions JSON）——
+                        for (int ei = 0; ei < extraLetters.length; ei++) {
+                            Integer col = extraOptionColumns[ei];
+                            if (col != null) {
+                                String v = getCellValueAsString(row.getCell(col));
+                                if (v != null && !v.isEmpty()) {
+                                    question.setOptionByLetter(String.valueOf(extraLetters[ei]), v);
+                                }
+                            }
                         }
                         
                         // 设置难度
@@ -1248,5 +1309,386 @@ public class ExcelUtil {
         }
         
         return FileFormat.UNKNOWN;
+    }
+
+    // ==================== CSV / JSON 读取（使用CharsetDetector智能编码） ====================
+
+    /**
+     * 读取CSV文件全部内容（使用CharsetDetector智能编码检测）
+     */
+    public static List<List<String>> readCsvFile(File file) throws IOException {
+        List<List<String>> data = new ArrayList<>();
+        if (file == null || !file.exists()) return data;
+
+        Object[] readerInfo = CharsetDetector.openBufferedReaderAutoDetect(file);
+        BufferedReader reader = (BufferedReader) readerInfo[0];
+        String detectedCharset = (String) readerInfo[1];
+        Log.d(TAG, "CSV文件 [" + file.getName() + "] 检测到编码: " + detectedCharset);
+
+        try {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                List<String> row = splitCsvLine(line);
+                data.add(row);
+            }
+        } finally {
+            reader.close();
+        }
+        return data;
+    }
+
+    /**
+     * 读取JSON文件全部内容（使用CharsetDetector智能编码检测）
+     */
+    public static String readJsonFile(File file) throws IOException {
+        if (file == null || !file.exists()) return "";
+        String content = CharsetDetector.readFileAutoDetect(file);
+        Log.d(TAG, "JSON文件 [" + file.getName() + "] 读取完毕,长度=" + content.length());
+        return content;
+    }
+
+    /**
+     * 按 RFC4180 风格解析 CSV 行（支持引号包裹、引号内逗号、双引号转义）
+     * 复用与AIFileParser中一致的健壮实现
+     */
+    public static List<String> splitCsvLine(String line) {
+        if (line == null || line.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> result = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                        cur.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    cur.append(c);
+                }
+            } else {
+                if (c == ',') {
+                    result.add(cur.toString());
+                    cur.setLength(0);
+                } else if (c == '"' && cur.length() == 0) {
+                    inQuotes = true;
+                } else {
+                    cur.append(c);
+                }
+            }
+        }
+        result.add(cur.toString());
+        return result;
+    }
+
+    /**
+     * 导入CSV文件（使用智能编码 + RFC4180解析）
+     */
+    public static void importCsv(File file, Map<String, Integer> fieldMapping, ImportSettings settings,
+                                  Map<String, String> questionTypeMapping,
+                                  Map<String, String> difficultyMapping,
+                                  Map<String, String> categoryMapping,
+                                  ImportCallback callback) {
+        if (file == null || !file.exists()) {
+            if (callback != null) callback.onError("CSV文件不存在");
+            return;
+        }
+        isImportCancelled = false;
+        final Map<String, Integer> finalFieldMapping = (fieldMapping != null) ? fieldMapping : buildDefaultCsvFieldMapping(file);
+        final ImportSettings finalSettings = (settings != null) ? settings : new ImportSettings();
+        final ImportCallback finalCallback = callback;
+
+        executorService.execute(() -> {
+            long startTime = System.currentTimeMillis();
+            ImportResult result = new ImportResult();
+            List<Question> questions = new ArrayList<>();
+            try {
+                List<List<String>> rows = readCsvFile(file);
+                if (rows.isEmpty()) {
+                    if (finalCallback != null) finalCallback.onError("CSV文件内容为空");
+                    return;
+                }
+                // 第0行是表头
+                int totalRows = Math.max(0, rows.size() - 1);
+                result.totalQuestions = totalRows;
+
+                // 使用 FieldMappingRegistry 统一解析字段映射（兼容中文/英文/变体表头）
+                // 先用 Registry 从表头构建标准映射，再合并用户传入的 fieldMapping
+                Map<String, Integer> canonicalMapping = FieldMappingRegistry.buildMappingFromHeaders(rows.get(0));
+                if (finalFieldMapping != null) {
+                    // 用户手动映射优先：将中文 key 转为 canonical 后覆盖
+                    for (Map.Entry<String, Integer> e : finalFieldMapping.entrySet()) {
+                        String canonical = FieldMappingRegistry.resolve(e.getKey());
+                        if (canonical != null) {
+                            canonicalMapping.put(canonical, e.getValue());
+                        } else {
+                            // 无法识别的 key 直接保留
+                            canonicalMapping.put(e.getKey(), e.getValue());
+                        }
+                    }
+                }
+
+                for (int i = 1; i < rows.size(); i++) {
+                    if (isImportCancelled) {
+                        result.summary = "导入已取消";
+                        if (finalCallback != null) finalCallback.onComplete(questions, result);
+                        return;
+                    }
+                    List<String> row = rows.get(i);
+                    if (row.isEmpty()) { result.skippedQuestions++; continue; }
+                    try {
+                        // 使用 Registry 统一提取 Question
+                        Question question = FieldMappingRegistry.extractFromRow(row, canonicalMapping);
+
+                        // 空题检查
+                        if ((question.getQuestionText() == null || question.getQuestionText().trim().isEmpty())
+                                && finalSettings.skipEmptyQuestions) {
+                            result.skippedQuestions++;
+                            continue;
+                        }
+                        if (question.getQuestionText() == null || question.getQuestionText().trim().isEmpty()) {
+                            if (finalSettings.defaultQuestion != null) {
+                                question.setQuestionText(finalSettings.defaultQuestion);
+                            }
+                        }
+
+                        // 题型映射
+                        String t = question.getQuestionType();
+                        if (t != null && !t.isEmpty() && questionTypeMapping != null && questionTypeMapping.containsKey(t)) {
+                            question.setQuestionType(questionTypeMapping.get(t));
+                        } else if ((t == null || t.isEmpty()) && finalSettings.defaultQuestionType != null) {
+                            question.setQuestionType(finalSettings.defaultQuestionType);
+                        }
+
+                        // 难度映射
+                        if (question.getDifficulty() == 0) {
+                            if (finalSettings.defaultDifficulty > 0) {
+                                question.setDifficulty(finalSettings.defaultDifficulty);
+                            }
+                        }
+
+                        // 分类映射
+                        String c = question.getCategory();
+                        if (c != null && !c.isEmpty() && categoryMapping != null && categoryMapping.containsKey(c)) {
+                            question.setCategory(categoryMapping.get(c));
+                        }
+
+                        // 解析字段已由 Registry.extractFromRow 填充
+
+                        if (isValidQuestion(question, finalSettings)) {
+                            questions.add(question);
+                            result.validQuestions++;
+                        } else {
+                            result.invalidQuestions++;
+                            ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "题目验证失败";
+                            result.errorInfos.add(ei);
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "CSV解析第" + (i + 1) + "行出错: " + e.getMessage(), e);
+                        result.invalidQuestions++;
+                        ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "解析错误: " + e.getMessage();
+                        result.errorInfos.add(ei);
+                    }
+                    if (finalCallback != null) finalCallback.onProgress(i, totalRows);
+                }
+
+                result.importTime = System.currentTimeMillis() - startTime;
+                result.summary = "CSV导入完成，成功: " + result.validQuestions + ", 失败: " + result.invalidQuestions;
+                if (finalCallback != null) finalCallback.onComplete(questions, result);
+            } catch (Exception e) {
+                Log.e(TAG, "CSV导入失败: " + e.getMessage(), e);
+                if (finalCallback != null) finalCallback.onError("CSV导入失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 导入JSON文件（使用智能编码检测）
+     */
+    public static void importJson(File file, Map<String, Integer> fieldMapping, ImportSettings settings,
+                                   Map<String, String> questionTypeMapping,
+                                   Map<String, String> difficultyMapping,
+                                   Map<String, String> categoryMapping,
+                                   ImportCallback callback) {
+        if (file == null || !file.exists()) {
+            if (callback != null) callback.onError("JSON文件不存在");
+            return;
+        }
+        isImportCancelled = false;
+        final ImportSettings finalSettings = (settings != null) ? settings : new ImportSettings();
+        final ImportCallback finalCallback = callback;
+
+        executorService.execute(() -> {
+            long startTime = System.currentTimeMillis();
+            ImportResult result = new ImportResult();
+            List<Question> questions = new ArrayList<>();
+            try {
+                String rawJson = readJsonFile(file);
+                org.json.JSONArray arr;
+                try {
+                    arr = new org.json.JSONArray(rawJson);
+                } catch (Exception e) {
+                    // 兼容单对象形式
+                    org.json.JSONObject obj = new org.json.JSONObject(rawJson);
+                    arr = new org.json.JSONArray(); arr.put(obj);
+                }
+                int total = arr.length();
+                result.totalQuestions = total;
+
+                for (int i = 0; i < arr.length(); i++) {
+                    if (isImportCancelled) {
+                        result.summary = "导入已取消";
+                        if (finalCallback != null) finalCallback.onComplete(questions, result);
+                        return;
+                    }
+                    try {
+                        org.json.JSONObject jo = arr.getJSONObject(i);
+                        // 使用 FieldMappingRegistry 统一提取（自动尝试所有中英文别名）
+                        Question q = FieldMappingRegistry.extractFromJson(jo);
+
+                        // 空题检查
+                        if ((q.getQuestionText() == null || q.getQuestionText().trim().isEmpty())
+                                && finalSettings.skipEmptyQuestions) {
+                            result.skippedQuestions++;
+                            continue;
+                        }
+                        if (q.getQuestionText() == null || q.getQuestionText().trim().isEmpty()) {
+                            if (finalSettings.defaultQuestion != null) q.setQuestionText(finalSettings.defaultQuestion);
+                        }
+
+                        // 题型映射
+                        String type = q.getQuestionType();
+                        if (type != null && !type.isEmpty() && questionTypeMapping != null && questionTypeMapping.containsKey(type)) {
+                            q.setQuestionType(questionTypeMapping.get(type));
+                        } else if ((type == null || type.isEmpty()) && finalSettings.defaultQuestionType != null) {
+                            q.setQuestionType(finalSettings.defaultQuestionType);
+                        }
+
+                        // 难度映射（Registry 已解析中文难度，这里处理映射表）
+                        if (q.getDifficulty() == 0 && finalSettings.defaultDifficulty > 0) {
+                            q.setDifficulty(finalSettings.defaultDifficulty);
+                        }
+
+                        // 分类映射
+                        String cat = q.getCategory();
+                        if (cat != null && !cat.isEmpty() && categoryMapping != null && categoryMapping.containsKey(cat)) {
+                            q.setCategory(categoryMapping.get(cat));
+                        }
+
+                        if (isValidQuestion(q, finalSettings)) {
+                            questions.add(q);
+                            result.validQuestions++;
+                        } else {
+                            result.invalidQuestions++;
+                            ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "题目验证失败";
+                            result.errorInfos.add(ei);
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "JSON解析第" + (i + 1) + "项出错: " + e.getMessage(), e);
+                        result.invalidQuestions++;
+                        ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "解析错误: " + e.getMessage();
+                        result.errorInfos.add(ei);
+                    }
+                    if (finalCallback != null) finalCallback.onProgress(i, total);
+                }
+                result.importTime = System.currentTimeMillis() - startTime;
+                result.summary = "JSON导入完成，成功: " + result.validQuestions + ", 失败: " + result.invalidQuestions;
+                if (finalCallback != null) finalCallback.onComplete(questions, result);
+            } catch (Exception e) {
+                Log.e(TAG, "JSON导入失败: " + e.getMessage(), e);
+                if (finalCallback != null) finalCallback.onError("JSON导入失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /** 从JSONObject中按候选key数组取值（第一个非空即返回） */
+    private static String optStringMulti(org.json.JSONObject jo, String[] keys) {
+        // 已由 FieldMappingRegistry.extractFromJson 替代，保留以防外部调用
+        if (jo == null || keys == null) return "";
+        for (String k : keys) {
+            if (jo.has(k)) {
+                try {
+                    Object v = jo.get(k);
+                    if (v != null && !String.valueOf(v).trim().isEmpty()) return String.valueOf(v).trim();
+                } catch (Exception ignore) {}
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 通过 FieldMappingRegistry 从 fieldMapping 中查找标准字段对应的列索引。
+     * 兼容用户手动映射（中文 key）和自动映射（canonical key）。
+     *
+     * @param fieldMapping 字段映射表（key 可能是中文显示名或英文名）
+     * @param canonical    标准字段名（如 "questionText"）
+     * @return 列索引，未找到返回 null
+     */
+    private static Integer resolveColumn(Map<String, Integer> fieldMapping, String canonical) {
+        if (fieldMapping == null || canonical == null) return null;
+        // 1. 直接用标准名查
+        Integer idx = fieldMapping.get(canonical);
+        if (idx != null) return idx;
+        // 2. 用 Registry 查所有别名
+        for (String alias : FieldMappingRegistry.getAliases(canonical)) {
+            idx = fieldMapping.get(alias);
+            if (idx != null) return idx;
+        }
+        return null;
+    }
+
+    /**
+     * 根据CSV文件表头自动建立默认字段映射（兼容中文/英文表头）
+     */
+    public static Map<String, Integer> buildDefaultCsvFieldMapping(File file) {
+        Map<String, Integer> map = new HashMap<>();
+        try {
+            List<List<String>> rows = readCsvFile(file);
+            if (!rows.isEmpty()) {
+                List<String> header = rows.get(0);
+                // 使用 FieldMappingRegistry 统一构建映射（返回中文显示名→列索引）
+                map = FieldMappingRegistry.buildLegacyMappingFromHeaders(header);
+                Log.d(TAG, "CSV自动字段映射(Registry): " + map);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "CSV默认字段映射失败: " + e.getMessage());
+        }
+        return map;
+    }
+
+    /**
+     * 获取CSV文件表头（用于预览和映射）
+     */
+    public static List<String> getCsvHeaders(File file) {
+        List<String> headers = new ArrayList<>();
+        try {
+            List<List<String>> rows = readCsvFile(file);
+            if (!rows.isEmpty()) headers.addAll(rows.get(0));
+        } catch (Exception e) {
+            Log.w(TAG, "读取CSV表头失败: " + e.getMessage());
+        }
+        return headers;
+    }
+
+    /**
+     * 读取CSV数据行（不含表头，最多maxRows行）
+     */
+    public static List<List<String>> readCsvData(File file, int maxRows) {
+        List<List<String>> data = new ArrayList<>();
+        try {
+            List<List<String>> rows = readCsvFile(file);
+            int start = 1; // 跳过表头
+            int end = (maxRows <= 0) ? rows.size() : Math.min(rows.size(), start + maxRows);
+            for (int i = start; i < end; i++) data.add(rows.get(i));
+        } catch (Exception e) {
+            Log.w(TAG, "读取CSV数据失败: " + e.getMessage());
+        }
+        return data;
     }
 }

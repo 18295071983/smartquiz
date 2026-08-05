@@ -2,6 +2,10 @@ package com.oilquiz.app.ai.engine;
 
 import android.util.Log;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.util.PromptBuilder;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class ALChat {
     private static final String TAG = "ALChat";
@@ -28,7 +32,11 @@ public class ALChat {
     }
 
     public String sendMessage(String message, int maxTokens, float temperature, float topP, int topK) {
-        return LlamaHelper.generate(message, maxTokens, temperature, topP, topK);
+        // 构建消息列表，由 native 层 llama_chat_apply_template 自动适配模型格式
+        // 避免硬编码 ChatML 格式导致非 ChatML 模型格式不匹配
+        List<PromptBuilder.Message> messages = new ArrayList<>();
+        messages.add(new PromptBuilder.Message("user", message));
+        return LlamaHelper.generate(messages, maxTokens, temperature, topP, topK);
     }
 
     public void close() {

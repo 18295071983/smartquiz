@@ -20,17 +20,33 @@ public enum QuestionField {
     TIME_LIMIT("答题时限", "timeLimit", "基础信息", "timelimit", "time_limit", "时限", "时间限制"),
 
     // ========== 选项 ==========
-    OPTION_A("选项A", "optionA", "选项", "a", "optiona", "option_a"),
-    OPTION_B("选项B", "optionB", "选项", "b", "optionb", "option_b"),
-    OPTION_C("选项C", "optionC", "选项", "c", "optionc", "option_c"),
-    OPTION_D("选项D", "optionD", "选项", "d", "optiond", "option_d"),
-    OPTION_E("选项E", "extraOptions", "选项", "e", "optione", "option_e"),
-    OPTION_F("选项F", "extraOptions", "选项", "f", "optionf", "option_f"),
-    OPTION_G("选项G", "extraOptions", "选项", "g", "optiong", "option_g"),
-    OPTION_H("选项H", "extraOptions", "选项", "h", "optionh", "option_h"),
+    OPTION_A("选项A", "optionA", "选项", "a", "optiona", "option_a", "选项甲"),
+    OPTION_B("选项B", "optionB", "选项", "b", "optionb", "option_b", "选项乙"),
+    OPTION_C("选项C", "optionC", "选项", "c", "optionc", "option_c", "选项丙"),
+    OPTION_D("选项D", "optionD", "选项", "d", "optiond", "option_d", "选项丁"),
+    OPTION_E("选项E", "extraOptions", "选项", "e", "optione", "option_e", "选项戊"),
+    OPTION_F("选项F", "extraOptions", "选项", "f", "optionf", "option_f", "选项己"),
+    OPTION_G("选项G", "extraOptions", "选项", "g", "optiong", "option_g", "选项庚"),
+    OPTION_H("选项H", "extraOptions", "选项", "h", "optionh", "option_h", "选项辛"),
+    OPTION_I("选项I", "extraOptions", "选项", "i", "optioni", "option_i", "选项壬"),
+    OPTION_J("选项J", "extraOptions", "选项", "j", "optionj", "option_j", "选项癸"),
+    OPTION_K("选项K", "extraOptions", "选项", "k", "optionk", "option_k", "选项子"),
+    OPTION_L("选项L", "extraOptions", "选项", "l", "optionl", "option_l", "选项丑"),
 
     // ========== 答案与解析 ==========
-    CORRECT_ANSWER("正确答案", "correctAnswer", "答案与解析", "answer", "correct", "答案"),
+    CORRECT_ANSWER("正确答案", "correctAnswer", "答案与解析", "answer", "correct", "答案", "标准答案", "参考答案", "正确选项"),
+    BLANK_ANSWER_1("空1答案", "blankAnswer1", "答案与解析", "空1", "填空1", "答案1", "第一空", "空一答案", "空一"),
+    BLANK_ANSWER_2("空2答案", "blankAnswer2", "答案与解析", "空2", "填空2", "答案2", "第二空", "空二答案", "空二"),
+    BLANK_ANSWER_3("空3答案", "blankAnswer3", "答案与解析", "空3", "填空3", "答案3", "第三空", "空三答案", "空三"),
+    BLANK_ANSWER_4("空4答案", "blankAnswer4", "答案与解析", "空4", "填空4", "答案4", "第四空", "空四答案", "空四"),
+    BLANK_ANSWER_5("空5答案", "blankAnswer5", "答案与解析", "空5", "填空5", "答案5", "第五空", "空五答案", "空五"),
+    BLANK_ANSWER_6("空6答案", "blankAnswer6", "答案与解析", "空6", "填空6", "答案6", "第六空", "空六答案", "空六"),
+    BLANK_ANSWER_7("空7答案", "blankAnswer7", "答案与解析", "空7", "填空7", "答案7", "第七空", "空七答案", "空七"),
+    BLANK_ANSWER_8("空8答案", "blankAnswer8", "答案与解析", "空8", "填空8", "答案8", "第八空", "空八答案", "空八"),
+    BLANK_ANSWER_9("空9答案", "blankAnswer9", "答案与解析", "空9", "填空9", "答案9", "第九空", "空九答案", "空九"),
+    BLANK_ANSWER_10("空10答案", "blankAnswer10", "答案与解析", "空10", "填空10", "答案10", "第十空", "空十答案", "空十"),
+    BLANK_ANSWER_11("空11答案", "blankAnswer11", "答案与解析", "空11", "填空11", "答案11", "第十一空", "空十一答案", "空十一"),
+    BLANK_ANSWER_12("空12答案", "blankAnswer12", "答案与解析", "空12", "填空12", "答案12", "第十二空", "空十二答案", "空十二"),
     EXPLANATION("解析", "explanation", "答案与解析", "explanation", "答案解析"),
     ANALYSIS("详细解析", "analysis", "答案与解析", "analysis", "detailed_explanation"),
     HINT("提示", "hint", "答案与解析", "hint", "tip", "clue"),
@@ -173,10 +189,24 @@ public enum QuestionField {
             }
         }
 
-        // 第二轮：包含匹配（有优先级顺序，先选项后题目，避免"题"截断"选项A"之类）
-        // 选项优先匹配
-        for (QuestionField field : new QuestionField[]{OPTION_A, OPTION_B, OPTION_C, OPTION_D,
-                OPTION_E, OPTION_F, OPTION_G, OPTION_H}) {
+        // 第二轮：包含匹配（填空题空N答案优先，避免"答案"截断"答案1"）
+        for (QuestionField field : values()) {
+            if (!field.category.equals("答案与解析")) continue;
+            if (field == CORRECT_ANSWER || field == EXPLANATION || field == ANALYSIS || field == HINT) continue;
+            // BLANK_ANSWER_1..12
+            if (headerLower.contains(field.displayName.toLowerCase())) {
+                return field;
+            }
+            for (String alias : field.aliases) {
+                if (alias.length() > 1 && headerLower.contains(alias)) {
+                    return field;
+                }
+            }
+        }
+
+        // 第三轮：包含匹配（选项 A~L 优先）
+        for (QuestionField field : values()) {
+            if (!field.category.equals("选项")) continue;
             if (headerLower.contains(field.displayName.toLowerCase())) {
                 return field;
             }
@@ -189,11 +219,11 @@ public enum QuestionField {
 
         // 其余字段包含匹配
         for (QuestionField field : values()) {
-            // 跳过已处理的选项字段
+            // 跳过已处理的选项和blank答案
             if (field.category.equals("选项")) continue;
+            if (field.isBlankAnswerField()) continue;
 
             if (headerLower.contains(field.displayName.toLowerCase())) {
-                // 子分类必须在分类之前判断
                 return field;
             }
             for (String alias : field.aliases) {
@@ -207,14 +237,46 @@ public enum QuestionField {
     }
 
     /**
-     * 判断该字段是否为额外选项（E/F/G/H，存储在 extraOptions JSON 中）
+     * 判断该字段是否为填空题空N答案（BLANK_ANSWER_1..12）
      */
-    public boolean isExtraOption() {
-        return this == OPTION_E || this == OPTION_F || this == OPTION_G || this == OPTION_H;
+    public boolean isBlankAnswerField() {
+        return this == BLANK_ANSWER_1 || this == BLANK_ANSWER_2 || this == BLANK_ANSWER_3
+                || this == BLANK_ANSWER_4 || this == BLANK_ANSWER_5 || this == BLANK_ANSWER_6
+                || this == BLANK_ANSWER_7 || this == BLANK_ANSWER_8 || this == BLANK_ANSWER_9
+                || this == BLANK_ANSWER_10 || this == BLANK_ANSWER_11 || this == BLANK_ANSWER_12;
     }
 
     /**
-     * 获取额外选项的键名（"E", "F", "G", "H"）
+     * 获取空N答案的序号（1~12），非空答案字段返回 -1
+     */
+    public int getBlankAnswerIndex() {
+        switch (this) {
+            case BLANK_ANSWER_1: return 1;
+            case BLANK_ANSWER_2: return 2;
+            case BLANK_ANSWER_3: return 3;
+            case BLANK_ANSWER_4: return 4;
+            case BLANK_ANSWER_5: return 5;
+            case BLANK_ANSWER_6: return 6;
+            case BLANK_ANSWER_7: return 7;
+            case BLANK_ANSWER_8: return 8;
+            case BLANK_ANSWER_9: return 9;
+            case BLANK_ANSWER_10: return 10;
+            case BLANK_ANSWER_11: return 11;
+            case BLANK_ANSWER_12: return 12;
+            default: return -1;
+        }
+    }
+
+    /**
+     * 判断该字段是否为额外选项（E~L，存储在 extraOptions JSON 中）
+     */
+    public boolean isExtraOption() {
+        return this == OPTION_E || this == OPTION_F || this == OPTION_G || this == OPTION_H
+                || this == OPTION_I || this == OPTION_J || this == OPTION_K || this == OPTION_L;
+    }
+
+    /**
+     * 获取额外选项的键名（"E".."L"）
      */
     public String getExtraOptionKey() {
         switch (this) {
@@ -222,6 +284,10 @@ public enum QuestionField {
             case OPTION_F: return "F";
             case OPTION_G: return "G";
             case OPTION_H: return "H";
+            case OPTION_I: return "I";
+            case OPTION_J: return "J";
+            case OPTION_K: return "K";
+            case OPTION_L: return "L";
             default: return null;
         }
     }
@@ -252,13 +318,31 @@ public enum QuestionField {
 
     /**
      * 将单元格字符串值设置到 Question 对象对应字段。
-     * 额外选项(E/F/G/H)会聚合到 extraOptions JSON 中，由调用方先准备 JSONObject 后统一写入。
+     * 额外选项(E~L)会聚合到 extraOptions JSON 中；空N答案会通过 question.addBlankAnswer() 合并到 correctAnswer。
      * @param question 题目对象
      * @param value 字符串值
-     * @param extraOptionsAggregator 额外选项聚合器（可为 null，仅对 E/F/G/H 生效）
+     * @param extraOptionsAggregator 额外选项聚合器（可为 null，仅对 E~L 生效）
      */
     public void setValue(Question question, String value, org.json.JSONObject extraOptionsAggregator) {
         if (question == null || value == null) return;
+        if (isExtraOption()) {
+            String key = getExtraOptionKey();
+            if (extraOptionsAggregator != null && key != null && !value.isEmpty()) {
+                try { extraOptionsAggregator.put(key, value); } catch (Exception ignored) {}
+            }
+            return;
+        }
+        if (isBlankAnswerField()) {
+            // 空N答案：合并写入 correctAnswer（分号分隔）
+            if (value.trim().isEmpty()) return;
+            String existing = question.getCorrectAnswer() == null ? "" : question.getCorrectAnswer().trim();
+            if (existing.isEmpty()) {
+                question.setCorrectAnswer(value.trim());
+            } else {
+                question.setCorrectAnswer(existing + "；" + value.trim());
+            }
+            return;
+        }
         switch (this) {
             case QUESTION_TEXT:    question.setQuestionText(value); break;
             case QUESTION_TYPE:    question.setQuestionType(value); break;
@@ -290,13 +374,8 @@ public enum QuestionField {
                 try { question.setTimeLimit(parseIntSafe(value, 0)); }
                 catch (Exception ignored) {}
                 break;
-            case OPTION_E:
-            case OPTION_F:
-            case OPTION_G:
-            case OPTION_H:
-                if (extraOptionsAggregator != null && !value.isEmpty()) {
-                    try { extraOptionsAggregator.put(getExtraOptionKey(), value); } catch (Exception ignored) {}
-                }
+            default:
+                // 未识别的枚举值，跳过
                 break;
         }
     }

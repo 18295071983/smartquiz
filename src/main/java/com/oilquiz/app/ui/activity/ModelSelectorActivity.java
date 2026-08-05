@@ -3,6 +3,7 @@ package com.oilquiz.app.ui.activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Looper;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -144,16 +145,19 @@ public class ModelSelectorActivity extends AppCompatActivity
 
     private void refreshModels() {
         try {
+            // 所有RecyclerView adapter操作必须在主线程执行，避免并发修改异常
+            final boolean isMainThread = Looper.myLooper() == Looper.getMainLooper();
+            
             // 刷新本地模型
             String[] availableModels = aiService.getAvailableModels();
-            List<String> modelList = new ArrayList<>();
+            final List<String> modelList = new ArrayList<>();
             if (availableModels != null) {
                 for (String model : availableModels) {
                     modelList.add(model);
                 }
             }
 
-            String currentModel = aiService.getCurrentModelName();
+            final String currentModel = aiService.getCurrentModelName();
             if (currentModelNameTextView != null) {
                 if (currentModel != null) {
                     currentModelNameTextView.setText(currentModel);
@@ -167,7 +171,12 @@ public class ModelSelectorActivity extends AppCompatActivity
                     modelAdapter = new ModelAdapter(this, modelList, currentModel, this);
                     modelsRecycler.setAdapter(modelAdapter);
                 } else {
-                    modelAdapter.updateData(modelList, currentModel);
+                    // 确保在UI线程调用updateData，且RecyclerView不在布局计算中
+                    if (isMainThread) {
+                        updateLocalModelAdapterSafe(modelList, currentModel);
+                    } else {
+                        runOnUiThread(() -> updateLocalModelAdapterSafe(modelList, currentModel));
+                    }
                 }
                 modelsRecycler.setVisibility(modelList.isEmpty() ? View.GONE : View.VISIBLE);
             }
@@ -175,8 +184,12 @@ public class ModelSelectorActivity extends AppCompatActivity
                 localModelsEmptyView.setVisibility(modelList.isEmpty() ? View.VISIBLE : View.GONE);
             }
 
-            // 刷新在线模型
-            refreshOnlineModels();
+            // 刷新在线模型（同样需要确保主线程+安全更新）
+            if (isMainThread) {
+                refreshOnlineModels();
+            } else {
+                runOnUiThread(this::refreshOnlineModels);
+            }
 
             // 更新当前模型显示
             updateCurrentModelDisplay();
@@ -190,6 +203,25 @@ public class ModelSelectorActivity extends AppCompatActivity
         }
     }
 
+    /**
+     * 安全地更新本地模型adapter，避免RecyclerView正在布局或动画时更新导致崩溃
+     */
+    private void updateLocalModelAdapterSafe(final List<String> modelList, final String currentModel) {
+        if (modelsRecycler == null || modelAdapter == null) {
+            return;
+        }
+        if (modelsRecycler.isComputingLayout() || modelsRecycler.isAnimating()) {
+            // RecyclerView正在计算布局或动画中，延迟到下一帧再更新
+            modelsRecycler.post(() -> {
+                if (modelAdapter != null) {
+                    modelAdapter.updateData(modelList, currentModel);
+                }
+            });
+        } else {
+            modelAdapter.updateData(modelList, currentModel);
+        }
+    }
+
     private void refreshOnlineModels() {
         if (onlineModelsSection == null || onlineModelAdapter == null) {
             return;
@@ -199,9 +231,20 @@ public class ModelSelectorActivity extends AppCompatActivity
         onlineModelsSection.setVisibility(View.VISIBLE);
 
         List<OnlineModelManager.OnlineModelConfig> onlineModels = onlineModelManager.getModelList();
-        String activeId = onlineModelManager.getActiveModel() != null
+        final String activeId = onlineModelManager.getActiveModel() != null
                 ? onlineModelManager.getActiveModel().id : null;
-        onlineModelAdapter.updateData(onlineModels, activeId);
+        final List<OnlineModelManager.OnlineModelConfig> finalOnlineModels = onlineModels;
+
+        // 安全更新在线adapter：检查RecyclerView是否正在布局中
+        if (onlineModelsRecycler != null && (onlineModelsRecycler.isComputingLayout() || onlineModelsRecycler.isAnimating())) {
+            onlineModelsRecycler.post(() -> {
+                if (onlineModelAdapter != null) {
+                    onlineModelAdapter.updateData(finalOnlineModels, activeId);
+                }
+            });
+        } else {
+            onlineModelAdapter.updateData(onlineModels, activeId);
+        }
 
         if (onlineModelsEmptyView != null) {
             onlineModelsEmptyView.setVisibility(onlineModels.isEmpty() ? View.VISIBLE : View.GONE);
@@ -239,7 +282,8 @@ public class ModelSelectorActivity extends AppCompatActivity
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
                 if (config != null) {
-                    onlineModelManager.setActiveModel(config.id);
+                    // 通过 InferenceRouter 切换，确保路由状态同步
+                    inferenceRouter.switchModel(config.id);
                     Toast.makeText(ModelSelectorActivity.this, "在线模型已添加并激活: " + config.name, Toast.LENGTH_SHORT).show();
                     refreshModels();
                 }
@@ -369,7 +413,15 @@ public class ModelSelectorActivity extends AppCompatActivity
                     }
                 } catch (Exception ignored) {
                 }
+                // 如果禁用了当前活跃的在线模型，停止使用它
+                if (!enabled) {
+                    OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
+                    if (active != null && active.id.equals(config.id)) {
+                        onlineModelManager.stopActiveModel();
+                    }
+                }
                 refreshOnlineModels();
+                updateCurrentModelDisplay();
                 Toast.makeText(this, enabled ? "已启用" : "已禁用", Toast.LENGTH_SHORT).show();
                 break;
             }
@@ -396,6 +448,7 @@ public class ModelSelectorActivity extends AppCompatActivity
 
         Toast.makeText(this, "正在获取模型列表...", Toast.LENGTH_SHORT).show();
 
+        final String targetConfigId = config.id;
         modelListFetcher.fetchModels(config.apiUrl, config.apiKey)
             .thenAccept(models -> runOnUiThread(() -> {
                 if (models != null && !models.isEmpty()) {
@@ -407,9 +460,10 @@ public class ModelSelectorActivity extends AppCompatActivity
                             obj.put("name", model.getName());
                             modelsJson.put(obj);
                         }
-                        onlineModelManager.saveCachedModels(config.id, modelsJson.toString());
+                        onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
                         Toast.makeText(this, "获取成功，共 " + models.size() + " 个模型", Toast.LENGTH_SHORT).show();
-                        refreshOnlineModels();
+                        // 延迟 300ms 刷新，避免与 RecyclerView 布局/动画状态冲突
+                        safeDelayedRefreshOnlineModels(300);
                     } catch (Exception e) {
                         Toast.makeText(this, "保存模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                     }
@@ -425,6 +479,29 @@ public class ModelSelectorActivity extends AppCompatActivity
             });
     }
 
+    /**
+     * 延迟刷新在线模型列表，避开 RecyclerView 正在布局/计算/动画的时间窗口
+     */
+    private void safeDelayedRefreshOnlineModels(long delayMs) {
+        if (onlineModelsRecycler == null) {
+            refreshOnlineModels();
+            return;
+        }
+        onlineModelsRecycler.postDelayed(this::refreshOnlineModels, delayMs);
+    }
+
+    /**
+     * 延迟刷新所有模型列表
+     */
+    private void safeDelayedRefreshModels(long delayMs) {
+        if (modelsRecycler == null && onlineModelsRecycler == null) {
+            refreshModels();
+            return;
+        }
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        handler.postDelayed(this::refreshModels, delayMs);
+    }
+
     @Override
     public void onModelSelected(String modelName, String selectedModel) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
@@ -434,8 +511,11 @@ public class ModelSelectorActivity extends AppCompatActivity
         }
 
         onlineModelManager.saveSelectedModel(config.id, selectedModel);
-        Toast.makeText(this, "已选择模型: " + selectedModel, Toast.LENGTH_SHORT).show();
+        // 自动切换到该在线模型
+        inferenceRouter.switchModel(config.id);
+        Toast.makeText(this, "已切换到模型: " + selectedModel, Toast.LENGTH_SHORT).show();
         refreshOnlineModels();
+        updateCurrentModelDisplay();
     }
 
     @Override

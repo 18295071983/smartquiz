@@ -302,37 +302,62 @@ public class ModelDownloadActivity extends BaseActivity {
     private List<OnlineModelInfo> getPopularOnlineModels() {
         List<OnlineModelInfo> models = new ArrayList<>();
         
-        models.add(new OnlineModelInfo("Llama-2-7B-Chat", "Meta Llama 2 7B 聊天模型", 
-            "https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf", 
-            "Q4_K_M", "4.2 GB", "GGUF", "7B"));
+        // 推荐的在线 GGUF 模型（均来自官方/活跃仓库，使用 hf-mirror.com 镜像）
+        models.add(new OnlineModelInfo("Qwen2.5-0.5B-Instruct", "通义千问2.5 0.5B 轻量级中文模型", 
+            "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "350 MB", "GGUF", "0.5B"));
         
-        models.add(new OnlineModelInfo("Zephyr-7B-beta", "Hugging Face Zephyr 聊天模型", 
-            "https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF/resolve/main/zephyr-7b-beta.Q4_K_M.gguf", 
-            "Q4_K_M", "4.5 GB", "GGUF", "7B"));
+        models.add(new OnlineModelInfo("Qwen2.5-1.5B-Instruct", "通义千问2.5 1.5B 中文能力出色", 
+            "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "950 MB", "GGUF", "1.5B"));
         
-        models.add(new OnlineModelInfo("Mistral-7B-Instruct", "Mistral 7B 指令模型", 
-            "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf", 
-            "Q4_K_M", "4.1 GB", "GGUF", "7B"));
+        models.add(new OnlineModelInfo("Qwen2.5-3B-Instruct", "通义千问2.5 3B 推理和代码能力强", 
+            "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "1.9 GB", "GGUF", "3B"));
         
-        models.add(new OnlineModelInfo("Yi-6B-Chat", "零一万物 Yi-6B 聊天模型", 
-            "https://huggingface.co/TheBloke/Yi-6B-Chat-GGUF/resolve/main/yi-6b-chat.Q4_K_M.gguf", 
-            "Q4_K_M", "3.7 GB", "GGUF", "6B"));
+        models.add(new OnlineModelInfo("Llama-3.2-1B-Instruct", "Meta Llama 3.2 1B 轻量级模型", 
+            "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "750 MB", "GGUF", "1B"));
         
-        models.add(new OnlineModelInfo("Qwen-7B-Chat", "阿里通义千问 Qwen-7B", 
-            "https://huggingface.co/Qwen/Qwen-7B-Chat-GGUF/resolve/main/qwen-7b-chat-q4_0.gguf", 
-            "Q4_0", "4.3 GB", "GGUF", "7B"));
+        models.add(new OnlineModelInfo("Llama-3.2-3B-Instruct", "Meta Llama 3.2 3B 综合能力强", 
+            "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "2.1 GB", "GGUF", "3B"));
         
-        models.add(new OnlineModelInfo("ChatGLM3-6B", "智谱 ChatGLM3-6B", 
-            "https://huggingface.co/THUDM/chatglm3-6b-gguf/resolve/main/chatglm3-6b-q4_0.gguf", 
-            "Q4_0", "3.8 GB", "GGUF", "6B"));
+        models.add(new OnlineModelInfo("SmolLM2-360M-Instruct", "HuggingFace 超轻量模型", 
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smolm2-360m-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "250 MB", "GGUF", "360M"));
         
-        models.add(new OnlineModelInfo("Qwen-14B-Chat", "阿里通义千问 Qwen-14B", 
-            "https://huggingface.co/Qwen/Qwen-14B-Chat-GGUF/resolve/main/qwen-14b-chat-q4_0.gguf", 
-            "Q4_0", "8.4 GB", "GGUF", "14B"));
+        models.add(new OnlineModelInfo("SmolLM2-1.7B-Instruct", "HuggingFace SmolLM2 1.7B 模型", 
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smolm2-1.7b-instruct-q4_k_m.gguf", 
+            "Q4_K_M", "1.1 GB", "GGUF", "1.7B"));
         
-        models.add(new OnlineModelInfo("Llama-2-13B-Chat", "Meta Llama 2 13B", 
-            "https://huggingface.co/TheBloke/Llama-2-13B-Chat-GGUF/resolve/main/llama-2-13b-chat.Q4_K_M.gguf", 
-            "Q4_K_M", "8.0 GB", "GGUF", "13B"));
+        models.add(new OnlineModelInfo("DeepSeek-R1-Distill-Qwen-1.5B", "深度求索R1蒸馏模型，擅长推理", 
+            "https://hf-mirror.com/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/deepseek-r1-distill-qwen-1.5b-q4_k_m.gguf", 
+            "Q4_K_M", "1.1 GB", "GGUF", "1.5B"));
+        
+        models.add(new OnlineModelInfo("MiniCPM3-4B", "面壁智能端侧模型，性能超越GPT-3.5", 
+            "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/MiniCPM3-4B-Q4_K_M.gguf", 
+            "Q4_K_M", "2.5 GB", "GGUF", "4B"));
+        
+        models.add(new OnlineModelInfo("GLM-Edge-1.5B-Chat", "智谱AI端侧模型，专为手机优化", 
+            "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/glm-edge-1.5b-chat-Q4_K_M.gguf", 
+            "Q4_K_M", "950 MB", "GGUF", "1.5B"));
+        
+        models.add(new OnlineModelInfo("GLM-Edge-4B-Chat", "智谱AI端侧模型，面向PC/平板", 
+            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/glm-edge-4b-chat-Q4_K_M.gguf", 
+            "Q4_K_M", "2.5 GB", "GGUF", "4B"));
+        
+        models.add(new OnlineModelInfo("Yi-Coder-1.5B-Chat", "零一万物代码模型，支持52种编程语言", 
+            "https://hf-mirror.com/01-ai/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat-Q4_K_M.gguf", 
+            "Q4_K_M", "950 MB", "GGUF", "1.5B"));
+        
+        models.add(new OnlineModelInfo("Gemma-2-2B-IT", "Google Gemma 2 2B 指令版本", 
+            "https://hf-mirror.com/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf", 
+            "Q4_K_M", "1.5 GB", "GGUF", "2B"));
+        
+        models.add(new OnlineModelInfo("Phi-3.5-Mini-Instruct", "微软 Phi-3.5 Mini 推理模型", 
+            "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf", 
+            "Q4_K_M", "2.4 GB", "GGUF", "3.8B"));
         
         return models;
     }

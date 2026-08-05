@@ -28,10 +28,10 @@ class PythonToolEngine:
 
     # 国内镜像源配置
     PIP_MIRRORS: list[str] = [
-        "https://pypi.tuna.tsinghua.edu.cn/simple",  # 清华
-        "https://mirrors.aliyun.com/pypi/simple",      # 阿里云
+        "https://mirrors.aliyun.com/pypi/simple",     # 阿里云（测试最快）
+        "https://pypi.tuna.tsinghua.edu.cn/simple",   # 清华
         "https://mirrors.tencent.com/pypi/simple",    # 腾讯云
-        "https://pypi.mirrors.org.cn/simple",        # 中国科技大学
+        "https://pypi.mirrors.ustc.edu.cn/simple",    # 中国科技大学（修正地址）
     ]
 
     # 当前使用的镜像索引
@@ -40,29 +40,44 @@ class PythonToolEngine:
     def __init__(self, context: object | None = None, work_dir: str | None = None):
         self.context: object | None = context
         self.work_dir: str = work_dir if work_dir is not None else self._get_default_work_dir()
-        self._ensure_work_dir()
+        try:
+            self._ensure_work_dir()
+        except Exception as e:
+            # 如果无法创建目录，使用临时目录
+            import tempfile
+            self.work_dir = os.path.join(tempfile.gettempdir(), "python_tools")
+            self._ensure_work_dir()
         self._installed_packages: dict[str, dict[str, str | float]] = {}
         self._load_installed_packages()
         
     def _get_default_work_dir(self) -> str:
         """获取默认工作目录"""
-        if self.context is not None:
-            files_dir = getattr(self.context, 'getFilesDir', None)
-            if callable(files_dir):
-                files_dir_obj = files_dir()
-                if files_dir_obj is not None:
-                    try:
-                        abs_path = getattr(files_dir_obj, 'getAbsolutePath', None)
-                        if callable(abs_path):
-                            path = abs_path()
-                            work_dir = os.path.join(str(path), "python_tools")
-                            return work_dir
-                        else:
-                            work_dir = os.path.join(str(files_dir_obj), "python_tools")
-                            return work_dir
-                    except Exception as e:
-                        pass
-        return os.path.join(os.path.expanduser("~"), ".python_tools")
+        try:
+            if self.context is not None:
+                # 尝试通过 Java API 获取文件目录
+                try:
+                    files_dir = self.context.getFilesDir()
+                    if files_dir is not None:
+                        path = files_dir.getAbsolutePath()
+                        work_dir = os.path.join(str(path), "python_tools")
+                        return work_dir
+                except Exception:
+                    pass
+                
+                # 备用方案：尝试通过字符串路径
+                try:
+                    files_dir_str = str(self.context.getFilesDir())
+                    if files_dir_str and files_dir_str != "null":
+                        work_dir = os.path.join(files_dir_str, "python_tools")
+                        return work_dir
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        
+        # 最终备用：使用临时目录
+        import tempfile
+        return os.path.join(tempfile.gettempdir(), ".python_tools")
     
     def _ensure_work_dir(self):
         """确保工作目录存在"""
@@ -283,17 +298,15 @@ class PythonToolEngine:
         """获取标准库替代方案（仅当包未安装时返回）"""
 
         # 检查包是否已安装（预装的包不需要替代）
+        # 与 build.gradle 中 chaquopy pip install 一致
         installed_packages: list[str] = [
             'Pillow', 'PIL', 'pillow',
-            'regex', 
+            'regex',
             'numpy', 'np',
-            'pandas', 'pd',
             'requests',
             'beautifulsoup4', 'bs4',
             'lxml',
             'jieba',
-            'cryptography',
-            'plotly',
         ]
         
         # 如果是预装的包，不返回替代方案
@@ -301,11 +314,7 @@ class PythonToolEngine:
             return None
         
         alternatives = {
-            # 常用包的替代
-            'numpy': {
-                'name': 'array/list',
-                'message': '使用 Python 内置 list 和 array 模块替代 numpy'
-            },
+            # 未预装的包的替代方案
             'pandas': {
                 'name': 'csv/dict',
                 'message': '使用 csv 模块和 dict 替代 pandas'
@@ -314,14 +323,6 @@ class PythonToolEngine:
                 'name': 'text/table',
                 'message': '使用文本表格替代 matplotlib 图表'
             },
-            'requests': {
-                'name': 'urllib.request',
-                'message': '使用 urllib.request 替代 requests'
-            },
-            'beautifulsoup4': {
-                'name': 're/html.parser',
-                'message': '使用 re 和 html.parser 替代 beautifulsoup4'
-            },
             'opencv-python': {
                 'name': 'PIL/Pillow',
                 'message': '使用 PIL (Pillow) 替代 cv2'
@@ -329,10 +330,6 @@ class PythonToolEngine:
             'cv2': {
                 'name': 'PIL/Pillow',
                 'message': '使用 PIL (Pillow) 替代 cv2'
-            },
-            'numpy as np': {
-                'name': 'array',
-                'message': '使用 list 替代 numpy'
             },
             'pd': {
                 'name': 'csv',
@@ -345,10 +342,6 @@ class PythonToolEngine:
             'sns': {
                 'name': 'text',
                 'message': '使用文本输出替代 seaborn'
-            },
-            'jieba': {
-                'name': 'split',
-                'message': '使用 str.split() 简单分词替代 jieba'
             },
         }
         return alternatives.get(package_name)

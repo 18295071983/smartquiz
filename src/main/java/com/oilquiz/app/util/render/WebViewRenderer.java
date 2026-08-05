@@ -84,15 +84,82 @@ public class WebViewRenderer {
                             .append("body { font-family: Arial, sans-serif; margin: 10px; background-color: #f5f5f5; }")
                             .append("table { border-collapse: collapse; width: 100%; table-layout: auto; background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }")
                             .append("th, td { padding: 8px 12px; text-align: left; border: 1px solid #ddd; white-space: normal; line-height: normal; }")
-                            .append("th { background-color: #4CAF50; color: white; font-weight: bold; position: sticky; top: 0; z-index: 10; min-width: 100px; }")
+                            .append("th { background-color: #4CAF50; color: white; font-weight: bold; position: sticky; top: 0; z-index: 10; min-width: 100px; vertical-align: top; }")
                             .append("tr:nth-child(even) { background-color: #f2f2f2; }")
                             .append("tr:hover { background-color: #e8f5e8; }")
-                            .append(".mapping-select { margin-top: 5px; padding: 4px; font-size: 12px; width: 100%; min-width: 90px; }")
                             .append(".mapped { background-color: #e3f2fd !important; }")
+                            /* —— 自定义下拉组件（规避 WebView 原生 <select> 弹层无法滚动/被裁剪问题）—— */
+                            .append(".mapping-dd { margin-top: 5px; position: relative; width: 100%; min-width: 90px; box-sizing: border-box; }")
+                            .append(".mapping-dd-trigger {")
+                            .append("  display: flex; justify-content: space-between; align-items: center;")
+                            .append("  padding: 4px 8px; font-size: 12px; width: 100%; box-sizing: border-box;")
+                            .append("  background: #fff; color: #333; border: 1px solid #ccc; border-radius: 3px;")
+                            .append("  cursor: pointer; user-select: none;")
+                            .append("}")
+                            .append(".mapping-dd-trigger::after { content: '▼'; font-size: 9px; color: #666; margin-left: 6px; flex-shrink: 0; }")
+                            .append(".mapping-dd.open .mapping-dd-trigger { border-color: #4CAF50; }")
+                            .append(".mapping-dd-panel {")
+                            .append("  display: none; position: fixed; z-index: 99999; background: #fff;")
+                            .append("  border: 1px solid #ccc; border-radius: 3px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);")
+                            .append("  max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 2px 0;")
+                            .append("}")
+                            .append(".mapping-dd.open .mapping-dd-panel { display: block; }")
+                            .append(".mapping-dd-item {")
+                            .append("  padding: 6px 10px; font-size: 12px; color: #333; cursor: pointer; user-select: none; white-space: nowrap;")
+                            .append("}")
+                            .append(".mapping-dd-item:hover { background-color: #f0f8ff; }")
+                            .append(".mapping-dd-item.selected { background-color: #4CAF50; color: white; }")
                             .append("</style>")
                             .append("<script>")
-                            .append("function handleSelectChange(columnIndex, selectElement) {")
-                            .append("    var fieldName = selectElement.value;")
+                            /* 自定义下拉逻辑：点击 trigger 展开固定定位面板，点击外部关闭，选项点击后写回 Android */
+                            .append("(function(){")
+                            .append("  var openDd = null;")
+                            .append("  function closeAll(){ if(openDd){ openDd.classList.remove('open'); openDd=null; } }")
+                            .append("  function positionPanel(dd){")
+                            .append("    var panel = dd.querySelector('.mapping-dd-panel');")
+                            .append("    var trig  = dd.querySelector('.mapping-dd-trigger');")
+                            .append("    var r = trig.getBoundingClientRect();")
+                            .append("    panel.style.left = r.left + 'px';")
+                            .append("    panel.style.top  = (r.bottom + 2) + 'px';")
+                            .append("    panel.style.minWidth = r.width + 'px';")
+                            .append("    var vw = window.innerWidth || document.documentElement.clientWidth;")
+                            .append("    var vh = window.innerHeight|| document.documentElement.clientHeight;")
+                            .append("    var pw = Math.max(r.width, 180);")
+                            .append("    if (r.left + pw > vw - 4) panel.style.left = Math.max(4, vw - pw - 4) + 'px';")
+                            .append("    if (r.bottom + 304 > vh) { var nh = Math.max(120, vh - r.top - 8); panel.style.maxHeight = nh + 'px'; panel.style.top = (r.top - nh - 2) + 'px'; }")
+                            .append("  }")
+                            .append("  function initDds(){")
+                            .append("    document.querySelectorAll('.mapping-dd').forEach(function(dd){")
+                            .append("      var trig  = dd.querySelector('.mapping-dd-trigger');")
+                            .append("      var panel = dd.querySelector('.mapping-dd-panel');")
+                            .append("      trig.addEventListener('click', function(e){")
+                            .append("        e.stopPropagation();")
+                            .append("        var wasOpen = dd.classList.contains('open');")
+                            .append("        closeAll();")
+                            .append("        if(!wasOpen){ dd.classList.add('open'); openDd = dd; positionPanel(dd); }")
+                            .append("      });")
+                            .append("      panel.querySelectorAll('.mapping-dd-item').forEach(function(item){")
+                            .append("        item.addEventListener('click', function(ev){")
+                            .append("          ev.stopPropagation();")
+                            .append("          var value = item.getAttribute('data-value');")
+                            .append("          var col   = parseInt(dd.getAttribute('data-column'),10);")
+                            .append("          trig.setAttribute('data-current', value);")
+                            .append("          trig.childNodes[0].nodeValue = value + ' ';")
+                            .append("          panel.querySelectorAll('.mapping-dd-item').forEach(function(x){ x.classList.remove('selected'); });")
+                            .append("          item.classList.add('selected');")
+                            .append("          closeAll();")
+                            .append("          handleSelectChange(col, value);")
+                            .append("        });")
+                            .append("      });")
+                            .append("    });")
+                            .append("    document.addEventListener('click', closeAll);")
+                            .append("    window.addEventListener('scroll', closeAll, true);")
+                            .append("    window.addEventListener('resize', function(){ closeAll(); });")
+                            .append("  }")
+                            .append("  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDds);")
+                            .append("  else initDds();")
+                            .append("})();")
+                            .append("function handleSelectChange(columnIndex, fieldName) {")
                             .append("    updateMapping(columnIndex, fieldName);")
                             .append("}")
                             .append("function updateMapping(columnIndex, fieldName) {")
@@ -131,23 +198,28 @@ public class WebViewRenderer {
                             Cell cell = headerRow.getCell(i);
                             String cellValue = cell != null ? ExcelUtil.getCellValue(cell).trim() : "列 " + (i + 1);
                             String currentField = columnToFieldMap.get(i);
-                            
-                            htmlBuilder.append("<th id=\"column-").append(i).append("\">")
-                                    .append(escapeHtml(cellValue))
-                                    .append("<select class=\"mapping-select\" onchange=\"handleSelectChange(").append(i).append(", this)\">");
-                            
+                            if (currentField == null) currentField = "不映射";
+
                             // 生成选项
                             java.util.List<String> options = fieldOptions;
-                            if (options == null) {
-                                options = java.util.Arrays.asList("不映射", "题目", "选项A", "选项B", "选项C", "选项D", "正确答案", "解析", "难度", "分类", "题型");
+                            if (options == null || options.isEmpty()) {
+                                options = com.oilquiz.app.model.QuestionField.getFieldOptions();
                             }
+
+                            htmlBuilder.append("<th id=\"column-").append(i).append("\">")
+                                       .append(escapeHtml(cellValue))
+                                       .append("<div class=\"mapping-dd\" data-column=\"").append(i).append("\">")
+                                       .append("<div class=\"mapping-dd-trigger\" data-current=\"").append(escapeHtml(currentField)).append("\">")
+                                       .append(escapeHtml(currentField)).append(" </div>")
+                                       .append("<div class=\"mapping-dd-panel\">");
                             for (String option : options) {
                                 boolean selected = option.equals(currentField);
-                                htmlBuilder.append("<option value=\"").append(option).append("\"").append(selected ? " selected" : "").append(">").append(option).append("</option>");
+                                htmlBuilder.append("<div class=\"mapping-dd-item").append(selected ? " selected" : "")
+                                           .append("\" data-value=\"").append(escapeHtml(option)).append("\">")
+                                           .append(escapeHtml(option))
+                                           .append("</div>");
                             }
-                            
-                            htmlBuilder.append("</select>")
-                                    .append("</th>");
+                            htmlBuilder.append("</div></div></th>");
                         }
                         htmlBuilder.append("</tr></thead><tbody>");
                     }

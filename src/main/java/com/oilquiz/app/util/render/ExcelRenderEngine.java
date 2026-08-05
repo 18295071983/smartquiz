@@ -3,8 +3,7 @@ package com.oilquiz.app.util.render;
 import android.util.Log;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -54,11 +53,7 @@ public class ExcelRenderEngine implements FileRenderEngine {
             List<SheetInfo> sheetsInfo = new ArrayList<>();
 
             try (FileInputStream fis = new FileInputStream(file)) {
-                if (file.getName().toLowerCase().endsWith(".xlsx")) {
-                    workbook = new XSSFWorkbook(fis);
-                } else if (file.getName().toLowerCase().endsWith(".xls")) {
-                    workbook = new HSSFWorkbook(fis);
-                }
+                workbook = WorkbookFactory.create(fis);
 
                 if (workbook != null) {
                     for (int i = 0; i < workbook.getNumberOfSheets(); i++) {

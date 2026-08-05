@@ -134,6 +134,72 @@
                 
             </com.google.android.material.card.MaterialCardView>
             
+            <!-- 模型下载快捷方式 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/secondary_container"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="20dp">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="16dp">
+                    
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:src="@drawable/ic_ai_download"
+                        android:tint="@color/on_secondary_container"
+                        android:layout_marginEnd="16dp" />
+                    
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="没有本地模型？"
+                            android:textSize="15sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_secondary_container"
+                            android:layout_marginBottom="2dp" />
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="在线下载预训练模型"
+                            android:textSize="13sp"
+                            android:textColor="@color/on_secondary_container" />
+                        
+                    </LinearLayout>
+                    
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_go_download"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:text="去下载"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        app:backgroundTint="@color/secondary"
+                        android:textColor="@color/on_secondary"
+                        app:cornerRadius="20dp"
+                        android:textAllCaps="false"
+                        app:icon="@drawable/ic_download"
+                        app:iconSize="16dp"
+                        app:iconPadding="4dp" />
+                    
+                </LinearLayout>
+                
+            </com.google.android.material.card.MaterialCardView>
+            
         </LinearLayout>
         
     </ScrollView>

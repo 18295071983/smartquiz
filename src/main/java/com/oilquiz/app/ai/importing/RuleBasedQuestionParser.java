@@ -625,20 +625,21 @@ public class RuleBasedQuestionParser {
 
         if (rows.size() < 2) return result;  // 至少需要表头 + 1 行数据
 
-        // 第一行是表头，识别各列索引(按 Excel 模板规范)
+        // 第一行是表头，使用 FieldMappingRegistry 统一识别各列索引
         String[] headers = rows.get(0);
-        int keywordCol = findColumn(headers, "关键字", "keyword");           // A列 → category
-        int typeCol = findColumn(headers, "题型", "类型", "questiontype", "type");  // B列 → questionType
-        int difficultyCol = findColumn(headers, "难度", "difficulty");       // C列 → difficulty
-        int scoreCol = findColumn(headers, "分数", "分值", "score");         // D列 → points
-        int stemCol = findColumn(headers, "题目内容", "题干", "题目", "question", "stem", "内容");  // E列
+        // 通过 Registry 查找标准字段对应的列（兼容所有中英文别名）
+        int keywordCol = findColumnByCanonical(headers, "category");          // A列 → category
+        int typeCol = findColumnByCanonical(headers, "questionType");         // B列 → questionType
+        int difficultyCol = findColumnByCanonical(headers, "difficulty");     // C列 → difficulty
+        int scoreCol = findColumnByCanonical(headers, "points");              // D列 → points
+        int stemCol = findColumnByCanonical(headers, "questionText");         // E列
         int optionsCol = findColumn(headers, "可选项", "选项", "options");    // F列 → optionA-D + extraOptions
-        int answerCol = findColumn(headers, "答案", "正确答案", "answer", "正确选项");  // G列 → correctAnswer
+        int answerCol = findColumnByCanonical(headers, "correctAnswer");      // G列 → correctAnswer
         int parentRowCol = findColumn(headers, "父题行号", "父题");           // H列 → 关联信息
         int relatedCol = findColumn(headers, "关联题目", "关联");             // I列 → relatedQuestion
-        int explanationCol = findColumn(headers, "解析", "explanation", "分析");  // 解析列
-        int commentCol = findColumn(headers, "说明", "备注", "comment");      // 说明列
-        int authorCol = findColumn(headers, "作者用户名", "作者", "author");   // 作者列
+        int explanationCol = findColumnByCanonical(headers, "explanation");   // 解析列
+        int commentCol = findColumnByCanonical(headers, "comment");           // 说明列
+        int authorCol = findColumnByCanonical(headers, "author");             // 作者列
         int authorNameCol = findColumn(headers, "作者姓名");                   // 作者姓名列
 
         // 如果找不到关键列，尝试用列位置推断(基于模板规范: A=关键字 B=题型 C=难度 D=分数 E=题目内容 F=可选项 G=答案)
@@ -836,6 +837,26 @@ public class RuleBasedQuestionParser {
             for (String kw : keywords) {
                 if (h.contains(kw.toLowerCase())) return i;
             }
+        }
+        return -1;
+    }
+
+    /**
+     * 通过 FieldMappingRegistry 查找标准字段对应的列索引。
+     * 遍历表头，用 Registry.resolve() 匹配标准字段名。
+     */
+    private static int findColumnByCanonical(String[] headers, String canonical) {
+        if (headers == null || canonical == null) return -1;
+        for (int i = 0; i < headers.length; i++) {
+            if (headers[i] == null) continue;
+            String resolved = FieldMappingRegistry.resolve(headers[i].trim());
+            if (canonical.equals(resolved)) return i;
+        }
+        // 回退到 findColumn 逻辑（用 Registry 的别名列表）
+        java.util.Set<String> aliases = FieldMappingRegistry.getAliases(canonical);
+        if (!aliases.isEmpty()) {
+            String[] aliasArray = aliases.toArray(new String[0]);
+            return findColumn(headers, aliasArray);
         }
         return -1;
     }

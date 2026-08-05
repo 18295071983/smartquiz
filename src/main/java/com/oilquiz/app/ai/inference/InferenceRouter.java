@@ -16,8 +16,10 @@ import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.refactor.AIInferenceCore.InferenceConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
+import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.util.AILogger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -253,8 +255,17 @@ public class InferenceRouter {
             if (aiService != null && aiService.isInitialized()) {
                 return aiService.generateSync(prompt, config.maxTokens);
             } else {
-                // 回退到直接使用 LlamaHelper
-                return LlamaHelper.generate(prompt, config.maxTokens, config.temperature);
+                // 回退到直接使用 LlamaHelper，使用消息列表让 native 层自动适配模型格式
+                List<PromptBuilder.Message> messages = new ArrayList<>();
+                messages.add(new PromptBuilder.Message("system", "你是一个乐于助人的AI助手。请用中文回答用户的问题。"));
+                if (config.history != null) {
+                    for (ChatMessage msg : config.history) {
+                        String role = msg.isAIMessage() ? "assistant" : "user";
+                        messages.add(new PromptBuilder.Message(role, msg.content));
+                    }
+                }
+                messages.add(new PromptBuilder.Message("user", prompt));
+                return LlamaHelper.generate(messages, config.maxTokens, config.temperature);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Local generate failed: " + e.getMessage(), e);
@@ -312,16 +323,18 @@ public class InferenceRouter {
                     }
                 });
             } else {
-                // 回退到直接使用 LlamaHelper - 使用ChatRequest方式解决中文编码问题
-                ChatRequest chatRequest = ChatRequest.builder()
-                    .fullPrompt(prompt)
-                    .maxTokens(config.maxTokens)
-                    .temperature(config.temperature)
-                    .topP(0.9f)
-                    .topK(40)
-                    .build();
+                // 回退到直接使用 LlamaHelper，使用消息列表让 native 层自动适配模型格式
+                List<PromptBuilder.Message> messages = new ArrayList<>();
+                messages.add(new PromptBuilder.Message("system", "你是一个乐于助人的AI助手。请用中文回答用户的问题。"));
+                if (config.history != null) {
+                    for (ChatMessage msg : config.history) {
+                        String role = msg.isAIMessage() ? "assistant" : "user";
+                        messages.add(new PromptBuilder.Message(role, msg.content));
+                    }
+                }
+                messages.add(new PromptBuilder.Message("user", prompt));
 
-                LlamaHelper.generateStream(chatRequest,
+                LlamaHelper.generateStream(messages, config.maxTokens, config.temperature, 0.9f, 40, false,
                     new LlamaHelper.TokenCallback() {
                         @Override
                         public void onToken(String token) {
@@ -360,7 +373,7 @@ public class InferenceRouter {
             }
             
             List<ChatMessage> history = config.history;
-            onlineInferenceService.generateStream(prompt, onlineConfig, history, config.maxTokens, 
+            onlineInferenceService.generateStream(prompt, onlineConfig, history, config.maxTokens,
                 new StreamCallback() {
                     @Override
                     public void onStart() {
@@ -380,6 +393,12 @@ public class InferenceRouter {
                     @Override
                     public void onError(String error) {
                         callback.onError(error);
+                    }
+
+                    @Override
+                    public void onTokenStats(int promptTokens, int completionTokens) {
+                        // 转发在线模型 API 返回的 Token 统计
+                        callback.onTokenStats(promptTokens, completionTokens);
                     }
                 });
         } catch (Exception e) {

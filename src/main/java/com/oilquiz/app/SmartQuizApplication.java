@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatDelegate;
 import com.oilquiz.app.ai.model.MultiModelManager;
 import com.oilquiz.app.ai.model.ModelConfig;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.infra.GlobalExceptionHandler;
 
 import dagger.hilt.android.HiltAndroidApp;
@@ -43,6 +44,14 @@ public class SmartQuizApplication extends Application {
             GlobalExceptionHandler.init(this);
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        // 组4.3：注册 native 信号处理器（必须在首次 initModel 之前）
+        // 接住 llama 内部 SIGABRT/SIGSEGV/SIGBUS/SIGILL，返回错误码而非自杀
+        try {
+            LlamaHelper.installSignalHandlers();
+        } catch (UnsatisfiedLinkError | Exception e) {
+            android.util.Log.w(TAG, "Signal handlers not installed: " + e.getMessage());
         }
 
         // 在主线程初始化 Chaquopy Python 解释器（Chaquopy 要求主线程调用）

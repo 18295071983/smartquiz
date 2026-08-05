@@ -27,9 +27,10 @@ public class WeatherBannerManager {
     private TextView weatherCity;
     private TextView weatherTemp;
     private TextView weatherDesc;
-    private TextView weatherHumidity;
-    private TextView weatherWind;
-
+    private TextView weatherFeelsLike;   // 体感温度 chip
+    private TextView weatherHumidity;    // 湿度 chip
+    private TextView weatherWind;        // 风力+风向 chip
+    private TextView weatherVisibility;  // 能见度 chip
     private boolean bannerVisible = false;
 
     public interface OnWeatherLoadedListener {
@@ -42,15 +43,28 @@ public class WeatherBannerManager {
         this.weatherService = WeatherService.getInstance(context);
     }
 
-    public void setupViews(View banner, ImageView icon, TextView city, TextView temp, 
-                           TextView desc, TextView humidity, TextView wind) {
+    /**
+     * 绑定横幅所有 UI 控件。
+     *   feelsLikeChip : 体感温度（"体感 --°"）
+     *   humidityChip  : 湿度（"💧 --%"）
+     *   windChip      : 风向风力（"🌬 东北风3级"）
+     *   visibilityChip: 能见度（"👁 15km"）
+     */
+    public void setupViews(View banner, ImageView icon,
+                           TextView city, TextView temp, TextView desc,
+                           TextView feelsLikeChip,
+                           TextView humidityChip,
+                           TextView windChip,
+                           TextView visibilityChip) {
         this.weatherBanner = banner;
-        this.weatherIcon = icon;
-        this.weatherCity = city;
-        this.weatherTemp = temp;
-        this.weatherDesc = desc;
-        this.weatherHumidity = humidity;
-        this.weatherWind = wind;
+        this.weatherIcon   = icon;
+        this.weatherCity   = city;
+        this.weatherTemp   = temp;
+        this.weatherDesc   = desc;
+        this.weatherFeelsLike  = feelsLikeChip;
+        this.weatherHumidity   = humidityChip;
+        this.weatherWind       = windChip;
+        this.weatherVisibility = visibilityChip;
     }
 
     public void loadWeatherBanner() {
@@ -82,7 +96,11 @@ public class WeatherBannerManager {
                 double lon = map.get("longitude") instanceof Number ? ((Number) map.get("longitude")).doubleValue() : 0;
 
                 if (city.equals("未知") || city.equals("null")) {
-                    city = "北京";
+                    // 城市未知时隐藏banner，不回退到默认城市
+                    runOnUiThread(() -> {
+                        if (weatherBanner != null) weatherBanner.setVisibility(View.GONE);
+                    });
+                    return;
                 }
 
                 String finalCity = city;
@@ -138,15 +156,77 @@ public class WeatherBannerManager {
                 weatherIcon.setImageResource(R.drawable.wi_999);
             }
         }
-        if (weatherCity != null) weatherCity.setText(info.city);
-        if (weatherTemp != null) weatherTemp.setText(info.temp);
-        if (weatherDesc != null) weatherDesc.setText(info.description);
-        if (weatherHumidity != null && info.humidity != null) {
-            weatherHumidity.setText("湿度: " + info.humidity);
+        if (weatherCity       != null) weatherCity.setText(truncateCityName(info.city));
+        if (weatherTemp       != null) weatherTemp.setText((info.temp == null || info.temp.isEmpty()) ? "--°" : (info.temp.contains("°") ? info.temp : info.temp + "°"));
+        if (weatherDesc       != null) weatherDesc.setText(info.description);
+
+        // ---- 介绍行：体感 / 湿度 / 风向风力 / 能见度（类似详情页的 chips 展示）----
+        if (weatherFeelsLike != null) {
+            String feels = (info.feelsLike == null || info.feelsLike.isEmpty() || "--".equals(info.feelsLike))
+                           ? "体感 --°" : "体感 " + info.feelsLike + "°";
+            weatherFeelsLike.setText(feels);
         }
-        if (weatherWind != null && info.wind != null) {
-            weatherWind.setText("风速: " + info.wind);
+        if (weatherHumidity != null) {
+            String h = (info.humidity == null || info.humidity.isEmpty() || "--".equals(info.humidity))
+                       ? "--" : info.humidity;
+            weatherHumidity.setText("💧 " + h + "%");
         }
+        if (weatherWind != null) {
+            // 风向（windDir）+ 风力等级/风速（wind），拼接类似：🌬 东北风3级
+            StringBuilder w = new StringBuilder("🌬 ");
+            boolean hasAny = false;
+            if (info.windDir != null && !info.windDir.isEmpty() && !"--".equals(info.windDir)) {
+                w.append(info.windDir);
+                hasAny = true;
+            }
+            if (info.wind != null && !info.wind.isEmpty() && !"--".equals(info.wind)) {
+                // 如果 wind 本身已经包含"级/风/米"等字样就直接加，否则补"级"
+                if (hasAny) w.append(" ");
+                w.append(info.wind);
+                hasAny = true;
+            }
+            if (!hasAny) w.append("--");
+            weatherWind.setText(w.toString());
+        }
+        if (weatherVisibility != null) {
+            String vis = (info.visibility == null || info.visibility.isEmpty() || "--".equals(info.visibility))
+                         ? "--" : info.visibility;
+            // 数字型补 km，非数字原样
+            if (vis.matches("-?\\d+(\\.\\d+)?")) {
+                weatherVisibility.setText("👁 " + vis + "km");
+            } else {
+                weatherVisibility.setText("👁 " + vis);
+            }
+        }
+    }
+
+    /**
+     * 最简城市名处理：只"去掉省/市级前缀"，其余原样返回，绝不截断中间内容
+     */
+    static String truncateCityName(String name) {
+        if (name == null || name.isEmpty()) return name;
+        String s = name;
+
+        // 1. 去省级前缀（前12字内的"省/自治区/特别行政区"）
+        int provEnd = -1;
+        int sheng = s.indexOf('省');
+        int zhiQu = s.indexOf("自治区");
+        int teBie = s.indexOf("特别行政区");
+        if (sheng >= 0 && sheng < 8) provEnd = Math.max(provEnd, sheng + 1);
+        if (zhiQu >= 0 && zhiQu < 12) provEnd = Math.max(provEnd, zhiQu + 3);
+        if (teBie >= 0 && teBie < 15) provEnd = Math.max(provEnd, teBie + 5);
+        if (provEnd > 0 && provEnd < s.length()) s = s.substring(provEnd);
+
+        // 2. 去市级前缀（前6字内的市，后面跟着区/路/街等才去）
+        int shiIdx = s.indexOf('市');
+        if (shiIdx > 0 && shiIdx <= 5 && shiIdx + 1 < s.length()) {
+            char a = s.charAt(shiIdx + 1);
+            if (a == '区' || a == '县' || a == '路' || a == '街' || a == '巷'
+                || a == '大' || a == '小' || a == '花' || a == '园') {
+                s = s.substring(shiIdx + 1);
+            }
+        }
+        return s.isEmpty() ? name : s;
     }
 
     public void hideBanner() {

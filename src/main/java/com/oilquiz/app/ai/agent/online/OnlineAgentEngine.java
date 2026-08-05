@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.InferenceProgressListener;
+import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.util.AILogger;
@@ -42,9 +43,9 @@ public class OnlineAgentEngine {
 
     private static final String TAG = "OnlineAgentEngine";
     /** 辅助模式最大迭代轮数 */
-    private static final int MAX_ITERATIONS = 30;
-    /** 接管模式最大迭代轮数（模型自主控制，放宽上限） */
-    private static final int MAX_ITERATIONS_TAKEOVER = 30;
+    private static final int MAX_ITERATIONS = 8;
+    /** 接管模式最大迭代轮数（模型自主控制，但有限制） */
+    private static final int MAX_ITERATIONS_TAKEOVER = 12;
     private static final int MAX_TOKENS = 4096;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
@@ -196,6 +197,10 @@ public class OnlineAgentEngine {
 
         // 4. Agent 主循环
         int iteration = 0;
+        // 连续暗示"要调用工具"但未输出正确 tool_calls 格式的次数，用于防死循环
+        int consecutiveHintForToolCount = 0;
+        final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
+
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
             AILogger.i(TAG, "Agent iteration " + iteration + "/" + maxIterations + " [" + agentMode + "]");
@@ -228,13 +233,14 @@ public class OnlineAgentEngine {
 
             // 检查是否有工具调用
             if (result.toolCalls == null || result.toolCalls.isEmpty()) {
-                // 没有工具调用，可能是最终回答，也可能是需要继续思考
+                // ========= 无 tool_calls =========
                 AILogger.i(TAG, "No tool calls, content_len=" + result.content.length()
                     + " finish_reason=" + result.finishReason
-                    + " iteration=" + iteration + "/" + maxIterations);
-                
+                    + " iteration=" + iteration + "/" + maxIterations
+                    + " consecutive_tool_hint=" + consecutiveHintForToolCount);
+
                 String finalAnswer = result.content;
-                
+
                 // 处理异常 finish_reason
                 if ("length".equals(result.finishReason)) {
                     AILogger.w(TAG, "Response truncated due to max_tokens (finish_reason=length)");
@@ -245,36 +251,62 @@ public class OnlineAgentEngine {
                         finalAnswer = "（回答被内容过滤机制拦截，请尝试调整问题后重试）";
                     }
                 }
-                
-                // 核心逻辑：将回复加入历史，让模型自主决定是否还需要进一步行动
+
+                // 【关键判断】思考链中是否暗示了要调用工具？
+                boolean hintToCallTool = !finalAnswer.isEmpty() && hintForToolCall(finalAnswer);
+
+                // 1. 模型暗示要调用工具，但格式输出错误没生成 tool_calls → 不终止，提醒它用正确格式
+                if (hintToCallTool && consecutiveHintForToolCount < MAX_CONSECUTIVE_TOOL_HINT
+                    && iteration < maxIterations) {
+                    consecutiveHintForToolCount++;
+                    AILogger.i(TAG, "Model hints for tool call in content (count="
+                        + consecutiveHintForToolCount + "), prompting correct format");
+
+                    // 把本轮回复加入历史
+                    JsonObject assistantMsg = new JsonObject();
+                    assistantMsg.addProperty("role", "assistant");
+                    assistantMsg.addProperty("content", finalAnswer);
+                    messageHistory.add(assistantMsg);
+
+                    // 发一条系统提示：提醒它用标准的 tool_calls JSON 格式输出，而不是在内容里描述
+                    JsonObject formatHint = new JsonObject();
+                    formatHint.addProperty("role", "system");
+                    formatHint.addProperty("content",
+                        "【格式提示】\n"
+                      + "你在上一轮回复中表达了要调用工具的意图，但没有使用标准的 tool_calls JSON 格式输出。\n"
+                      + "正确做法：将工具调用放在 tool_calls 数组中（name=工具名, arguments=参数），而不是写在文本里。\n"
+                      + "请立即使用正确的 JSON 格式输出工具调用，不要重复描述。\n"
+                      + "（连续 2 次格式错误将终止推理）");
+                    messageHistory.add(formatHint);
+
+                    notifyStep("格式修正", "提示模型使用标准工具调用格式（重试 "
+                        + consecutiveHintForToolCount + "/" + MAX_CONSECUTIVE_TOOL_HINT + "）");
+                    continue; // 继续下一轮，让模型重新输出正确格式
+                }
+
+                // 2. 连续暗示超过上限 / 迭代到最大轮次 / 真的是最终回答 → 返回
+                if (hintToCallTool && consecutiveHintForToolCount >= MAX_CONSECUTIVE_TOOL_HINT) {
+                    AILogger.w(TAG, "Model hinted tool call for " + consecutiveHintForToolCount
+                        + " consecutive times without valid format; terminating with content");
+                    finalAnswer = finalAnswer + "\n\n（提示：模型已连续 " + consecutiveHintForToolCount
+                        + " 次试图调用工具但未使用正确格式，请尝试用更简洁的方式提问）";
+                }
+
                 JsonObject assistantMsg = new JsonObject();
                 assistantMsg.addProperty("role", "assistant");
                 assistantMsg.addProperty("content", finalAnswer);
                 messageHistory.add(assistantMsg);
-                
-                // 如果已达到最大轮次，强制结束
-                if (iteration >= maxIterations) {
-                    AILogger.i(TAG, "Reached max iterations (" + maxIterations + "), finalizing...");
-                    notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
-                    notifyComplete(finalAnswer);
-                    return;
-                }
-                
-                // 发送系统消息提示模型：已收到回复，请判断是否需要继续行动或完成任务
-                JsonObject confirmMsg = new JsonObject();
-                confirmMsg.addProperty("role", "system");
-                confirmMsg.addProperty("content",
-                    "【回复已记录】\n"
-                  + "你刚才的回复已被接收。请评估：\n"
-                  + "1. 用户的问题是否已经得到完整回答？\n"
-                  + "2. 是否还需要更多信息或工具来完善答案？\n"
-                  + "3. 如果已完成，请在下一轮直接给出最终结论；如果还需要工作，请明确说明并继续执行。\n"
-                  + "注意：如果还有未完成的任務，主动调用工具获取所需信息。");
-                messageHistory.add(confirmMsg);
-                
-                AILogger.i(TAG, "Continuing for model self-assessment (iteration " + iteration + ")");
-                continue; // 继续下一轮，让模型自主决策
+
+                AILogger.i(TAG, "Returning final answer (iteration " + iteration
+                    + "/" + maxIterations + ", mode=" + agentMode
+                    + ", hinted_tool=" + hintToCallTool + ")");
+                notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
+                notifyComplete(finalAnswer);
+                return;
             }
+
+            // ===== 有工具调用：重置"连续暗示次数"计数 =====
+            consecutiveHintForToolCount = 0;
 
             // 有工具调用但 finish_reason=length：工具参数可能被截断，记录警告
             if ("length".equals(result.finishReason)) {
@@ -492,6 +524,16 @@ public class OnlineAgentEngine {
                 public void onComplete(String fullContent, String reasoningContent,
                                         List<OnlineInferenceService.ToolCallInfo> toolCalls,
                                         String finishReason) {
+                    // 清理模型输出中的乱码/非法字符
+                    if (fullContent != null) {
+                        String cleaned = ToolResultInterpreter.cleanModelOutput(fullContent);
+                        if (cleaned != null) {
+                            fullContent = cleaned;
+                        } else {
+                            fullContent = ToolResultInterpreter.sanitize(fullContent);
+                            AILogger.w(TAG, "流式输出检测为乱码，已清理非法字符");
+                        }
+                    }
                     result.content = fullContent != null ? fullContent : "";
                     result.reasoningContent = reasoningContent != null ? reasoningContent : "";
                     result.toolCalls = toolCalls;
@@ -695,6 +737,117 @@ public class OnlineAgentEngine {
         }
     }
 
+    /**
+     * 检测文本中是否"暗示了要调用工具但未使用标准 tool_calls 格式"。
+     * 典型模式：
+     *   - 明确写到"我要调用 XX 工具""使用 XX 工具""执行 XX 工具"
+     *   - 写到具体的工具名：env_loc, weather, search, wiki, calc 等
+     *   - 写到工具类动词却没有最终答案："我需要先查询天气""先获取位置信息""让我搜索一下"
+     *   - 用了"调用""执行""查询""获取""搜索""计算""查阅""解析"等动作词 + "工具"或具体工具领域词
+     *
+     * @return true 表示文本中强烈暗示要调用工具却没有正确输出 tool_calls
+     */
+    private boolean hintForToolCall(String content) {
+        if (content == null) return false;
+        String text = content.trim();
+        if (text.isEmpty()) return false;
+        // 只取前 600 字做判断，避免长文本拖慢性能
+        if (text.length() > 600) text = text.substring(0, 600);
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+
+        // 1. 明确提到"调用/执行/使用 ... 工具"模式
+        java.util.regex.Pattern pCallTool = java.util.regex.Pattern.compile(
+            "(调用|执行|使用|运用|启用|需要用|需要调用|将调用|来调用|我会调用|我将使用)"
+          + "[^，。,.\\n]{0,20}"
+          + "(工具|函数|接口|api)");
+        if (pCallTool.matcher(text).find()) return true;
+
+        // 2. 直接写出具体工具名（中英文）
+        String[] knownTools = {
+            "env_loc", "env_time", "location", "定位", "位置信息", "获取位置", "当前位置",
+            "weather", "天气", "天气预报", "查询天气", "获取天气",
+            "web_search", "search_tool", "搜索", "联网搜索", "网络搜索", "百度搜索", "谷歌搜索",
+            "wiki", "wikipedia", "百科", "维基百科", "百度百科",
+            "calculator", "calc", "计算器", "计算一下", "计算结果", "进行计算",
+            "note_tool", "note", "笔记", "记事本", "备忘录",
+            "drawing_tool", "draw", "绘图", "画图", "canvas"
+        };
+        for (String t : knownTools) {
+            if (t.length() >= 5 && lower.contains(t.toLowerCase(java.util.Locale.ROOT))) {
+                // 排除真正回答天气/位置结果的情况（只在包含"调用/查询/获取"等动词时才算"要调工具"）
+                if (t.equals("天气") || t.equals("天气预报") || t.equals("定位")
+                    || t.equals("位置信息") || t.equals("当前位置")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(查询|获取|查看|查一下|查查|看看|需要|要|我想|让我)"
+                      + "[^，。,.\\n]{0,10}" + t);
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                if (t.equals("搜索") || t.equals("联网搜索") || t.equals("网络搜索")
+                    || t.equals("百度搜索") || t.equals("谷歌搜索")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(搜索|查找|查一下|检索|我搜|让我搜|用.*搜|去搜)");
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                if (t.equals("百科") || t.equals("维基百科") || t.equals("百度百科")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(查|查一下|去查|看看|翻|翻一下|查阅|翻阅)[^，。,.\\n]{0,10}百科");
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                if (t.equals("计算器") || t.equals("计算一下") || t.equals("计算结果")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(计算|算一下|算一算|用计算器|运算|求值)");
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                if (t.equals("笔记") || t.equals("记事本") || t.equals("备忘录")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(记笔记|记录|保存|写到|添加|新建)[^，。,.\\n]{0,10}(笔记|记事本|备忘录)");
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                if (t.equals("绘图") || t.equals("画图") || t.equals("canvas")) {
+                    java.util.regex.Pattern pVerb = java.util.regex.Pattern.compile(
+                        "(画|绘制|绘图|生成|制作|画一张|画个)[^，。,.\\n]{0,15}(图|图片|画|canvas)");
+                    if (pVerb.matcher(text).find()) return true;
+                    continue;
+                }
+                // 英文名直接匹配到就算（env_loc, weather, search_tool 等）
+                if (lower.contains(t.toLowerCase(java.util.Locale.ROOT))) return true;
+            }
+        }
+
+        // 3. 典型"要做下一步"句式："让我先…""我需要先…""接下来我要…""下一步：" + 具体动作
+        java.util.regex.Pattern pNext = java.util.regex.Pattern.compile(
+            "(让我先|我需要先|接下来|下一步|首先|第一步|然后|随后|接着)"
+          + "[^，。,.\\n]{0,25}"
+          + "(查询|获取|搜索|查找|计算|调用|执行|定位|检测|查看|核对|核实|确认)");
+        if (pNext.matcher(text).find()) {
+            // 排除真的只是"我先说明一下"这种非工具意图
+            if (!text.contains("说明") && !text.contains("解释") && !text.contains("回答")) {
+                return true;
+            }
+        }
+
+        // 4. 英文典型句式："I need to call", "I will use the ... tool", "Let me search", "Let me check ... first"
+        String[] enPatterns = {
+            "i need to call", "i need to use", "i'll use the", "i will use the",
+            "let me search", "let me check", "let me look up", "let me find",
+            "let me call", "i should use", "using the .* tool", "invoke the",
+            "tool call", "function call", "call the .* tool", "query the",
+            "get the current", "fetch the", "retrieve the"
+        };
+        for (String ep : enPatterns) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(ep,
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+            if (p.matcher(lower).find()) return true;
+        }
+
+        return false;
+    }
+
     // ========== Agent 能力检测 ==========
 
     /**
@@ -794,6 +947,16 @@ public class OnlineAgentEngine {
     }
 
     private void notifyComplete(String text) {
+        // 清理模型输出中的乱码/非法字符
+        String outputText = text;
+        String cleaned = ToolResultInterpreter.cleanModelOutput(text);
+        if (cleaned != null) {
+            outputText = cleaned;
+        } else if (text != null) {
+            outputText = ToolResultInterpreter.sanitize(text);
+            AILogger.w(TAG, "模型输出检测为乱码，已清理非法字符");
+        }
+        final String finalOutput = outputText;
         finishGeneration();
         notifyProgress();
         thinkingChain.completeAll();
@@ -811,7 +974,7 @@ public class OnlineAgentEngine {
             }
         }
         activity.runOnUiThread(() -> {
-            if (callback != null) callback.onComplete(text);
+            if (callback != null) callback.onComplete(finalOutput);
         });
     }
 

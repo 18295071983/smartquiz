@@ -3,9 +3,11 @@ package com.oilquiz.app.ai.model;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -15,6 +17,8 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.inference.InferenceRouter;
+import com.oilquiz.app.ai.service.AIService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +35,10 @@ public class ModelSelectionActivity extends AppCompatActivity {
     private List<Model> models;
     private ProgressBar loadingIndicator;
 
+    private AIService aiService;
+    private OnlineModelManager onlineModelManager;
+    private InferenceRouter inferenceRouter;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -40,6 +48,10 @@ public class ModelSelectionActivity extends AppCompatActivity {
         initModels();
         initAdapter();
         setupListeners();
+
+        aiService = AIService.getInstance(this);
+        onlineModelManager = OnlineModelManager.getInstance(this);
+        inferenceRouter = InferenceRouter.getInstance(this);
     }
 
     private void initViews() {
@@ -101,8 +113,19 @@ public class ModelSelectionActivity extends AppCompatActivity {
         }
         // 设置当前模型为选中状态
         model.setSelected(true);
-        modelAdapter.notifyDataSetChanged();
-        // 可以在这里保存选中的模型
+        // 确保在主线程且RecyclerView不在布局计算时更新adapter
+        safeNotifyAdapterChanged();
+
+        // 停止当前活跃的在线模型
+        OnlineModelManager.OnlineModelConfig activeOnline = onlineModelManager.getActiveModel();
+        if (activeOnline != null) {
+            onlineModelManager.stopActiveModel();
+        }
+
+        // 实际切换到选中的本地模型
+        String modelName = model.getName();
+        inferenceRouter.switchModel(modelName);
+        Toast.makeText(this, "已切换到模型: " + modelName, Toast.LENGTH_SHORT).show();
     }
 
     private void handleModelDownload(Model model) {
@@ -122,7 +145,35 @@ public class ModelSelectionActivity extends AppCompatActivity {
 
     private void handleModelDelete(Model model) {
         models.remove(model);
-        modelAdapter.notifyDataSetChanged();
+        // 确保在主线程且RecyclerView不在布局计算时更新adapter
+        safeNotifyAdapterChanged();
+    }
+
+    /**
+     * 安全地更新RecyclerView adapter，避免在布局计算或滚动时更新导致崩溃
+     */
+    private void safeNotifyAdapterChanged() {
+        if (modelRecyclerView == null || modelAdapter == null) {
+            return;
+        }
+        final boolean isMainThread = Looper.myLooper() == Looper.getMainLooper();
+        Runnable notifyRunnable = () -> {
+            if (modelRecyclerView.isComputingLayout() || modelRecyclerView.isAnimating()) {
+                // RecyclerView正在布局，延迟下一帧再更新
+                modelRecyclerView.post(() -> {
+                    if (modelAdapter != null) {
+                        modelAdapter.notifyDataSetChanged();
+                    }
+                });
+            } else {
+                modelAdapter.notifyDataSetChanged();
+            }
+        };
+        if (isMainThread) {
+            notifyRunnable.run();
+        } else {
+            runOnUiThread(notifyRunnable);
+        }
     }
 
     private void handleModelConfigure(Model model) {

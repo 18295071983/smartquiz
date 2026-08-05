@@ -299,7 +299,7 @@ public class ModelStateCache {
             restoreModelConfig();
 
             // 5. 使用恢复的配置加载模型
-            int contextSize = prefs.getInt(KEY_CONTEXT_SIZE, 8192);
+            int contextSize = prefs.getInt(KEY_CONTEXT_SIZE, 4096);
             int threadCount = prefs.getInt(KEY_THREAD_COUNT, 4);
             AILogger.i(TAG, "Loading model from cached state: " + lastModel + ", context=" + contextSize + ", threads=" + threadCount);
             int result = LlamaHelper.initModel(lastModel, contextSize, threadCount);
@@ -307,8 +307,8 @@ public class ModelStateCache {
                 return new RestoreResult(false, "模型加载失败，错误码: " + result);
             }
 
-            // 6. 恢复聊天上下文
-            restoreChatContext();
+            // 6. KV缓存不跨轮保留——每轮推理动态构建，不再从缓存恢复旧上下文
+            AILogger.i(TAG, "KV cache not restored (rebuilt per inference turn per pure-inference design)");
 
             AILogger.i(TAG, "Model state restored successfully");
             return new RestoreResult(true, "模型状态恢复成功");

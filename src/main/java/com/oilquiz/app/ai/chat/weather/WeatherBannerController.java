@@ -161,8 +161,8 @@ public class WeatherBannerController {
 
         // 3. 缓存过期或不存在，GPS定位
         if (!LocationTool.hasLocationPermission(activity)) {
-            AILogger.w(TAG, "No location permission, falling back to default city");
-            fetchWeatherByCity("北京");
+            AILogger.w(TAG, "No location permission, hiding weather banner");
+            activity.runOnUiThread(this::hide);
             return;
         }
 
@@ -193,12 +193,12 @@ public class WeatherBannerController {
                     // 用经纬度直接查天气（不做GeoAPI反解析，省一次API调用）
                     fetchWeatherByLocation(lat, lon, cityName);
                 } else {
-                    AILogger.w(TAG, "GPS定位失败，使用默认城市");
-                    fetchWeatherByCity("北京");
+                    AILogger.w(TAG, "GPS定位失败，隐藏天气banner");
+                    activity.runOnUiThread(this::hide);
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Location error", e);
-                fetchWeatherByCity("北京");
+                activity.runOnUiThread(this::hide);
             }
         }).start();
     }
@@ -217,12 +217,14 @@ public class WeatherBannerController {
                         try {
                             JSONObject weatherJson = parseWeatherResponse(result);
                             if (weatherJson != null) {
-                                // 优先使用天气API返回的地址（可能比Geocoder更精确）
-                                String apiCity = weatherJson.optString("city", "");
-                                if (apiCity.isEmpty() || apiCity.equals("未知")) {
-                                    // API没有返回有效地址时，才用Geocoder的结果
-                                    if (geocoderCity != null && !geocoderCity.isEmpty()) {
-                                        weatherJson.put("city", geocoderCity);
+                                // 优先使用Geocoder的完整位置信息用于显示
+                                if (geocoderCity != null && !geocoderCity.isEmpty()) {
+                                    weatherJson.put("city", geocoderCity);
+                                } else {
+                                    // Geocoder没有结果时，用API返回的地址
+                                    String apiCity = weatherJson.optString("city", "");
+                                    if (apiCity.isEmpty() || apiCity.equals("未知")) {
+                                        weatherJson.put("city", "当前位置");
                                     }
                                 }
                                 updateUI(weatherJson);
@@ -292,11 +294,22 @@ public class WeatherBannerController {
                 List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     Address address = addresses.get(0);
-                    // 优先区/县级（如"金凤区"），其次市级，最后省级
-                    String name = address.getSubLocality(); // 区
-                    if (name == null) name = address.getLocality(); // 市
-                    if (name == null) name = address.getAdminArea(); // 省
-                    if (name != null) {
+                    // 拼接完整位置信息：省 + 市 + 区
+                    StringBuilder sb = new StringBuilder();
+                    String province = address.getAdminArea();    // 省
+                    String city = address.getLocality();         // 市
+                    String district = address.getSubLocality();  // 区
+                    if (province != null && !province.isEmpty()) sb.append(province);
+                    if (city != null && !city.isEmpty() && !city.equals(province)) {
+                        sb.append(city);
+                    }
+                    if (district != null && !district.isEmpty()) sb.append(district);
+                    String name = sb.toString();
+                    if (name.isEmpty()) {
+                        // 兜底：尝试featureName（如街道名）
+                        name = address.getFeatureName();
+                    }
+                    if (name != null && !name.isEmpty()) {
                         AILogger.i(TAG, "Geocoder反解析成功: " + name);
                         return name;
                     }

@@ -167,53 +167,27 @@ public class ModelDownloadManager {
     }
 
     public static final String[] PRESET_DOMESTIC_MODEL_URLS = {
-        "https://hf-mirror.com/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2-1.5B-Instruct-GGUF/resolve/main/qwen2-1_5b-instruct-q4_k_m.gguf",
         "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/THUDM/chatglm3-6b-gguf/resolve/main/chatglm3-ggml-q4_0.bin",
-        "https://hf-mirror.com/chuanli11/Chinese-Vicuna-7B-GGML/resolve/main/chinese-vicuna-7b-ggml-q4_0.bin"
+        "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
+        "https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
+        "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/MiniCPM3-4B-Q4_K_M.gguf",
+        "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/glm-edge-1.5b-chat-Q4_K_M.gguf",
+        "https://hf-mirror.com/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/deepseek-r1-distill-qwen-1.5b-q4_k_m.gguf"
     };
 
     public List<ModelPresetInfo> getPresetDomesticModels() {
         List<ModelPresetInfo> list = new java.util.ArrayList<>();
 
-        list.add(new ModelPresetInfo(
-            "qwen2-0.5b-instruct-q4_k_m",
-            "Qwen2-0.5B-Instruct",
-            "通义千问2 0.5B 指令微调版，轻量级中文模型，响应速度快",
-            "https://hf-mirror.com/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf",
-            330,
-            "Q4_K_M",
-            32768,
-            1024,
-            2
-        ));
-        list.add(new ModelPresetInfo(
-            "qwen2-1.5b-instruct-q4_k_m",
-            "Qwen2-1.5B-Instruct",
-            "通义千问2 1.5B 指令微调版，中文能力强，平衡性能与速度",
-            "https://hf-mirror.com/Qwen/Qwen2-1.5B-Instruct-GGUF/resolve/main/qwen2-1_5b-instruct-q4_k_m.gguf",
-            920,
-            "Q4_K_M",
-            32768,
-            2048,
-            4
-        ));
-        list.add(new ModelPresetInfo(
-            "qwen2-3b-instruct-q4_k_m",
-            "Qwen2-3B-Instruct",
-            "通义千问2 3B 指令微调版，更强的推理和创作能力",
-            "https://hf-mirror.com/Qwen/Qwen2-3B-Instruct-GGUF/resolve/main/qwen2-3b-instruct-q4_k_m.gguf",
-            1800,
-            "Q4_K_M",
-            32768,
-            4096,
-            8
-        ));
+        // ========== Qwen 系列（中文能力强，推荐） ==========
         list.add(new ModelPresetInfo(
             "qwen2.5-0.5b-instruct-q4_k_m",
             "Qwen2.5-0.5B-Instruct",
-            "通义千问2.5 0.5B 最新版，更强性能，更好的中文理解",
+            "通义千问2.5 0.5B 最新版，轻量级中文模型，响应极快，适合低配设备",
             "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
             350,
             "Q4_K_M",
@@ -224,7 +198,7 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo(
             "qwen2.5-1.5b-instruct-q4_k_m",
             "Qwen2.5-1.5B-Instruct",
-            "通义千问2.5 1.5B 最新版，中文能力出色，多语言支持",
+            "通义千问2.5 1.5B 最新版，中文能力出色，平衡性能与速度",
             "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             950,
             "Q4_K_M",
@@ -235,13 +209,48 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo(
             "qwen2.5-3b-instruct-q4_k_m",
             "Qwen2.5-3B-Instruct",
-            "通义千问2.5 3B 最新版，更强的推理和代码能力",
+            "通义千问2.5 3B 最新版，更强的推理和代码能力，中文表现优异",
             "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
             1900,
             "Q4_K_M",
             32768,
             4096,
             8
+        ));
+        list.add(new ModelPresetInfo(
+            "qwen2-0.5b-instruct-q4_k_m",
+            "Qwen2-0.5B-Instruct",
+            "通义千问2 0.5B 指令微调版，轻量级中文模型",
+            "https://hf-mirror.com/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf",
+            330,
+            "Q4_K_M",
+            32768,
+            1024,
+            2
+        ));
+        list.add(new ModelPresetInfo(
+            "qwen2-1.5b-instruct-q4_k_m",
+            "Qwen2-1.5B-Instruct",
+            "通义千问2 1.5B 指令微调版，中文能力强",
+            "https://hf-mirror.com/Qwen/Qwen2-1.5B-Instruct-GGUF/resolve/main/qwen2-1_5b-instruct-q4_k_m.gguf",
+            920,
+            "Q4_K_M",
+            32768,
+            2048,
+            4
+        ));
+
+        // ========== Qwen Coder 系列（编程专用） ==========
+        list.add(new ModelPresetInfo(
+            "qwen2.5-coder-0.5b-instruct-q4_k_m",
+            "Qwen2.5-Coder-0.5B-Instruct",
+            "通义千问2.5 Coder 0.5B 轻量级代码模型，适合编程辅助",
+            "https://hf-mirror.com/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            350,
+            "Q4_K_M",
+            32768,
+            1024,
+            2
         ));
         list.add(new ModelPresetInfo(
             "qwen2.5-coder-1.5b-instruct-q4_k_m",
@@ -255,20 +264,22 @@ public class ModelDownloadManager {
             4
         ));
         list.add(new ModelPresetInfo(
-            "qwen2.5-coder-0.5b-instruct-q4_k_m",
-            "Qwen2.5-Coder-0.5B-Instruct",
-            "通义千问2.5 Coder 0.5B 轻量级代码模型",
-            "https://hf-mirror.com/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
-            350,
+            "qwen2.5-math-1.5b-instruct-q4_k_m",
+            "Qwen2.5-Math-1.5B-Instruct",
+            "通义千问2.5 Math 1.5B 数学专用模型，擅长数学推理",
+            "https://hf-mirror.com/Qwen/Qwen2.5-Math-1.5B-Instruct-GGUF/resolve/main/qwen2.5-math-1.5b-instruct-q4_k_m.gguf",
+            950,
             "Q4_K_M",
-            32768,
-            1024,
-            2
+            4096,
+            2048,
+            4
         ));
+
+        // ========== Llama 3.2 系列 ==========
         list.add(new ModelPresetInfo(
             "llama3.2-1b-instruct-q4_k_m",
             "Llama-3.2-1B-Instruct",
-            "Meta最新轻量级模型，指令优化，长上下文支持",
+            "Meta最新轻量级模型，指令优化，长上下文支持，响应快",
             "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf",
             750,
             "Q4_K_M",
@@ -279,7 +290,7 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo(
             "llama3.2-3b-instruct-q4_k_m",
             "Llama-3.2-3B-Instruct",
-            "Meta Llama 3.2 3B 模型，Vision能力，多模态支持",
+            "Meta Llama 3.2 3B 模型，综合能力强，适合中端设备",
             "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf",
             2100,
             "Q4_K_M",
@@ -287,21 +298,123 @@ public class ModelDownloadManager {
             4096,
             8
         ));
+
+        // ========== SmolLM2 系列（HuggingFace 最新轻量级） ==========
         list.add(new ModelPresetInfo(
-            "llama3.1-8b-instruct-q4_k_m",
-            "Llama-3.1-8B-Instruct (Q4)",
-            "Meta Llama 3.1 8B 指令微调版，强大的通用能力",
-            "https://hf-mirror.com/hugging-quants/Llama-3.1-8B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.1-8b-instruct-q4_k_m.gguf",
-            5500,
+            "smollm2-360m-instruct-q4_k_m",
+            "SmolLM2-360M-Instruct",
+            "HuggingFace最新超轻量模型，仅360M参数，速度极快，适合低配设备",
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smolm2-360m-instruct-q4_k_m.gguf",
+            250,
+            "Q4_K_M",
+            8192,
+            1024,
+            1
+        ));
+        list.add(new ModelPresetInfo(
+            "smollm2-1.7b-instruct-q4_k_m",
+            "SmolLM2-1.7B-Instruct",
+            "HuggingFace SmolLM2 1.7B 模型，知识丰富，英文能力强",
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smolm2-1.7b-instruct-q4_k_m.gguf",
+            1100,
+            "Q4_K_M",
+            8192,
+            2048,
+            4
+        ));
+
+        // ========== DeepSeek R1 蒸馏系列（推理专用） ==========
+        list.add(new ModelPresetInfo(
+            "deepseek-r1-distill-qwen-1.5b-q4_k_m",
+            "DeepSeek-R1-Distill-Qwen-1.5B",
+            "深度求索R1蒸馏模型，基于Qwen2.5-Math，擅长数学和逻辑推理",
+            "https://hf-mirror.com/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/deepseek-r1-distill-qwen-1.5b-q4_k_m.gguf",
+            1100,
             "Q4_K_M",
             131072,
-            8192,
-            16
+            2048,
+            4
         ));
+
+        // ========== MiniCPM 系列（面壁智能，端侧专用） ==========
+        list.add(new ModelPresetInfo(
+            "minicpm3-4b-gguf-q4_k_m",
+            "MiniCPM3-4B",
+            "面壁智能MiniCPM3 4B端侧模型，性能超越GPT-3.5，支持Function Calling，国产优秀端侧模型",
+            "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/MiniCPM3-4B-Q4_K_M.gguf",
+            2500,
+            "Q4_K_M",
+            32768,
+            4096,
+            8
+        ));
+
+        // ========== GLM-Edge 系列（智谱AI，端侧专用） ==========
+        list.add(new ModelPresetInfo(
+            "glm-edge-1.5b-chat-gguf-q4_k_m",
+            "GLM-Edge-1.5B-Chat",
+            "智谱AI GLM-Edge 1.5B 端侧模型，专为手机/车机优化，中英文能力平衡",
+            "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/glm-edge-1.5b-chat-Q4_K_M.gguf",
+            950,
+            "Q4_K_M",
+            8192,
+            2048,
+            4
+        ));
+        list.add(new ModelPresetInfo(
+            "glm-edge-4b-chat-gguf-q4_k_m",
+            "GLM-Edge-4B-Chat",
+            "智谱AI GLM-Edge 4B 端侧模型，面向PC/平板，综合能力强",
+            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/glm-edge-4b-chat-Q4_K_M.gguf",
+            2500,
+            "Q4_K_M",
+            8192,
+            4096,
+            8
+        ));
+
+        // ========== Yi-Coder 系列（零一万物，代码专用） ==========
+        list.add(new ModelPresetInfo(
+            "yi-coder-1.5b-chat-q4_k_m",
+            "Yi-Coder-1.5B-Chat",
+            "零一万物Yi-Coder 1.5B代码模型，支持52种编程语言，128K长上下文，代码能力强",
+            "https://hf-mirror.com/01-ai/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat-Q4_K_M.gguf",
+            950,
+            "Q4_K_M",
+            131072,
+            2048,
+            4
+        ));
+
+        // ========== Phi 系列（微软推理模型） ==========
+        list.add(new ModelPresetInfo(
+            "phi-3.5-mini-instruct-q4_k_m",
+            "Phi-3.5-Mini-Instruct",
+            "微软Phi-3.5 Mini 最新版，更好的代码和推理能力，长上下文",
+            "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
+            2400,
+            "Q4_K_M",
+            131072,
+            4096,
+            10
+        ));
+        list.add(new ModelPresetInfo(
+            "phi-3-mini-4k-instruct-q4_k_m",
+            "Phi-3-Mini-4K-Instruct",
+            "微软Phi-3 3.8B 模型，性能稳定，适合通用任务",
+            "https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
+            2400,
+            "Q4",
+            4096,
+            4096,
+            10
+        ));
+
+        // ========== Gemma 2 系列（Google） ==========
         list.add(new ModelPresetInfo(
             "gemma-2-2b-it-q4_k_m",
             "Gemma-2-2B-IT",
-            "Google Gemma 2 2B 指令版本，开源友好许可",
+            "Google Gemma 2 2B 指令版本，开源友好许可，英文能力强",
             "https://hf-mirror.com/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
             1500,
             "Q4_K_M",
@@ -309,172 +422,20 @@ public class ModelDownloadManager {
             4096,
             6
         ));
-        list.add(new ModelPresetInfo(
-            "gemma-2-9b-it-q4_k_m",
-            "Gemma-2-9B-IT (Q4)",
-            "Google Gemma 2 9B 指令版本，强大的推理能力",
-            "https://hf-mirror.com/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf",
-            5800,
-            "Q4_K_M",
-            8192,
-            8192,
-            18
-        ));
-        list.add(new ModelPresetInfo(
-            "mistral-nemo-instruct-2407-12b-q4_k_m",
-            "Mistral-Nemo-Instruct-2407-12B (Q4)",
-            "Mistral Nemo 12B 2024版，出色的性能和速度",
-            "https://hf-mirror.com/hugging-quants/Mistral-Nemo-Instruct-2407-12B-Q4_K_M-GGUF/resolve/main/mistral-nemo-instruct-2407-12b-q4_k_m.gguf",
-            8000,
-            "Q4_K_M",
-            131072,
-            12288,
-            24
-        ));
-        list.add(new ModelPresetInfo(
-            "phi-2-q4_k_m",
-            "Phi-2",
-            "微软2.7B小模型，代码和推理能力强，适合移动端",
-            "https://hf-mirror.com/Microsoft/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf",
-            1700,
-            "Q4_K_M",
-            2048,
-            4096,
-            8
-        ));
-        list.add(new ModelPresetInfo(
-            "phi-3-mini-4k-instruct-q4_k_m",
-            "Phi-3-Mini-4K-Instruct",
-            "微软Phi-3 3.8B 最新版，性能超越Phi-2",
-            "https://hf-mirror.com/Microsoft/Phi-3-mini-4k-instruct-GGUF/resolve/main/phi-3-mini-4k-instruct-q4_k_m.gguf",
-            2400,
-            "Q4_K_M",
-            4096,
-            4096,
-            10
-        ));
-        list.add(new ModelPresetInfo(
-            "phi-3.5-mini-instruct-q4_k_m",
-            "Phi-3.5-Mini-Instruct",
-            "微软Phi-3.5 Mini 最新版，更好的代码和推理能力",
-            "https://hf-mirror.com/microsoft/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
-            2400,
-            "Q4_K_M",
-            131072,
-            4096,
-            10
-        ));
-        list.add(new ModelPresetInfo(
-            "deepseek-v2-lite-chat-q4_k_m",
-            "DeepSeek-V2-Lite-Chat",
-            "深度求索V2 Lite中文模型，出色的中文对话能力",
-            "https://hf-mirror.com/deepseek-ai/DeepSeek-V2-Lite-Chat-GGUF/resolve/main/deepseek-v2-lite-chat-q4_k_m.gguf",
-            8500,
-            "Q4_K_M",
-            128000,
-            12288,
-            28
-        ));
-        list.add(new ModelPresetInfo(
-            "yi-1.5-6b-chat-q4_k_m",
-            "Yi-1.5-6B-Chat (Q4)",
-            "零一万物 Yi 1.5 6B 中文模型，出色的中文理解",
-            "https://hf-mirror.com/01-ai/Yi-1.5-6B-Chat-GGUF/resolve/main/yi-1.5-6b-chat-q4_k_m.gguf",
-            4200,
-            "Q4_K_M",
-            8192,
-            8192,
-            16
-        ));
-        list.add(new ModelPresetInfo(
-            "baichuan2-7b-chat-q4_k_m",
-            "Baichuan2-7B-Chat (Q4)",
-            "百川2 7B 中文对话模型，出色的中文能力",
-            "https://hf-mirror.com/baichuan-inc/Baichuan2-7B-Chat-GGUF/resolve/main/baichuan2-7b-chat-q4_k_m.gguf",
-            4500,
-            "Q4_K_M",
-            4096,
-            8192,
-            16
-        ));
-        list.add(new ModelPresetInfo(
-            "internlm2-chat-7b-q4_k_m",
-            "InternLM2-Chat-7B (Q4)",
-            "书生·浦语 InternLM2 7B 中文模型",
-            "https://hf-mirror.com/internlm/internlm2-chat-7b-gguf/resolve/main/internlm2-chat-7b-q4_k_m.gguf",
-            4800,
-            "Q4_K_M",
-            32768,
-            8192,
-            16
-        ));
-        list.add(new ModelPresetInfo(
-            "chatglm3-6b-q4_k_m",
-            "ChatGLM3-6B (Q4)",
-            "智谱AI ChatGLM3 6B 中文对话模型",
-            "https://hf-mirror.com/THUDM/chatglm3-6b-gguf/resolve/main/chatglm3-ggml-q4_0.bin",
-            3800,
-            "Q4_0",
-            8192,
-            6144,
-            14
-        ));
-        list.add(new ModelPresetInfo(
-            "openchat-3.5-0106-q4_k_m",
-            "OpenChat-3.5-0106",
-            "基于Mistral的开源聊天模型，性能出色",
-            "https://hf-mirror.com/TheBloke/openchat-3.5-0106-GGUF/resolve/main/openchat-3.5-0106.Q4_K_M.gguf",
-            7200,
-            "Q4_K_M",
-            8192,
-            8192,
-            16
-        ));
-        list.add(new ModelPresetInfo(
-            "mixtral-8x7b-instruct-v0.1-q4_k_m",
-            "Mixtral-8x7B-Instruct-v0.1 (Q4)",
-            "Mistral MoE 8x7B 专家混合模型，高性能",
-            "https://hf-mirror.com/hugging-quants/Mixtral-8x7B-Instruct-v0.1-Q4_K_M-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1-q4_k_m.gguf",
-            26000,
-            "Q4_K_M",
-            32768,
-            16384,
-            32
-        ));
+
+        // ========== TinyLlama（超轻量） ==========
         list.add(new ModelPresetInfo(
             "tinyllama-1.1b-chat-v1.0-q4_k_m",
             "TinyLlama-1.1B-Chat-v1.0",
-            "TinyLlama 1.1B 超轻量级模型，速度极快",
-            "https://hf-mirror.com/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+            "TinyLlama 1.1B 超轻量级模型，速度极快，适合极低配设备",
+            "https://hf-mirror.com/TinyLlama/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
             700,
             "Q4_K_M",
             2048,
             1024,
             3
         ));
-        list.add(new ModelPresetInfo(
-            "stablelm-zephyr-3b-q4_k_m",
-            "StableLM-Zephyr-3B",
-            "StabilityAI 3B Zephyr模型，对话能力强",
-            "https://hf-mirror.com/TheBloke/stablelm-zephyr-3b-GGUF/resolve/main/stablelm-zephyr-3b.Q4_K_M.gguf",
-            1900,
-            "Q4_K_M",
-            4096,
-            4096,
-            8
-        ));
-        list.add(new ModelPresetInfo(
-            "zephyr-7b-beta-q4_k_m",
-            "Zephyr-7B-Beta (Q4)",
-            "基于Mistral的Zephyr 7B，出色的对话能力",
-            "https://hf-mirror.com/TheBloke/zephyr-7B-beta-GGUF/resolve/main/zephyr-7b-beta.Q4_K_M.gguf",
-            5100,
-            "Q4_K_M",
-            4096,
-            8192,
-            16
-        ));
-        
+
         return list;
     }
     
@@ -487,22 +448,26 @@ public class ModelDownloadManager {
             switch (category) {
                 case CHINESE:
                     matches = preset.description.contains("中文") || 
+                              preset.description.contains("国产") ||
                               preset.name.contains("Qwen") ||
-                              preset.name.contains("Baichuan") ||
-                              preset.name.contains("Yi") ||
-                              preset.name.contains("InternLM") ||
-                              preset.name.contains("ChatGLM") ||
-                              preset.name.contains("DeepSeek");
+                              preset.name.contains("DeepSeek") ||
+                              preset.name.contains("R1-Distill") ||
+                              preset.name.contains("MiniCPM") ||
+                              preset.name.contains("GLM-Edge") ||
+                              preset.name.contains("Yi-Coder");
                     break;
                 case CODE:
                     matches = preset.name.contains("Coder") ||
+                              preset.name.contains("Code") ||
                               preset.description.contains("代码");
                     break;
                 case LIGHTWEIGHT:
+                    // 轻量级：小于等于 1GB
                     matches = preset.sizeMB <= 1000;
                     break;
                 case PERFORMANCE:
-                    matches = preset.sizeMB > 2000;
+                    // 性能型：1.5GB-3GB（去掉过大模型，只保留中型）
+                    matches = preset.sizeMB > 1500 && preset.sizeMB <= 3000;
                     break;
                 case ALL:
                 default:

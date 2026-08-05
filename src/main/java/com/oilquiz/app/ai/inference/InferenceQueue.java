@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
@@ -454,7 +455,16 @@ class StreamingInferenceManager {
                 @Override
                 public void onComplete(String fullText) {
                     AILogger.i(TAG, "Streaming completed: " + context.id + " (tokens: " + tokenCount + ")");
-                    mainHandler.post(() -> context.callback.onComplete(fullText != null ? fullText : fullResponse.toString()));
+                    String outputText = fullText != null ? fullText : fullResponse.toString();
+                    // 清理模型输出中的乱码/非法字符
+                    String cleaned = ToolResultInterpreter.cleanModelOutput(outputText);
+                    if (cleaned != null) {
+                        outputText = cleaned;
+                    } else if (outputText != null) {
+                        outputText = ToolResultInterpreter.sanitize(outputText);
+                    }
+                    final String finalOutput = outputText;
+                    mainHandler.post(() -> context.callback.onComplete(finalOutput));
                 }
 
                 @Override

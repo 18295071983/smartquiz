@@ -154,9 +154,14 @@ public class AIInferenceCore {
                             }
                             return aiService.generateSync(prompt, history, config.maxTokens);
                         } else {
-                            List<ChatMessage> messages = config.buildMessages(prompt);
-                            String promptText = buildPromptFromMessages(messages);
-                            return LlamaHelper.generate(promptText, config.maxTokens, config.temperature);
+                            // 使用消息列表让 native 层自动适配模型格式
+                            List<ChatMessage> chatMessages = config.buildMessages(prompt);
+                            List<com.oilquiz.app.ai.util.PromptBuilder.Message> msgs = new ArrayList<>();
+                            for (ChatMessage msg : chatMessages) {
+                                String role = msg.isAIMessage() ? "assistant" : "user";
+                                msgs.add(new com.oilquiz.app.ai.util.PromptBuilder.Message(role, msg.content));
+                            }
+                            return LlamaHelper.generate(msgs, config.maxTokens, config.temperature);
                         }
                     }
                 } catch (Exception e) {
@@ -198,9 +203,14 @@ public class AIInferenceCore {
                         }
                         return aiService.generateSync(prompt, history, config.maxTokens);
                     } else {
-                        List<ChatMessage> messages = config.buildMessages(prompt);
-                        String promptText = buildPromptFromMessages(messages);
-                        return LlamaHelper.generate(promptText, config.maxTokens, config.temperature);
+                        // 使用消息列表让 native 层自动适配模型格式
+                        List<ChatMessage> chatMessages = config.buildMessages(prompt);
+                        List<com.oilquiz.app.ai.util.PromptBuilder.Message> msgs = new ArrayList<>();
+                        for (ChatMessage msg : chatMessages) {
+                            String role = msg.isAIMessage() ? "assistant" : "user";
+                            msgs.add(new com.oilquiz.app.ai.util.PromptBuilder.Message(role, msg.content));
+                        }
+                        return LlamaHelper.generate(msgs, config.maxTokens, config.temperature);
                     }
                 }
             } catch (Exception e) {

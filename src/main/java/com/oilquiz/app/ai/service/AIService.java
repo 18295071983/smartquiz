@@ -1,15 +1,18 @@
 package com.oilquiz.app.ai.service;
 
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.oilquiz.app.util.AILogger;
 
+import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.model.Model;
 import com.oilquiz.app.ai.model.ModelChunkLoader;
@@ -49,7 +52,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-public class AIService {
+public class AIService implements ComponentCallbacks2 {
     private static final String TAG = "AIService";
     private static final int N_CTX_DEFAULT = 8192;
     private static final int N_CTX_LOW_MEMORY = 4096;
@@ -83,6 +86,8 @@ public class AIService {
     private boolean isAppInBackground = false;
     private long lastUsedTimestamp = System.currentTimeMillis();
     private ChatRepository chatRepository;
+    // 组4.4：推理期间 WakeLock，防止灭屏/切后台时 CPU 低功耗挂起导致 decode 停顿
+    private PowerManager.WakeLock inferenceWakeLock;
 
     // 分块加载器
     private ModelChunkLoader modelChunkLoader;
@@ -172,20 +177,33 @@ public class AIService {
         // 从SharedPreferences加载优化模式
         loadOptimizationMode();
 
-        // 初始化模型状态缓存
+        // 模型状态缓存：禁用自动恢复——App启动不自动加载模型，后台内存归零
+        // （模型在用户首次进入AI页面时按需加载，不再在构造函数中自动 restoreModelState）
         ModelStateCache cache = ModelStateCache.getInstance(context);
-        if (cache.hasRestorableState() && !cache.isCacheExpired()) {
-            AILogger.i(TAG, "Found restorable model state, attempting to restore...");
-            cache.restoreModelState((success, message) -> {
-                AILogger.i(TAG, "Model state restore: " + message);
-            });
-        }
+        // 原来的自动恢复代码已注释——防止进程被杀后 START_STICKY 重启时又自动加载模型导致崩溃循环
+        // if (cache.hasRestorableState() && !cache.isCacheExpired()) {
+        //     AILogger.i(TAG, "Found restorable model state, attempting to restore...");
+        //     cache.restoreModelState((success, message) -> {
+        //         AILogger.i(TAG, "Model state restore: " + message);
+        //     });
+        // }
         
         // 初始化聊天记录仓库
         chatRepository = new ChatRepository(context);
 
         // 初始化统一上下文管理器
         UnifiedContextManager.getInstance(context);
+
+        // 组4.4：初始化推理 WakeLock
+        try {
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                inferenceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SmartQuiz:AIInference");
+                inferenceWakeLock.setReferenceCounted(false);
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to init WakeLock: " + e.getMessage());
+        }
 
         // 初始化分块加载器
         this.modelChunkLoader = new ModelChunkLoader();
@@ -198,6 +216,14 @@ public class AIService {
         AILogger.i(TAG, "UnifiedContextManager initialized");
         AILogger.i(TAG, "ModelChunkLoader initialized");
         AILogger.i(TAG, "ModelColdStartOptimizer initialized");
+
+        // 注册 ComponentCallbacks2 —— 系统内存紧张时主动释放模型，不等 OOM
+        try {
+            context.registerComponentCallbacks(this);
+            AILogger.i(TAG, "ComponentCallbacks2 registered for memory pressure handling");
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to register ComponentCallbacks2: " + e.getMessage());
+        }
     }
     
     private void setupNativeLogCallback() {
@@ -540,7 +566,7 @@ public class AIService {
             FutureTask<Boolean> task = new FutureTask<>(this::initialize);
             modelInitSerialExecutor.execute(task);
             try {
-                return Boolean.TRUE.equals(task.get(45, TimeUnit.MINUTES));
+                return Boolean.TRUE.equals(task.get(30, TimeUnit.SECONDS));
             } catch (Exception e) {
                 AILogger.e(TAG, "initializeSafe: " + e.getMessage(), e);
                 return false;
@@ -557,7 +583,7 @@ public class AIService {
             FutureTask<Boolean> task = new FutureTask<>(() -> initialize(modelName));
             modelInitSerialExecutor.execute(task);
             try {
-                return Boolean.TRUE.equals(task.get(45, TimeUnit.MINUTES));
+                return Boolean.TRUE.equals(task.get(30, TimeUnit.SECONDS));
             } catch (Exception e) {
                 AILogger.e(TAG, "initializeSafe(model): " + e.getMessage(), e);
                 return false;
@@ -574,7 +600,7 @@ public class AIService {
             FutureTask<Boolean> task = new FutureTask<>(() -> switchModel(modelName));
             modelInitSerialExecutor.execute(task);
             try {
-                return Boolean.TRUE.equals(task.get(45, TimeUnit.MINUTES));
+                return Boolean.TRUE.equals(task.get(30, TimeUnit.SECONDS));
             } catch (Exception e) {
                 AILogger.e(TAG, "switchModelSafe: " + e.getMessage(), e);
                 return false;
@@ -591,7 +617,7 @@ public class AIService {
             FutureTask<Boolean> task = new FutureTask<>(this::reloadCurrentModel);
             modelInitSerialExecutor.execute(task);
             try {
-                return Boolean.TRUE.equals(task.get(45, TimeUnit.MINUTES));
+                return Boolean.TRUE.equals(task.get(30, TimeUnit.SECONDS));
             } catch (Exception e) {
                 AILogger.e(TAG, "reloadCurrentModelSafe: " + e.getMessage(), e);
                 return false;
@@ -1075,13 +1101,21 @@ public class AIService {
 
         executorService.execute(() -> {
             try {
+                // 组4.4：推理期间持有 WakeLock
+                if (inferenceWakeLock != null && !inferenceWakeLock.isHeld()) {
+                    try { inferenceWakeLock.acquire(600000); } catch (Exception e) { AILogger.w(TAG, "WakeLock acquire failed: " + e.getMessage()); }
+                }
+
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 final String[] result = {null};
                 final Exception[] error = {null};
 
+                // 构建消息列表，由 native 层 llama_chat_apply_template 自动适配模型格式
+                List<PromptBuilder.Message> messages = buildMessagesForModel(prompt, history, null);
+
                 // nativeGenerateStream 是同步阻塞调用，回调在当前线程同步触发
                 // 不需要 wait/notify 机制，直接在回调里 post 结果到主线程
-                LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
                     private StringBuilder fullResponse = new StringBuilder();
 
                     @Override
@@ -1119,6 +1153,20 @@ public class AIService {
                 AILogger.e(TAG, "Throwable caught in generate: possible native crash", t);
                 crashHandler.recordCrashInfo("NATIVE_CRASH", "生成时发生Native崩溃", t);
                 mainHandler.post(() -> callback.onError(new Exception("生成失败，可能是内存或模型问题")));
+            } finally {
+                // 组1.3：非流式推理结束也清 KV，防止跨轮累积
+                try {
+                    if (LlamaHelper.isChatContextActive()) {
+                        LlamaHelper.chatDestroy();
+                        AILogger.i(TAG, "KV cache cleared after generate (per-turn cleanup)");
+                    }
+                } catch (Throwable t) {
+                    AILogger.w(TAG, "Post-inference KV cleanup error: " + t.getMessage());
+                }
+                // 组4.4：推理结束释放 WakeLock
+                if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
+                    try { inferenceWakeLock.release(); } catch (Throwable t) { AILogger.w(TAG, "WakeLock release failed: " + t.getMessage()); }
+                }
             }
         });
     }
@@ -1171,6 +1219,11 @@ public class AIService {
         
         taskFuture[0] = executorService.submit(() -> {
             try {
+                // 组4.4：推理期间持有 WakeLock，防止灭屏/切后台 CPU 挂起导致 decode 停顿
+                if (inferenceWakeLock != null && !inferenceWakeLock.isHeld()) {
+                    try { inferenceWakeLock.acquire(600000); } catch (Exception e) { AILogger.w(TAG, "WakeLock acquire failed: " + e.getMessage()); }
+                }
+
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                 sendLogBroadcast("INFO", "[AIService] 使用聊天上下文进行流式生成");
@@ -1190,34 +1243,31 @@ public class AIService {
                     }
                 }, timeoutMs, TimeUnit.MILLISECONDS);
 
-                // 判断是否使用结构化消息列表：
-                // - 有 promptRequest（结构化 prompt 构建器）→ 用消息列表，native 层 applyChatTemplate 自动适配模型
-                // - 有 history（历史消息列表）→ 用消息列表
-                // - 纯文本 prompt → 保持旧行为，直接送字符串（兼容翻译等调用者自己拼好格式的场景）
-                boolean useMessageList = (promptRequest != null) || (history != null && !history.isEmpty());
-
-                if (useMessageList) {
-                    List<PromptBuilder.Message> messages;
-                    if (promptRequest != null) {
-                        messages = promptRequest.buildMessages();
-                        AILogger.i(TAG, "使用 promptRequest.buildMessages() 构建 " + messages.size() + " 条消息");
-                    } else {
-                        messages = new ArrayList<>(history);
-                        messages.add(new PromptBuilder.Message("user", prompt));
-                        AILogger.i(TAG, "使用 history+user 构建 " + messages.size() + " 条消息");
-                    }
-                    if (messages.isEmpty()) {
-                        completed.set(true);
-                        watchdogFuture.cancel(false);
-                        mainHandler.post(() -> callback.onError(new IllegalArgumentException("消息列表为空")));
-                        return;
-                    }
-                    LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
-                        buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                // 统一使用消息列表路径，由 native 层 llama_chat_apply_template 自动适配模型格式
+                // 避免字符串路径不应用聊天模板导致非 ChatML 模型格式不匹配
+                List<PromptBuilder.Message> messages;
+                if (promptRequest != null) {
+                    messages = promptRequest.buildMessages();
+                    AILogger.i(TAG, "使用 promptRequest.buildMessages() 构建 " + messages.size() + " 条消息");
+                } else if (history != null && !history.isEmpty()) {
+                    messages = new ArrayList<>(history);
+                    messages.add(new PromptBuilder.Message("user", prompt));
+                    AILogger.i(TAG, "使用 history+user 构建 " + messages.size() + " 条消息");
                 } else {
-                    LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
-                        buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                    // 无 history 且无 promptRequest：构建 system + user 消息
+                    messages = new ArrayList<>();
+                    messages.add(new PromptBuilder.Message("system", "你是一个乐于助人的AI助手。请用中文回答用户的问题。"));
+                    messages.add(new PromptBuilder.Message("user", prompt));
+                    AILogger.i(TAG, "使用 system+user 构建 " + messages.size() + " 条消息");
                 }
+                if (messages.isEmpty()) {
+                    completed.set(true);
+                    watchdogFuture.cancel(false);
+                    mainHandler.post(() -> callback.onError(new IllegalArgumentException("消息列表为空")));
+                    return;
+                }
+                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
+                    buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
                 
                 AILogger.i(TAG, "Generation setup completed!");
             } catch (OutOfMemoryError e) {
@@ -1237,10 +1287,72 @@ public class AIService {
                 AILogger.e(TAG, "Throwable in generateStream task: " + t.getMessage(), t);
                 sendLogBroadcast("ERROR", "[AIService] 生成异常: " + t.getMessage());
                 mainHandler.post(() -> callback.onError(new Exception(t)));
+            } finally {
+                // 组1.3 止血补丁：本轮推理结束立刻释放 KV 缓存，不等下一轮才清
+                // 防止 KV 缓存跨轮累积导致内存无限增长 → OOM → 崩溃循环
+                try {
+                    if (LlamaHelper.isChatContextActive()) {
+                        LlamaHelper.chatDestroy();
+                        AILogger.i(TAG, "KV cache cleared after generateStream (per-turn cleanup)");
+                    }
+                } catch (Throwable t) {
+                    AILogger.w(TAG, "Post-inference KV cleanup error: " + t.getMessage());
+                }
+                try {
+                    UnifiedContextManager.getInstance().resetAll();
+                } catch (Throwable t) {
+                    AILogger.w(TAG, "Post-inference context reset error: " + t.getMessage());
+                }
+                // 组4.4：推理结束释放 WakeLock
+                if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
+                    try { inferenceWakeLock.release(); } catch (Throwable t) { AILogger.w(TAG, "WakeLock release failed: " + t.getMessage()); }
+                }
             }
         });
         
         AILogger.i(TAG, "generateStream setup completed, returning...");
+    }
+
+    /**
+     * 组3.7：纯净推理入口 —— 只做三件事：
+     * 1) 存DB + UI气泡
+     * 2) 用 Repository.getContextMessages 拼 system + 场景历史 + 本轮
+     * 3) LlamaHelper.runInferenceOnce（单次纯净推理，前清KV+后清KV+串行化+信号兜底）
+     * 绝不出现 chatDestroy/setPrompt（那些由 C++ runPureInference 内部处理）
+     */
+    public void sendUserMessagePureInference(String scene, long conversationId, String userText, GenerateStreamCallback callback) {
+        updateLastUsedTime();
+
+        if (!isInitialized || !LlamaHelper.isModelInitialized()) {
+            mainHandler.post(() -> callback.onError(new IllegalStateException("AI model not initialized")));
+            return;
+        }
+
+        executorService.submit(() -> {
+            try {
+                // 1) 存DB
+                if (chatRepository != null) {
+                    chatRepository.saveMessage(conversationId, "user", userText, false);
+                }
+
+                // 2) 拼上下文：system + 场景历史 + 本轮
+                List<PromptBuilder.Message> contextMessages = chatRepository.getContextMessages(
+                        com.oilquiz.app.ai.ChatScene.normalize(scene), conversationId, 6);
+                contextMessages.add(new PromptBuilder.Message("user", userText));
+
+                // 3) 纯净推理
+                int safeCtx = LlamaHelper.getSafeContextReference(CHAT_N_CTX);
+                int maxTokens = 1024;
+
+                // 使用消息列表调用流式生成（复用现有 generateStream 逻辑，
+                // 但组1.3 的 finally 块会保证 KV 在本轮结束后被清理）
+                generateStream(userText, contextMessages, maxTokens, callback);
+
+            } catch (Exception e) {
+                AILogger.e(TAG, "sendUserMessagePureInference error: " + e.getMessage(), e);
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
     }
 
     /**
@@ -1301,11 +1413,13 @@ public class AIService {
             return failedFuture;
         }
 
-        String formattedPrompt;
+        // 构建消息列表，由 native 层 llama_chat_apply_template 自动适配模型格式
+        // 避免 Java 层硬编码 ChatML 格式导致非 ChatML 模型（Llama3/Gemma/Phi-3）格式不匹配
+        List<PromptBuilder.Message> messages;
         if (promptRequest != null) {
-            formattedPrompt = promptRequest.build();
+            messages = promptRequest.buildMessages();
         } else {
-            formattedPrompt = formatPromptForModel(prompt, PromptBuilder.truncateHistory(history, 8), systemPrompt);
+            messages = buildMessagesForModel(prompt, PromptBuilder.truncateHistory(history, 8), systemPrompt);
         }
 
         return CompletableFuture.supplyAsync(() -> {
@@ -1321,17 +1435,26 @@ public class AIService {
             }
 
             try {
-                if (formattedPrompt == null || formattedPrompt.trim().isEmpty()) {
-                    AILogger.e(TAG, "Formatted prompt is null or empty");
+                if (messages == null || messages.isEmpty()) {
+                    AILogger.e(TAG, "Messages list is null or empty");
                     throw new IllegalArgumentException("Prompt cannot be null or empty");
                 }
                 // 预留 64 个 token 作为余量
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                 
-                AILogger.i(TAG, "Calling LlamaHelper.generate...");
-                String result = LlamaHelper.generate(formattedPrompt, adjustedMaxTokens, 0.7f);
+                AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
+                String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f);
                 AILogger.i(TAG, "LlamaHelper.generate completed, result length: " + (result != null ? result.length() : 0));
+                
+                // 清理模型输出中的乱码/非法字符
+                String cleaned = ToolResultInterpreter.cleanModelOutput(result);
+                if (cleaned != null) {
+                    result = cleaned;
+                } else if (result != null) {
+                    result = ToolResultInterpreter.sanitize(result);
+                    AILogger.w(TAG, "generateAsync: 模型输出检测为乱码，已清理非法字符");
+                }
                 
                 // 保存聊天记录
                 saveChatMessage(0, "user", prompt, false);
@@ -1388,59 +1511,39 @@ public class AIService {
         }
 
         try {
+            // 组4.4：推理期间持有 WakeLock
+            if (inferenceWakeLock != null && !inferenceWakeLock.isHeld()) {
+                try { inferenceWakeLock.acquire(600000); } catch (Exception e) { AILogger.w(TAG, "WakeLock acquire failed: " + e.getMessage()); }
+            }
+
             if (prompt == null || prompt.trim().isEmpty()) {
                 AILogger.e(TAG, "Prompt is null or empty");
                 throw new IllegalArgumentException("Prompt cannot be null or empty");
             }
 
             int adjustedMaxTokens = Math.max(1, maxTokens - 64);
-            final String[] result = {null};
-            final Exception[] error = {null};
-            final Object lock = new Object();
-            
-            synchronized (lock) {
-                LlamaHelper.generateStream(prompt, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
-                    private StringBuilder fullResponse = new StringBuilder();
-                    
-                    @Override
-                    public void onToken(String token) {
-                        fullResponse.append(token);
-                    }
-                    
-                    @Override
-                    public void onComplete(String fullText) {
-                        result[0] = fullText != null ? fullText : fullResponse.toString();
-                        synchronized (lock) {
-                            lock.notify();
-                        }
-                    }
-                    
-                    @Override
-                    public void onError(String msg) {
-                        error[0] = new Exception(msg);
-                        synchronized (lock) {
-                            lock.notify();
-                        }
-                    }
-                });
-                
-                try {
-                    lock.wait(120000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+
+            // 构建消息列表，由 native 层 llama_chat_apply_template 自动适配模型格式
+            List<PromptBuilder.Message> messages = buildMessagesForModel(prompt, history, null);
+            AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
+
+            String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f);
+
+            // 清理模型输出中的乱码/非法字符
+            String cleaned = ToolResultInterpreter.cleanModelOutput(result);
+            if (cleaned != null) {
+                result = cleaned;
+            } else if (result != null) {
+                result = ToolResultInterpreter.sanitize(result);
+                AILogger.w(TAG, "generateSync: 模型输出检测为乱码，已清理非法字符");
             }
-            
-            if (error[0] != null) {
-                throw error[0];
-            }
-            
-            if (result[0] != null) {
+
+            if (result != null && !result.isEmpty()) {
                 saveChatMessage(0, "user", prompt, false);
-                saveChatMessage(0, "assistant", result[0], false);
-                return result[0];
+                saveChatMessage(0, "assistant", result, false);
+                return result;
             }
-            
+
             throw new Exception("生成超时或无响应");
         } catch (OutOfMemoryError e) {
             AILogger.e(TAG, "OutOfMemoryError in generateSync: " + e.getMessage(), e);
@@ -1448,29 +1551,41 @@ public class AIService {
         } catch (Exception e) {
             AILogger.e(TAG, "Error generating text: " + e.getMessage(), e);
             throw new RuntimeException(e);
+        } finally {
+            // 组1.3：同步推理结束也清 KV
+            try {
+                if (LlamaHelper.isChatContextActive()) {
+                    LlamaHelper.chatDestroy();
+                    AILogger.i(TAG, "KV cache cleared after generateSync (per-turn cleanup)");
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Post-inference KV cleanup error: " + t.getMessage());
+            }
+            // 组4.4：释放 WakeLock
+            if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
+                try { inferenceWakeLock.release(); } catch (Throwable t) { AILogger.w(TAG, "WakeLock release failed: " + t.getMessage()); }
+            }
         }
     }
     
     /**
-     * 根据模型类型调整prompt格式
+     * 构建消息列表，由 native 层 llama_chat_apply_template 自动适配模型格式
+     * 替代旧的 formatPromptForModel（硬编码 ChatML），支持所有模型架构
      */
-    private String formatPromptForModel(String prompt) {
-        return formatPromptForModel(prompt, new ArrayList<>());
+    private List<PromptBuilder.Message> buildMessagesForModel(String prompt) {
+        return buildMessagesForModel(prompt, new ArrayList<>());
     }
 
-    /**
-     * 根据模型类型调整prompt格式，支持历史消息
-     */
-    private String formatPromptForModel(String prompt, List<PromptBuilder.Message> history) {
-        return formatPromptForModel(prompt, history, null);
+    private List<PromptBuilder.Message> buildMessagesForModel(String prompt, List<PromptBuilder.Message> history) {
+        return buildMessagesForModel(prompt, history, null);
     }
 
-    private String formatPromptForModel(String prompt, List<PromptBuilder.Message> history, String systemPrompt) {
-        return formatPromptForModel(prompt, history, systemPrompt, false);
+    private List<PromptBuilder.Message> buildMessagesForModel(String prompt, List<PromptBuilder.Message> history, String systemPrompt) {
+        return buildMessagesForModel(prompt, history, systemPrompt, false);
     }
     
-    private String formatPromptForModel(String prompt, List<PromptBuilder.Message> history, String systemPrompt, boolean forceJavaTruncation) {
-        AILogger.i(TAG, "================= 格式化提示词 =================");
+    private List<PromptBuilder.Message> buildMessagesForModel(String prompt, List<PromptBuilder.Message> history, String systemPrompt, boolean forceJavaTruncation) {
+        AILogger.i(TAG, "================= 构建消息列表 =================");
         AILogger.i(TAG, "原始提示词长度: " + (prompt != null ? prompt.length() : 0));
         AILogger.i(TAG, "历史消息数量: " + (history != null ? history.size() : 0));
         
@@ -1488,9 +1603,17 @@ public class AIService {
             AILogger.i(TAG, "使用Native上下文，跳过Java层裁剪");
         }
         
-        String formattedPrompt = PromptBuilder.build(sys, truncated, prompt);
-        AILogger.i(TAG, "格式化后提示词长度: " + formattedPrompt.length());
-        return formattedPrompt;
+        // 构建消息列表：system + history + user
+        // 由 native 层 llama_chat_apply_template 根据模型内置模板自动格式化
+        List<PromptBuilder.Message> messages = new ArrayList<>();
+        messages.add(new PromptBuilder.Message("system", sys));
+        if (truncated != null) {
+            messages.addAll(truncated);
+        }
+        messages.add(new PromptBuilder.Message("user", prompt));
+        
+        AILogger.i(TAG, "构建消息列表完成，共 " + messages.size() + " 条消息");
+        return messages;
     }
 
     /**
@@ -2993,17 +3116,105 @@ public class AIService {
     }
     
     /**
-     * 处理内存紧张情况
-     * @param level 内存紧张级别
+     * 处理内存紧张情况 —— ComponentCallbacks2 实现
+     * TRIM_MEMORY_RUNNING_LOW：系统内存低，主动释放模型避免 OOM 崩溃
+     * TRIM_MEMORY_UI_HIDDEN_UI：UI 不可见时释放非必要资源
+     * TRIM_MEMORY_MODERATE：后台进程受限，释放所有可释放资源
      */
+    @Override
     public void onTrimMemory(int level) {
         AILogger.i(TAG, "收到内存紧张通知，级别: " + level);
-        
-        if (isInitialized) {
-            long idleTime = getTimeSinceLastUse();
-            int idleMinutes = (int) (idleTime / 1000 / 60);
-            AILogger.i(TAG, "模型已加载，空闲时间: " + idleMinutes + "分钟，保持模型在内存中（热启动）");
+
+        // 正在推理时不释放（防止推理中断）
+        if (activeChatGenerationCount > 0) {
+            AILogger.i(TAG, "有活跃推理任务(count=" + activeChatGenerationCount + ")，跳过内存回收");
+            return;
         }
+
+        switch (level) {
+            case ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW:
+                // 系统内存低：主动释放模型，让 UI 显示 UNLOADED 状态
+                AILogger.w(TAG, "TRIM_MEMORY_RUNNING_LOW: 主动释放模型避免 OOM");
+                unloadModelForMemoryPressure("系统内存不足，已自动释放AI模型");
+                break;
+
+            case ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN:
+                // UI 不可见：释放聊天上下文（保留模型）
+                AILogger.i(TAG, "TRIM_MEMORY_UI_HIDDEN: 释放聊天上下文");
+                try {
+                    if (LlamaHelper.isChatContextActive()) {
+                        LlamaHelper.chatDestroy();
+                        AILogger.i(TAG, "聊天上下文已释放");
+                    }
+                } catch (Throwable t) {
+                    AILogger.w(TAG, "释放聊天上下文失败: " + t.getMessage());
+                }
+                break;
+
+            case ComponentCallbacks2.TRIM_MEMORY_MODERATE:
+            case ComponentCallbacks2.TRIM_MEMORY_COMPLETE:
+                // 严重内存压力：释放所有资源
+                AILogger.w(TAG, "严重内存压力级别 " + level + ": 释放所有AI资源");
+                unloadModelForMemoryPressure("严重内存压力，已释放AI模型");
+                break;
+
+            default:
+                AILogger.i(TAG, "内存级别 " + level + " 无需特殊处理");
+                break;
+        }
+    }
+
+    /**
+     * 因内存压力释放模型 —— 推送到 ViewModel 让 UI 显示 UNLOADED 状态
+     */
+    private void unloadModelForMemoryPressure(String reason) {
+        try {
+            // 停掉推理（如果有）
+            try {
+                LlamaHelper.stopGeneration();
+            } catch (Throwable ignored) {}
+
+            // 释放聊天上下文
+            try {
+                if (LlamaHelper.isChatContextActive()) {
+                    LlamaHelper.chatDestroy();
+                }
+            } catch (Throwable ignored) {}
+
+            // 释放模型
+            if (LlamaHelper.isModelInitialized()) {
+                LlamaHelper.release();
+                AILogger.w(TAG, "模型已释放: " + reason);
+            }
+
+            isInitialized = false;
+            currentModelName = null;
+
+            // 广播 UNLOADED 状态给所有观察者
+            synchronized (statusObservers) {
+                for (StatusObserver obs : statusObservers) {
+                    try {
+                        obs.onStatusChanged(false, null);
+                    } catch (Throwable t) {
+                        AILogger.w(TAG, "状态通知失败: " + t.getMessage());
+                    }
+                }
+            }
+
+        } catch (Throwable t) {
+            AILogger.e(TAG, "unloadModelForMemoryPressure failed: " + t.getMessage(), t);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        // 不处理配置变更
+    }
+
+    @Override
+    public void onLowMemory() {
+        AILogger.w(TAG, "onLowMemory: 系统内存严重不足！");
+        unloadModelForMemoryPressure("系统内存严重不足，已紧急释放AI模型");
     }
     
     /**
@@ -3522,11 +3733,22 @@ public class AIService {
                 sendLogBroadcast("INFO", "[AIService] 生成完成: 完整文本长度=" + (fullText != null ? fullText.length() : 0) + ", 耗时=" + elapsed + "ms");
                 sendLogBroadcast("INFO", "[AIService] 性能监控: 推理速度=" + String.format("%.2f", inferenceSpeed) + " tokens/s, token数=" + tokenCount);
 
+                // 清理模型输出中的乱码/非法字符
+                String outputText = fullText;
+                String cleaned = ToolResultInterpreter.cleanModelOutput(fullText);
+                if (cleaned != null) {
+                    outputText = cleaned;
+                } else if (fullText != null) {
+                    outputText = ToolResultInterpreter.sanitize(fullText);
+                    AILogger.w(TAG, "generateStream: 模型输出检测为乱码，已清理非法字符");
+                }
+                final String finalOutput = outputText;
+
                 mainHandler.post(() -> {
                     try {
-                        callback.onSuccess(fullText);
+                        callback.onSuccess(finalOutput);
                         saveChatMessage(0, "user", prompt, false);
-                        saveChatMessage(0, "assistant", fullText, false);
+                        saveChatMessage(0, "assistant", finalOutput, false);
                     } catch (Exception e) {
                         AILogger.e(TAG, "Error in onComplete callback: " + e.getMessage(), e);
                     }

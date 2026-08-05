@@ -94,8 +94,9 @@ public class ModelMemoryManager {
 
         // 根据设备内存设置默认配置
         if (maxMemoryMB <= 2048) {
-            // 2GB以下设备：禁用mmap，使用最小内存
-            useMmap = false;
+            // 2GB以下设备：启用mmap（按需从磁盘加载模型权重，减少物理内存占用）
+            // 注意：之前 useMmap=false 是反的——低内存设备更需要 mmap 来避免一次性把模型权重全读进物理内存
+            useMmap = true;
             useMlock = false;
         } else if (maxMemoryMB <= 4096) {
             // 2-4GB设备：启用mmap，禁用mlock

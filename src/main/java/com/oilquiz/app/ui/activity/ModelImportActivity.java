@@ -39,6 +39,7 @@ public class ModelImportActivity extends AppCompatActivity {
     private TextView importMessageTextView;
     private MaterialButton viewModelsButton;
     private MaterialButton importAnotherButton;
+    private MaterialButton goDownloadButton;
     private LinearLayout progressContainer;
     private TextView importProgressTextView;
     private ProgressBar progressBar;
@@ -63,6 +64,7 @@ public class ModelImportActivity extends AppCompatActivity {
             importMessageTextView = findViewById(R.id.tv_import_message);
             viewModelsButton = findViewById(R.id.btn_view_models);
             importAnotherButton = findViewById(R.id.btn_import_another);
+            goDownloadButton = findViewById(R.id.btn_go_download);
             progressContainer = findViewById(R.id.progress_container);
             importProgressTextView = findViewById(R.id.tv_import_progress);
             progressBar = findViewById(R.id.progress_bar);
@@ -121,6 +123,16 @@ public class ModelImportActivity extends AppCompatActivity {
                         if (actionsContainer != null) {
                             actionsContainer.setVisibility(View.GONE);
                         }
+                    }
+                });
+            }
+            
+            if (goDownloadButton != null) {
+                goDownloadButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        Intent intent = new Intent(ModelImportActivity.this, ModelDownloadActivity.class);
+                        startActivity(intent);
                     }
                 });
             }

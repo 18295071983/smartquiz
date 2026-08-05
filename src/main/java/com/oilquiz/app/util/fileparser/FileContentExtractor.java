@@ -36,7 +36,11 @@ public class FileContentExtractor {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String mimeType = context.getContentResolver().getType(fileUri);
-                if (mimeType == null) {
+                // ⚠ Uri.fromFile(file) 场景拿不到mimeType时，必须回退到扩展名判断
+                if (mimeType == null || mimeType.isEmpty()) {
+                    mimeType = guessMimeTypeFromExtension(fileUri);
+                }
+                if (mimeType == null || mimeType.isEmpty()) {
                     return "无法确定文件类型";
                 }
 
@@ -46,13 +50,13 @@ public class FileContentExtractor {
                     return extractTextFromImage(fileUri);
                 } else if (mimeType.equals("application/pdf")) {
                     return extractPdfContent(fileUri);
-                } else if (mimeType.equals("application/msword") || mimeType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+                } else if (isWordMime(mimeType)) {
                     return extractWordContent(fileUri);
-                } else if (mimeType.equals("application/vnd.ms-excel") || mimeType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
+                } else if (isExcelMime(mimeType)) {
                     return extractExcelContent(fileUri);
                 } else if (mimeType.equals("application/json")) {
                     return extractTextFromUri(fileUri);
-                } else if (mimeType.equals("application/zip") || mimeType.equals("application/x-zip-compressed")) {
+                } else if (isZipMime(mimeType)) {
                     return extractZipContent(fileUri);
                 } else if (mimeType.equals("text/html")) {
                     return extractHtmlContent(fileUri);
@@ -63,6 +67,39 @@ public class FileContentExtractor {
                 return "文件解析失败: " + e.getMessage();
             }
         });
+    }
+
+    /** 从 Uri 的最后一段路径推断 MIME 类型（应对 ContentResolver.getType() == null 的场景） */
+    private String guessMimeTypeFromExtension(Uri uri) {
+        String name = uri.getLastPathSegment();
+        if (name == null) return null;
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".doc"))  return "application/msword";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".xls"))  return "application/vnd.ms-excel";
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".zip"))  return "application/zip";
+        if (lower.endsWith(".htm") || lower.endsWith(".html")) return "text/html";
+        if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".csv")) return "text/plain";
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".bmp") || lower.endsWith(".webp")) {
+            return "image/*";
+        }
+        return null;
+    }
+
+    private static boolean isExcelMime(String m) {
+        return "application/vnd.ms-excel".equals(m)
+                || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".equals(m);
+    }
+    private static boolean isWordMime(String m) {
+        return "application/msword".equals(m)
+                || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(m);
+    }
+    private static boolean isZipMime(String m) {
+        return "application/zip".equals(m) || "application/x-zip-compressed".equals(m);
     }
 
     private File saveUriToTempFile(Uri uri, String extension) {
@@ -122,14 +159,24 @@ public class FileContentExtractor {
     }
 
     private String extractExcelContent(Uri uri) {
-        File tempFile = saveUriToTempFile(uri, ".xlsx");
+        // 根据原始文件名确定扩展名（xls vs xlsx）
+        String fileName = getFileName(uri);
+        String ext = ".xlsx";
+        if (fileName != null && fileName.toLowerCase().endsWith(".xls") && !fileName.toLowerCase().endsWith(".xlsx")) {
+            ext = ".xls";
+        }
+        File tempFile = saveUriToTempFile(uri, ext);
         if (tempFile == null) {
             return "Excel文件需要特殊处理";
         }
         try {
             List<String[]> data = OfficeParserUtil.parseExcelFirstSheet(tempFile);
             if (data != null && !data.isEmpty()) {
-                return formatExcelData(data);
+                String markdown = formatExcelData(data);
+                // ========== 诊断：Markdown输出节点 ==========
+                com.oilquiz.app.util.ImportDebugTracer.trace("【3】FileContentExtractor-Format后",
+                        markdown.substring(0, Math.min(500, markdown.length())));
+                return markdown;
             }
             return "Excel解析失败，请检查文件是否损坏";
         } finally {

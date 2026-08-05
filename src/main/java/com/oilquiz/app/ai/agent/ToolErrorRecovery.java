@@ -20,11 +20,17 @@ public class ToolErrorRecovery {
         public String description;
         /** 是否可自动获取（位置类可自动，文本类需用户输入） */
         public boolean autoFillable;
+        /** 是否必填（默认 true） */
+        public boolean required;
 
         public MissingParam(String key, String description, boolean autoFillable) {
+            this(key, description, autoFillable, true);
+        }
+        public MissingParam(String key, String description, boolean autoFillable, boolean required) {
             this.key = key;
             this.description = description;
             this.autoFillable = autoFillable;
+            this.required = required;
         }
     }
 

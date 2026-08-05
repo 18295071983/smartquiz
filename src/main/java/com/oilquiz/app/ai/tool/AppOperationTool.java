@@ -12,18 +12,24 @@ import java.util.Map;
 
 @Tool(
     value = "app_operation",
-    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面",
+    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面，支持获取应用信息、打开系统设置、分享内容",
     category = "app",
-    aliases = {"navigate", "go_to", "open_page", "跳转"},
+    aliases = {"navigate", "go_to", "open_page", "跳转", "页面导航", "设置", "分享"},
     actions = {
         @Action(name = "navigate", description = "跳转到指定页面"),
         @Action(name = "list_pages", description = "列出可用页面"),
         @Action(name = "go_home", description = "返回主页"),
-        @Action(name = "go_back", description = "返回上一页")
+        @Action(name = "go_back", description = "返回上一页"),
+        @Action(name = "get_info", description = "获取应用基本信息"),
+        @Action(name = "open_settings", description = "打开系统设置页（WiFi/蓝牙/定位/显示等）"),
+        @Action(name = "share", description = "调用系统分享分享文本内容")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作类型", required = true),
-        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等)", required = false)
+        @Param(name = "action", type = "string", description = "操作类型: navigate/list_pages/go_home/go_back/get_info/open_settings/share", required = true),
+        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等)", required = false),
+        @Param(name = "setting", type = "string", description = "设置项: wifi/bluetooth/location/display/sound/storage/app", required = false),
+        @Param(name = "text", type = "string", description = "分享的文本内容", required = false),
+        @Param(name = "title", type = "string", description = "分享标题（可选）", required = false)
     }
 )
 public class AppOperationTool implements AITool {

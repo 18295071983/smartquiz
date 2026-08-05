@@ -187,8 +187,11 @@ public class ChatMessage {
     /** 思考内容文本（流式思考过程的纯文本） */
     public String thinkingContent;
 
-    /** 思考区域是否展开（生成中默认展开，生成完成后自动折叠，用户可点击切换） */
-    public boolean thinkingExpanded = true;
+    /**
+     * 思考区域是否展开（默认折叠，用户可点击切换）。
+     * 注意：流式生成中也保持折叠以节省屏幕空间，但 label 会显示"思考中..."。
+     */
+    public boolean thinkingExpanded = false;
 
     /** 附件列表 */
     public List<Attachment> attachments;
@@ -256,6 +259,17 @@ public class ChatMessage {
     /** 用户是否手动操作过展开/收起（用于区分首次自动展开与用户主动收起） */
     public boolean hasUserToggledExpand;
 
+    /** Agent执行组ID：同一组agent执行产生的中间消息（思考、工具调用、步骤）共享同一ID */
+    public String agentGroupId;
+    /** 是否为Agent执行组的header消息（点击可折叠/展开整组） */
+    public boolean isAgentGroupHeader;
+    /** Agent执行组是否已折叠（仅header使用，默认折叠） */
+    public boolean agentGroupCollapsed = true;
+    /** Agent执行组内的步骤数（仅header使用，用于显示摘要） */
+    public int agentGroupStepCount = 0;
+    /** Agent执行组内的工具调用数（仅header使用） */
+    public int agentGroupToolCount = 0;
+
     /** 在线模型信息 */
     public ModelInfo modelInfo;
 
@@ -313,10 +327,27 @@ public class ChatMessage {
         public String result;
         public ToolCallStatus status;
         public long executionTimeMs;
-        /** 参数区域是否展开（默认展开，让用户直接看到构建参数） */
-        public boolean paramsExpanded = true;
-        /** 结果区域是否展开 */
-        public boolean resultExpanded = true;
+        /** 参数区域是否展开（默认折叠，节省屏幕空间） */
+        public boolean paramsExpanded = false;
+        /** 结果区域是否展开（默认折叠） */
+        public boolean resultExpanded = false;
+        /** 整个工具调用块是否展开（默认折叠，只显示摘要行） */
+        public boolean callExpanded = false;
+        /** 原始 AIToolResult.result 数据（未经过 formatForUi 处理），供后续用户点击 AI 深度解读按钮时使用 */
+        public transient Object rawResult;
+        /** 是否已完成/至少点击过一次 AI 深度解读（避免重复按钮/重复请求） */
+        public boolean interpretationDone = false;
+        /**
+         * 是否有可用的 LLM（在线或本地）允许 AI 深度解读。
+         * 由 AIChatActivity 在工具执行完时一次性赋值（调用 ToolResultInterpreter.isAnyModelAvailable），
+         * ChatAdapter 只读取此字段，避免在 RecyclerView 绑定时做重量级操作（如 new ALChat()）导致气泡不显示。
+         */
+        public boolean canInterpret = false;
+        /**
+         * AI 自动解读产生的自然语言摘要（若为 null 则未解读）。
+         * 原来作为独立 AI 主气泡（addAIMessage）显示，现直接挂在工具调用消息上作为结果区顶部文本。
+         */
+        public String interpretedMessage = null;
 
         public enum ToolCallStatus {
             PENDING,
@@ -388,6 +419,8 @@ public class ChatMessage {
         public String detail;
         public long executionTimeMs;
         public int tokenCount;
+        /** 步骤描述是否展开（默认折叠） */
+        public boolean stepExpanded = false;
 
         public enum AgentStepType {
             THINKING,
@@ -944,7 +977,9 @@ public class ChatMessage {
         SHOW_GUIDE,
         VIEW_TOOL_DETAILS,
         EXPORT_SUMMARY,
-        REPORT_ERROR
+        REPORT_ERROR,
+        /** 用户点击工具调用卡片中的"AI深度解读"按钮：由 AIChatActivity 触发 LLM 解释 */
+        AI_INTERPRET_RESULT
     }
 
     /**
@@ -1000,6 +1035,14 @@ public class ChatMessage {
         public static Action reportError(String messageId, String content) {
             return new Action(ActionType.REPORT_ERROR, messageId, content);
         }
+
+        /**
+         * 触发 AI 深度解读指定工具调用消息。
+         * @param messageId 工具调用消息的 ID（用于定位 toolName + rawResult）
+         */
+        public static Action aiInterpretResult(String messageId) {
+            return new Action(ActionType.AI_INTERPRET_RESULT, messageId, null);
+        }
     }
 
     /**
@@ -1051,6 +1094,7 @@ public class ChatMessage {
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
         this.inferenceProgress = builder.inferenceProgress;
+        this.agentGroupId = builder.agentGroupId;
     }
 
     // ==================== 静态工厂方法 ====================
@@ -1215,7 +1259,7 @@ public class ChatMessage {
                 .agentMode(true)
                 .taskProgress(round)
                 .build();
-        msg.thinkingExpanded = true;
+        msg.thinkingExpanded = false;
         return msg;
     }
 
@@ -1566,6 +1610,7 @@ public class ChatMessage {
         private boolean retryable = false;
         private Integer taskProgress;
         private boolean isExpanded = false;
+        private String agentGroupId;
         private InferenceProgress inferenceProgress;
 
         public Builder(MessageType type) {
@@ -1722,6 +1767,11 @@ public class ChatMessage {
 
         public Builder expanded(boolean expanded) {
             this.isExpanded = expanded;
+            return this;
+        }
+
+        public Builder agentGroupId(String groupId) {
+            this.agentGroupId = groupId;
             return this;
         }
 
