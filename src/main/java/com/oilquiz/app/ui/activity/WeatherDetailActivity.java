@@ -4,6 +4,8 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -218,7 +220,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         hasLocation = (lat != 0 && lon != 0);
 
         if (city == null || city.isEmpty()) {
-            city = "北京";
+            city = "";
         }
 
         weatherService = WeatherService.getInstance(this);
@@ -229,10 +231,32 @@ public class WeatherDetailActivity extends AppCompatActivity {
         setupHourlyRecyclerView();
         showMockData();
 
-        if (hasLocation) {
+        /* ================================================================
+         * 城市名显示的核心原则：
+         *  1. 用户明确选择的城市名（Intent带city / 搜索选择）→ 直接显示API原始名，绝不拼接，绝不同步横幅
+         *  2. 只有坐标没有明确城市名（GPS定位成功）→ Geocoder反解析具体地址，并同步横幅
+         *  3. 两个场景完全独立！不要混为一谈！
+         * ================================================================ */
+        final boolean userPickedExplicitCity = (city != null && !city.isEmpty());
+        if (userPickedExplicitCity) {
+            // ---------- 场景1：Intent 里已经带了明确的城市名（用户选择过的）----------
+            // 直接用 API 返回的原名，去掉省/市前缀即可（truncateCityName 只去前缀不切中间）
+            if (tvCity != null) tvCity.setText(truncateCityName(city));
+            // 有坐标也不要反解析！会把"银川市"变成"金凤区银川市"造成歧义！
+            updateLocationInfo();
+            loadWeatherData();
+        } else if (hasLocation) {
+            // ---------- 场景2A：有坐标没城市名 → GPS/系统缓存定位成功 ----------
+            // 占位先，后台异步反解析具体地址（区+路），并同步给横幅
+            if (tvCity != null) tvCity.setText("当前位置");
+            asyncResolveFullAddress(lat, lon, addr -> {
+                city = addr;
+                if (tvCity != null) tvCity.setText(truncateCityName(addr));
+            });
+            updateLocationInfo();
             loadWeatherData();
         } else {
-            // 没有从 Intent 获取到坐标，尝试 GPS 定位
+            // ---------- 场景2B：连坐标都没有 → 请求GPS ----------
             tryGetGpsLocation();
         }
     }
@@ -245,6 +269,127 @@ public class WeatherDetailActivity extends AppCompatActivity {
         } else {
             tvLocationInfo.setText("无GPS坐标，使用城市名查询");
         }
+    }
+
+    /**
+     * 参考小米天气策略：显示"最具体的地址"，优先级：
+     *   1. 区 + 路/街道名     （例：金凤区凤仪路）    ← 最优，用户一眼看出在哪条路
+     *   2. 区 + 市           （例：南山区深圳市）
+     *   3. 路/街道名         （例：科技园南路）
+     *   4. 市               （例：广州市）
+     *   5. 小区/学校/医院名   （featureName 具体地标）
+     * 最大长度控制在 12 字内
+     */
+    private String getFullAddressName(double lat, double lon) {
+        if (Geocoder.isPresent()) {
+            try {
+                Geocoder geocoder = new Geocoder(this, java.util.Locale.CHINA);
+                java.util.List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address address = addresses.get(0);
+                    String district = address.getSubLocality();  // 区
+                    String cityName = address.getLocality();     // 市
+                    String road = address.getThoroughfare();     // 街道/路名（凤仪路、科技园南路）
+                    String feature = address.getFeatureName();   // 具体地标（小区、学校、医院、门牌号）
+
+                    String name = null;
+                    // 1. 区 + 路（最优，最具体）
+                    if (district != null && !district.isEmpty()
+                        && road != null && !road.isEmpty()
+                        && (district.length() + road.length() <= 12)) {
+                        name = district + road;
+                    }
+                    // 2. 路 + 具体地标（例：凤仪路123号 或 科技园南路腾讯大厦）
+                    if ((name == null || name.isEmpty())
+                        && road != null && !road.isEmpty()
+                        && feature != null && !feature.isEmpty()
+                        && feature.length() <= 6
+                        && (road.length() + feature.length() <= 12)) {
+                        name = road + feature;
+                    }
+                    // 3. 区 + 市
+                    if ((name == null || name.isEmpty())
+                        && district != null && !district.isEmpty()
+                        && cityName != null && !cityName.isEmpty()) {
+                        String combined = district + cityName;
+                        if (combined.length() <= 10) {
+                            name = combined;
+                        } else {
+                            name = district;
+                        }
+                    }
+                    // 4. 单独的路/街道名
+                    if ((name == null || name.isEmpty())
+                        && road != null && !road.isEmpty()
+                        && road.length() <= 10) {
+                        name = road;
+                    }
+                    // 5. 单独的区
+                    if ((name == null || name.isEmpty())
+                        && district != null && !district.isEmpty()) {
+                        name = district;
+                    }
+                    // 6. 单独的市
+                    if ((name == null || name.isEmpty())
+                        && cityName != null && !cityName.isEmpty()) {
+                        name = cityName;
+                    }
+                    // 7. 具体地标名（小区名等）
+                    if ((name == null || name.isEmpty())
+                        && feature != null && !feature.isEmpty()) {
+                        name = feature;
+                    }
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Geocoder failed: " + e.getMessage());
+            }
+        }
+        return city != null && !city.isEmpty() ? city : "当前位置";
+    }
+
+    /**
+     * 最简城市名处理：只做"去掉省/市级前缀"，其余原样返回，绝不截断中间内容
+     *   - 如果以"XX省/自治区/特别行政区/XX市"开头，去掉这部分前缀
+     *   - 其余情况（包括短名、区+路、路+小区等）全部原样返回
+     *
+     * 设计原则：宁显示长一点，也不能把"金凤"这种合法的字切掉。
+     */
+    private String truncateCityName(String name) {
+        if (name == null || name.isEmpty()) return name;
+
+        String s = name;
+
+        // 1. 去掉开头的省级前缀（省 / 自治区 / 特别行政区）
+        int provEnd = -1;
+        int sheng = s.indexOf('省');
+        int zhiQu = s.indexOf("自治区");
+        int teBie = s.indexOf("特别行政区");
+        if (sheng >= 0 && sheng < 8) provEnd = Math.max(provEnd, sheng + 1);
+        if (zhiQu >= 0 && zhiQu < 12) provEnd = Math.max(provEnd, zhiQu + 3);
+        if (teBie >= 0 && teBie < 15) provEnd = Math.max(provEnd, teBie + 5);
+        if (provEnd > 0 && provEnd < s.length()) {
+            s = s.substring(provEnd);
+        }
+
+        // 2. 去掉开头的市级前缀（XX市），只有当"市"在前6个字以内，且后面跟着区/路/街等才去，避免误删"市辖区XX路"
+        int shiIdx = s.indexOf('市');
+        if (shiIdx > 0 && shiIdx <= 5 && shiIdx + 1 < s.length()) {
+            char after = s.charAt(shiIdx + 1);
+            // 后面是区/县/路/街/巷/大道/小区/大厦 等具体名 → 去市级前缀
+            if (after == '区' || after == '县' || after == '路' || after == '街'
+                || after == '巷' || after == '大' || after == '小' || after == '花'
+                || after == '园' || after == '大') {
+                s = s.substring(shiIdx + 1);
+            }
+        }
+
+        // 兜底：如果省/市前缀去完后变成空了，返回原名
+        if (s.isEmpty()) return name;
+
+        return s;
     }
 
     /** 尝试通过 GPS/网络定位获取坐标 */
@@ -282,12 +427,19 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (lastKnown != null) {
             lat = lastKnown.getLatitude();
-                lon = lastKnown.getLongitude();
-                hasLocation = true;
-                Log.d(TAG, "Got last known location: " + lat + ", " + lon);
-                updateLocationInfo();
-                if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
-                loadWeatherData();
+            lon = lastKnown.getLongitude();
+            hasLocation = true;
+            Log.d(TAG, "Got last known location: " + lat + ", " + lon);
+            // 先刷新UI占位，后台异步反解析具体地址（区+路），并同步到横幅
+            if (city == null || city.isEmpty()) city = "当前位置";
+            if (tvCity != null) tvCity.setText(truncateCityName(city));
+            asyncResolveFullAddress(lat, lon, addr -> {
+                city = addr;
+                if (tvCity != null) tvCity.setText(truncateCityName(addr));
+            });
+            updateLocationInfo();
+            if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
+            loadWeatherData();
             return;
         }
 
@@ -310,6 +462,13 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 lon = location.getLongitude();
                 hasLocation = true;
                 Log.d(TAG, "Got GPS location: " + lat + ", " + lon);
+                // 先显示占位，后台异步反解析"区+路"等具体地址，并同步到横幅（自动刷新）
+                if (city == null || city.isEmpty()) city = "当前位置";
+                if (tvCity != null) tvCity.setText(truncateCityName(city));
+                asyncResolveFullAddress(lat, lon, addr -> {
+                    city = addr;
+                    if (tvCity != null) tvCity.setText(truncateCityName(addr));
+                });
                 updateLocationInfo();
                 if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
                 loadWeatherData();
@@ -324,9 +483,16 @@ public class WeatherDetailActivity extends AppCompatActivity {
             lm.removeUpdates(listener);
             if (!hasLocation) {
                 if (isFinishing() || isDestroyed()) return;
-                Log.w(TAG, "GPS timeout, falling back to city name: " + city);
-                if (tvUpdateTime != null) tvUpdateTime.setText("定位超时，使用城市查询");
-                loadWeatherData();
+                if (city != null && !city.isEmpty()) {
+                    Log.w(TAG, "GPS timeout, falling back to city name: " + city);
+                    if (tvUpdateTime != null) tvUpdateTime.setText("定位超时，使用城市查询");
+                    loadWeatherData();
+                } else {
+                    Log.w(TAG, "GPS timeout and no city name available");
+                    if (tvUpdateTime != null) tvUpdateTime.setText("定位超时，无法获取天气");
+                    if (tvCity != null) tvCity.setText("未知位置");
+                    if (tvWeather != null) tvWeather.setText("定位失败");
+                }
             }
         }, 10000);
 
@@ -339,9 +505,16 @@ public class WeatherDetailActivity extends AppCompatActivity {
             } else {
                 // 没有可用的定位提供者
                 handler.removeCallbacksAndMessages(null);
-                Log.w(TAG, "No location provider available, falling back to city name");
-                if (tvUpdateTime != null) tvUpdateTime.setText("无法定位，使用城市查询");
-                loadWeatherData();
+                if (city != null && !city.isEmpty()) {
+                    Log.w(TAG, "No location provider available, falling back to city name");
+                    if (tvUpdateTime != null) tvUpdateTime.setText("无法定位，使用城市查询");
+                    loadWeatherData();
+                } else {
+                    Log.w(TAG, "No location provider and no city available");
+                    if (tvUpdateTime != null) tvUpdateTime.setText("无法定位");
+                    if (tvCity != null) tvCity.setText("未知位置");
+                    if (tvWeather != null) tvWeather.setText("无法获取位置");
+                }
             }
         } catch (SecurityException e) {
             handler.removeCallbacksAndMessages(null);
@@ -700,19 +873,54 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 weatherService.clearCacheForLocation(cityEntry.latitude, cityEntry.longitude);
                 weatherService.clearCacheForCity(cityEntry.nameZh);
 
+                /* ---------- 用户主动选择的城市！只用 API 返回的 nameZh ----------
+                 *  ❌ 绝不调用 asyncResolveFullAddress！
+                 *      → 会把用户选的"银川市"变成"金凤区银川市"，造成歧义！
+                 *  ❌ 绝不同步横幅！
+                 *      → 用户只是临时想看看别的城市天气，不要污染首页的定位城市！
+                 * -------------------------------------------------------------- */
                 city = cityEntry.nameZh;
-                lat = cityEntry.latitude;
-                lon = cityEntry.longitude;
+                lat  = cityEntry.latitude;
+                lon  = cityEntry.longitude;
                 hasLocation = (lat != 0 && lon != 0);
-                if (tvCity != null) tvCity.setText(city);
+                if (tvCity != null) tvCity.setText(truncateCityName(city));
+                updateLocationInfo();
 
                 // 重置 UI 为加载状态
                 showMockData();
-
                 loadWeatherData();
             }
         });
         dialog.show();
+    }
+
+    /**
+     * 异步反解析坐标，获取最具体的位置名（区+路等），避免在主线程调用 Geocoder。
+     * 解析成功后：①回调刷新详情页；②同步到天气横幅的共享缓存并发广播通知立即刷新。
+     */
+    private void asyncResolveFullAddress(double latitude, double longitude,
+                                         java.util.function.Consumer<String> onResolved) {
+        if (onResolved == null) return;
+        final double latF = latitude;
+        final double lonF = longitude;
+        new Thread(() -> {
+            String addr = getFullAddressName(latF, lonF);
+            if (addr != null && !addr.isEmpty()) {
+                final String finalAddr = addr;
+                runOnUiThread(() -> {
+                    onResolved.accept(finalAddr);
+                    // 同步到横幅：写 SP + 发广播，主页面正在显示的 Banner 会立即刷新
+                    try {
+                        com.oilquiz.app.ui.widget.WeatherBannerView
+                                .updateSharedLocationCacheAndNotify(
+                                        WeatherDetailActivity.this, finalAddr, latF, lonF);
+                    } catch (Exception e) {
+                        android.util.Log.w("WeatherDetail",
+                                "同步地址到横幅失败: " + e.getMessage());
+                    }
+                });
+            }
+        }, "addr-resolve").start();
     }
 
     private void setupIconFonts() {
@@ -757,7 +965,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private void showMockData() {
-        if (tvCity != null) tvCity.setText(city);
+        if (tvCity != null) tvCity.setText(truncateCityName(city));
         if (tvTemp != null) tvTemp.setText("--°");
         if (tvWeather != null) tvWeather.setText("加载中...");
         if (tvTempRange != null) tvTempRange.setText("");
@@ -860,6 +1068,17 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (weatherService == null) return;
 
         updateLocationInfo();
+
+        // 没有坐标且城市为空时，无法查询天气
+        if (!hasLocation && (city == null || city.isEmpty())) {
+            Log.w(TAG, "No location and no city, cannot load weather");
+            runOnUiThread(() -> {
+                if (tvWeather != null) tvWeather.setText("无法获取位置信息");
+                if (tvUpdateTime != null) tvUpdateTime.setText("请先开启定位权限");
+                if (tvCity != null) tvCity.setText("未知位置");
+            });
+            return;
+        }
 
         java.util.concurrent.CompletableFuture<WeatherService.WeatherBatchResult> future;
         if (hasLocation) {
@@ -1113,7 +1332,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             }
         }
 
-        if (tvCity != null && city != null) tvCity.setText(city);
+        if (tvCity != null && city != null) tvCity.setText(truncateCityName(city));
         if (tvTemp != null) tvTemp.setText(temp + "°");
         if (tvWeather != null) tvWeather.setText(weather);
         if (ivCurrentIcon != null) ivCurrentIcon.setText(QWeatherIconFont.getIcon(iconCode));

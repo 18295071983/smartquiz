@@ -2,6 +2,8 @@ package com.oilquiz.app.ui.activity;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.Spinner;
@@ -15,11 +17,13 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.model.ModelManager;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.AIConfig.OptimizationMode;
+import com.oilquiz.app.ai.stats.TokenStatsManager;
 
 import java.util.Arrays;
 import java.util.List;
@@ -31,6 +35,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     private AIService aiService;
     private ModelManager modelManager;
+    private InferenceRouter inferenceRouter;
 
     // 状态指示灯
     private View statusLight;
@@ -64,6 +69,29 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView contextRemaining;
     private TextView contextPercent;
     private View contextProgress;
+
+    // 模型架构信息
+    private TextView modelParams;
+    private TextView modelLayers;
+    private TextView modelHeads;
+    private TextView modelEmbd;
+    private TextView modelCtxTrain;
+    private TextView modelMemory;
+    private TextView modelSpeed;
+    private TextView modelTokens;
+    private TextView modelFilename;
+    private TextView modelParamsInfo;
+
+    // 实时指标定时刷新
+    private final Handler metricsHandler = new Handler(Looper.getMainLooper());
+    private static final int METRICS_INTERVAL_MS = 2000;
+    private final Runnable metricsRunnable = new Runnable() {
+        @Override
+        public void run() {
+            updateRealtimeMetrics();
+            metricsHandler.postDelayed(this, METRICS_INTERVAL_MS);
+        }
+    };
     
     private MaterialButton btnSelectModel;
     private MaterialButton btnTestAi;
@@ -81,6 +109,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         // 初始化服务
         aiService = AIService.getInstance(this);
         modelManager = new ModelManager(this);
+        inferenceRouter = InferenceRouter.getInstance(this);
 
         // 初始化UI组件
         initUI();
@@ -101,6 +130,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // 停止定时刷新
+        metricsHandler.removeCallbacks(metricsRunnable);
         // 取消注册状态观察者，避免内存泄漏
         aiService.unregisterStatusObserver(this);
     }
@@ -138,6 +169,18 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         contextRemaining = findViewById(R.id.context_remaining);
         contextPercent = findViewById(R.id.context_percent);
         contextProgress = findViewById(R.id.context_progress);
+
+        // 模型架构信息
+        modelParams = findViewById(R.id.model_params);
+        modelLayers = findViewById(R.id.model_layers);
+        modelHeads = findViewById(R.id.model_heads);
+        modelEmbd = findViewById(R.id.model_embd);
+        modelCtxTrain = findViewById(R.id.model_ctx_train);
+        modelMemory = findViewById(R.id.model_memory);
+        modelSpeed = findViewById(R.id.model_speed);
+        modelTokens = findViewById(R.id.model_tokens);
+        modelFilename = findViewById(R.id.model_filename);
+        modelParamsInfo = findViewById(R.id.model_params_info);
 
         // 按钮
         btnSelectModel = findViewById(R.id.btn_select_model);
@@ -281,6 +324,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         updateMainStatus(modelLoaded, isInitialized);
         updateLibraryStatus();
         updateModelStatus(aiService.getCurrentModelName(), modelLoaded);
+        updateModelArchitectureInfo();
         updateContextStatus();
         updateOpenCLStatus();
         updateFunctionStatus(modelLoaded);
@@ -628,6 +672,15 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         super.onResume();
         // 每次返回此页面时刷新状态
         refreshStatus();
+        // 启动实时指标定时刷新
+        metricsHandler.postDelayed(metricsRunnable, METRICS_INTERVAL_MS);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // 停止定时刷新
+        metricsHandler.removeCallbacks(metricsRunnable);
     }
     
     @Override
@@ -641,6 +694,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             
             // 刷新模型状态
             updateModelStatus(modelName, modelLoaded);
+            
+            // 刷新模型架构信息
+            updateModelArchitectureInfo();
             
             // 刷新推理库状态
             updateLibraryStatus();
@@ -657,5 +713,105 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             // 刷新上下文统计
             updateContextStats();
         });
+    }
+
+    private void updateModelArchitectureInfo() {
+        if (modelParams == null) return;
+
+        try {
+            LlamaHelper.ModelMeta meta = LlamaHelper.getModelMeta();
+            boolean modelOk = LlamaHelper.isModelInitialized();
+
+            if (modelOk && meta != null && meta.valid) {
+                // 格式化参数量（7B/1.8B 等）
+                String paramsStr = formatParams(meta.nParams);
+                modelParams.setText(paramsStr);
+                modelLayers.setText(meta.nLayer > 0 ? String.valueOf(meta.nLayer) : "-");
+                modelHeads.setText(meta.nHead > 0 ? String.valueOf(meta.nHead) : "-");
+                modelEmbd.setText(meta.nEmbd > 0 ? String.valueOf(meta.nEmbd) : "-");
+                modelCtxTrain.setText(meta.nCtxTrain > 0 ? String.valueOf(meta.nCtxTrain) : "-");
+
+                // 实时数据
+                float memoryMB = LlamaHelper.getMemoryUsage();
+                modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+                float speed = LlamaHelper.getInferenceSpeed();
+                modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+                int tokens = LlamaHelper.getTokenCount();
+                modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+
+                // 模型文件名
+                String modelName = aiService.getCurrentModelName();
+                if (modelName != null && !modelName.isEmpty()) {
+                    modelFilename.setText(modelName);
+                } else if (meta.modelName != null && !meta.modelName.isEmpty()) {
+                    modelFilename.setText(meta.modelName);
+                } else {
+                    modelFilename.setText("-");
+                }
+
+                modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + "层 / ctx:" + meta.nCtxTrain);
+            } else {
+                modelParams.setText("-");
+                modelLayers.setText("-");
+                modelHeads.setText("-");
+                modelEmbd.setText("-");
+                modelCtxTrain.setText("-");
+                modelMemory.setText("-");
+                modelSpeed.setText("-");
+                modelTokens.setText("-");
+                modelFilename.setText("-");
+                modelParamsInfo.setText("未加载");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "updateModelArchitectureInfo failed: " + e.getMessage());
+        }
+    }
+
+    /** 定时刷新实时指标：推理速度、Token计数、内存占用
+     *  数据源自动切换：在线模式使用 API 累计统计；本地模式使用 native 统计 */
+    private void updateRealtimeMetrics() {
+        if (modelSpeed == null) return;
+        try {
+            boolean useOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+            if (useOnline) {
+                // 在线模式：使用 TokenStatsManager 累计的 API 统计
+                TokenStatsManager.TokenStats stats = TokenStatsManager.getInstance().getCurrentSnapshot();
+                int sessionTotal = (stats != null) ? stats.sessionTotalTokens : 0;
+                int sessionCompletion = (stats != null) ? stats.sessionCompletionTokens : 0;
+                modelSpeed.setText(sessionCompletion > 0
+                        ? String.format("API · 累计 %d", sessionCompletion) : "API");
+                modelTokens.setText(sessionTotal > 0 ? String.valueOf(sessionTotal) : "-");
+                modelMemory.setText("-"); // 在线模式不占用本地内存
+                return;
+            }
+
+            // 本地模式：使用 native 层统计
+            if (!LlamaHelper.isModelInitialized()) return;
+            float speed = LlamaHelper.getInferenceSpeed();
+            modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+
+            int tokens = LlamaHelper.getTokenCount();
+            modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+
+            float memoryMB = LlamaHelper.getMemoryUsage();
+            modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+        } catch (Exception e) {
+            Log.w(TAG, "updateRealtimeMetrics failed: " + e.getMessage());
+        }
+    }
+
+    private static String formatParams(long nParams) {
+        if (nParams <= 0) return "-";
+        if (nParams >= 1_000_000_000L) {
+            double b = nParams / 1_000_000_000.0;
+            return String.format("%.1fB", b);
+        } else if (nParams >= 1_000_000L) {
+            double m = nParams / 1_000_000.0;
+            return String.format("%.0fM", m);
+        } else if (nParams >= 1_000L) {
+            double k = nParams / 1_000.0;
+            return String.format("%.0fK", k);
+        }
+        return String.valueOf(nParams);
     }
 }

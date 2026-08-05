@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.engine.ALChat;
 import com.oilquiz.app.ai.importing.model.AIImportResult;
 import com.oilquiz.app.ai.model.ModelMemoryManager;
@@ -16,6 +17,9 @@ import com.oilquiz.app.database.DatabaseManager;
 import com.oilquiz.app.model.ImportHistory;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.repository.ImportHistoryRepository;
+import com.oilquiz.app.util.CharsetDetector;
+import com.oilquiz.app.util.GarbledTextFixer;
+import com.oilquiz.app.util.ImportDebugTracer;
 import com.oilquiz.app.util.fileparser.FileContentExtractor;
 
 import org.json.JSONArray;
@@ -38,24 +42,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /**
- * 题库 AI 导入编排引擎（v4：混合管道 — 规则优先 + AI 兜底 + 质量网关）。
+ * 题库 AI 导入编排引擎（v5：AIImportAgent 驱动 — Agent 式多轮自纠 + 流式输出）。
  * <p>
  * 串联 4 阶段流水线：
  * <ol>
  *   <li>PROFILE — 文件识别 + 内容提取（复用项目已有解析库 POI/iText/jsoup）</li>
  *   <li>FORMAT — 格式自动检测 + 规则引擎快速解析（零 LLM 调用）</li>
- *   <li>INGEST — AI 兜底抽取（仅对规则未解析的 chunk 调用 LLM）</li>
+ *   <li>INGEST — AIImportAgent 智能抽取（Agent 式：分析→抽取→校验→自纠→输出）</li>
  *   <li>DONE — 质量网关 + 校验 + 入库 + 结果汇总</li>
  * </ol>
  * <p>
- * v4 核心改进（基于专家建议 + 项目已有库复用）：
+ * v5 核心改进：
  * <ul>
- *   <li>利用项目已有 FileContentExtractor（POI/iText/jsoup）解析 Word/PDF/Excel/HTML/ZIP</li>
- *   <li>QuestionPreprocessor 全角半角 + 去噪 + 边界修复</li>
- *   <li>QuestionFormatDetector 格式指纹匹配 + 置信度评分</li>
- *   <li>RuleBasedQuestionParser 正则 + 状态机快速抽取（GIFT/Aiken/编号/判断/填空）</li>
- *   <li>规则置信度 ≥ 0.7 → 直接入库；&lt; 0.7 → AI 兜底</li>
- *   <li>质量网关：校验失败题目标记 parseMethod，供 UI 展示</li>
+ *   <li>引入 AIImportAgent 专用 Agent 组件，职责分离：Orchestrator 管文件/分块/入库，Agent 管 AI 推理</li>
+ *   <li>Agent 式多轮自纠：首次输出校验失败时，构建修正 prompt 让 AI 重新输出（最多 2 轮）</li>
+ *   <li>动态上下文管理：在线模型 4096 token 窗口，本地模型 2048 token 保守窗口</li>
+ *   <li>流式 token 输出：AI 推理过程实时回调 UI，提升用户体验</li>
+ *   <li>在线模型优先 + 自动降级：在线失败自动降级到本地模型（AUTO/ONLINE_PREFERRED 模式）</li>
+ *   <li>Few-shot + 强格式约束 prompt：显著提升 JSON 格式遵循率</li>
  * </ul>
  * 所有 IO/推理在单线程 executor 上执行，listener 回调通过主线程 Handler 切回 UI 线程。
  */
@@ -92,12 +96,16 @@ public class AIImportOrchestrator {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ModelMemoryManager memoryManager;
     private final FileContentExtractor fileExtractor;
+    private final AIImportAgent agent;
+    private final AIFieldMapper fieldMapper;
 
     private volatile boolean cancelled = false;
     private ModelMode modelMode = ModelMode.AUTO;
     private final AtomicInteger localFailCount = new AtomicInteger(0);
     private static final int LOCAL_FAIL_THRESHOLD = 3;
     private volatile boolean localModelPaused = false;
+    /** 最近一次 stageProfile 的结果（供 stageIngest 取默认题型/sheet名等上下文） */
+    private ProfileResult lastProfile = null;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "AIImport-Orchestrator");
@@ -138,12 +146,16 @@ public class AIImportOrchestrator {
         this.databaseManager = DatabaseManager.getInstance(this.context);
         this.memoryManager = ModelMemoryManager.getInstance(this.context);
         this.fileExtractor = new FileContentExtractor(this.context);
+        this.agent = new AIImportAgent(this.context);
+        this.fieldMapper = new AIFieldMapper(this.context);
     }
 
     public void setModelMode(ModelMode mode) {
         this.modelMode = mode;
         this.localModelPaused = false;
         this.localFailCount.set(0);
+        // 同步设置 Agent 的模型模式
+        this.agent.setModelMode(AIImportAgent.ModelMode.valueOf(mode.name()));
     }
 
     public ModelMode getModelMode() { return modelMode; }
@@ -173,7 +185,7 @@ public class AIImportOrchestrator {
         executor.execute(() -> runPipeline(file, listener));
     }
 
-    public void cancel() { cancelled = true; }
+    public void cancel() { cancelled = true; agent.cancel(); }
 
     private java.util.function.Consumer<String> agentErrorCallback;
     public void setAgentErrorCallback(java.util.function.Consumer<String> callback) {
@@ -184,27 +196,62 @@ public class AIImportOrchestrator {
 
     private void runPipeline(File file, ImportListener listener) {
         long startMs = System.currentTimeMillis();
+
+        // 阶段 1 PROFILE：文件识别 + 内容提取 + 预处理 + 分块
+        ProfileResult pr = null;
         try {
-            // 阶段 1 PROFILE：文件识别 + 内容提取 + 预处理 + 分块
-            ProfileResult pr = stageProfile(file, listener);
-            if (pr == null || cancelled) return;
+            pr = stageProfile(file, listener);
+            this.lastProfile = pr;
+        } catch (Exception e) {
+            Log.e(TAG, "PROFILE 阶段异常: " + e.getMessage(), e);
+            runOnMain(() -> listener.onError("文件识别失败: " + e.getMessage(), e));
+            return;  // PROFILE 失败无法继续
+        }
+        if (pr == null || cancelled) return;
 
-            // 阶段 2 FORMAT：格式检测 + 规则引擎快速解析
-            FormatResult fr = stageFormat(pr, listener);
-            if (cancelled) return;
+        // 阶段 2 FORMAT：格式检测 + 规则引擎快速解析
+        FormatResult fr = null;
+        try {
+            fr = stageFormat(pr, listener);
+        } catch (Exception e) {
+            Log.e(TAG, "FORMAT 阶段异常，降级为纯 AI 模式: " + e.getMessage(), e);
+            runOnMain(() -> listener.onThinking("格式检测异常，降级为纯 AI 模式"));
+        }
+        if (fr == null) {
+            // FORMAT 失败时降级：创建默认 FormatResult，全部 chunk 交给 AI
+            fr = new FormatResult();
+            fr.remainingChunks = pr.chunks != null ? pr.chunks : new ArrayList<>();
+            fr.parseMethod = "ai";
+        }
+        if (cancelled) return;
 
-            // 阶段 3 INGEST：AI 兜底抽取（仅对规则未解析的 chunk 调用 LLM）
-            IngestStats stats = stageIngest(fr.remainingChunks, fr, listener);
-            if (cancelled) return;
+        // 阶段 3 INGEST：AI 智能抽取
+        IngestStats stats = null;
+        try {
+            stats = stageIngest(fr.remainingChunks, fr, listener);
+        } catch (Exception e) {
+            Log.e(TAG, "INGEST 阶段异常: " + e.getMessage(), e);
+            runOnMain(() -> listener.onThinking("AI 抽取阶段异常: " + e.getMessage()));
+        }
+        if (stats == null) {
+            // INGEST 失败时降级：使用规则解析的结果
+            stats = new IngestStats();
+            stats.parseMethod = fr.parseMethod;
+            for (Question q : fr.ruleParsedQuestions) {
+                stats.allValid.add(q);
+            }
+        }
+        if (cancelled) return;
 
-            // 阶段 4 DONE：质量网关 + 校验 + 入库 + 结果汇总
+        // 阶段 4 DONE：质量网关 + 校验 + 入库 + 结果汇总
+        try {
             AIImportResult result = finalizeResult(file, pr, stats, startMs, listener);
             if (cancelled) return;
             final AIImportResult finalResult = result;
             runOnMain(() -> listener.onComplete(finalResult));
         } catch (Exception e) {
-            Log.e(TAG, "流水线异常: " + e.getMessage(), e);
-            final String msg = "导入失败: " + e.getMessage();
+            Log.e(TAG, "DONE 阶段异常: " + e.getMessage(), e);
+            final String msg = "结果汇总失败: " + e.getMessage();
             runOnMain(() -> listener.onError(msg, e));
         }
     }
@@ -217,20 +264,37 @@ public class AIImportOrchestrator {
         FileProfiler.FileProfile fileProfile;
         String fileName;
         int filteredCount;
+        /** 从 SHEET_META 推断的默认题型（可为空，表示未指定） */
+        String defaultQuestionType;
+        /** 从 SHEET_META 拿到的 sheetName（用于显示，可为空） */
+        String sourceSheetName;
     }
 
     private ProfileResult stageProfile(File file, ImportListener listener) {
+        Log.i(TAG, "stageProfile 开始: " + file.getName());
         runOnMain(() -> listener.onStage(Stage.PROFILE, "识别文件..."));
 
         // 1. 文件基本信息识别
         FileProfiler.FileProfile fp = FileProfiler.profile(file);
         String fileName = file.getName();
+        Log.i(TAG, "stageProfile 文件类型: " + (fp != null ? fp.formatHint : "null"));
 
         // 2. 利用项目已有解析库提取文本（v4：复用 FileContentExtractor）
         String rawText = extractFileContent(file, fp);
+        Log.i(TAG, "stageProfile extractFileContent 返回: len=" + (rawText == null ? -1 : rawText.length()));
+        ImportDebugTracer.trace("【0】stageProfile入口", fileName + " | rawText len=" + (rawText == null ? -1 : rawText.length()));
         if (rawText == null || rawText.trim().isEmpty()) {
             runOnMain(() -> listener.onError("文件内容为空或读取失败: " + fileName, null));
             return null;
+        }
+
+        // 2.5. 解析 SHEET_META（如：题型/Sheet名），供后续 questionType 回填
+        java.util.Map<String, String> sheetMeta = ExcelSheetPicker.parseSheetMeta(rawText);
+        String defaultQuestionType = sheetMeta.get("questionType");
+        String sourceSheetName = sheetMeta.get("sheetName");
+        if (defaultQuestionType != null && !defaultQuestionType.trim().isEmpty()) {
+            Log.i(TAG, "stageProfile 从 SHEET_META 命中默认题型: " + defaultQuestionType
+                    + (sourceSheetName != null ? " (sheet=" + sourceSheetName + ")" : ""));
         }
 
         // 3. 文本预处理（全角半角 + 去噪 + 边界修复）
@@ -283,6 +347,8 @@ public class AIImportOrchestrator {
         pr.fileProfile = fp;
         pr.fileName = fileName;
         pr.filteredCount = skipped;
+        pr.defaultQuestionType = defaultQuestionType;
+        pr.sourceSheetName = sourceSheetName;
         return pr;
     }
 
@@ -300,25 +366,69 @@ public class AIImportOrchestrator {
                 || name.endsWith(".xlsx") || name.endsWith(".xls")
                 || name.endsWith(".html") || name.endsWith(".htm")
                 || name.endsWith(".zip");
+        // ⚠ 二进制格式：即使 FileContentExtractor 失败，也绝对不能降级到文本解码（否则会把OLE2/ZIP字节当文本解码→产生乱码）
+        boolean isBinaryFormat = name.endsWith(".docx") || name.endsWith(".doc")
+                || name.endsWith(".pdf")
+                || name.endsWith(".xlsx") || name.endsWith(".xls")
+                || name.endsWith(".zip");
 
         if (needsExtractor) {
             try {
                 Uri fileUri = Uri.fromFile(file);
                 String content = fileExtractor.extractContent(fileUri).join();
+                // ========== 诊断：Orchestrator收到Extractor结果 ==========
+                com.oilquiz.app.util.ImportDebugTracer.trace("【4】Orchestrator收到Extractor",
+                        content == null ? "[null]" : content.substring(0, Math.min(500, content.length())));
                 if (content != null && !content.trim().isEmpty()
                         && !content.startsWith("不支持")
-                        && !content.startsWith("文件解析失败")) {
+                        && !content.startsWith("文件解析失败")
+                        && !content.startsWith("Excel解析失败")
+                        && !content.startsWith("Word文件需要")
+                        && !content.startsWith("PDF解析失败")
+                        && !content.startsWith("无法确定文件类型")) {
                     Log.i(TAG, "FileContentExtractor 解析成功: " + name);
+                    // ========== 诊断：返回前预处理前 ==========
+                    com.oilquiz.app.util.ImportDebugTracer.trace("【5】Preprocessor输入",
+                            content.substring(0, Math.min(500, content.length())));
                     return content;
+                } else {
+                    Log.w(TAG, "FileContentExtractor 返回失败结果: " + (content == null ? "null" : content.substring(0, Math.min(100, content.length()))));
                 }
             } catch (Exception e) {
                 Log.w(TAG, "FileContentExtractor 解析失败: " + e.getMessage());
             }
+
+            // ⚠ 二进制格式：Extractor失败就直接返回空提示，禁止走下面的CharsetDetector文本解码路径
+            if (isBinaryFormat) {
+                Log.e(TAG, "二进制格式(" + name + ")解析失败，已拦截错误的文本解码降级路径");
+                return "";
+            }
         }
 
-        // 纯文本/CSV/JSON/Markdown: 直读 + 编码探测
-        String encoding = (fp != null && fp.encoding != null) ? fp.encoding : "UTF-8";
-        return readFileWithEncoding(file, encoding);
+        // 纯文本/CSV/JSON/Markdown: 使用CharsetDetector智能识别编码
+        // ⚠ 系统生成的临时 .md 文件（ai_sheet 前缀）确定是 UTF-8，直接读取，跳过 CharsetDetector 误判
+        if (name.startsWith("ai_sheet") && name.endsWith(".md")) {
+            Log.i(TAG, "系统生成的 .md 临时文件，直接 UTF-8 读取: " + name);
+            String content = readFileWithEncoding(file, "UTF-8");
+            ImportDebugTracer.trace("【4b】MD临时文件UTF-8直读",
+                    content == null ? "[null]" : content.substring(0, Math.min(500, content.length())));
+            return content;
+        }
+
+        try {
+            String content = CharsetDetector.readFileAutoDetect(file);
+            Log.i(TAG, "CharsetDetector 检测完成: len=" + (content == null ? -1 : content.length()));
+            // 乱码二次检查：若解码结果大量是替换字符，再用fallback列表再试
+            if (looksLikeGarbled(content)) {
+                Log.w(TAG, "首次检测疑似乱码，启用decodeWithFallback二次尝试");
+                byte[] rawBytes = CharsetDetector.readFileBytes(file);
+                content = CharsetDetector.decodeWithFallback(rawBytes, null);
+            }
+            return content;
+        } catch (Exception e) {
+            Log.e(TAG, "CharsetDetector读取失败，回退UTF-8直读: " + e.getMessage());
+            return readFileWithEncoding(file, "UTF-8");
+        }
     }
 
     /** 用指定编码读取文件 */
@@ -347,6 +457,10 @@ public class AIImportOrchestrator {
         int ruleParsedCount = 0;
         List<String> remainingChunks;  // 需要 AI 兜底解析的 chunk
         String parseMethod = "ai";     // rule / ai / hybrid
+        /** AI 动态智能映射结果（标准字段名→列索引），用于辅助 AI 抽取 */
+        Map<String, Integer> smartFieldMapping = null;
+        /** AI 识别的字段映射描述（用于 UI 展示） */
+        List<String> aiResolvedFields = new ArrayList<>();
     }
 
     private FormatResult stageFormat(ProfileResult pr, ImportListener listener) {
@@ -400,7 +514,93 @@ public class AIImportOrchestrator {
             fr.remainingChunks = pr.chunks;
         }
 
+        // 3. AI 动态智能字段映射（当有表格结构时，提取表头并通过 AI 识别未知字段）
+        if (fr.remainingChunks != null && !fr.remainingChunks.isEmpty()) {
+            runOnMain(() -> listener.onThinking("构建 AI 动态字段映射..."));
+            try {
+                List<String> headers = extractTableHeaders(pr.fullText, String.valueOf(detection.format));
+                if (headers != null && !headers.isEmpty()) {
+                    // 同步调用 AIFieldMapper（在后台线程中执行）
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    final Map<String, Integer>[] resultHolder = new Map[]{new java.util.LinkedHashMap<>()};
+                    final List<String>[] resolvedHolder = new List[]{new ArrayList<>()};
+
+                    fieldMapper.buildSmartMappingAsync(headers, new AIFieldMapper.MappingCallback() {
+                        @Override
+                        public void onMappingComplete(Map<String, Integer> finalMapping, List<String> aiResolvedFields) {
+                            resultHolder[0] = finalMapping;
+                            resolvedHolder[0] = aiResolvedFields;
+                            latch.countDown();
+                        }
+
+                        @Override
+                        public void onMappingProgress(String message) {
+                            runOnMain(() -> listener.onThinking(message));
+                        }
+
+                        @Override
+                        public void onMappingError(String message) {
+                            Log.w(TAG, "AI 字段映射失败: " + message);
+                            latch.countDown();
+                        }
+                    });
+
+                    latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                    fr.smartFieldMapping = resultHolder[0];
+                    fr.aiResolvedFields = resolvedHolder[0];
+
+                    if (!fr.aiResolvedFields.isEmpty()) {
+                        runOnMain(() -> listener.onThinking(
+                                "AI 动态映射识别 " + fr.aiResolvedFields.size() + " 个字段: "
+                                        + String.join("; ", fr.aiResolvedFields)));
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "AI 动态字段映射异常: " + e.getMessage());
+            }
+        }
+
         return fr;
+    }
+
+    /**
+     * 尝试从全文中提取表格表头（用于 AI 动态字段映射）。
+     * 支持 Markdown 表格、Tab 分隔表格、CSV 格式。
+     */
+    private List<String> extractTableHeaders(String fullText, String format) {
+        if (fullText == null || fullText.isEmpty()) return null;
+        try {
+            String firstLine = fullText.split("\n", 2)[0].trim();
+            if (firstLine.isEmpty()) return null;
+
+            List<String> headers;
+            if (firstLine.contains("|")) {
+                // Markdown 表格
+                String[] parts = firstLine.split("\\|");
+                headers = new ArrayList<>();
+                for (String p : parts) {
+                    String t = p.trim();
+                    if (!t.isEmpty() && !t.matches("[-:]+")) headers.add(t);
+                }
+            } else if (firstLine.contains("\t")) {
+                // Tab 分隔
+                String[] parts = firstLine.split("\t");
+                headers = new ArrayList<>();
+                for (String p : parts) {
+                    String t = p.trim();
+                    if (!t.isEmpty()) headers.add(t);
+                }
+            } else if (firstLine.contains(",")) {
+                // CSV
+                headers = com.oilquiz.app.util.render.ExcelUtil.splitCsvLine(firstLine);
+            } else {
+                return null;
+            }
+
+            return headers.isEmpty() ? null : headers;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ======================== 阶段 3: INGEST ========================
@@ -415,6 +615,22 @@ public class AIImportOrchestrator {
     }
 
     private IngestStats stageIngest(List<String> chunks, FormatResult fr, ImportListener listener) {
+        // 读取 ProfileResult 中的默认题型（来自 SHEET_META）：
+        //   - 追加 "DEFAULT_QUESTION_TYPE=xxx" 行到每个 chunk 的首部（让 Agent 输出 questionType 时优先使用）
+        //   - 入库时仍会做兜底回填（见 finalizeResult）
+        String defaultType = null;
+        if (this.lastProfile != null) {
+            defaultType = this.lastProfile.defaultQuestionType;
+        }
+        final String metaPrefix;
+        if (defaultType != null && !defaultType.trim().isEmpty() && !"未分类".equals(defaultType.trim())) {
+            String sheetHint = (this.lastProfile != null && this.lastProfile.sourceSheetName != null)
+                    ? " sheetName=" + this.lastProfile.sourceSheetName.replace(" ", "_") : "";
+            metaPrefix = "DEFAULT_QUESTION_TYPE=" + defaultType + sheetHint + "\n"
+                    + "SHEET_META_INLINE: questionType=" + defaultType + sheetHint + "\n";
+        } else {
+            metaPrefix = null;
+        }
         IngestStats stats = new IngestStats();
         stats.parseMethod = fr.parseMethod;
 
@@ -454,42 +670,27 @@ public class AIImportOrchestrator {
             return stats;
         }
 
-        // AI 兜底抽取
-        runOnMain(() -> listener.onStage(Stage.INGEST, "AI 智能抽取中..."));
+        // AI Agent 智能抽取（v5：使用 AIImportAgent 替代简单 LLM 调用）
+        runOnMain(() -> listener.onStage(Stage.INGEST, "AI Agent 智能抽取中..."));
 
-        if (!hasAnyModel()) {
+        if (!agent.hasAnyModel()) {
             if (stats.allValid.isEmpty()) {
                 runOnMain(() -> listener.onError("无可用 AI 模型，请配置在线模型或加载本地模型", null));
             }
             return stats;
         }
 
-        JSONObject schema;
-        String systemPrompt;
-        try {
-            schema = QuestionSchemaDictionary.getMinimalExtractionSchema();
-            systemPrompt = QuestionSchemaDictionary.getMinimalExtractionPrompt();
-        } catch (JSONException e) {
-            runOnMain(() -> listener.onError("构建抽取 schema 失败: " + e.getMessage(), e));
-            return stats;
-        }
-
-        int promptOverhead = estimateTokens(systemPrompt) + estimateTokens(schema.toString());
-        int availableBudget = CONTEXT_WINDOW_MAX - promptOverhead - CONTEXT_BUFFER;
-
         int total = chunks.size();
         for (int i = 0; i < total; i++) {
             final int idx = i;
             if (cancelled) break;
             String chunk = chunks.get(i);
-
-            // Token 预算守卫
-            int chunkTokens = estimateTokens(chunk);
-            if (chunkTokens > availableBudget) {
-                chunk = truncateToTokenBudget(chunk, availableBudget);
+            // 追加题型上下文：让 Agent 知道默认题型
+            if (metaPrefix != null && !chunk.startsWith("DEFAULT_QUESTION_TYPE")) {
+                chunk = metaPrefix + chunk;
             }
 
-            // 定期内存检查
+            // 定期内存检查（本地模式）
             if (i > 0 && i % 5 == 0 && (modelMode == ModelMode.LOCAL_ONLY || modelMode == ModelMode.AUTO)) {
                 ModelMemoryManager.MemoryState ms = memoryManager.getMemoryState();
                 if (ms == ModelMemoryManager.MemoryState.LOW || ms == ModelMemoryManager.MemoryState.CRITICAL) {
@@ -498,33 +699,57 @@ public class AIImportOrchestrator {
                 }
             }
 
-            // LLM 调用
-            String prompt = systemPrompt + "\n\n文本:\n" + chunk;
-            String json = callLlmStructuredMinimal(prompt, schema);
-            if (json == null) {
-                runOnMain(() -> listener.onProgress(idx + 1, total, "已入库 " + stats.imported + " 题"));
+            // 调用 AIImportAgent 执行 Agent 式抽取（含自纠循环）
+            // 模型崩溃隔离：单个 chunk 抽取异常不中断整个导入流程
+            List<Question> questions;
+            try {
+                questions = agent.extractFromChunk(chunk, idx, total, new AIImportAgent.AgentCallback() {
+                @Override
+                public void onStateChanged(AIImportAgent.AgentState state, String detail) {
+                    runOnMain(() -> listener.onThinking("[" + state.name() + "] " + detail));
+                }
+
+                @Override
+                public void onTokenStream(String delta, int tokenCount, float tokPerSec) {
+                    runOnMain(() -> listener.onTokenStream(delta, tokenCount, tokPerSec));
+                }
+
+                @Override
+                public void onThinking(String text) {
+                    runOnMain(() -> listener.onThinking(text));
+                }
+
+                @Override
+                public void onChunkComplete(int chunkIndex, int totalChunks, List<Question> extracted) {
+                    // 由外层统一处理
+                }
+
+                @Override
+                public void onError(String message, Throwable error) {
+                    runOnMain(() -> listener.onError(message, error));
+                }
+            });
+            } catch (Exception e) {
+                Log.e(TAG, "Chunk " + idx + " AI 抽取异常，跳过继续: " + e.getMessage(), e);
+                stats.errors.add("Chunk " + (idx + 1) + " AI异常: " + e.getMessage());
+                stats.failed++;
+                runOnMain(() -> listener.onProgress(idx + 1, total, "Chunk " + (idx + 1) + " 异常跳过"));
                 continue;
             }
 
-            // 三层 JSON 解析
-            JSONObject root = ImportValidator.parseStructuredOutput(json);
-            List<Question> questions = new ArrayList<>();
-            if (root != null) {
-                questions = extractQuestionsFromJsonObject(root);
-            }
-
-            if (questions.isEmpty()) {
+            if (questions == null || questions.isEmpty()) {
                 runOnMain(() -> listener.onProgress(idx + 1, total, "已入库 " + stats.imported + " 题"));
                 continue;
             }
 
             stats.aiParsedCount += questions.size();
 
-            // 校验 + 收集有效题(去重:规则已解析过的题目不再重复入库)
+            // 去重(规则已解析过的题目不再重复入库) + 入库
             List<Question> validAiParsed = new ArrayList<>();
             for (Question q : questions) {
                 if (isDuplicateOfRuleParsed(q, fr.ruleParsedQuestions)) continue;
 
+                // Agent 已做校验，这里再做一次确保一致性
                 List<ImportValidator.ValidationError> errs = ImportValidator.validateQuestion(q);
                 if (errs.isEmpty()) {
                     validAiParsed.add(q);
@@ -578,6 +803,7 @@ public class AIImportOrchestrator {
         if (useOnline) {
             try {
                 String result = inferenceService.generateStructuredAsync(prompt, onlineConfig, schema, 2048).join();
+                result = ToolResultInterpreter.cleanModelOutput(result);
                 if (result != null && !result.trim().isEmpty()) {
                     localFailCount.set(0);
                     return result;
@@ -604,6 +830,7 @@ public class AIImportOrchestrator {
 
         try {
             String raw = localChat.sendMessage(prompt, 1024, 0.1f, 0.9f, 40);
+            raw = ToolResultInterpreter.cleanModelOutput(raw);
             localFailCount.set(0);
             return (raw != null && !raw.trim().isEmpty()) ? raw : null;
         } catch (OutOfMemoryError oom) {
@@ -668,6 +895,28 @@ public class AIImportOrchestrator {
     private AIImportResult finalizeResult(File file, ProfileResult pr, IngestStats stats,
                                           long startMs, ImportListener listener) {
         runOnMain(() -> listener.onStage(Stage.DONE, "完成"));
+        // 题型回填：若题目 questionType 为空，使用 SHEET_META 中的默认题型（从 Sheet 名推断而来）
+        String defaultType = (pr != null) ? pr.defaultQuestionType : null;
+        if (defaultType != null && !defaultType.trim().isEmpty()) {
+            int filled = 0;
+            for (Question q : stats.allValid) {
+                String t = q == null ? null : q.getQuestionType();
+                if (t == null || t.trim().isEmpty() || "未分类".equals(t.trim())) {
+                    q.setQuestionType(defaultType);
+                    filled++;
+                }
+            }
+            for (Question q : stats.allInvalid) {
+                String t = q == null ? null : q.getQuestionType();
+                if (t == null || t.trim().isEmpty() || "未分类".equals(t.trim())) {
+                    q.setQuestionType(defaultType);
+                    filled++;
+                }
+            }
+            if (filled > 0) {
+                Log.i(TAG, "finalizeResult: 使用默认题型(" + defaultType + ")回填 " + filled + " 题");
+            }
+        }
         try {
             Application app = asApplication(context);
             if (app != null) {
@@ -890,13 +1139,8 @@ public class AIImportOrchestrator {
     // ======================== LLM 辅助 ========================
 
     private boolean hasAnyModel() {
-        boolean hasOnline = onlineModelManager.getActiveModel() != null;
-        boolean hasLocal = !localModelPaused && localChat.isInitialized();
-        switch (modelMode) {
-            case ONLINE_ONLY: return hasOnline;
-            case LOCAL_ONLY:  return hasLocal;
-            default:          return hasOnline || hasLocal;
-        }
+        // v5: 委托给 Agent 检查（Agent 独立管理在线/本地模型状态）
+        return agent.hasAnyModel();
     }
 
     private void handleLocalFailure(String reason) {
@@ -935,6 +1179,36 @@ public class AIImportOrchestrator {
     private BatchPersistResult persistBatch(List<Question> questions) {
         BatchPersistResult result = new BatchPersistResult();
         if (questions == null || questions.isEmpty()) return result;
+
+        // ========== 诊断：GarbledTextFixer处理前首道题 ==========
+        if (!questions.isEmpty()) {
+            ImportDebugTracer.traceQuestion("【8b】入库前GarbledFixer前首题", questions.get(0));
+        }
+
+        // ⚠ 乱码最终防线：入库前对每道题的所有 String 字段强制清洗、乱码修复、纯乱码字段置空
+        List<Question> cleanedQuestions = new ArrayList<>();
+        int garbledCount = 0;
+        int questionCounter = 0;
+        for (Question q : questions) {
+            Question fixed = GarbledTextFixer.fixQuestion(q);
+            // ========== 诊断：GarbledTextFixer处理后首道题 ==========
+            if (cleanedQuestions.isEmpty() && questionCounter == 0) {
+                ImportDebugTracer.traceQuestion("【9】入库前GarbledFixer后首题", fixed);
+            }
+            questionCounter++;
+            // 清洗后题干为空，丢弃（避免只有乱码入库）
+            if (fixed.getQuestionText() == null || fixed.getQuestionText().trim().isEmpty()) {
+                garbledCount++;
+                result.failed++;
+                continue;
+            }
+            cleanedQuestions.add(fixed);
+        }
+        if (garbledCount > 0) {
+            Log.d(TAG, "入库前清洗: 丢弃" + garbledCount + "道乱码空题");
+        }
+        questions = cleanedQuestions;
+        if (questions.isEmpty()) return result;
 
         long now = System.currentTimeMillis();
 
@@ -977,6 +1251,13 @@ public class AIImportOrchestrator {
                 toInsert.add(q);
                 existingKeys.add(key);  // 避免批内重复插入
             }
+        }
+
+        // ========== 诊断：DB写入前最终首题 ==========
+        if (!toInsert.isEmpty()) {
+            ImportDebugTracer.traceQuestion("【10】DB插入前最终首题", toInsert.get(0));
+        } else if (!toUpdate.isEmpty()) {
+            ImportDebugTracer.traceQuestion("【10】DB更新前最终首题", toUpdate.get(0));
         }
 
         // 3. 批量插入新题(一次 insertAll)

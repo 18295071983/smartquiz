@@ -29,6 +29,9 @@ if "%OS%"=="Windows_NT" setlocal
 @rem Set JAVA_HOME to the JDK installation directory
 set JAVA_HOME=D:\jdk-21
 
+@rem Set GRADLE_USER_HOME to avoid permission issues with project-level .gradle directory
+set GRADLE_USER_HOME=D:\Gradle\Home
+
 set DIRNAME=%~dp0
 if "%DIRNAME%"=="" set DIRNAME=.
 @rem This is normally unused
@@ -39,7 +42,7 @@ set APP_HOME=%DIRNAME%
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+set DEFAULT_JVM_OPTS="-Xmx2g" "-Xms512m" "-Dfile.encoding=UTF-8"
 
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome

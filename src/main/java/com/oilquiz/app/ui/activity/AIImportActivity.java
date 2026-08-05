@@ -531,8 +531,13 @@ public class AIImportActivity extends BaseActivity {
                     // 后台导出为 Markdown(POI 耗时)
                     ExecutorService es = Executors.newSingleThreadExecutor();
                     es.execute(() -> {
-                        final String md = ExcelSheetPicker.exportSheetAsMarkdown(
-                                excelFile, selected.sheetIndex, selected.headerRowIndex);
+                        // 带 META（题型、sheet名）导出，下游 Orchestrator 解析回填 questionType
+                        final String md = ExcelSheetPicker.exportSheetAsMarkdownWithMeta(
+                                excelFile, selected.sheetIndex,
+                                selected.headerRowIndex, selected.subHeaderRowIndex,
+                                selected.dataStartRowIndex,
+                                selected.sheetName,
+                                selected.inferredQuestionType);
                         if (md == null || md.isEmpty()) {
                             runOnUiThread(() -> {
                                 showToast("导出工作表失败,请检查文件");

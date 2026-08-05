@@ -38,7 +38,10 @@ import com.oilquiz.app.viewmodel.QuestionViewModel;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.oilquiz.app.util.CharsetDetector;
+
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public class WebViewActivity extends BaseActivity {
@@ -923,17 +926,12 @@ public class WebViewActivity extends BaseActivity {
         // 根据文件类型选择不同的加载方式
         if (fileName.endsWith(".html") || fileName.endsWith(".htm")) {
             // 读取HTML文件内容并使用loadDataWithBaseURL加载，确保正确渲染
+            // 使用CharsetDetector智能检测编码，修复GBK/GB18030乱码问题
             try {
-                StringBuilder content = new StringBuilder();
-                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(file), "UTF-8"))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        content.append(line).append("\n");
-                    }
-                }
+                String content = CharsetDetector.readFileAutoDetect(file);
                 // 使用loadDataWithBaseURL加载HTML内容，设置base URL为文件所在目录，确保相对路径资源能正确加载
                 String baseUrl = fileUrl.substring(0, fileUrl.lastIndexOf("/")) + "/";
-                loadDataWithBaseURL(baseUrl, content.toString(), "text/html", "UTF-8", null);
+                loadDataWithBaseURL(baseUrl, content, "text/html", "UTF-8", null);
             } catch (Exception e) {
                 AppLogger.e(TAG, "加载HTML文件失败: " + e.getMessage(), e);
                 loadData("<html><body><h1>加载失败</h1><p>无法加载HTML文件</p><p>错误: " + e.getMessage() + "</p></body></html>", "text/html", "UTF-8");
@@ -1414,21 +1412,15 @@ public class WebViewActivity extends BaseActivity {
      * 检测文件编码
      */
     private String detectFileEncoding(File file) {
-        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
-            byte[] bom = new byte[4];
-            int read = fis.read(bom);
-            
-            if (read >= 3 && bom[0] == (byte) 0xEF && bom[1] == (byte) 0xBB && bom[2] == (byte) 0xBF) {
-                return "UTF-8";
-            } else if (read >= 2 && bom[0] == (byte) 0xFE && bom[1] == (byte) 0xFF) {
-                return "UTF-16BE";
-            } else if (read >= 2 && bom[0] == (byte) 0xFF && bom[1] == (byte) 0xFE) {
-                return "UTF-16LE";
-            }
+        // 使用CharsetDetector智能检测编码，覆盖BOM、UTF-8、GB18030/GBK等
+        try {
+            CharsetDetector.DetectionResult result = CharsetDetector.detectCharset(file);
+            AppLogger.d(TAG, "文件编码检测结果: " + result);
+            return result.charset;
         } catch (Exception e) {
-            AppLogger.w(TAG, "编码检测失败: " + e.getMessage());
+            AppLogger.w(TAG, "CharsetDetector编码检测失败，回退UTF-8: " + e.getMessage());
+            return "UTF-8";
         }
-        return "UTF-8"; // 默认使用UTF-8
     }
     
     /**
@@ -3120,14 +3112,8 @@ public class WebViewActivity extends BaseActivity {
                 if (!file.exists()) {
                     return "ERROR: File not found";
                 }
-                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(file));
-                StringBuilder content = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line).append("\n");
-                }
-                reader.close();
-                return content.toString();
+                // 使用CharsetDetector智能检测编码，修复GBK/GB18030文件乱码
+                return CharsetDetector.readFileAutoDetect(file);
             } catch (Exception e) {
                 AppLogger.e(TAG, "读取文件失败: " + e.getMessage(), e);
                 return "ERROR: " + e.getMessage();

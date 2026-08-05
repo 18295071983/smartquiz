@@ -6,13 +6,17 @@
     android:padding="8dp"
     android:background="@drawable/tool_call_card_background">
 
-    <!-- 头部：工具名 + 状态 -->
+    <!-- 头部：工具名 + 状态（可点击折叠整个块） -->
     <LinearLayout
+        android:id="@+id/tool_call_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="4dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground">
 
         <TextView
             android:id="@+id/tool_icon"
@@ -37,6 +41,15 @@
             android:layout_height="wrap_content"
             android:textSize="11sp"
             android:textColor="@color/tool_call_status_default" />
+
+        <TextView
+            android:id="@+id/tool_call_arrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="▶"
+            android:textSize="12sp"
+            android:textColor="@color/tool_call_label"
+            android:layout_marginStart="6dp" />
 
         <ProgressBar
             android:id="@+id/tool_progress_small"

@@ -49,18 +49,24 @@ public class PythonToolManager {
             if (!Python.isStarted()) {
                 Log.i(TAG, "Starting Python interpreter...");
                 Python.start(new AndroidPlatform(context));
+                Log.i(TAG, "Python started successfully");
+            } else {
+                Log.i(TAG, "Python already started");
             }
             
             python = Python.getInstance();
+            Log.i(TAG, "Got Python instance: " + (python != null));
             
             Log.i(TAG, "Loading ai_python_tool module...");
             aiPythonToolModule = python.getModule("ai_python_tool");
+            Log.i(TAG, "Module loaded: " + (aiPythonToolModule != null));
             
             Log.i(TAG, "Getting AI tool instance...");
             aiPythonTool = aiPythonToolModule.callAttr("get_ai_tool", context);
+            Log.i(TAG, "AI tool instance: " + (aiPythonTool != null));
             
             if (aiPythonTool == null) {
-                Log.e(TAG, "Failed to get AI tool instance");
+                Log.e(TAG, "Failed to get AI tool instance - get_ai_tool returned null");
                 return false;
             }
             
@@ -72,8 +78,29 @@ public class PythonToolManager {
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize Python tool manager: " + e.getMessage(), e);
+            // 尝试获取更详细的错误信息
+            String errorDetail = getPythonErrorDetail();
+            if (errorDetail != null) {
+                Log.e(TAG, "Python error detail: " + errorDetail);
+            }
             return false;
         }
+    }
+    
+    private String getPythonErrorDetail() {
+        try {
+            if (python != null) {
+                // 尝试获取 sys.exc_info() 中的错误信息
+                PyObject sys = python.getModule("sys");
+                PyObject excInfo = sys.get("exc_info");
+                if (excInfo != null) {
+                    Log.e(TAG, "sys.exc_info: " + excInfo);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting Python error detail: " + e.getMessage());
+        }
+        return null;
     }
     
     private void logPythonInfo() {

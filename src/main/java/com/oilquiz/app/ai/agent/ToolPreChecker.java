@@ -303,13 +303,186 @@ public class ToolPreChecker {
                 break;
 
             case "app_operation":
-                if ("navigate".equals(action)) {
-                    required.add("page");
+                if (action == null) break;
+                switch (action) {
+                    case "navigate":
+                        required.add("page");
+                        break;
+                    case "open_settings":
+                        // setting 非必填（为空打开系统设置首页）
+                        break;
+                    case "share":
+                        required.add("text");
+                        // title 非必填
+                        break;
+                    case "list_pages":
+                    case "go_home":
+                    case "go_back":
+                    case "get_info":
+                        // 无需必填参数
+                        break;
                 }
                 break;
 
             case "location":
                 // location工具本身不需要额外参数
+                break;
+
+            case "app_toolkit":
+                // 聚合工具包：根据 action 预判所需参数
+                if (action == null) break;
+                switch (action) {
+                    case "weather_current":
+                    case "weather_forecast":
+                    case "weather_hourly":
+                    case "weather_air":
+                        required.add("city");
+                        required.add("lat");
+                        required.add("lon");
+                        break;
+                    case "ocr_recognize":
+                    case "image_save":
+                    case "image_scale":
+                    case "image_crop":
+                    case "image_rotate":
+                    case "image_label_recognize":
+                    case "object_detect":
+                        required.add("image_path");
+                        break;
+                    case "file_parse_text":
+                    case "file_parse_csv":
+                    case "file_parse_json":
+                    case "file_read_lines":
+                    case "file_get_type":
+                        required.add("file_path");
+                        break;
+                    case "web_parse_html":
+                    case "web_get_title":
+                    case "web_get_links":
+                    case "web_get_images":
+                    case "web_get_text":
+                        required.add("url");
+                        break;
+                    case "calculate":
+                        required.add("expression");
+                        break;
+                    case "get_current_location":
+                    case "locate":
+                        // 自动获取，不强制用户填
+                        break;
+                    case "import_questions":
+                        required.add("file_path");
+                        break;
+                    case "export_questions":
+                        // 默认路径，非必须
+                        break;
+                    case "search_questions":
+                        required.add("keyword");
+                        break;
+                    case "generate_questions":
+                        required.add("topic");
+                        break;
+                    case "get_study_plan":
+                        // 基于用户情况，可选
+                        break;
+                }
+                break;
+
+            case "file_reader":
+                required.add("file_path");
+                if ("read_lines".equals(action)) {
+                    // startLine / endLine 可选
+                } else if ("search_text".equals(action)) {
+                    required.add("keyword");
+                }
+                break;
+
+            case "file_analyzer":
+                required.add("file_path");
+                break;
+
+            case "file_generator":
+                if (action == null) break;
+                switch (action) {
+                    case "create":
+                    case "append":
+                    case "json":
+                    case "config":
+                    case "markdown":
+                    case "report":
+                    case "template":
+                        required.add("file_name");
+                        break;
+                    case "delete":
+                        required.add("file_name");
+                        break;
+                    case "copy":
+                        required.add("source_path");
+                        required.add("file_name"); // target
+                        break;
+                }
+                break;
+
+            case "webpage_reader":
+                if (action == null) break;
+                switch (action) {
+                    case "read":
+                    case "extract":
+                    case "summarize":
+                    case "follow_links":
+                        required.add("url");
+                        break;
+                    case "read_multiple":
+                        required.add("url");
+                        break;
+                }
+                break;
+
+            case "smart_research":
+                // topic 或 query 至少一个
+                if (!hasValue(params, "topic") && !hasValue(params, "query")) {
+                    required.add("topic");
+                }
+                break;
+
+            case "system_resource":
+                if (action == null) break;
+                switch (action) {
+                    case "open_app":
+                    case "get_app_info":
+                        required.add("app_name");
+                        break;
+                    case "open_url":
+                        required.add("url");
+                        break;
+                    case "send_sms":
+                    case "make_call":
+                        required.add("phone_number");
+                        if ("send_sms".equals(action)) required.add("message");
+                        break;
+                }
+                break;
+
+            case "permission_manager":
+                if (action == null) break;
+                switch (action) {
+                    case "check":
+                    case "request":
+                    case "request_and_wait":
+                    case "get_status":
+                    case "explain_permission":
+                    case "can_request":
+                        required.add("permission");
+                        break;
+                    case "check_all":
+                    case "list_permissions":
+                        // 不强制
+                        break;
+                }
+                break;
+
+            case "python_calculate":
+                required.add("expression");
                 break;
         }
         return required;
@@ -329,9 +502,33 @@ public class ToolPreChecker {
             case "text": return "文本内容";
             case "target_lang": return "目标语言";
             case "file_path": return "文件路径";
+            case "image_path": return "图片路径";
             case "directory_path": return "目录路径";
+            case "source_path": return "源文件路径";
+            case "target_path": return "目标文件路径";
+            case "output_path": return "输出文件路径";
+            case "save_path": return "保存路径";
+            case "file_name": return "文件名称/路径";
+            case "folder": return "目录";
             case "page": return "页面名称";
             case "expression": return "数学表达式";
+            case "encoding": return "文件编码";
+            case "startLine": return "起始行号";
+            case "endLine": return "结束行号";
+            case "analysis_type": return "分析类型";
+            case "action": return "操作类型";
+            case "content": return "文件内容";
+            case "title": return "标题";
+            case "topic": return "研究主题/话题";
+            case "maxResults": return "结果数量";
+            case "maxDepth": return "最大深度";
+            case "app_name": return "应用名称";
+            case "phone_number": return "电话号码";
+            case "message": return "消息内容";
+            case "permission": return "权限名称";
+            case "task": return "任务描述";
+            case "description": return "描述信息";
+            case "hint": return "提示文本";
             default: return key;
         }
     }

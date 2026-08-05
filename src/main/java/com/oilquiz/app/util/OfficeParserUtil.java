@@ -3,7 +3,7 @@ package com.oilquiz.app.util;
 import android.util.Log;
 
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xwpf.usermodel.*;
 
 import java.io.File;
@@ -39,7 +39,7 @@ public class OfficeParserUtil {
             
             Log.i(TAG, "Word文档解析成功: " + file.getAbsolutePath());
             return content.toString();
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "解析Word文档失败: " + e.getMessage(), e);
             return null;
         }
@@ -65,7 +65,7 @@ public class OfficeParserUtil {
             Log.i(TAG, "Word文档解析成功: " + file.getAbsolutePath() + 
                   ", 共 " + paragraphs.size() + " 个段落");
             return paragraphs;
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "解析Word文档失败: " + e.getMessage(), e);
             return null;
         }
@@ -80,7 +80,7 @@ public class OfficeParserUtil {
     public static List<String[]> parseExcel(File file, int sheetIndex) {
         List<String[]> data = new ArrayList<>();
         try (FileInputStream fis = new FileInputStream(file);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
             
             Sheet sheet = workbook.getSheetAt(sheetIndex);
             if (sheet == null) {
@@ -97,10 +97,29 @@ public class OfficeParserUtil {
                 data.add(rowData.toArray(new String[0]));
             }
             
-            Log.i(TAG, "Excel文件解析成功: " + file.getAbsolutePath() + 
+            Log.i(TAG, "Excel文件解析成功: " + file.getAbsolutePath() +
                   ", 共 " + data.size() + " 行");
+            // ========== 诊断：POI读取节点 ==========
+            if (!data.isEmpty()) {
+                // 打印表头（首行）
+                String[] headerRow = data.get(0);
+                StringBuilder headerSb = new StringBuilder();
+                for (int i = 0; i < Math.min(headerRow.length, 6); i++) {
+                    headerSb.append("[").append(headerRow[i]).append("] ");
+                }
+                ImportDebugTracer.trace("【1】OfficeParserUtil-POI-表头", headerSb.toString());
+                // 打印数据首行
+                if (data.size() > 1) {
+                    String[] firstData = data.get(1);
+                    StringBuilder dataSb = new StringBuilder();
+                    for (int i = 0; i < Math.min(firstData.length, 6); i++) {
+                        dataSb.append("[").append(firstData[i]).append("] ");
+                    }
+                    ImportDebugTracer.trace("【2】OfficeParserUtil-POI-首条数据", dataSb.toString());
+                }
+            }
             return data;
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "解析Excel文件失败: " + e.getMessage(), e);
             return null;
         }
@@ -153,9 +172,9 @@ public class OfficeParserUtil {
      */
     public static int getExcelSheetCount(File file) {
         try (FileInputStream fis = new FileInputStream(file);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
             return workbook.getNumberOfSheets();
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "获取工作表数量失败: " + e.getMessage(), e);
             return 0;
         }
@@ -169,14 +188,14 @@ public class OfficeParserUtil {
     public static List<String> getExcelSheetNames(File file) {
         List<String> sheetNames = new ArrayList<>();
         try (FileInputStream fis = new FileInputStream(file);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
             
             for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
                 sheetNames.add(workbook.getSheetName(i));
             }
             
             return sheetNames;
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "获取工作表名称失败: " + e.getMessage(), e);
             return null;
         }
@@ -190,7 +209,7 @@ public class OfficeParserUtil {
      */
     public static String[] getExcelHeaders(File file, int sheetIndex) {
         try (FileInputStream fis = new FileInputStream(file);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
             
             Sheet sheet = workbook.getSheetAt(sheetIndex);
             if (sheet == null || sheet.getLastRowNum() < 0) {
@@ -208,7 +227,7 @@ public class OfficeParserUtil {
             }
             
             return headers.toArray(new String[0]);
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "获取表头失败: " + e.getMessage(), e);
             return null;
         }

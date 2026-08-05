@@ -17,6 +17,9 @@ afterEvaluate {
     }
 }
 
+// org.jetbrains:annotations 和 annotations-java5 重复类
+// 在 packagingOptions 中 pickFirst 解决（见下方 android.packagingOptions）
+
 android {
     namespace "com.oilquiz.app"
     compileSdk 34
@@ -48,11 +51,22 @@ android {
         defaultConfig {
             version "3.10"
             pip {
-                install "requests"
-                // 暂时屏蔽重型Python依赖以加速构建，后续按需开启
-                // install "numpy"
-                // install "Pillow"
+                // 纯Python包从本地wheel/sdist安装，无需联网
+                install "python-wheels/requests-2.34.2-py3-none-any.whl"
+                install "python-wheels/beautifulsoup4-4.15.0-py3-none-any.whl"
+                install "python-wheels/jieba-0.42.1.tar.gz"
+                
+                // native包从Chaquopy源获取Android预编译wheel
+                // 国内镜像源作为额外源加速下载
+                options "--extra-index-url", "https://pypi.tuna.tsinghua.edu.cn/simple/"
+                options "--trusted-host", "pypi.tuna.tsinghua.edu.cn"
+                options "--extra-index-url", "https://mirrors.aliyun.com/pypi/simple/"
+                options "--trusted-host", "mirrors.aliyun.com"
+                
                 install "regex"
+                install "Pillow"
+                install "numpy"
+                install "lxml"
             }
         }
     }
@@ -124,12 +138,6 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion "1.4.8"
     }
-    // externalNativeBuild {
-    //     cmake {
-    //         path "src/main/cpp/CMakeLists.txt"
-    //         version "3.22.1"
-    //     }
-    // }
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -261,6 +269,11 @@ dependencies {
     implementation "io.noties.markwon:ext-tables:4.6.2"
     implementation "io.noties.markwon:ext-strikethrough:4.6.2"
     implementation "io.noties.markwon:ext-tasklist:4.6.2"
+    implementation("io.noties.markwon:syntax-highlight:4.6.2") {
+        exclude group: 'org.jetbrains', module: 'annotations-java5'
+    }
+    implementation "io.noties.markwon:linkify:4.6.2"
+    annotationProcessor "io.noties:prism4j-bundler:2.0.0"
     implementation "com.google.android.flexbox:flexbox:3.0.0"
     implementation "org.apache.commons:commons-collections4:4.4"
     implementation "commons-io:commons-io:2.11.0"

@@ -42,15 +42,27 @@ public class WeatherBannerView extends LinearLayout {
     private static final String KEY_TIMESTAMP = "cached_timestamp";
     private static final long LOCATION_CACHE_DURATION = 30 * 60 * 1000;
 
+    /** 广播Action：WeatherDetailActivity 解析到具体地址（区+路）时发送，通知所有 Banner 实例立即刷新 */
+    public static final String ACTION_LOCATION_UPDATED
+            = "com.oilquiz.app.action.WEATHER_LOCATION_UPDATED";
+    public static final String EXTRA_CITY = "city";
+    public static final String EXTRA_LAT  = "lat";
+    public static final String EXTRA_LON  = "lon";
+
     private TextView weatherIcon;
     private TextView weatherCity;
     private TextView weatherTemp;
     private TextView weatherDesc;
     private ImageView weatherArrow;
     private View weatherBanner;
+    // 介绍行 chips（类似天气详情页的介绍功能）
+    private TextView weatherFeelsLike;   // 体感温度
+    private TextView weatherHumidity;    // 湿度
+    private TextView weatherWind;        // 风向+风力
+    private TextView weatherVisibility;  // 能见度
 
     private WeatherService weatherService;
-    private String currentCity = "北京";
+    private String currentCity = "";
     private boolean autoLoad = true;
     private boolean locationPermissionGranted = false;
     private double cachedLat = 0;
@@ -58,6 +70,52 @@ public class WeatherBannerView extends LinearLayout {
     private String cachedFxLink = "";
     private long lastRefreshTime = 0;
     private String cachedAddress = "";
+
+    private android.content.BroadcastReceiver locationUpdateReceiver;
+
+    /**
+     * 统一入口：写入 SP 缓存 + 双发广播（全局+本地）确保所有监听器都能收到。
+     *   - WeatherDetailActivity（GPS定位成功后）：调用此方法同步具体地址给横幅
+     *   - WeatherBannerView 自己定位成功后：也通过 saveCachedLocation → 调用此方法，保证写入时间戳一致
+     */
+    public static void updateSharedLocationCacheAndNotify(Context context,
+                                                          String city, double lat, double lon) {
+        if (context == null) return;
+        if (city == null || city.isEmpty()) return;
+        final long now = System.currentTimeMillis();
+        // 1. 写入 SP（Banner 下次初始化 / onResume 时间戳对比时会读到）
+        try {
+            android.content.SharedPreferences prefs
+                    = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            prefs.edit()
+                    .putLong(KEY_LAT, Double.doubleToRawLongBits(lat))
+                    .putLong(KEY_LON, Double.doubleToRawLongBits(lon))
+                    .putString(KEY_CITY, city)
+                    .putLong(KEY_TIMESTAMP, now)
+                    .apply();
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to write shared location cache: " + e.getMessage());
+        }
+        // 2. 双发广播：全局（动态 registerReceiver）+ LocalBroadcastManager（本地）
+        //    两种都发，避免注册方式不一致导致收不到
+        try {
+            android.content.Intent intent = new android.content.Intent(ACTION_LOCATION_UPDATED);
+            intent.setPackage(context.getPackageName());
+            intent.putExtra(EXTRA_CITY, city);
+            intent.putExtra(EXTRA_LAT, lat);
+            intent.putExtra(EXTRA_LON, lon);
+            // 全局广播（给 Context.registerReceiver 动态注册的接收器）
+            try { context.sendBroadcast(intent); }
+            catch (Exception ignored) {}
+            // 本地广播（给 LocalBroadcastManager 注册的接收器）
+            try {
+                androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context)
+                        .sendBroadcast(intent);
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to broadcast location: " + e.getMessage());
+        }
+    }
 
     public WeatherBannerView(Context context) {
         super(context);
@@ -83,6 +141,11 @@ public class WeatherBannerView extends LinearLayout {
         weatherDesc = findViewById(R.id.weather_desc);
         weatherArrow = findViewById(R.id.weather_arrow);
         weatherBanner = findViewById(R.id.weather_banner);
+        // 介绍行 chips
+        weatherFeelsLike  = findViewById(R.id.weather_feels_like);
+        weatherHumidity   = findViewById(R.id.weather_humidity);
+        weatherWind       = findViewById(R.id.weather_wind);
+        weatherVisibility = findViewById(R.id.weather_visibility);
 
         disableChildClicks(this);
 
@@ -118,6 +181,74 @@ public class WeatherBannerView extends LinearLayout {
             if (!loadFromCachedLocation()) {
                 requestLocationAndLoad();
             }
+        }
+
+        // 注册位置变更广播：详情页解析到具体地址后会发通知，立即刷新
+        try {
+            locationUpdateReceiver = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, android.content.Intent intent) {
+                    if (intent == null) return;
+                    String city = intent.getStringExtra(EXTRA_CITY);
+                    double lat  = intent.getDoubleExtra(EXTRA_LAT, 0);
+                    double lon  = intent.getDoubleExtra(EXTRA_LON, 0);
+                    if (city == null || city.isEmpty()) return;
+                    Log.i(TAG, "收到位置更新广播: " + city + " (" + lat + "," + lon + ")");
+                    // 避免重复处理：如果城市名和坐标都没变，跳过
+                    if (city.equals(currentCity) && lat == cachedLat && lon == cachedLon) {
+                        return;
+                    }
+                    currentCity = city;
+                    cachedLat = lat;
+                    cachedLon = lon;
+                    // 注意：此处只写 SP 缓存，不再调用 saveCachedLocation（会发广播导致死循环）
+                    try {
+                        android.content.SharedPreferences prefs
+                                = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                        prefs.edit()
+                                .putLong(KEY_LAT, Double.doubleToRawLongBits(lat))
+                                .putLong(KEY_LON, Double.doubleToRawLongBits(lon))
+                                .putString(KEY_CITY, city)
+                                .putLong(KEY_TIMESTAMP, System.currentTimeMillis())
+                                .apply();
+                    } catch (Exception ignored) {}
+                    lastRefreshTime = System.currentTimeMillis();
+                    // 立即显示新地址，并用新坐标请求天气（如坐标=0则用城市名兜底）
+                    post(() -> {
+                        if (lat != 0 && lon != 0) {
+                            loadWeatherByLocationDirect(lat, lon, city);
+                        } else {
+                            loadWeatherWithCity(city);
+                        }
+                    });
+                }
+            };
+            android.content.IntentFilter filter = new android.content.IntentFilter(ACTION_LOCATION_UPDATED);
+            // 同时兼容全局广播和 LocalBroadcastManager
+            try {
+                getContext().registerReceiver(locationUpdateReceiver, filter);
+            } catch (Exception ignored) {}
+            try {
+                androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(getContext())
+                        .registerReceiver(locationUpdateReceiver, filter);
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to register location receiver: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (locationUpdateReceiver != null) {
+            try {
+                getContext().unregisterReceiver(locationUpdateReceiver);
+            } catch (Exception ignored) {}
+            try {
+                androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(getContext())
+                        .unregisterReceiver(locationUpdateReceiver);
+            } catch (Exception ignored) {}
+            locationUpdateReceiver = null;
         }
     }
 
@@ -176,6 +307,28 @@ public class WeatherBannerView extends LinearLayout {
 
     public void onResume() {
         long now = System.currentTimeMillis();
+
+        // ================================================================
+        // 每次 onResume 都检测 SP 缓存是否比自己的 lastRefreshTime 更新
+        // （详情页 asyncResolveFullAddress 成功后会写入 SP 并发广播）
+        // 如果缓存更新 → 立即重刷（解决返回主页面后横幅显示旧名字的问题）
+        // ================================================================
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            long cacheTs = prefs.getLong(KEY_TIMESTAMP, 0);
+            if (cacheTs > lastRefreshTime) {
+                Log.i(TAG, "onResume 检测到 SP 位置缓存更新: cacheTs=" + cacheTs
+                        + " > lastRefreshTime=" + lastRefreshTime + "，立即刷新");
+                if (loadFromCachedLocation()) {
+                    lastRefreshTime = cacheTs;
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "onResume 检查SP缓存失败: " + e.getMessage());
+        }
+
+        // 5 分钟超时兜底：超过 5 分钟才重新请求网络/重新定位
         if (lastRefreshTime == 0 || (now - lastRefreshTime) > MIN_REFRESH_INTERVAL_MS) {
             if (loadFromCachedLocation()) return;
             requestLocationAndLoad();
@@ -233,38 +386,69 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
+    /** 反解析坐标：按"区+路 > 区+市 > 市"的优先级取最具体的地址，不再冗余拼省名 */
     private String getCityNameFromGeocoder(double lat, double lon) {
-        if (Geocoder.isPresent()) {
-            try {
-                Geocoder geocoder = new Geocoder(getContext(), Locale.CHINA);
-                List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
-                if (addresses != null && !addresses.isEmpty()) {
-                    Address address = addresses.get(0);
-                    String name = address.getSubLocality();
-                    if (name == null) name = address.getLocality();
-                    if (name == null) name = address.getAdminArea();
-                    if (name != null) {
-                        Log.i(TAG, "Geocoder反解析成功: " + name);
-                        return name;
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Geocoder failed: " + e.getMessage());
+        if (!Geocoder.isPresent()) return null;
+        try {
+            Geocoder geocoder = new Geocoder(getContext(), Locale.CHINA);
+            List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+            if (addresses == null || addresses.isEmpty()) return null;
+            Address a = addresses.get(0);
+            String province = a.getAdminArea();         // 省（用于去除重复，不拼到结果）
+            String city     = a.getLocality();          // 市
+            String district = a.getSubLocality();       // 区/县
+            String road     = a.getThoroughfare();      // 街道/路名（最关键）
+            String feature  = a.getFeatureName();       // 地标/小区名
+            String result = null;
+            // 1. 区 + 路（最优，最具体）
+            if (district != null && !district.isEmpty()
+                && road != null && !road.isEmpty()) {
+                result = district + road;
             }
+            // 2. 路 + 地标
+            else if (road != null && !road.isEmpty()
+                     && feature != null && !feature.isEmpty()) {
+                result = road + feature;
+            }
+            // 3. 区 + 市
+            else if (district != null && !district.isEmpty()
+                     && city != null && !city.isEmpty()
+                     && !city.equals(district)
+                     && !city.equals(province)) {
+                result = district + city;
+            }
+            // 4. 单路名
+            else if (road != null && !road.isEmpty()) {
+                result = road;
+            }
+            // 5. 单区 / 单市 / 单地标
+            else {
+                if (district != null && !district.isEmpty()) result = district;
+                else if (city != null && !city.isEmpty())   result = city;
+                else if (feature != null && !feature.isEmpty()) result = feature;
+            }
+            if (result == null || result.isEmpty()) {
+                result = a.getFeatureName();
+            }
+            if (result != null && !result.isEmpty()) {
+                Log.i(TAG, "Geocoder反解析成功: " + result);
+                return result;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Geocoder failed: " + e.getMessage());
         }
         return null;
     }
 
+    /**
+     * 保存位置缓存：复用统一入口 updateSharedLocationCacheAndNotify，
+     * 保证 SP 写入时间戳格式、广播发送完全一致，避免和详情页同步时不一致。
+     */
     private void saveCachedLocation(double lat, double lon, String city) {
         try {
-            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            prefs.edit()
-                    .putLong(KEY_LAT, Double.doubleToRawLongBits(lat))
-                    .putLong(KEY_LON, Double.doubleToRawLongBits(lon))
-                    .putString(KEY_CITY, city)
-                    .putLong(KEY_TIMESTAMP, System.currentTimeMillis())
-                    .apply();
-            Log.i(TAG, "Location cached: " + city + " (" + lat + "," + lon + ")");
+            Log.i(TAG, "saveCachedLocation -> updateSharedLocationCacheAndNotify: "
+                    + city + " (" + lat + "," + lon + ")");
+            updateSharedLocationCacheAndNotify(getContext(), city, lat, lon);
         } catch (Exception e) {
             Log.w(TAG, "Error saving cached location: " + e.getMessage());
         }
@@ -329,7 +513,9 @@ public class WeatherBannerView extends LinearLayout {
 
         Activity activity = tryGetActivity();
         if (activity == null) {
-            loadWeatherWithCity(currentCity);
+            if (weatherCity != null) weatherCity.setText("未定位");
+            if (weatherDesc != null) weatherDesc.setText("无法获取Activity");
+            if (weatherTemp != null) weatherTemp.setText("--°");
             return;
         }
 
@@ -344,8 +530,9 @@ public class WeatherBannerView extends LinearLayout {
             public void onDenied(List<String> deniedPermissions) {
                 locationPermissionGranted = false;
                 post(() -> {
-                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝，使用默认城市");
-                    loadWeatherWithCity(currentCity);
+                    if (weatherCity != null) weatherCity.setText("未定位");
+                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝");
+                    if (weatherTemp != null) weatherTemp.setText("--°");
                 });
             }
         });
@@ -363,7 +550,9 @@ public class WeatherBannerView extends LinearLayout {
 
         Activity activity = tryGetActivity();
         if (activity == null) {
-            refreshWeatherWithCity(currentCity);
+            if (weatherCity != null) weatherCity.setText("未定位");
+            if (weatherDesc != null) weatherDesc.setText("无法获取Activity");
+            if (weatherTemp != null) weatherTemp.setText("--°");
             return;
         }
 
@@ -378,8 +567,9 @@ public class WeatherBannerView extends LinearLayout {
             public void onDenied(List<String> deniedPermissions) {
                 locationPermissionGranted = false;
                 post(() -> {
-                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝，使用默认城市");
-                    refreshWeatherWithCity(currentCity);
+                    if (weatherCity != null) weatherCity.setText("未定位");
+                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝");
+                    if (weatherTemp != null) weatherTemp.setText("--°");
                 });
             }
         });
@@ -394,12 +584,9 @@ public class WeatherBannerView extends LinearLayout {
             return;
         }
 
-        // 快速显示当前城市（缓存或默认），同时后台更新位置
-        if (weatherCity != null) weatherCity.setText(currentCity);
+        // 快速显示加载状态，同时后台更新位置
+        if (weatherCity != null) weatherCity.setText("定位中...");
         if (weatherDesc != null) weatherDesc.setText("定位中，正在更新...");
-
-        // 先用已有城市名加载天气，同时后台获取精确位置
-        loadWeatherWithCity(currentCity);
 
         // 后台尝试获取精确位置
         new Thread(() -> {
@@ -425,7 +612,7 @@ public class WeatherBannerView extends LinearLayout {
 
                     String cityName = getCityNameFromGeocoder(lat, lon);
                     if (cityName == null || cityName.isEmpty()) {
-                        cityName = currentCity;
+                        cityName = currentCity.isEmpty() ? "未知位置" : currentCity;
                     }
                     currentCity = cityName;
                     cachedAddress = cityName;
@@ -437,9 +624,21 @@ public class WeatherBannerView extends LinearLayout {
                         if (weatherCity != null) weatherCity.setText(finalCity);
                         loadWeatherByLocationDirect(lat, lon, finalCity);
                     });
+                } else {
+                    // GPS失败，显示提示
+                    post(() -> {
+                        if (weatherCity != null) weatherCity.setText("未定位");
+                        if (weatherDesc != null) weatherDesc.setText("定位失败，点击重试");
+                        if (weatherTemp != null) weatherTemp.setText("--°");
+                    });
                 }
             } catch (Exception e) {
                 Log.w(TAG, "Background location update failed: " + e.getMessage());
+                post(() -> {
+                    if (weatherCity != null) weatherCity.setText("未定位");
+                    if (weatherDesc != null) weatherDesc.setText("定位失败，点击重试");
+                    if (weatherTemp != null) weatherTemp.setText("--°");
+                });
             }
         }, "LocationUpdate").start();
     }
@@ -470,7 +669,7 @@ public class WeatherBannerView extends LinearLayout {
 
                     String cityName = getCityNameFromGeocoder(lat, lon);
                     if (cityName == null || cityName.isEmpty()) {
-                        cityName = currentCity;
+                        cityName = currentCity.isEmpty() ? "未知位置" : currentCity;
                     }
                     currentCity = cityName;
                     cachedAddress = cityName;
@@ -482,12 +681,17 @@ public class WeatherBannerView extends LinearLayout {
                     post(() -> loadWeatherByLocationDirect(lat, lon, finalCity));
                     return;
                 }
-                Log.w(TAG, "Refresh location returned no valid coordinates, falling back to city: " + currentCity);
+                Log.w(TAG, "Refresh location returned no valid coordinates");
             } catch (Exception e) {
                 Log.e(TAG, "Refresh location failed: " + e.getMessage(), e);
             }
 
-            post(() -> refreshWeatherWithCity(currentCity));
+            // 定位失败，显示错误状态而不回退到默认城市
+            post(() -> {
+                if (weatherCity != null) weatherCity.setText("未定位");
+                if (weatherDesc != null) weatherDesc.setText("定位失败，点击重试");
+                if (weatherTemp != null) weatherTemp.setText("--°");
+            });
         }).start();
     }
 
@@ -567,21 +771,80 @@ public class WeatherBannerView extends LinearLayout {
             } else {
                 currentCity = displayCity;
             }
-            weatherCity.setText(displayCity);
+            weatherCity.setText(truncateCityName(displayCity));
         }
         if (weatherTemp != null) {
-            weatherTemp.setText(info.temp + "°");
+            String t = (info.temp == null || info.temp.isEmpty()) ? "--" : info.temp;
+            weatherTemp.setText(t + "°");
         }
         if (weatherDesc != null) {
             String desc = info.description;
-            if (desc == null || desc.isEmpty()) {
-                desc = "暂无数据";
-            }
-            if (info.humidity != null && !info.humidity.isEmpty() && !info.humidity.equals("--")) {
-                desc += " · 湿度" + info.humidity + "%";
-            }
+            if (desc == null || desc.isEmpty()) desc = "暂无数据";
             weatherDesc.setText(desc);
         }
+
+        // ========== 介绍行 chips：体感 / 湿度 / 风向风力 / 能见度（类似详情页）==========
+        if (weatherFeelsLike != null) {
+            String feels = (info.feelsLike == null || info.feelsLike.isEmpty() || "--".equals(info.feelsLike))
+                           ? "体感 --°" : "体感 " + info.feelsLike + "°";
+            weatherFeelsLike.setText(feels);
+        }
+        if (weatherHumidity != null) {
+            String h = (info.humidity == null || info.humidity.isEmpty() || "--".equals(info.humidity))
+                       ? "--" : info.humidity;
+            weatherHumidity.setText("💧 " + h + "%");
+        }
+        if (weatherWind != null) {
+            StringBuilder w = new StringBuilder("🌬 ");
+            boolean hasAny = false;
+            if (info.windDir != null && !info.windDir.isEmpty() && !"--".equals(info.windDir)) {
+                w.append(info.windDir);
+                hasAny = true;
+            }
+            if (info.wind != null && !info.wind.isEmpty() && !"--".equals(info.wind)) {
+                if (hasAny) w.append(" ");
+                w.append(info.wind);
+                hasAny = true;
+            }
+            if (!hasAny) w.append("--");
+            weatherWind.setText(w.toString());
+        }
+        if (weatherVisibility != null) {
+            String vis = (info.visibility == null || info.visibility.isEmpty() || "--".equals(info.visibility))
+                         ? "--" : info.visibility;
+            if (vis.matches("-?\\d+(\\.\\d+)?")) {
+                weatherVisibility.setText("👁 " + vis + "km");
+            } else {
+                weatherVisibility.setText("👁 " + vis);
+            }
+        }
+    }
+
+    /**
+     * 最简城市名处理：只"去掉省/市级前缀"，其余原样返回，绝不截断中间内容
+     */
+    private static String truncateCityName(String name) {
+        if (name == null || name.isEmpty()) return name;
+        String s = name;
+
+        int provEnd = -1;
+        int sheng = s.indexOf('省');
+        int zhiQu = s.indexOf("自治区");
+        int teBie = s.indexOf("特别行政区");
+        if (sheng >= 0 && sheng < 8) provEnd = Math.max(provEnd, sheng + 1);
+        if (zhiQu >= 0 && zhiQu < 12) provEnd = Math.max(provEnd, zhiQu + 3);
+        if (teBie >= 0 && teBie < 15) provEnd = Math.max(provEnd, teBie + 5);
+        if (provEnd > 0 && provEnd < s.length()) s = s.substring(provEnd);
+
+        int shiIdx = s.indexOf('市');
+        if (shiIdx > 0 && shiIdx <= 5 && shiIdx + 1 < s.length()) {
+            char a = s.charAt(shiIdx + 1);
+            if (a == '区' || a == '县' || a == '路' || a == '街' || a == '巷'
+                || a == '大' || a == '小' || a == '花' || a == '园') {
+                s = s.substring(shiIdx + 1);
+            }
+        }
+        return s.isEmpty() ? name : s;
     }
 
     private WeatherBannerManager.WeatherInfo parseWeather(String weatherText) {

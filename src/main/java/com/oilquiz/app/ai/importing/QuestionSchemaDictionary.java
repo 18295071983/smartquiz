@@ -86,18 +86,68 @@ public class QuestionSchemaDictionary {
     }
 
     /**
-     * 极简抽取系统提示词（v3 NoThinking：零推理链，直接输出）。
+     * Agent 级抽取系统提示词（v5：Few-shot + 强格式约束 + 自纠指令）。
      * <p>
-     * 核心原则：零思考、零解释、零编造。
-     * 基于 NoThinking 方法论（arXiv:2504.09858）：跳过显式思考步骤反而更准更快。
+     * v5 改进：
+     * - 加入 few-shot 示例，显著提升格式遵循率
+     * - 明确字段语义和取值规范
+     * - 内置自纠指令：输出前自检 JSON 合法性
+     * - 兼容在线/本地模型（在线模型理解力强，本地模型靠示例对齐）
      */
     public static String getMinimalExtractionPrompt() {
-        return "你是JSON提取器。从文本中提取题目，直接输出JSON，禁止思考过程。\n"
-                + "规则：\n"
-                + "1. 只输出{\"questions\":[...]}，禁止任何其他文字\n"
-                + "2. 保留原文，不翻译不改写不编造\n"
-                + "3. questionType取：单选/多选/判断/填空/简答\n"
-                + "4. 原文无内容则填空字符串\"\"\n"
-                + "5. 没有题目则输出{\"questions\":[]}";
+        return "你是题库结构化提取专家。从给定的文本中提取所有题目，输出标准JSON。\n\n"
+                + "## 输出格式（严格遵守）\n"
+                + "只输出以下JSON结构，禁止输出任何其他文字、解释、markdown标记：\n"
+                + "{\"questions\":[{\"questionText\":\"题干\",\"optionA\":\"\",\"optionB\":\"\",\"optionC\":\"\",\"optionD\":\"\","
+                + "\"optionE\":\"\",\"optionF\":\"\",\"optionG\":\"\",\"optionH\":\"\",\"optionI\":\"\",\"optionJ\":\"\",\"optionK\":\"\",\"optionL\":\"\","
+                + "\"blankAnswer1\":\"\",\"blankAnswer2\":\"\",\"blankAnswer3\":\"\",\"blankAnswer4\":\"\",\"blankAnswer5\":\"\","
+                + "\"blankAnswer6\":\"\",\"blankAnswer7\":\"\",\"blankAnswer8\":\"\",\"blankAnswer9\":\"\",\"blankAnswer10\":\"\","
+                + "\"blankAnswer11\":\"\",\"blankAnswer12\":\"\","
+                + "\"correctAnswer\":\"\",\"questionType\":\"\",\"category\":\"\",\"explanation\":\"\",\"knowledgePoint\":\"\",\"difficulty\":\"\"}]}\n\n"
+                + "## 字段规范\n"
+                + "1. questionText: 题干原文，保留原始文字，不翻译不改写。填空题的空位置可用 ___ 或 ___N___ 标记\n"
+                + "2. optionA~L: 选择题选项内容（A~L共12列支持）。无选项的题填\"\"\n"
+                + "3. blankAnswer1~12: 填空题的标准答案（对应空1~空12）。无填空填\"\"\n"
+                + "4. correctAnswer: 最终正确答案。单选填字母(A/B/C/D...)，判断填(对/错)，多选按字母升序填(ABC/ABD...)，填空/简答/问答填答案文本，案例分析填要点\n"
+                + "5. questionType: 题型。优先使用文本开头 DEFAULT_QUESTION_TYPE 提示的统一默认值（若存在）；否则自行判断。取值仅能是以下之一：单选题、多选题、判断题、填空题、简答题、问答题、案例分析题、匹配题、计算题、综合题、未分类\n"
+                + "6. category: 分类或科目，原文无则填\"通用\"\n"
+                + "7. explanation/knowledgePoint/difficulty: 解析、知识点、难度（可选，空填\"\"，难度取 简单/中等/困难）\n\n"
+                + "## 提取规则\n"
+                + "- 保留原文，不编造不补全\n"
+                + "- 一道题一个对象，不要合并\n"
+                + "- 没有题目时输出 {\"questions\":[]}\n"
+                + "- 输出前自检：确保是合法JSON，所有字符串已正确转义\n"
+                + "- 若文本首部出现 \"DEFAULT_QUESTION_TYPE=XXX\" 或 \"SHEET_META...questionType=XXX\" 提示：所有题的 questionType 字段优先统一填这个默认值（不要随意改为其他值），除非某道题明确说明题型不同\n\n"
+                + "## 示例\n"
+                + "输入：1. 下列哪项是石油的主要成分？\\nA. 烷烃 B. 烯烃 C. 炔烃 D. 芳烃\\n答案: A\n"
+                + "输出：{\"questions\":[{\"questionText\":\"下列哪项是石油的主要成分？\","
+                + "\"optionA\":\"烷烃\",\"optionB\":\"烯烃\",\"optionC\":\"炔烃\",\"optionD\":\"芳烃\",\"correctAnswer\":\"A\",\"questionType\":\"单选题\",\"category\":\"通用\"}]}\n\n"
+                + "输入：地球是太阳系中最大的行星。 答案：错\n"
+                + "输出：{\"questions\":[{\"questionText\":\"地球是太阳系中最大的行星。\",\"correctAnswer\":\"错\",\"questionType\":\"判断题\",\"category\":\"通用\"}]}";
+    }
+
+    /**
+     * 构建自纠重试 prompt（当首次输出校验失败时使用）。
+     *
+     * @param previousOutput AI 上次的原始输出
+     * @param errors         校验错误列表
+     * @return 修正 prompt
+     */
+    public static String getCorrectionPrompt(String previousOutput, java.util.List<String> errors) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("你上次的输出存在以下问题，请修正后重新输出完整的JSON：\n\n");
+        sb.append("## 上次输出\n").append(previousOutput).append("\n\n");
+        sb.append("## 错误列表\n");
+        if (errors != null && !errors.isEmpty()) {
+            for (int i = 0; i < errors.size(); i++) {
+                sb.append((i + 1)).append(". ").append(errors.get(i)).append("\n");
+            }
+        } else {
+            sb.append("输出格式不合法或无法解析为JSON\n");
+        }
+        sb.append("\n## 要求\n");
+        sb.append("请修正以上问题，重新输出完整的 {\"questions\":[...]} JSON。");
+        sb.append("只输出JSON，不要输出任何其他文字。");
+        return sb.toString();
     }
 }

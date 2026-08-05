@@ -17,6 +17,62 @@
 #include "ggml-backend.h"
 #include <vulkan/vulkan.h>
 
+// 组3.15：致命信号兜底——接住 llama 内部 abort 不自杀，返回错误码
+#include <signal.h>
+#include <setjmp.h>
+
+static thread_local sigjmp_buf fatal_jmp_buf;
+static thread_local bool has_jmp_set = false;
+
+static void fatal_signal_handler(int sig) {
+    if (has_jmp_set) {
+        siglongjmp(fatal_jmp_buf, sig);
+    }
+    // 如果没有设置 jmp，恢复默认处理
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void install_fatal_signal_handlers() {
+    struct sigaction sa;
+    sa.sa_handler = fatal_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+}
+
+// ========== 组3.15 新增：推理安全执行辅助 ==========
+// 统一的 sigsetjmp 包裹宏，用于所有推理 JNI 方法（nativeGenerateStream / Bytes / FromMessages / runPureInference）
+// 用法：SAFE_RUN_INFERENCE(jni_env, callback_object, on_error_method, inference_body)
+//   - 自动设置 sigsetjmp / has_jmp_set / fatal_jmp_buf
+//   - 信号触发时回调 onError("Native crash: signal X") 并返回
+//   - 正常路径保持 has_jmp_set=false，不影响信号处理器行为
+//   - EnsureLocalCapacity 预留 256 局部引用槽位，防止信号跳转后局部引用泄漏
+#define SAFE_RUN_INFERENCE(env, callback, onErrorMethod, inference_block) \
+    do { \
+        (env)->EnsureLocalCapacity(256); \
+        has_jmp_set = true; \
+        int _sig = sigsetjmp(fatal_jmp_buf, 1); \
+        if (_sig != 0) { \
+            has_jmp_set = false; \
+            LOGE("Fatal signal %d during inference", _sig); \
+            if ((onErrorMethod) != nullptr && (callback) != nullptr) { \
+                std::string _errMsg = "Native inference crashed (signal " + std::to_string(_sig) + ")"; \
+                jstring _errStr = (env)->NewStringUTF(_errMsg.c_str()); \
+                if (_errStr != nullptr) { \
+                    (env)->CallVoidMethod((callback), (onErrorMethod), _errStr); \
+                    (env)->DeleteLocalRef(_errStr); \
+                } \
+            } \
+            return; \
+        } \
+        inference_block; \
+        has_jmp_set = false; \
+    } while (0)
+
 #define CL_TARGET_OPENCL_VERSION 300
 typedef int cl_int;
 typedef unsigned int cl_uint;
@@ -961,7 +1017,25 @@ public:
         }
         
         LOG_MEM("after_llama_model_load");
-        
+
+        // 组3.12：读取模型元数据（model 已加载成功，ctx 尚未创建）
+        if (model != nullptr) {
+            meta.valid = true;
+            meta.nCtxTrain = llama_model_n_ctx_train(model);
+            meta.nEmbd = llama_model_n_embd(model);
+            meta.nLayer = llama_model_n_layer(model);
+            meta.nHead = llama_model_n_head(model);
+            // llama_model_n_params 返回 uint64_t，cast 为 long long
+            meta.nParams = (long long)llama_model_n_params(model);
+            // 模型名称从路径提取
+            std::string pathStr(modelPath);
+            size_t lastSlash = pathStr.find_last_of('/');
+            meta.modelName = (lastSlash != std::string::npos) ? pathStr.substr(lastSlash + 1) : pathStr;
+            LOGI("ModelMeta: nCtxTrain=%d, nEmbd=%d, nLayer=%d, nHead=%d, nParams=%lld, name=%s",
+                 meta.nCtxTrain, meta.nEmbd, meta.nLayer, meta.nHead,
+                 meta.nParams, meta.modelName.c_str());
+        }
+
         vocab = llama_model_get_vocab(model);
         if (vocab == nullptr) {
             LOGE("Failed to get vocab");
@@ -1891,6 +1965,100 @@ public:
         // 临时简化：直接返回原始prompt，避免任何可能的问题
         LOGI("formatPrompt: returning raw prompt (length=%zu)", prompt.size());
         return prompt;
+    }
+
+    // 组3.10：模型元数据 + 停止标志
+    struct ModelMeta {
+        bool valid = false;
+        int nCtxTrain = 0;
+        int nEmbd = 0;
+        int nLayer = 0;
+        int nHead = 0;
+        long long nParams = 0;
+        std::string modelName;
+    };
+    ModelMeta meta;
+    std::atomic<bool> shouldStopAtom{false};
+
+    // 组3.11：单次调用前后清洁工具——只清 ctx/KV/计数器/错误，不碰 model* 和 meta
+    void resetRuntimeState() {
+        // 不销毁 model，不碰 meta
+        // 清理推理相关的运行时状态（使用 llama_get_memory + llama_memory_clear）
+        if (ctx != nullptr) {
+            llama_memory_t mem = llama_get_memory(ctx);
+            if (mem != nullptr) {
+                llama_memory_clear(mem, true);
+                LOGI("resetRuntimeState: KV cache cleared");
+            }
+        }
+        // 清计数器
+        totalTokenCount = 0;
+        currentTokenCount = 0;
+        // 清错误
+        lastError.clear();
+        // 清停止标志
+        shouldStopAtom.store(false);
+    }
+
+    // 组3.14：纯净推理壳——单次调用安全包装
+    int runPureInference(const std::string& prompt, int /*contextSize*/, int maxTokens,
+                         jobject /*callback*/, JNIEnv* /*env*/) {
+        static std::mutex inferenceMutex;
+        std::lock_guard<std::mutex> lock(inferenceMutex);
+
+        // 入口清理
+        resetRuntimeState();
+
+        // prompt 非空检查
+        if (prompt.empty()) {
+            LOGE("runPureInference: empty prompt");
+            lastError = "Empty prompt";
+            return -1;
+        }
+
+        if (!isValid()) {
+            LOGE("runPureInference: context not valid");
+            lastError = "Context not valid";
+            resetRuntimeState();
+            return -2;
+        }
+
+        // 组3.15：信号兜底——sigsetjmp 包裹推理调用，接住 llama 内部 abort
+        has_jmp_set = true;
+        int sig = sigsetjmp(fatal_jmp_buf, 1);
+        if (sig != 0) {
+            // 信号被触发，返回错误码
+            has_jmp_set = false;
+            lastError = std::string("Fatal signal ") + std::to_string(sig) + " during inference";
+            LOGE("runPureInference: %s", lastError.c_str());
+            resetRuntimeState();
+            return -97;
+        }
+
+        bool ok = false;
+        try {
+            // 按现有逻辑执行推理（复用已有的 generate 逻辑）
+            std::string output;
+            ok = generate(prompt, maxTokens, 0.8f, 0.95f, 40, output);
+        } catch (const std::exception& e) {
+            has_jmp_set = false;
+            lastError = e.what();
+            LOGE("runPureInference: exception: %s", e.what());
+            resetRuntimeState();
+            return -3;
+        } catch (...) {
+            has_jmp_set = false;
+            lastError = "Unknown inference error";
+            LOGE("runPureInference: unknown exception");
+            resetRuntimeState();
+            return -4;
+        }
+
+        has_jmp_set = false;
+
+        // 出口清理
+        resetRuntimeState();
+        return ok ? 0 : -5;
     }
 };
 
@@ -3736,8 +3904,10 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
         }
     };
     
-    // Start stream generation
-    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
+    // Start stream generation —— 信号安全包裹（SIGABRT/SIGSEGV/SIGBUS/SIGILL 兜底）
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+    );
 }
 
 // 辅助函数：将byte[]转换为标准UTF-8字符串（正确处理中文）
@@ -3948,8 +4118,10 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
         }
     };
 
-    // Start stream generation
-    s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
+    // Start stream generation —— 信号安全包裹（SIGABRT/SIGSEGV/SIGBUS/SIGILL 兜底）
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->generateStream(promptContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+    );
 }
 
 // 单次生成路径：接收消息列表（roles[] + contents[]），用 applyChatTemplate 自动适配模型格式
@@ -4113,7 +4285,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
         }
     };
 
-    s_helperContext->generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, tokenCallback);
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+    );
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -4768,6 +4942,79 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCleanupCallback(
         g_activeCallback = nullptr;
         LOGI("nativeCleanupCallback: cleaned up global callback ref");
     }
+}
+
+// 组3.16：模型元数据 + 纯净推理 JNI 导出
+// 注意：使用 s_helperContext 全局指针获取 InferenceContext 实例
+// nativeGetLastError 已存在（见上方），不重复添加
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaNCtxTrain(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return 0;
+    return s_helperContext->meta.nCtxTrain;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaNEmbd(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return 0;
+    return s_helperContext->meta.nEmbd;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaNLayer(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return 0;
+    return s_helperContext->meta.nLayer;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaNHead(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return 0;
+    return s_helperContext->meta.nHead;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaNParams(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return 0;
+    return (jlong)s_helperContext->meta.nParams;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaModelName(JNIEnv* env, jclass) {
+    if (s_helperContext == nullptr) return env->NewStringUTF("");
+    return safeNewStringUTF(env, s_helperContext->meta.modelName);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaValid(JNIEnv* /*env*/, jclass) {
+    if (s_helperContext == nullptr) return JNI_FALSE;
+    return s_helperContext->meta.valid ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInstallSignalHandlers(JNIEnv* /*env*/, jclass) {
+    install_fatal_signal_handlers();
+    LOGI("Fatal signal handlers installed (SIGABRT/SIGSEGV/SIGBUS/SIGILL)");
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeRunInferenceOnce(
+    JNIEnv* env, jclass /*clazz*/,
+    jstring prompt, jint contextSize, jint maxTokens, jobject callback) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("nativeRunInferenceOnce: s_helperContext not initialized");
+        return -1;
+    }
+    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
+    if (promptStr == nullptr) {
+        LOGE("nativeRunInferenceOnce: failed to get prompt");
+        return -1;
+    }
+    std::string promptContent(promptStr);
+    env->ReleaseStringUTFChars(prompt, promptStr);
+
+    int result = s_helperContext->runPureInference(
+        promptContent, (int)contextSize, (int)maxTokens, callback, env);
+    return (jint)result;
 }
 
 }

@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
+import com.oilquiz.app.ai.ChatScene;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.live.MutableChatList;
@@ -69,6 +70,146 @@ public class AIChatViewModel extends AndroidViewModel {
     private String currentModelName;
     private boolean isUsingOnlineModel;
 
+    // 组2.5：场景隔离 —— 每个页面各 new 自己的 ViewModel，通过 setScene 设置场景
+    // 默认 AI_CHAT，错题解析页设为 QUIZ_EXPLAIN，互不串历史
+    private String scene = ChatScene.AI_CHAT;
+
+    // ========== 状态机：统一 UI↔Service 状态契约 ==========
+    /**
+     * AI 状态机枚举 —— 覆盖从初始化到推理到回收的全生命周期
+     *
+     * 状态迁移路径：
+     *   IDLE ──init()──▶ LOADING ──加载完成──▶ READY
+     *                                         │
+     *         ▲                                │generateStream()
+     *         │                                ▼
+     *         │         ◄────onComplete/onError──── INFERRING
+     *         │                                │
+     *         │    内存不足/手动卸载            │崩溃/信号
+     *         │                                ▼
+     *         └────────── UNLOADED ◀────────── ERROR
+     */
+    public enum AIState {
+        /** 空闲：模型就绪，等待用户输入 */
+        IDLE,
+        /** 加载中：模型文件准备/加载/GPU初始化 */
+        LOADING,
+        /** 就绪：模型已加载，可以接受推理请求 */
+        READY,
+        /** 推理中：正在执行 generateStream */
+        INFERRING,
+        /** 错误：初始化失败/推理崩溃，附带错误详情 */
+        ERROR,
+        /** 已卸载：因内存压力或手动卸载，需要重新加载 */
+        UNLOADED
+    }
+
+    /** 结构化错误信息 —— UI 可以根据类型渲染不同卡片 */
+    public static class AIError {
+        public final String type;       // "INIT" / "INFERENCE" / "MEMORY" / "NATIVE_CRASH" / "TIMEOUT" / "CANCELLED"
+        public final String message;    // 可读错误描述
+        public final boolean retryable; // 是否可重试
+        public final long timestamp;
+
+        public AIError(String type, String message, boolean retryable) {
+            this.type = type;
+            this.message = message;
+            this.retryable = retryable;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        @Override
+        public String toString() {
+            return "AIError{type=" + type + ", msg=" + message + ", retry=" + retryable + "}";
+        }
+    }
+
+    /** 推理进度信息 */
+    public static class InferenceProgress {
+        public final long elapsedMs;
+        public final int tokenCount;
+        public final long charCount;
+        public final String phase; // "started" / "generating" / "thinking" / "complete"
+
+        public InferenceProgress(long elapsedMs, int tokenCount, long charCount, String phase) {
+            this.elapsedMs = elapsedMs;
+            this.tokenCount = tokenCount;
+            this.charCount = charCount;
+            this.phase = phase;
+        }
+    }
+
+    // ========== 状态机 LiveData ==========
+    private final MutableLiveData<AIState> aiStateLiveData = new MutableLiveData<>(AIState.IDLE);
+    private final MutableLiveData<AIError> aiErrorLiveData = new MutableLiveData<>();
+    private final MutableLiveData<InferenceProgress> inferenceProgressLiveData = new MutableLiveData<>();
+
+    // Watchdog：推理超时检测
+    private static final long INFERENCE_TIMEOUT_MS = 20_000L; // 20秒无心跳则超时
+    private long inferenceStartTime = 0;
+    private long lastHeartbeatTime = 0;
+    private final Runnable watchdogRunnable = new Runnable() {
+        @Override
+        public void run() {
+            AIState current = aiStateLiveData.getValue();
+            if (current == AIState.INFERRING) {
+                long elapsed = System.currentTimeMillis() - lastHeartbeatTime;
+                if (elapsed > INFERENCE_TIMEOUT_MS) {
+                    AILogger.w(TAG, "Watchdog timeout: no heartbeat for " + elapsed + "ms during inference");
+                    setState(AIState.ERROR);
+                    aiErrorLiveData.postValue(new AIError("TIMEOUT",
+                            "AI 响应超时（" + (elapsed / 1000) + " 秒无新输出），可能模型计算较慢或已卡死",
+                            true));
+                    // 强制取消
+                    try { aiService.stopGeneration(); } catch (Exception ignored) {}
+                    mainHandler.postDelayed(this, INFERENCE_TIMEOUT_MS);
+                } else {
+                    mainHandler.postDelayed(this, 5_000); // 每5秒检查一次
+                }
+            }
+        }
+    };
+
+    /**
+     * 统一状态迁移入口 —— 所有状态变更必须通过此方法
+     * 自动 post 到主线程 LiveData，并记录日志
+     */
+    public void setState(AIState newState) {
+        AIState old = aiStateLiveData.getValue();
+        if (old == newState) return;
+        AILogger.i(TAG, "AIState: " + old + " → " + newState);
+        aiStateLiveData.postValue(newState);
+
+        // 状态迁移副作用
+        switch (newState) {
+            case INFERRING:
+                inferenceStartTime = System.currentTimeMillis();
+                lastHeartbeatTime = inferenceStartTime;
+                mainHandler.removeCallbacks(watchdogRunnable);
+                mainHandler.postDelayed(watchdogRunnable, INFERENCE_TIMEOUT_MS);
+                break;
+            case IDLE:
+            case READY:
+            case UNLOADED:
+            case ERROR:
+                mainHandler.removeCallbacks(watchdogRunnable);
+                break;
+        }
+    }
+
+    /** 推送心跳 —— 推理线程每收到 token 时调用，重置 watchdog */
+    public void pushHeartbeat(int tokenCount, long charCount, String phase) {
+        lastHeartbeatTime = System.currentTimeMillis();
+        long elapsed = lastHeartbeatTime - inferenceStartTime;
+        inferenceProgressLiveData.postValue(new InferenceProgress(elapsed, tokenCount, charCount, phase));
+    }
+
+    /** 获取当前 AI 状态 */
+    public AIState getCurrentState() {
+        AIState s = aiStateLiveData.getValue();
+        return s != null ? s : AIState.IDLE;
+    }
+
     // LiveData
     private final MutableLiveData<String> modelNameLiveData = new MutableLiveData<>();
     private final MutableLiveData<Boolean> generatingStateLiveData = new MutableLiveData<>(false);
@@ -86,20 +227,42 @@ public class AIChatViewModel extends AndroidViewModel {
         super(application);
     }
 
+    // ========== 组2.5：场景隔离 ==========
+
+    public String getScene() {
+        return scene;
+    }
+
+    /**
+     * 设置当前场景（必须在 initialize() 之前调用）。
+     * 不同页面设置不同场景，DB 查询和上下文构建都会按场景过滤。
+     */
+    public void setScene(String scene) {
+        this.scene = ChatScene.normalize(scene);
+        AILogger.i(TAG, "Scene set to: " + this.scene);
+    }
+
     // ========== 初始化 ==========
 
     /**
      * 初始化 ViewModel（依赖已通过 Hilt 注入）
+     * 状态机：IDLE → LOADING → READY/ERROR
      */
     public void initialize() {
         if (isInitialized.get()) return;
+
+        setState(AIState.LOADING);
 
         try {
         executor.execute(() -> {
             try {
                 // 验证注入的依赖
                 if (aiService == null) {
-                    mainHandler.post(() -> errorLiveData.setValue("AI服务初始化失败"));
+                    mainHandler.post(() -> {
+                        errorLiveData.setValue("AI服务初始化失败");
+                        setState(AIState.ERROR);
+                        aiErrorLiveData.postValue(new AIError("INIT", "AI服务初始化失败", false));
+                    });
                     return;
                 }
 
@@ -116,18 +279,27 @@ public class AIChatViewModel extends AndroidViewModel {
                 mainHandler.post(() -> {
                     initializationLiveData.setValue(true);
                     modelNameLiveData.setValue(currentModelName);
+                    setState(AIState.READY);
                 });
 
                 AILogger.i(TAG, "ViewModel initialized successfully");
 
             } catch (Exception e) {
                 AILogger.e(TAG, "Failed to initialize ViewModel", e);
-                mainHandler.post(() -> errorLiveData.setValue("初始化失败: " + e.getMessage()));
+                mainHandler.post(() -> {
+                    errorLiveData.setValue("初始化失败: " + e.getMessage());
+                    setState(AIState.ERROR);
+                    aiErrorLiveData.postValue(new AIError("INIT", "初始化失败: " + e.getMessage(), true));
+                });
             }
         });
         } catch (java.util.concurrent.RejectedExecutionException e) {
             AILogger.e(TAG, "Executor rejected initialization task", e);
-            mainHandler.post(() -> errorLiveData.setValue("初始化失败: 线程池已关闭"));
+            mainHandler.post(() -> {
+                errorLiveData.setValue("初始化失败: 线程池已关闭");
+                setState(AIState.ERROR);
+                aiErrorLiveData.postValue(new AIError("INIT", "初始化失败: 线程池已关闭", false));
+            });
         }
     }
 
@@ -261,6 +433,7 @@ public class AIChatViewModel extends AndroidViewModel {
     private void startGeneration(String message) {
         isGenerating.set(true);
         mainHandler.post(() -> generatingStateLiveData.setValue(true));
+        setState(AIState.INFERRING);  // 状态机：进入推理中
 
         // 创建 AI 消息占位
         String messageId = java.util.UUID.randomUUID().toString();
@@ -274,6 +447,9 @@ public class AIChatViewModel extends AndroidViewModel {
         currentStreamingContent = new StringBuilder();
         currentThinkingContent = new StringBuilder();
 
+        // 立即推送一次心跳，phase=started
+        pushHeartbeat(0, 0, "started");
+
         // 根据模型类型选择推理方式
         if (isUsingOnlineModel && inferenceRouter != null) {
             startOnlineInference(message);
@@ -282,6 +458,8 @@ public class AIChatViewModel extends AndroidViewModel {
         } else {
             mainHandler.post(() -> {
                 errorLiveData.setValue("AI服务未初始化");
+                setState(AIState.ERROR);
+                aiErrorLiveData.postValue(new AIError("INFERENCE", "AI服务未初始化，无法执行推理", true));
                 endGeneration();
             });
         }
@@ -379,11 +557,13 @@ public class AIChatViewModel extends AndroidViewModel {
         // 处理思考标签
         if (token.equals("[THINK_BEGIN]")) {
             isInThinking = true;
+            pushHeartbeat(0, currentStreamingContent.length(), "thinking");
             return;
         }
         if (token.equals("[THINK_END]")) {
             isInThinking = false;
             updateMessageThinkingContent();
+            pushHeartbeat(0, currentStreamingContent.length(), "generating");
             return;
         }
 
@@ -393,6 +573,10 @@ public class AIChatViewModel extends AndroidViewModel {
         } else {
             currentStreamingContent.append(token);
         }
+
+        // 每收到 token 推送心跳 —— 重置 watchdog
+        int totalTokens = currentStreamingContent.length() + currentThinkingContent.length();
+        pushHeartbeat(totalTokens, currentStreamingContent.length(), isInThinking ? "thinking" : "generating");
 
         // 更新 UI
         mainHandler.post(this::updateStreamingMessage);
@@ -445,6 +629,9 @@ public class AIChatViewModel extends AndroidViewModel {
                 chatMessages.notifyItemChanged(currentStreamingMessageIndex);
             }
 
+            pushHeartbeat(fullText != null ? fullText.length() : currentStreamingContent.length(),
+                    currentStreamingContent.length(), "complete");
+            setState(AIState.READY);  // 状态机：推理完成，回到就绪
             endGeneration();
             saveHistoryAsync();
         });
@@ -460,8 +647,29 @@ public class AIChatViewModel extends AndroidViewModel {
                 chatMessages.notifyItemChanged(currentStreamingMessageIndex);
             }
 
-            endGeneration();
+            // 状态机：推理错误
+            setState(AIState.ERROR);
+
+            // 判断错误类型
+            String errMsg = error != null ? error : "未知错误";
+            String errType = "INFERENCE";
+            boolean retryable = true;
+            if (errMsg.contains("超时") || errMsg.contains("timeout")) {
+                errType = "TIMEOUT";
+            } else if (errMsg.contains("native") || errMsg.contains("crash") || errMsg.contains("信号") || errMsg.contains("Native")) {
+                errType = "NATIVE_CRASH";
+                retryable = true;
+            } else if (errMsg.contains("内存") || errMsg.contains("memory") || errMsg.contains("OOM")) {
+                errType = "MEMORY";
+                retryable = true;
+            } else if (errMsg.contains("取消") || errMsg.contains("cancel")) {
+                errType = "CANCELLED";
+                retryable = false;
+            }
+
+            aiErrorLiveData.postValue(new AIError(errType, errMsg, retryable));
             errorLiveData.setValue(error);
+            endGeneration();
         });
     }
 
@@ -472,16 +680,31 @@ public class AIChatViewModel extends AndroidViewModel {
         isInThinking = false;
         currentStreamingMessageIndex = -1;
         mainHandler.post(() -> generatingStateLiveData.setValue(false));
+        // 状态机清理
+        mainHandler.post(() -> setState(AIState.READY));
     }
 
     // ========== 模型操作 ==========
 
     /**
-     * 停止生成
+     * 停止生成 —— 双通道取消
+     * 通道1: aiService.chatStop() → LlamaHelper.stopGeneration() → C++ shouldStopAtom 原子标志
+     * 通道2: 状态机清理 → setState(IDLE) + endGeneration() 清理 UI 状态
      */
     public void stopGeneration() {
+        // 通道1：通知底层停止推理
         if (aiService != null) {
-            aiService.chatStop();
+            try {
+                aiService.chatStop();
+            } catch (Throwable t) {
+                AILogger.w(TAG, "chatStop failed: " + t.getMessage());
+            }
+        }
+
+        // 通道2：状态机迁移 + UI 清理
+        if (getCurrentState() == AIState.INFERRING) {
+            aiErrorLiveData.postValue(new AIError("CANCELLED", "推理已取消", false));
+            setState(AIState.READY);
         }
         endGeneration();
     }
@@ -526,6 +749,28 @@ public class AIChatViewModel extends AndroidViewModel {
     }
 
     // ========== LiveData 获取 ==========
+
+    /**
+     * 获取 AI 状态机（可观察）—— UI 层的主状态数据源
+     * 覆盖 IDLE/LOADING/READY/INFERRING/ERROR/UNLOADED 全生命周期
+     */
+    public LiveData<AIState> getAIState() {
+        return aiStateLiveData;
+    }
+
+    /**
+     * 获取结构化错误信息（可观察）—— UI 可根据类型渲染不同错误卡片
+     */
+    public LiveData<AIError> getAIError() {
+        return aiErrorLiveData;
+    }
+
+    /**
+     * 获取推理进度（可观察）—— 包含 elapsedMs/tokenCount/phase 等心跳数据
+     */
+    public LiveData<InferenceProgress> getInferenceProgress() {
+        return inferenceProgressLiveData;
+    }
 
     /**
      * 获取聊天消息列表（可观察）

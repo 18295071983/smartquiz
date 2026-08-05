@@ -141,9 +141,10 @@ public class OnlineInferenceService {
                     throw new IllegalArgumentException("API Key 不能为空");
                 }
 
+                String result;
                 // 判断 API 类型
                 if (isAnthropicAPI(apiUrl)) {
-                    return callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
+                    result = callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
                 } else {
                     // 尝试使用 OpenAI 原生 function calling
                     if (enableTools) {
@@ -154,11 +155,23 @@ public class OnlineInferenceService {
                             AILogger.w(TAG, "Failed to get tool definitions, falling back to no-tools mode: " + e.getMessage());
                         }
                         if (toolsJson != null && !toolsJson.isEmpty()) {
-                            return callOpenAIWithTools(apiUrl, apiKey, modelName, prompt, history, maxTokens, toolsJson);
+                            result = callOpenAIWithTools(apiUrl, apiKey, modelName, prompt, history, maxTokens, toolsJson);
+                        } else {
+                            result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
                         }
+                    } else {
+                        result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
                     }
-                    return callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
                 }
+                // 清理模型输出中的乱码/非法字符
+                String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
+                if (cleaned != null) {
+                    return cleaned;
+                } else if (result != null) {
+                    AILogger.w(TAG, "在线模型输出检测为乱码，已清理非法字符");
+                    return com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result);
+                }
+                return result;
             } catch (Exception e) {
                 AILogger.e(TAG, "Async generate failed: " + e.getMessage(), e);
                 throw new RuntimeException(e);
@@ -587,9 +600,13 @@ public class OnlineInferenceService {
         }
         
         String result = fullText.toString();
-        mainHandler.post(() -> callback.onComplete(result));
+        // 清理模型输出中的乱码/非法字符
+        String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
+        final String outputResult = cleaned != null ? cleaned : 
+            (result != null ? com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result) : result);
+        mainHandler.post(() -> callback.onComplete(outputResult));
         // 注意：流式响应结束后无法获取 usage 统计信息
-        return result;
+        return outputResult;
     }
 
     /**
@@ -632,6 +649,10 @@ public class OnlineInferenceService {
      * 解析并通知 Token 统计信息
      */
     private void parseAndNotifyTokenStats(JsonObject json) {
+        parseAndNotifyTokenStats(json, null);
+    }
+
+    private void parseAndNotifyTokenStats(JsonObject json, StreamCallback callback) {
         try {
             if (json.has("usage")) {
                 JsonObject usage = json.getAsJsonObject("usage");
@@ -640,6 +661,11 @@ public class OnlineInferenceService {
                 
                 // 更新 TokenStatsManager
                 TokenStatsManager.getInstance().updateRequestStats(promptTokens, completionTokens);
+                
+                // 回调通知调用方
+                if (callback != null) {
+                    mainHandler.post(() -> callback.onTokenStats(promptTokens, completionTokens));
+                }
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to parse token stats: " + e.getMessage());
@@ -686,8 +712,12 @@ public class OnlineInferenceService {
         }
         
         String result = fullText.toString();
-        mainHandler.post(() -> callback.onComplete(result));
-        return result;
+        // 清理模型输出中的乱码/非法字符
+        String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
+        final String outputResult = cleaned != null ? cleaned : 
+            (result != null ? com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result) : result);
+        mainHandler.post(() -> callback.onComplete(outputResult));
+        return outputResult;
     }
 
     /**
@@ -729,6 +759,10 @@ public class OnlineInferenceService {
      * 解析并通知 Anthropic Token 统计信息
      */
     private void parseAndNotifyAnthropicTokenStats(JsonObject json) {
+        parseAndNotifyAnthropicTokenStats(json, null);
+    }
+
+    private void parseAndNotifyAnthropicTokenStats(JsonObject json, StreamCallback callback) {
         try {
             if (json.has("usage")) {
                 JsonObject usage = json.getAsJsonObject("usage");
@@ -737,6 +771,11 @@ public class OnlineInferenceService {
                 
                 // 更新 TokenStatsManager
                 TokenStatsManager.getInstance().updateRequestStats(promptTokens, completionTokens);
+                
+                // 回调通知调用方
+                if (callback != null) {
+                    mainHandler.post(() -> callback.onTokenStats(promptTokens, completionTokens));
+                }
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to parse Anthropic token stats: " + e.getMessage());
@@ -822,7 +861,9 @@ public class OnlineInferenceService {
                     new JSONObject(repaired);
                     // 结构化路径首次成功 → 缓存 true
                     structuredCapabilityCache.put(capabilityKey, true);
-                    return repaired;
+                    // 清理模型输出中的乱码/非法字符
+                    String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(repaired);
+                    return cleaned != null ? cleaned : repaired;
                 } catch (UnsupportedOperationException e) {
                     // Anthropic 走降级:不标记缓存,直接进入降级路径
                     AILogger.w(TAG, "Anthropic structured unsupported, fallback to prompt+repair: " + e.getMessage());
@@ -850,7 +891,9 @@ public class OnlineInferenceService {
                     String repaired = ImportValidator.repairJson(raw);
                     // 验证可解析
                     new JSONObject(repaired);
-                    return repaired;
+                    // 清理模型输出中的乱码/非法字符
+                    String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(repaired);
+                    return cleaned != null ? cleaned : repaired;
                 } catch (Exception e) {
                     lastError = e.getMessage();
                     AILogger.w(TAG, "Fallback attempt " + attempt + " failed: " + lastError);
@@ -1441,6 +1484,15 @@ public class OnlineInferenceService {
         // 构建 final 结果
         String fullContent = contentBuf.toString();
         String reasoningContent = reasoningBuf.toString();
+        // 清理模型输出中的乱码/非法字符
+        String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(fullContent);
+        if (cleaned != null) {
+            fullContent = cleaned;
+        } else if (fullContent != null) {
+            fullContent = com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(fullContent);
+        }
+        final String fc = fullContent;
+        final String rc = reasoningContent;
         List<ToolCallInfo> toolCalls = null;
         if (!toolCallMap.isEmpty()) {
             toolCalls = new ArrayList<>(toolCallMap.values());
@@ -1457,8 +1509,6 @@ public class OnlineInferenceService {
         if (finalToolCalls != null && !finalToolCalls.isEmpty()) {
             mainHandler.post(() -> callback.onToolCallsReady(finalToolCalls));
         }
-        final String fc = fullContent;
-        final String rc = reasoningContent;
         final String fr = finishReasonHolder[0];
         mainHandler.post(() -> callback.onComplete(fc, rc, finalToolCalls, fr));
     }
