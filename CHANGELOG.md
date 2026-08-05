@@ -1,5 +1,120 @@
 # 变更日志
 
+## [2.1.0] - 2026-08-05
+
+### 核心修复
+
+#### 1. 模型输出乱码和非标准字符修复
+- **问题**：截断逻辑错误拆分 Unicode 代理对（emoji 等），源代码包含损坏的 U+FFFD 字符，模型输出包含乱码模式（"锟斤拷"、"烫烫烫"等）
+- **修复**：
+  - 新增 `safeTruncate()` 避免截断时拆分代理对
+  - 新增 `sanitize()` 移除 U+FFFD 替换字符和非法控制字符
+  - 新增 `detectGarble()` 识别常见乱码模式
+  - 新增 `cleanModelOutput()` 组合清理和乱码检测，返回 null 触发降级
+- **应用范围**：AIService、OnlineInferenceService、AIImportAgent、OnlineAgentEngine、LlamaHelper、AIFieldMapper、AIImportOrchestrator、InferenceQueue、SmartIntentRecognizer 等所有模型输出路径
+
+#### 2. 推理锁保护修复
+- **问题**：`generateStream` 系列方法不获取推理锁，可能导致并发推理引发 native 崩溃
+- **修复**：
+  - 给 `generateStream(String/List<Message>/ChatRequest)` 3 个方法添加 `acquireInferenceWriteLock` + `try/finally` 保护
+  - 利用 `ReentrantReadWriteLock` 写锁可重入特性，`generate(List<Message>)` → `generateStream(List<Message>)` 不会死锁
+  - 添加详细的锁竞争日志（线程名、持有数、等待队列、耗时）
+- **文件**：`LlamaHelper.java`
+
+#### 3. ChatML 格式硬编码修复
+- **问题**：`PromptBuilder.build()` 硬编码 ChatML 格式（`<|im_start|>`），对 Llama 3/Gemma/Phi-3 等非 ChatML 模型格式不匹配
+- **修复**：
+  - 删除 `formatPromptForNativeLib` 和 `formatPromptForModel` 死代码
+  - 新增 `buildMessagesForModel` 返回消息列表而非格式化字符串
+  - `generateAsync/generateSync/generateStream/generate` 全部改用消息列表路径
+  - native 层 `llama_chat_apply_template` 自动适配所有模型格式
+- **文件**：`AIService.java`、`InferenceRouter.java`、`AIInferenceCore.java`、`ALChat.java`
+
+#### 4. 在线 Agent 多轮推理中断修复
+- **问题**：在线 Agent 多轮推理设计缺陷导致中断
+- **修复**：推理最多重试 2 轮，确保工具调用流程完整
+
+### 新增功能
+
+#### 1. 在线模型 API 统计自动切换
+- **数据源切换**：在线模式使用 API usage 数据（🌐），本地模式使用 native 数据（⚡）
+- **回调链路**：`OnlineInferenceService.parseAndNotifyTokenStats` → `InferenceRouter` → `AIChatActivity.onTokenStats`
+- **UI 显示**：`updateStreamingTokenStats` 自动切换数据源，`AIServiceStatusActivity` 显示 API 累计统计
+
+#### 2. AI 导入引擎 v4（混合管道）
+- **新增组件**：
+  - `AIImportAgent` - 专用 Agent 组件
+  - `AIFieldMapper` - 三层语义冲突解决（避免"答案1/答案2"与"正确答案"冲突）
+  - `FieldMappingRegistry` - 字段映射注册表
+  - `ImportValidator` - 导入验证器
+  - `QuestionFormatDetector` - 题目格式检测
+  - `ExcelSheetPicker` - Excel 表格选择器
+- **二进制文件处理**：`FileContentExtractor` 使用 `WorkbookFactory.create()` 处理 .xls/.xlsx
+- **工具**：`CharsetDetector`（字符集检测）、`GarbledTextFixer`（乱码修复）
+
+#### 3. 在线 Agent 引擎
+- **新增组件**：
+  - `OnlineAgentEngine` - 在线 Agent 核心引擎
+  - `OnlineToolManager` / `OnlineToolRegistry` - 工具管理和注册
+  - `OnlineThinkingChain` - 思考链（默认折叠）
+  - `OnlineToolGuide` - 工具引导卡片
+  - `OnlineToolUsageTracker` - 工具使用追踪
+  - `OnlinePromptBuilder` - 在线提示词构建
+
+#### 4. 引导式工具执行系统
+- **新增组件**：
+  - `ToolGuideFlow` - 工具引导流程
+  - `ToolPreChecker` - 工具预检查器（检查参数缺失）
+  - `ToolErrorRecovery` - 工具错误恢复
+  - `ToolContextProvider` - 工具上下文提供者
+  - `CompositeGuideFlow` - 组合引导流程
+  - `ToolResultInterpreter` - 工具结果解释器（支持三层折叠）
+  - `ToolResultStore` - 工具结果存储
+
+#### 5. 模型下载页面整理
+- **删除 15 个不合适模型**：ChatGLM3-6B（ggml格式）、Mixtral-8x7B(26GB)、DeepSeek-V2(8.5GB) 等过大模型
+- **新增国内模型**：MiniCPM3-4B（面壁智能）、GLM-Edge-1.5B/4B（智谱AI）、Yi-Coder-1.5B（零一万物）、DeepSeek-R1-Distill-Qwen-1.5B
+- **修复国际模型 URL**：Phi-3.5/Phi-3 的 GGUF 仓库路径错误
+- **新增快捷方式**：本地模型导入界面添加"去下载"按钮
+
+#### 6. 内容渲染器
+- **新增组件**：`ContentRenderer`（接口）、`ContentTypeDetector`、`MarkdownContentRenderer`、`HtmlContentRenderer`、`MathContentRenderer`（数学公式）、`MermaidContentRenderer`（图表）、`RenderExecutor`
+
+#### 7. 天气 UI 增强
+- **新增自定义 View**：`CircularGaugeView`（圆形仪表盘）、`MinutelyPrecipChartView`（分钟级降水图）、`TempRangeBarView`、`TemperatureBarView`
+- **布局重构**：`activity_weather_detail.xml`（+1476 行），新增逐日/逐小时预报项
+- **新增 drawable**：glass_card、sky_sunny/cloudy/rainy/night、precip_map_bg 等 15 个
+
+#### 8. 模型架构信息展示
+- `AIServiceStatusActivity` 显示模型参数量、层数、头数、嵌入维度、上下文长度、内存占用等信息
+- 新增定时刷新机制（2秒轮询）更新实时推理速度和 Token 计数
+
+### 技术改进
+
+#### JNI 内存安全
+- `native-lib.cpp` 添加 JNI 信号处理器
+- 修复 JNI 局部引用泄漏
+- `Error` 级别保护 `countTokens/initModel` 方法
+- `finally` 块升级为 `catch Throwable`
+
+#### 测试工具
+- 新增 `StreamTestReceiver` 广播接收器，可通过 ADB 广播触发流式输出测试
+  ```bash
+  adb shell am broadcast -a com.oilquiz.app.STREAM_TEST -n com.oilquiz.app/.receiver.StreamTestReceiver
+  ```
+
+### 变更统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交数量 | 10 |
+| 变更文件数 | 180 |
+| 新增代码行 | +44,710 |
+| 删除代码行 | -5,612 |
+| 新增 Java 类 | 40+ |
+
+---
+
 ## [Unreleased] - 2026-07-29
 
 ### 新增功能
