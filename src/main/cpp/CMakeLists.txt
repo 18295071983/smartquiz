@@ -16,6 +16,16 @@ option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 
+# b10276: 禁用 UI 和不必要的构建目标
+option(LLAMA_BUILD_UI "llama: build the embedded Web UI for server" OFF)
+option(LLAMA_USE_PREBUILT_UI "llama: use prebuilt UI from HF Bucket" OFF)
+option(LLAMA_BUILD_TESTS "llama: build tests" OFF)
+option(LLAMA_BUILD_TOOLS "llama: build tools" OFF)
+option(LLAMA_BUILD_EXAMPLES "llama: build examples" OFF)
+option(LLAMA_BUILD_SERVER "llama: build server example" OFF)
+option(LLAMA_BUILD_APP "llama: build the unified binary" OFF)
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils library" FORCE)
+
 set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
 set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
 set(GGML_OPENCL_TARGET_VERSION "300" CACHE STRING "OpenCL API version" FORCE)
@@ -107,6 +117,7 @@ include_directories(
     ${LLAMA_CPP_PATH}/common
     ${LLAMA_CPP_PATH}/include
     ${LLAMA_CPP_PATH}/ggml/include
+    ${LLAMA_CPP_PATH}/vendor
     ${OPENCL_HEADERS_DIR}
     ${CMAKE_SOURCE_DIR}/vulkan
     ${CMAKE_SOURCE_DIR}/../java/com/oilquiz/app/ai/jni
@@ -122,6 +133,7 @@ add_library(
 target_link_libraries(
     llama-jni
     llama
+    llama-common
     log
     android
     z

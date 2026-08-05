@@ -116,6 +116,13 @@ public class AgentChatHandler {
             }
 
             @Override
+            public void onToken(String token) {
+                if (isValid() && token != null) {
+                    callback.onToken(token);
+                }
+            }
+
+            @Override
             public void onComplete(AgentResponse response) {
                 if (isValid()) {
                     callback.onComplete(response.finalAnswer);
