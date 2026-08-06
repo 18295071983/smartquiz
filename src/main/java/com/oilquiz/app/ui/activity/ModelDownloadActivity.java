@@ -48,6 +48,8 @@ public class ModelDownloadActivity extends BaseActivity {
     private TextView tvSearchHint;
     private TextView tvMirrorSource;
     private MaterialButton btnSwitchMirror;
+    private TextView tvDownloadMethod;
+    private MaterialButton btnSwitchDownloadMethod;
     
     private ModelDownloadManager modelDownloadManager;
     
@@ -77,6 +79,20 @@ public class ModelDownloadActivity extends BaseActivity {
         "Gitee"
     };
 
+    // 下载方式选项
+    private final ModelDownloadManager.DownloadMethod[] DOWNLOAD_METHODS = {
+        ModelDownloadManager.DownloadMethod.CUSTOM,
+        ModelDownloadManager.DownloadMethod.SYSTEM
+    };
+    private final String[] DOWNLOAD_METHOD_NAMES = {
+        "自定义下载器 (推荐)",
+        "系统下载管理器"
+    };
+    private final String[] DOWNLOAD_METHOD_DESCRIPTIONS = {
+        "支持暂停/恢复、速度显示、断点续传",
+        "后台下载、通知栏进度、无需额外依赖"
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -100,6 +116,8 @@ public class ModelDownloadActivity extends BaseActivity {
         tvSearchHint = findViewById(R.id.tv_search_hint);
         tvMirrorSource = findViewById(R.id.tv_mirror_source);
         btnSwitchMirror = findViewById(R.id.btn_switch_mirror);
+        tvDownloadMethod = findViewById(R.id.tv_download_method);
+        btnSwitchDownloadMethod = findViewById(R.id.btn_switch_download_method);
         
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
     }
@@ -126,6 +144,13 @@ public class ModelDownloadActivity extends BaseActivity {
             }
 
             @Override
+            public void onSpeedUpdate(String modelId, long speedBps, long etaSeconds) {
+                runOnUiThread(() -> {
+                    modelAdapter.updateSpeed(modelId, speedBps, etaSeconds);
+                });
+            }
+
+            @Override
             public void onComplete(String modelId, String filePath) {
                 runOnUiThread(() -> {
                     modelAdapter.updateComplete(modelId, filePath);
@@ -142,10 +167,25 @@ public class ModelDownloadActivity extends BaseActivity {
             }
 
             @Override
-            public void onPaused(String modelId) {}
+            public void onPaused(String modelId) {
+                runOnUiThread(() -> {
+                    modelAdapter.updatePaused(modelId);
+                });
+            }
 
             @Override
-            public void onCancelled(String modelId) {}
+            public void onCancelled(String modelId) {
+                runOnUiThread(() -> {
+                    loadModels();
+                });
+            }
+
+            @Override
+            public void onResumed(String modelId) {
+                runOnUiThread(() -> {
+                    modelAdapter.updateProgress(modelId, -1);
+                });
+            }
         });
     }
 
@@ -209,8 +249,14 @@ public class ModelDownloadActivity extends BaseActivity {
         // 镜像源切换
         btnSwitchMirror.setOnClickListener(v -> showMirrorSwitchDialog());
         
+        // 下载方式切换
+        btnSwitchDownloadMethod.setOnClickListener(v -> showDownloadMethodSwitchDialog());
+        
         // 初始化镜像显示
         updateMirrorSourceDisplay();
+        
+        // 初始化下载方式显示
+        updateDownloadMethodDisplay();
     }
     
     /**
@@ -254,6 +300,53 @@ public class ModelDownloadActivity extends BaseActivity {
                 modelDownloadManager.setCurrentMirrorSource(selected);
                 updateMirrorSourceDisplay();
                 showToast("已切换到: " + MIRROR_NAMES[which]);
+                dialog.dismiss();
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    /**
+     * 更新下载方式显示
+     */
+    private void updateDownloadMethodDisplay() {
+        ModelDownloadManager.DownloadMethod currentMethod = modelDownloadManager.getDownloadMethod();
+        String displayName = getDownloadMethodDisplayName(currentMethod);
+        tvDownloadMethod.setText(displayName);
+    }
+    
+    /**
+     * 获取下载方式显示名称
+     */
+    private String getDownloadMethodDisplayName(ModelDownloadManager.DownloadMethod method) {
+        for (int i = 0; i < DOWNLOAD_METHODS.length; i++) {
+            if (DOWNLOAD_METHODS[i] == method) {
+                return DOWNLOAD_METHOD_NAMES[i];
+            }
+        }
+        return "自定义下载器 (推荐)";
+    }
+    
+    /**
+     * 显示下载方式切换对话框
+     */
+    private void showDownloadMethodSwitchDialog() {
+        int currentIndex = 0;
+        ModelDownloadManager.DownloadMethod currentMethod = modelDownloadManager.getDownloadMethod();
+        for (int i = 0; i < DOWNLOAD_METHODS.length; i++) {
+            if (DOWNLOAD_METHODS[i] == currentMethod) {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("选择下载方式")
+            .setSingleChoiceItems(DOWNLOAD_METHOD_NAMES, currentIndex, (dialog, which) -> {
+                ModelDownloadManager.DownloadMethod selected = DOWNLOAD_METHODS[which];
+                modelDownloadManager.setDownloadMethod(selected);
+                updateDownloadMethodDisplay();
+                showToast("已切换到: " + DOWNLOAD_METHOD_NAMES[which] + "\n" + DOWNLOAD_METHOD_DESCRIPTIONS[which]);
                 dialog.dismiss();
             })
             .setNegativeButton("取消", null)
@@ -324,31 +417,31 @@ public class ModelDownloadActivity extends BaseActivity {
             "Q4_K_M", "2.1 GB", "GGUF", "3B"));
         
         models.add(new OnlineModelInfo("SmolLM2-360M-Instruct", "HuggingFace 超轻量模型", 
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smolm2-360m-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "250 MB", "GGUF", "360M"));
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf", 
+            "Q8_0", "370 MB", "GGUF", "360M"));
         
         models.add(new OnlineModelInfo("SmolLM2-1.7B-Instruct", "HuggingFace SmolLM2 1.7B 模型", 
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smolm2-1.7b-instruct-q4_k_m.gguf", 
+            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf", 
             "Q4_K_M", "1.1 GB", "GGUF", "1.7B"));
         
         models.add(new OnlineModelInfo("DeepSeek-R1-Distill-Qwen-1.5B", "深度求索R1蒸馏模型，擅长推理", 
-            "https://hf-mirror.com/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/deepseek-r1-distill-qwen-1.5b-q4_k_m.gguf", 
+            "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf", 
             "Q4_K_M", "1.1 GB", "GGUF", "1.5B"));
         
         models.add(new OnlineModelInfo("MiniCPM3-4B", "面壁智能端侧模型，性能超越GPT-3.5", 
-            "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/MiniCPM3-4B-Q4_K_M.gguf", 
+            "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf", 
             "Q4_K_M", "2.5 GB", "GGUF", "4B"));
         
         models.add(new OnlineModelInfo("GLM-Edge-1.5B-Chat", "智谱AI端侧模型，专为手机优化", 
-            "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/glm-edge-1.5b-chat-Q4_K_M.gguf", 
+            "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf", 
             "Q4_K_M", "950 MB", "GGUF", "1.5B"));
         
         models.add(new OnlineModelInfo("GLM-Edge-4B-Chat", "智谱AI端侧模型，面向PC/平板", 
-            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/glm-edge-4b-chat-Q4_K_M.gguf", 
+            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf", 
             "Q4_K_M", "2.5 GB", "GGUF", "4B"));
         
         models.add(new OnlineModelInfo("Yi-Coder-1.5B-Chat", "零一万物代码模型，支持52种编程语言", 
-            "https://hf-mirror.com/01-ai/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat-Q4_K_M.gguf", 
+            "https://hf-mirror.com/MaziyarPanahi/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat.Q4_K_M.gguf", 
             "Q4_K_M", "950 MB", "GGUF", "1.5B"));
         
         models.add(new OnlineModelInfo("Gemma-2-2B-IT", "Google Gemma 2 2B 指令版本", 
@@ -543,18 +636,100 @@ public class ModelDownloadActivity extends BaseActivity {
                 Object model = currentModelList.get(i);
                 String id = getIdFromModel(model);
                 if (id != null && id.equals(modelId)) {
-                    notifyItemChanged(i);
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
+                    if (holder instanceof ModelViewHolder) {
+                        ModelViewHolder mvh = (ModelViewHolder) holder;
+                        if (progress >= 0) {
+                            mvh.llProgress.setVisibility(View.VISIBLE);
+                            mvh.progressBar.setProgress(progress);
+                            mvh.tvStatus.setText("下载中... " + progress + "%");
+                            mvh.tvStatus.setTextColor(0xFFFF9800);
+                            mvh.btnAction.setText("暂停");
+                        }
+                    } else {
+                        notifyItemChanged(i);
+                    }
                     break;
                 }
             }
         }
 
+        void updateSpeed(String modelId, long speedBps, long etaSeconds) {
+            for (int i = 0; i < currentModelList.size(); i++) {
+                Object model = currentModelList.get(i);
+                String id = getIdFromModel(model);
+                if (id != null && id.equals(modelId)) {
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
+                    if (holder instanceof ModelViewHolder) {
+                        ModelViewHolder mvh = (ModelViewHolder) holder;
+                        if (mvh.tvSpeed != null) {
+                            mvh.tvSpeed.setText(formatSpeed(speedBps));
+                        }
+                        if (mvh.tvEta != null) {
+                            mvh.tvEta.setText(etaSeconds > 0 ? formatEta(etaSeconds) : "");
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        void updatePaused(String modelId) {
+            for (int i = 0; i < currentModelList.size(); i++) {
+                Object model = currentModelList.get(i);
+                String id = getIdFromModel(model);
+                if (id != null && id.equals(modelId)) {
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
+                    if (holder instanceof ModelViewHolder) {
+                        ModelViewHolder mvh = (ModelViewHolder) holder;
+                        mvh.tvStatus.setText("已暂停");
+                        mvh.tvStatus.setTextColor(0xFFFF9800);
+                        mvh.btnAction.setText("继续");
+                        if (mvh.tvSpeed != null) mvh.tvSpeed.setText("");
+                        if (mvh.tvEta != null) mvh.tvEta.setText("");
+                    }
+                    break;
+                }
+            }
+        }
+
+        private String formatSpeed(long bytesPerSecond) {
+            if (bytesPerSecond <= 0) return "";
+            if (bytesPerSecond < 1024) return bytesPerSecond + " B/s";
+            if (bytesPerSecond < 1024 * 1024) return String.format("%.1f KB/s", bytesPerSecond / 1024.0);
+            return String.format("%.2f MB/s", bytesPerSecond / (1024.0 * 1024));
+        }
+
+        private String formatEta(long seconds) {
+            if (seconds < 0 || seconds > 86400) return "";
+            if (seconds < 60) return "剩余 " + seconds + "秒";
+            if (seconds < 3600) return "剩余 " + (seconds / 60) + "分" + (seconds % 60) + "秒";
+            return "剩余 " + (seconds / 3600) + "时" + ((seconds % 3600) / 60) + "分";
+        }
+
         void updateComplete(String modelId, String filePath) {
-            updateProgress(modelId, 100);
+            // 完成时全量刷新，确保状态正确
+            loadModels();
         }
 
         void updateError(String modelId, String error) {
-            updateProgress(modelId, -1);
+            for (int i = 0; i < currentModelList.size(); i++) {
+                Object model = currentModelList.get(i);
+                String id = getIdFromModel(model);
+                if (id != null && id.equals(modelId)) {
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
+                    if (holder instanceof ModelViewHolder) {
+                        ModelViewHolder mvh = (ModelViewHolder) holder;
+                        mvh.tvStatus.setText("下载失败");
+                        mvh.tvStatus.setTextColor(0xFFF44336);
+                        mvh.llProgress.setVisibility(View.GONE);
+                        mvh.btnAction.setText("重试");
+                    } else {
+                        notifyItemChanged(i);
+                    }
+                    break;
+                }
+            }
         }
 
         private String getIdFromModel(Object model) {
@@ -572,6 +747,8 @@ public class ModelDownloadActivity extends BaseActivity {
             TextView tvSize;
             TextView tvInfo;
             TextView tvStatus;
+            TextView tvSpeed;
+            TextView tvEta;
             ProgressBar progressBar;
             MaterialButton btnAction;
             ImageView ivIcon;
@@ -584,6 +761,8 @@ public class ModelDownloadActivity extends BaseActivity {
                 tvSize = itemView.findViewById(R.id.tv_size);
                 tvInfo = itemView.findViewById(R.id.tv_info);
                 tvStatus = itemView.findViewById(R.id.tv_status);
+                tvSpeed = itemView.findViewById(R.id.tv_speed);
+                tvEta = itemView.findViewById(R.id.tv_eta);
                 progressBar = itemView.findViewById(R.id.progress_bar);
                 btnAction = itemView.findViewById(R.id.btn_action);
                 ivIcon = itemView.findViewById(R.id.iv_icon);
@@ -624,11 +803,12 @@ public class ModelDownloadActivity extends BaseActivity {
 
             private void updateModelState(String modelId, String downloadUrl) {
                 String modelDir = new File(getFilesDir(), "ai_models").getAbsolutePath();
-                String fileName = downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1);
+                String fileName = getFileNameFromDownloadUrl(downloadUrl);
                 String modelPath = modelDir + File.separator + fileName;
                 
                 boolean isDownloaded = new File(modelPath).exists();
                 boolean isDownloading = modelDownloadManager.isDownloading(modelId);
+                boolean isPaused = modelDownloadManager.isPaused(modelId);
                 ModelDownloadManager.DownloadProgress progress = modelDownloadManager.getProgress(modelId);
                 
                 if (isDownloaded) {
@@ -644,14 +824,32 @@ public class ModelDownloadActivity extends BaseActivity {
                         updateModelState(modelId, downloadUrl);
                         updateDownloadStats();
                     });
+                } else if (isPaused && progress != null) {
+                    // 暂停状态：显示已下载进度，提供“继续”按钮
+                    tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
+                    tvStatus.setTextColor(0xFFFF9800);
+                    llProgress.setVisibility(View.VISIBLE);
+                    progressBar.setProgress(progress.getProgressPercent());
+                    if (tvSpeed != null) tvSpeed.setText("");
+                    if (tvEta != null) tvEta.setText("");
+                    btnAction.setText("继续");
+                    btnAction.setOnClickListener(v -> {
+                        modelDownloadManager.resume(modelId);
+                        tvStatus.setText("恢复下载...");
+                        btnAction.setText("暂停");
+                        btnAction.setOnClickListener(v2 -> {
+                            modelDownloadManager.pause(modelId);
+                            updateModelState(modelId, downloadUrl);
+                        });
+                    });
                 } else if (isDownloading && progress != null) {
                     tvStatus.setText("下载中... " + progress.getProgressPercent() + "%");
                     tvStatus.setTextColor(0xFFFF9800);
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
-                    btnAction.setText("取消");
+                    btnAction.setText("暂停");
                     btnAction.setOnClickListener(v -> {
-                        modelDownloadManager.cancel(modelId);
+                        modelDownloadManager.pause(modelId);
                         updateModelState(modelId, downloadUrl);
                     });
                 } else {
@@ -666,11 +864,12 @@ public class ModelDownloadActivity extends BaseActivity {
             }
 
             private void updateOnlineModelState(String downloadUrl) {
-                String fileName = downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1);
+                String fileName = getFileNameFromDownloadUrl(downloadUrl);
                 String modelPath = new File(getFilesDir(), "ai_models").getAbsolutePath() + File.separator + fileName;
                 
                 boolean isDownloaded = new File(modelPath).exists();
                 boolean isDownloading = modelDownloadManager.isDownloading(downloadUrl);
+                boolean isPaused = modelDownloadManager.isPaused(downloadUrl);
                 ModelDownloadManager.DownloadProgress progress = modelDownloadManager.getProgress(downloadUrl);
                 
                 if (isDownloaded) {
@@ -686,14 +885,31 @@ public class ModelDownloadActivity extends BaseActivity {
                         updateOnlineModelState(downloadUrl);
                         updateDownloadStats();
                     });
+                } else if (isPaused && progress != null) {
+                    tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
+                    tvStatus.setTextColor(0xFFFF9800);
+                    llProgress.setVisibility(View.VISIBLE);
+                    progressBar.setProgress(progress.getProgressPercent());
+                    if (tvSpeed != null) tvSpeed.setText("");
+                    if (tvEta != null) tvEta.setText("");
+                    btnAction.setText("继续");
+                    btnAction.setOnClickListener(v -> {
+                        modelDownloadManager.resume(downloadUrl);
+                        tvStatus.setText("恢复下载...");
+                        btnAction.setText("暂停");
+                        btnAction.setOnClickListener(v2 -> {
+                            modelDownloadManager.pause(downloadUrl);
+                            updateOnlineModelState(downloadUrl);
+                        });
+                    });
                 } else if (isDownloading && progress != null) {
                     tvStatus.setText("下载中... " + progress.getProgressPercent() + "%");
                     tvStatus.setTextColor(0xFFFF9800);
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
-                    btnAction.setText("取消");
+                    btnAction.setText("暂停");
                     btnAction.setOnClickListener(v -> {
-                        modelDownloadManager.cancel(downloadUrl);
+                        modelDownloadManager.pause(downloadUrl);
                         updateOnlineModelState(downloadUrl);
                     });
                 } else {
@@ -712,53 +928,90 @@ public class ModelDownloadActivity extends BaseActivity {
                 tvStatus.setTextColor(0xFFFF9800);
                 llProgress.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
-                btnAction.setText("取消");
-                btnAction.setOnClickListener(v -> modelDownloadManager.cancel(modelId));
+                if (tvSpeed != null) tvSpeed.setText("");
+                if (tvEta != null) tvEta.setText("");
+                btnAction.setText("暂停");
+                btnAction.setOnClickListener(v -> {
+                    modelDownloadManager.pause(modelId);
+                    tvStatus.setText("已暂停");
+                    btnAction.setText("继续");
+                    btnAction.setOnClickListener(v2 -> {
+                        modelDownloadManager.resume(modelId);
+                        tvStatus.setText("恢复下载...");
+                        btnAction.setText("暂停");
+                    });
+                });
                 
                 modelDownloadManager.downloadFromCustomUrl(modelId, downloadUrl, 
                     new ModelDownloadManager.DownloadCallback() {
                         @Override
                         public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
                             runOnUiThread(() -> {
-                                progressBar.setProgress(progress);
-                                tvStatus.setText("下载中... " + progress + "%");
+                                modelAdapter.updateProgress(id, progress);
+                            });
+                        }
+
+                        @Override
+                        public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
+                            runOnUiThread(() -> {
+                                modelAdapter.updateSpeed(id, speedBps, etaSeconds);
                             });
                         }
 
                         @Override
                         public void onComplete(String id, String filePath) {
                             runOnUiThread(() -> {
-                                tvStatus.setText("已下载");
-                                tvStatus.setTextColor(0xFF4CAF50);
-                                llProgress.setVisibility(View.GONE);
-                                btnAction.setText("删除");
                                 updateDownloadStats();
+                                loadModels();
                             });
                         }
 
                         @Override
                         public void onError(String id, String error) {
                             runOnUiThread(() -> {
-                                tvStatus.setText("下载失败");
-                                tvStatus.setTextColor(0xFFF44336);
-                                llProgress.setVisibility(View.GONE);
-                                btnAction.setText("重试");
+                                modelAdapter.updateError(id, error);
                             });
                         }
 
                         @Override
-                        public void onPaused(String id) {}
+                        public void onPaused(String id) {
+                            runOnUiThread(() -> {
+                                modelAdapter.updatePaused(id);
+                            });
+                        }
 
                         @Override
                         public void onCancelled(String id) {
                             runOnUiThread(() -> {
-                                tvStatus.setText("已取消");
-                                tvStatus.setTextColor(0xFF999999);
-                                llProgress.setVisibility(View.GONE);
-                                btnAction.setText("下载");
+                                loadModels();
+                            });
+                        }
+
+                        @Override
+                        public void onResumed(String id) {
+                            runOnUiThread(() -> {
+                                modelAdapter.updateProgress(id, -1);
                             });
                         }
                     });
+            }
+
+            /**
+             * 从下载 URL 提取文件名，去除查询参数，与 ModelDownloadManager.getFileNameFromUrl 保持一致
+             */
+            private String getFileNameFromDownloadUrl(String url) {
+                if (url == null || url.isEmpty()) return "model.gguf";
+                try {
+                    String decoded = java.net.URLDecoder.decode(url, java.nio.charset.StandardCharsets.UTF_8);
+                    int lastSlash = decoded.lastIndexOf('/');
+                    if (lastSlash >= 0 && lastSlash < decoded.length() - 1) {
+                        String fileName = decoded.substring(lastSlash + 1);
+                        int queryIdx = fileName.indexOf('?');
+                        if (queryIdx > 0) fileName = fileName.substring(0, queryIdx);
+                        return fileName;
+                    }
+                } catch (Exception ignored) {}
+                return url.substring(url.lastIndexOf('/') + 1);
             }
         }
     }
