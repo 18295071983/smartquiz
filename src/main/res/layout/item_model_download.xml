@@ -107,6 +107,30 @@
                 android:progress="0"
                 android:progressTint="@color/primary"
                 android:progressBackgroundTint="@color/divider"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="4dp">
+
+                <TextView
+                    android:id="@+id/tv_speed"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text=""
+                    android:textSize="11sp"
+                    android:textColor="@color/text_tertiary"/>
+
+                <TextView
+                    android:id="@+id/tv_eta"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="11sp"
+                    android:textColor="@color/text_tertiary"/>
+            </LinearLayout>
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
