@@ -3476,17 +3476,16 @@ public class AIChatActivity extends BaseActivity {
             // 根据当前模式决定处理方式
             ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
 
-            // Agent 模式优先：在线AGENT走ReAct（含友好引导），本地AGENT走友好引导（不走ReAct）
+            // Agent 模式优先：在线AGENT走ReAct（含友好引导），本地AGENT进入本地Agent流程
             if (currentMode == ChatModeManager.ChatMode.AGENT) {
                 if (shouldUseOnlineModel()) {
                     // 在线agent：先显示友好引导，再走ReAct
                     showOnlineAgentFriendlyGuide(message);
                     processChatMessageWithAgent(message);
-                } else {
-                    // 本地agent：不走ReAct，显示友好引导提示
-                    showLocalAgentFriendlyGuide(message);
+                    return;
                 }
-                return;
+                // 本地agent：继续往下走，由 isAgentMode 分支路由到 AgentExecutionEngine
+                // （本地 Agent 单循环：原生 Function Calling + 工具执行 + 流式输出）
             }
 
             // 非 Agent 模式：检查是否应该使用在线模型（直接流式，无工具调用）
@@ -3647,73 +3646,6 @@ public class AIChatActivity extends BaseActivity {
 
         guide.append("试试问我：「今天天气怎么样？」「帮我搜索最新油价」\n");
         guide.append("或者直接点击下方工具按钮开始吧！🎯");
-
-        addAIMessage(guide.toString());
-        scrollToBottom();
-    }
-
-    private void showLocalAgentFriendlyGuide(String userMessage) {
-        StringBuilder guide = new StringBuilder();
-        String lower = userMessage.toLowerCase();
-
-        guide.append("你好！我是你的AI助手 🤖\n\n");
-
-        // 根据用户消息内容智能推荐工具
-        boolean matched = false;
-        if (containsKeyword(lower, "天气", "气温", "下雨", "温度", "weather", "空气质量", "预警")) {
-            guide.append("🌤 想查天气？点击下方「查天气」按钮\n");
-            guide.append("   可以查当前天气、预报、空气质量、预警等\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "搜索", "搜一下", "查一下", "查找", "search", "百度", "google")) {
-            guide.append("🔍 想搜索？点击下方「搜索」按钮\n");
-            guide.append("   支持联网搜索、智能问答、网页读取\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "翻译", "translate", "英文", "日文", "韩文")) {
-            guide.append("🌐 想翻译？点击下方「翻译」按钮\n");
-            guide.append("   支持中英日韩多语言互译\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "题", "题库", "题目", "quiz", "question", "考试")) {
-            guide.append("📚 想查题？点击下方「数据库」按钮\n");
-            guide.append("   可以搜索题目、查看分类统计\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "位置", "定位", "在哪", "location", "坐标")) {
-            guide.append("📍 想定位？点击下方「定位」按钮\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "出行", "出门", "准备", "带伞")) {
-            guide.append("🚗 准备出行？点击下方「出行准备」按钮\n");
-            guide.append("   一键查询定位→天气→空气→预警\n\n");
-            matched = true;
-        }
-        if (containsKeyword(lower, "计算", "算", "calculate", "+", "-", "×", "÷")) {
-            guide.append("🔧 想计算？点击下方「计算」按钮\n\n");
-            matched = true;
-        }
-
-        if (!matched) {
-            guide.append("你可以点击下方工具按钮来执行操作：\n\n");
-            guide.append("🚗 出行准备 — 一键查天气+空气+预警\n");
-            guide.append("🌤 查天气 — 天气/预报/空气质量/预警\n");
-            guide.append("🔍 搜索 — 联网搜索/智能问答/读网页\n");
-            guide.append("📚 题库 — 搜索题目/分类统计\n");
-            guide.append("🌐 翻译 — 多语言翻译\n");
-            guide.append("📍 定位 — 获取当前位置\n");
-            guide.append("📂 文件 — 文件操作\n");
-            guide.append("🔧 计算 — 数学计算\n\n");
-        }
-
-        guide.append("💡 提示：直接点击工具按钮，我会一步步引导你完成操作！\n\n");
-        guide.append("──────────────\n");
-        guide.append("🚀 想用完整Agent功能？\n");
-        guide.append("当前是离线引导模式（工具分步操作）。\n");
-        guide.append("点击顶部「🤖模型」按钮配置在线模型，即可启用完整Agent：\n");
-        guide.append("  • 直接输入需求，Agent自动推理+工具调用\n");
-        guide.append("  • 支持多轮对话和复杂任务\n");
-        guide.append("  • 智能组合多个工具完成需求\n");
 
         addAIMessage(guide.toString());
         scrollToBottom();

@@ -15,6 +15,8 @@
 #include <dlfcn.h>
 #include "llama.h"
 #include "ggml-backend.h"
+#include "chat.h"
+#include <nlohmann/json.hpp>
 #include <vulkan/vulkan.h>
 
 // 组3.15：致命信号兜底——接住 llama 内部 abort 不自杀，返回错误码
@@ -59,6 +61,12 @@ static void install_fatal_signal_handlers() {
         if (_sig != 0) { \
             has_jmp_set = false; \
             LOGE("Fatal signal %d during inference", _sig); \
+            /* 崩溃恢复：siglongjmp 跳过了 generateStream 内的 RAII guard，\
+               isGenerating 会永久卡在 true，必须在此强制复位，否则后续所有推理都被拒绝 */ \
+            if (s_helperContext != nullptr && s_helperContext->isCurrentlyGenerating()) { \
+                s_helperContext->forceResetGeneration(); \
+                LOGI("isGenerating flag reset after crash signal %d", _sig); \
+            } \
             if ((onErrorMethod) != nullptr && (callback) != nullptr) { \
                 std::string _errMsg = "Native inference crashed (signal " + std::to_string(_sig) + ")"; \
                 jstring _errStr = (env)->NewStringUTF(_errMsg.c_str()); \
@@ -1658,8 +1666,10 @@ public:
         
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
-            llama_memory_clear(mem, true);
-            LOGI("KV cache cleared before new generation");
+            // 使用软清除（false）：重置 KV 使用量但保留已分配的 GPU 缓冲区。
+            // 硬清除（true）在 OpenCL 后端会释放缓冲，后续 llama_decode 触发 signal 6 崩溃
+            llama_memory_clear(mem, false);
+            LOGI("KV cache soft-cleared before new generation");
         } else {
             LOGE("llama_get_memory returned null, attempting seq_rm reset");
         }
@@ -1841,6 +1851,102 @@ public:
         // 复用 generateStream 的核心生成逻辑
         return generateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
     }
+
+    /**
+     * 原生 Function Calling 生成
+     * 使用 common_chat_templates_apply 传入 tools，由 llama.cpp 底层自动：
+     * 1. 根据模型模板格式化 tools（Qwen Hermes/Llama3/Mistral 等）
+     * 2. 生成符合模型原生的 tool_call 格式
+     * 3. 解析模型输出的 tool_calls
+     *
+     * @param messages 对话消息列表
+     * @param toolsJson OpenAI 格式的 tools JSON 数组
+     * @param maxTokens 最大生成 token 数
+     * @param temperature 温度
+     * @param topP top_p
+     * @param topK top_k
+     * @param enableThinking 是否启用思考模式
+     * @param callback token 回调
+     * @return 生成是否成功
+     */
+    bool generateWithTools(const std::vector<std::pair<std::string, std::string>>& messages,
+                           const std::string& toolsJson,
+                           int maxTokens, float temperature, float topP, int topK,
+                           bool enableThinking, TokenCallback callback) {
+        LOGI("=== GENERATE WITH TOOLS START ===");
+        LOGI("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
+             messages.size(), toolsJson.size(), maxTokens, (int)enableThinking);
+
+        if (!model) {
+            std::string error = "Model not loaded";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        // 初始化 chat templates（使用模型内置模板）
+        auto chat_templates = common_chat_templates_init(model, "");
+        if (!chat_templates) {
+            LOGW("Failed to init chat templates, falling back to basic generateStreamFromMessages");
+            return generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
+        }
+
+        // 构建 common_chat_msg 列表
+        std::vector<common_chat_msg> chat_msgs;
+        for (auto& m : messages) {
+            common_chat_msg msg;
+            msg.role = m.first;
+            msg.content = m.second;
+            chat_msgs.push_back(msg);
+        }
+
+        // 解析 tools JSON
+        std::vector<common_chat_tool> tools;
+        if (!toolsJson.empty()) {
+            try {
+                auto tools_json = nlohmann::ordered_json::parse(toolsJson);
+                tools = common_chat_tools_parse_oaicompat(tools_json);
+                LOGI("Parsed %zu tools from JSON", tools.size());
+            } catch (const std::exception& e) {
+                LOGW("Failed to parse tools JSON: %s, continuing without tools", e.what());
+            }
+        }
+
+        // 构建模板输入
+        common_chat_templates_inputs inputs;
+        inputs.messages = chat_msgs;
+        inputs.tools = tools;
+        inputs.tool_choice = tools.empty() ? COMMON_CHAT_TOOL_CHOICE_NONE : COMMON_CHAT_TOOL_CHOICE_AUTO;
+        inputs.parallel_tool_calls = true;
+        inputs.add_generation_prompt = true;
+        inputs.use_jinja = true;
+        // 仅当模板支持时才启用 thinking，否则模板引擎内部会 abort（signal 6）
+        bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
+        inputs.enable_thinking = enableThinking && supports_thinking;
+        LOGI("enable_thinking=%d, template supports=%d, final=%d",
+             (int)enableThinking, (int)supports_thinking, (int)inputs.enable_thinking);
+
+        // 应用模板
+        common_chat_params chat_params;
+        try {
+            chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
+            LOGI("Chat template applied, prompt length: %zu, format: %s",
+                 chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+        } catch (const std::exception& e) {
+            LOGW("Failed to apply chat template with tools: %s, falling back", e.what());
+            return generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
+        }
+
+        if (chat_params.prompt.empty()) {
+            std::string error = "Chat template produced empty prompt";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        // 复用 generateStream 的核心生成逻辑
+        return generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
+    }
     
     // 并行批处理生成
     std::vector<std::string> generateBatch(const std::vector<std::string>& prompts, int maxTokens, float temperature, float topP, int topK) {
@@ -1893,6 +1999,11 @@ public:
     const std::string& getModelPath() const { return modelPath; }
     llama_context* getLlamaContext() { return ctx; }
 
+    // 崩溃恢复：siglongjmp 会跳过 generateStream 内的 RAII guard，
+    // 导致 isGenerating 永久卡在 true，需要在 JNI 层检测并强制复位
+    bool isCurrentlyGenerating() const { return isGenerating.load(); }
+    void forceResetGeneration() { isGenerating.store(false); }
+
     void setGPULayers(int layers) { gpuLayers = layers; }
     void setThreadCount(int count) { threadCount = count; }
     void setMemoryPoolSize(int size) { memoryPoolSize = size; }
@@ -1944,28 +2055,18 @@ public:
             return;
         }
         
-        // 从模型中获取聊天模板
         const char* chat_template = llama_model_chat_template(model, nullptr);
         if (chat_template != nullptr) {
             chatTemplate = chat_template;
             LOGI("Got chat template from model: %s", chatTemplate.substr(0, 100).c_str());
         } else {
-            // 使用默认聊天模板
-            if (modelType == "llama") {
-                chatTemplate = "[INST] <<SYS>>\nYou are a helpful assistant\n<</SYS>>\n\n{{ user_message }} [/INST]\n";
-            } else {
-                chatTemplate = "User: {{ user_message }}\nAssistant: ";
-            }
-            LOGI("Using default chat template for %s: %s", modelType.c_str(), chatTemplate.c_str());
+            chatTemplate = "(none, using ChatML fallback)";
+            LOGI("No built-in chat template for %s, will use ChatML format", modelType.c_str());
         }
     }
     
-    // 根据模型类型格式化请求
-    std::string formatPrompt(const std::string& prompt) {
-        // 临时简化：直接返回原始prompt，避免任何可能的问题
-        LOGI("formatPrompt: returning raw prompt (length=%zu)", prompt.size());
-        return prompt;
-    }
+    // 注意：prompt 格式化已统一由 llama_chat_apply_template 处理
+    // 详见 applyChatTemplateForMessages() 和 NativeChatContext::formatMessages()
 
     // 组3.10：模型元数据 + 停止标志
     struct ModelMeta {
@@ -2163,10 +2264,14 @@ private:
         const char* tmpl = llama_model_chat_template(model, nullptr);
         if (!tmpl) {
             LOGW("No chat template found in model, falling back to ChatML format");
-            // fallback: 手动用 ChatML 格式拼接
             std::string result;
             for (auto& m : chatMessages) {
-                result += "<|im_start|>" + m.first + "\n" + m.second + "<|im_end|>\n";
+                const std::string& role = m.first;
+                if (role == "assistant_tool_call") {
+                    result += "<|im_start|>assistant\n" + m.second + "<|im_end|>\n";
+                } else {
+                    result += "<|im_start|>" + role + "\n" + m.second + "<|im_end|>\n";
+                }
             }
             if (addAssistantStart) result += "<|im_start|>assistant\n";
             return result;
@@ -2770,16 +2875,15 @@ public:
             fullResponse.find("tool_call_begin") != std::string::npos ||
             (fullResponse.find("tool") != std::string::npos && fullResponse.find("call") != std::string::npos && fullResponse.find("begin") != std::string::npos));
 
-        if (!fullResponse.empty() && !isToolCallResponse) {
+        if (!fullResponse.empty()) {
             Turn assistantTurn;
-            assistantTurn.role = "assistant";
+            assistantTurn.role = isToolCallResponse ? "assistant_tool_call" : "assistant";
             assistantTurn.tokens = tokenize(fullResponse, false);
             assistantTurn.start_pos = current_pos - n_decode;
             assistantTurn.end_pos = current_pos;
             turns.push_back(assistantTurn);
 
-            // 把 assistant 响应加入消息列表，更新 prev_formatted_len
-            chatMessages.push_back({"assistant", fullResponse});
+            chatMessages.push_back({assistantTurn.role, fullResponse});
             std::string formattedAfter = applyChatTemplate(false);
             prev_formatted_len = (int)formattedAfter.size();
         }
@@ -2795,6 +2899,20 @@ public:
         
         callback(fullResponse, true, isToolCallResponse ? "[TOOL_CALL]" : "");
         return !fullResponse.empty() || isToolCallResponse;
+    }
+
+    void addAssistantToolCall(const std::string& toolCallContent) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (destroyed) return;
+        LOGI("addAssistantToolCall: len=%zu", toolCallContent.size());
+        chatMessages.push_back({"assistant_tool_call", toolCallContent});
+    }
+
+    void addToolResult(const std::string& toolResultContent) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (destroyed) return;
+        LOGI("addToolResult: len=%zu", toolResultContent.size());
+        chatMessages.push_back({"tool", toolResultContent});
     }
 
     void stopGeneration() {
@@ -3367,6 +3485,52 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
 
     bool ok = chatCtx->updatePrompts(globalContent, sysContent, normalContent);
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistantToolCall(
+    JNIEnv* env, jclass, jlong handle, jstring toolCallContent) {
+    LOGI("nativeChatAddAssistantToolCall called");
+
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatAddAssistantToolCall: invalid handle");
+        return;
+    }
+
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeChatAddAssistantToolCall: invalid chat context");
+        return;
+    }
+
+    const char* content = toolCallContent ? env->GetStringUTFChars(toolCallContent, nullptr) : nullptr;
+    std::string toolCallStr(content ? content : "");
+    if (content) env->ReleaseStringUTFChars(toolCallContent, content);
+
+    chatCtx->addAssistantToolCall(toolCallStr);
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddToolResult(
+    JNIEnv* env, jclass, jlong handle, jstring toolResultContent) {
+    LOGI("nativeChatAddToolResult called");
+
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatAddToolResult: invalid handle");
+        return;
+    }
+
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeChatAddToolResult: invalid chat context");
+        return;
+    }
+
+    const char* content = toolResultContent ? env->GetStringUTFChars(toolResultContent, nullptr) : nullptr;
+    std::string toolResultStr(content ? content : "");
+    if (content) env->ReleaseStringUTFChars(toolResultContent, content);
+
+    chatCtx->addToolResult(toolResultStr);
 }
 
 JNIEXPORT jint JNICALL
@@ -4287,6 +4451,156 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
 
     SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
         s_helperContext->generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+    );
+}
+
+/**
+ * 原生 Function Calling 生成 JNI 入口
+ * 参数：
+ *   roles/contents: 消息角色和内容数组
+ *   toolsJson: OpenAI 格式的 tools JSON 数组字符串
+ *   maxTokens/temperature/topP/topK/enableThinking: 生成参数
+ *   callback: TokenCallback 回调
+ */
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jobjectArray roles,
+    jobjectArray contents,
+    jbyteArray toolsJsonBytes,
+    jint maxTokens,
+    jfloat temperature,
+    jfloat topP,
+    jint topK,
+    jboolean enableThinking,
+    jobject callback) {
+    LOGI("LlamaHelper: Generate with tools called");
+
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("LlamaHelper: s_helperContext is null or invalid");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Helper context not initialized");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    if (!s_helperContext->ensureContext()) {
+        LOGE("LlamaHelper: Failed to create context for generate with tools");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Failed to create inference context");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        return;
+    }
+
+    // 解析消息数组
+    jsize msgCount = env->GetArrayLength(roles);
+    std::vector<std::pair<std::string, std::string>> messages;
+    for (jsize i = 0; i < msgCount; i++) {
+        auto roleStr = (jstring)env->GetObjectArrayElement(roles, i);
+        jbyteArray contentBytes = (jbyteArray)env->GetObjectArrayElement(contents, i);
+
+        std::string role;
+        if (roleStr != nullptr) {
+            const char* roleChars = env->GetStringUTFChars(roleStr, nullptr);
+            if (roleChars != nullptr) {
+                role = roleChars;
+                env->ReleaseStringUTFChars(roleStr, roleChars);
+            }
+            env->DeleteLocalRef(roleStr);
+        }
+
+        std::string content;
+        if (contentBytes != nullptr) {
+            content = bytesToUtf8String(env, contentBytes);
+            env->DeleteLocalRef(contentBytes);
+        }
+
+        if (!role.empty() && !content.empty()) {
+            messages.push_back({role, content});
+        }
+    }
+    LOGI("LlamaHelper: Parsed %zu messages", messages.size());
+
+    // 解析 tools JSON
+    std::string toolsJson;
+    if (toolsJsonBytes != nullptr) {
+        toolsJson = bytesToUtf8String(env, toolsJsonBytes);
+    }
+    LOGI("LlamaHelper: toolsJson length: %zu", toolsJson.size());
+
+    // 创建全局引用
+    jobject globalCallback = env->NewGlobalRef(callback);
+    jclass callbackClass = env->GetObjectClass(globalCallback);
+    jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
+    env->DeleteLocalRef(callbackClass);
+
+    // 回调包装器
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+        JavaVM* jvm = getJavaVM();
+        JNIEnv* env = nullptr;
+
+        int result = jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+        bool didAttach = false;
+        if (result == JNI_EDETACHED) {
+            if (jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                didAttach = true;
+            } else {
+                return;
+            }
+        } else if (result != JNI_OK) {
+            return;
+        }
+
+        try {
+            if (isDone) {
+                if (!error.empty()) {
+                    if (onErrorMethod != nullptr) {
+                        jstring errorStr = utf8StringToJstring(env, error);
+                        env->CallVoidMethod(globalCallback, onErrorMethod, errorStr);
+                        env->DeleteLocalRef(errorStr);
+                    }
+                } else {
+                    if (onCompleteMethod != nullptr) {
+                        jstring resultStr = utf8StringToJstring(env, token);
+                        env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
+                        env->DeleteLocalRef(resultStr);
+                    }
+                }
+            } else if (!token.empty()) {
+                if (onTokenMethod != nullptr) {
+                    jstring tokenStr = utf8StringToJstring(env, token);
+                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                    env->DeleteLocalRef(tokenStr);
+                }
+            }
+        } catch (...) {
+            LOGE("Exception in JNI callback");
+        }
+
+        if (isDone) {
+            env->DeleteGlobalRef(globalCallback);
+            env->DeleteGlobalRef(globalCallbackClass);
+        }
+
+        if (didAttach) {
+            jvm->DetachCurrentThread();
+        }
+    };
+
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->generateWithTools(messages, toolsJson, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
     );
 }
 

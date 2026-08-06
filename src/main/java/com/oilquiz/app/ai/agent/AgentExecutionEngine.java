@@ -229,6 +229,12 @@ public class AgentExecutionEngine {
             }
 
             @Override
+            public void onToken(String token) {
+                if (!isActive(messageId) || token == null) return;
+                emitEvent(messageId, ExecutionEvent.token(messageId, token));
+            }
+
+            @Override
             public void onComplete(AgentResponse response) {
                 if (!isActive(messageId)) return;
                 AILogger.i(TAG, "Agent completed: " + messageId);

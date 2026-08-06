@@ -73,6 +73,53 @@
                 app:icon="@drawable/ic_refresh"
                 app:iconSize="14dp"/>
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_download"
+                android:tint="@color/text_secondary"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="下载方式"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginStart="8dp"/>
+
+            <TextView
+                android:id="@+id/tv_download_method"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="自定义下载器"
+                android:textSize="12sp"
+                android:textColor="@color/primary"
+                android:textStyle="bold"
+                android:layout_marginStart="4dp"/>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_switch_download_method"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="切换"
+                android:textSize="11sp"
+                style="@style/Widget.Material3.Button.TextButton"
+                app:icon="@drawable/ic_refresh"
+                app:iconSize="14dp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
