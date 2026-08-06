@@ -2831,6 +2831,11 @@ public class UnifiedAgentEngine {
         AILogger.i(TAG, "Context and online model history cleared");
     }
 
+    /** 清空对话历史（别名，供 AgentRouter 统一调用） */
+    public void clearHistory() {
+        clearContext();
+    }
+
     public List<String> getContextSummaryList() {
         synchronized (contextSummary) {
             return new ArrayList<>(contextSummary);

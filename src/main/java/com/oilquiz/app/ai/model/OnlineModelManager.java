@@ -43,7 +43,18 @@ public class OnlineModelManager {
         public long lastUsageFetchTime;           // 上次获取使用量时间
         public boolean autoFetchModels;           // 是否自动获取模型列表
         
-        public OnlineModelConfig() {}
+        // === 新增：模型能力元数据 ===
+        public ModelCapabilities capabilities;    // 模型能力标签
+        public int contextWindow = 4096;          // 上下文窗口大小（tokens）
+        public int maxOutputTokens = 2048;        // 最大输出长度
+        public boolean supportsVision = false;    // 是否支持视觉理解
+        public boolean supportsAudio = false;     // 是否支持音频处理
+        public boolean supportsCode = false;      // 是否擅长代码生成
+        public double costPerMillionTokens = 0;   // 每百万token成本（美元）
+        
+        public OnlineModelConfig() {
+            this.capabilities = new ModelCapabilities();
+        }
         
         public OnlineModelConfig(String id, String name, String apiUrl, String modelName,
                                  String apiKey, boolean enabled, long createdAt) {
@@ -55,7 +66,40 @@ public class OnlineModelManager {
             this.enabled = enabled;
             this.createdAt = createdAt;
             this.autoFetchModels = true;
+            this.capabilities = new ModelCapabilities();
         }
+        
+        /**
+         * 检查模型是否具备指定能力
+         */
+        public boolean hasCapability(String capability) {
+            if (capabilities == null) return false;
+            
+            switch (capability.toLowerCase()) {
+                case "vision":
+                    return supportsVision || capabilities.supportsImageInput;
+                case "audio":
+                    return supportsAudio || capabilities.supportsAudioInput;
+                case "coding":
+                    return supportsCode || capabilities.supportsCodeGeneration;
+                case "long_context":
+                    return contextWindow >= 32768; // 32K+ 视为长上下文
+                default:
+                    return false;
+            }
+        }
+    }
+    
+    /**
+     * 模型能力描述
+     */
+    public static class ModelCapabilities {
+        public boolean supportsStreaming = true;
+        public boolean supportsFunctionCalling = false;
+        public boolean supportsCodeGeneration = false;
+        public boolean supportsImageInput = false;      // 图像输入
+        public boolean supportsAudioInput = false;      // 音频输入
+        public int maxOutputTokens = 4096;
     }
 
     public interface ModelChangeListener {

@@ -826,6 +826,13 @@ public class ChatMessage {
         public int uploadProgress;
         public String errorMessage;
         public String localFilePath;
+        
+        // 多模态解析相关字段
+        public String extractedContent; // 提取的文本内容（OCR/文档解析）
+        public boolean isExtracting = false; // 是否正在解析
+        public boolean isExtracted = false; // 是否已解析完成
+        public String extractionError; // 解析错误信息
+        public String aiSummary; // AI生成的智能摘要
 
         public Attachment(String type, String url, String name) {
             this.id = UUID.randomUUID().toString();

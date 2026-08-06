@@ -64,7 +64,14 @@ public class GarbledTextFixer {
         setFieldString(q, "tags",            fixText(getFieldString(q, "tags")));
         setFieldString(q, "author",          fixText(getFieldString(q, "author")));
         setFieldString(q, "comment",         fixText(getFieldString(q, "comment")));
-        setFieldString(q, "extraOptions",    fixText(getFieldString(q, "extraOptions")));
+        setFieldString(q, "optionE",         fixText(getFieldString(q, "optionE")));
+        setFieldString(q, "optionF",         fixText(getFieldString(q, "optionF")));
+        setFieldString(q, "optionG",         fixText(getFieldString(q, "optionG")));
+        setFieldString(q, "optionH",         fixText(getFieldString(q, "optionH")));
+        setFieldString(q, "optionI",         fixText(getFieldString(q, "optionI")));
+        setFieldString(q, "optionJ",         fixText(getFieldString(q, "optionJ")));
+        setFieldString(q, "optionK",         fixText(getFieldString(q, "optionK")));
+        setFieldString(q, "optionL",         fixText(getFieldString(q, "optionL")));
         setFieldString(q, "source",          fixText(getFieldString(q, "source")));
         setFieldString(q, "relatedQuestion", fixText(q.getRelatedQuestion()));
 

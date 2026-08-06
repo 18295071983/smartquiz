@@ -73,7 +73,20 @@ public class PythonToolManager {
             initialized = true;
             Log.i(TAG, "Python tool manager initialized successfully");
             
-            logPythonInfo();
+            // logPythonInfo() 可能导致 SIGSEGV（Chaquopy 在某些设备上 platform.platform() 崩溃）
+            // 改为安全地仅记录版本信息
+            try {
+                PyObject sys = python.getModule("sys");
+                if (sys != null) {
+                    PyObject version = sys.get("version");
+                    if (version != null) {
+                        String verStr = version.toString();
+                        Log.i(TAG, "Python version: " + (verStr.length() > 60 ? verStr.substring(0, 60) + "..." : verStr));
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Skipped Python version log (unsafe on this device)");
+            }
             return true;
             
         } catch (Exception e) {
@@ -82,6 +95,18 @@ public class PythonToolManager {
             String errorDetail = getPythonErrorDetail();
             if (errorDetail != null) {
                 Log.e(TAG, "Python error detail: " + errorDetail);
+            }
+            // 清除缓存的失败模块，以便下次重试时可以重新导入
+            try {
+                if (python != null) {
+                    PyObject sys = python.getModule("sys");
+                    PyObject modules = sys.get("modules");
+                    if (modules != null) {
+                        modules.callAttr("pop", "ai_python_tool");
+                    }
+                }
+            } catch (Exception clearEx) {
+                Log.w(TAG, "Failed to clear module cache: " + clearEx.getMessage());
             }
             return false;
         }
@@ -120,6 +145,34 @@ public class PythonToolManager {
     
     public boolean isInitialized() {
         return initialized;
+    }
+    
+    /**
+     * 直接执行 Python 代码（不解释为任务描述）
+     * 调用 Python 端的 run_code 方法，直接执行代码而不生成模板
+     */
+    public ExecutionResult executeCode(String code, Map<String, Object> contextData) {
+        if (!initialized) {
+            if (!initialize()) {
+                return new ExecutionResult(false, null, "Python tool manager not initialized");
+            }
+        }
+        
+        try {
+            Log.i(TAG, "Executing code directly (" + code.length() + " chars)");
+            
+            PyObject result = aiPythonTool.callAttr("run_code", code);
+            
+            if (result == null) {
+                return new ExecutionResult(false, null, "No result returned from run_code");
+            }
+            
+            return parseExecutionResult(result);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to execute code: " + e.getMessage(), e);
+            return new ExecutionResult(false, null, e.getMessage());
+        }
     }
     
     public ExecutionResult processTask(String task, Map<String, Object> contextData) {
@@ -161,55 +214,63 @@ public class PythonToolManager {
         ExecutionResult result = new ExecutionResult();
         
         try {
-            PyObject successObj = pyResult.get("success");
+            // Python 返回的是 dict，必须用 asMap() 访问键值，不能用 get()（get 是访问属性的）
+            Map<PyObject, PyObject> pyMap = pyResult.asMap();
+            
+            PyObject successObj = getFromPyMap(pyMap, "success");
             result.success = successObj != null && successObj.toBoolean();
             
-            PyObject resultObj = pyResult.get("result");
-            if (resultObj != null) {
+            PyObject resultObj = getFromPyMap(pyMap, "result");
+            if (resultObj != null && resultObj != PyObject.fromJava(null)) {
                 result.result = resultObj.toString();
             }
             
-            PyObject stdoutObj = pyResult.get("stdout");
+            PyObject stdoutObj = getFromPyMap(pyMap, "stdout");
             if (stdoutObj != null) {
                 result.stdout = stdoutObj.toString();
             }
             
-            PyObject stderrObj = pyResult.get("stderr");
+            PyObject stderrObj = getFromPyMap(pyMap, "stderr");
             if (stderrObj != null) {
                 result.stderr = stderrObj.toString();
             }
             
-            PyObject errorObj = pyResult.get("error");
-            if (errorObj != null) {
+            PyObject errorObj = getFromPyMap(pyMap, "error");
+            if (errorObj != null && errorObj != PyObject.fromJava(null)) {
                 result.error = errorObj.toString();
             }
             
-            PyObject codeObj = pyResult.get("code");
+            PyObject codeObj = getFromPyMap(pyMap, "code");
             if (codeObj != null) {
                 result.code = codeObj.toString();
             }
             
-            PyObject attemptsObj = pyResult.get("attempts");
+            PyObject attemptsObj = getFromPyMap(pyMap, "attempts");
             if (attemptsObj != null) {
                 result.attempts = attemptsObj.toInt();
             }
             
-            PyObject fixesObj = pyResult.get("fixes");
-            if (fixesObj != null) {
+            PyObject fixesObj = getFromPyMap(pyMap, "fixes");
+            if (fixesObj != null && fixesObj != PyObject.fromJava(null)) {
                 try {
                     result.fixes = new ArrayList<>();
                     for (PyObject fix : fixesObj.asList()) {
-                        Map<String, String> fixMap = new HashMap<>();
-                        PyObject typeObj = fix.get("error_type");
+                        Map<PyObject, PyObject> fixMap = fix.asMap();
+                        PyObject typeObj = getFromPyMap(fixMap, "error_type");
+                        Map<String, String> fixEntry = new HashMap<>();
                         if (typeObj != null) {
-                            fixMap.put("error_type", typeObj.toString());
+                            fixEntry.put("error_type", typeObj.toString());
                         }
-                        result.fixes.add(fixMap);
+                        result.fixes.add(fixEntry);
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to parse fixes: " + e.getMessage());
                 }
             }
+            
+            Log.i(TAG, "Parsed result: success=" + result.success + ", attempts=" + result.attempts 
+                + ", stdout_len=" + (result.stdout != null ? result.stdout.length() : 0)
+                + ", error=" + (result.error != null ? result.error.substring(0, Math.min(100, result.error.length())) : "null"));
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to parse execution result: " + e.getMessage(), e);
@@ -218,6 +279,25 @@ public class PythonToolManager {
         }
         
         return result;
+    }
+    
+    /**
+     * 从 PyObject Map 中按字符串键名获取值
+     * Python dict 的键可能是 PyObject(str) 或 PyUnicode，需要匹配字符串值
+     */
+    private PyObject getFromPyMap(Map<PyObject, PyObject> map, String key) {
+        if (map == null || key == null) return null;
+        // 直接尝试用 PyObject.fromJava(key) 查找
+        PyObject pyKey = PyObject.fromJava(key);
+        PyObject value = map.get(pyKey);
+        if (value != null) return value;
+        // 备用：遍历匹配字符串值
+        for (Map.Entry<PyObject, PyObject> entry : map.entrySet()) {
+            if (key.equals(entry.getKey().toString())) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
     
     public List<ToolInfo> listTools() {
@@ -232,23 +312,24 @@ public class PythonToolManager {
             if (toolsObj != null) {
                 for (PyObject toolObj : toolsObj.asList()) {
                     ToolInfo tool = new ToolInfo();
+                    Map<PyObject, PyObject> toolMap = toolObj.asMap();
                     
-                    PyObject nameObj = toolObj.get("name");
+                    PyObject nameObj = getFromPyMap(toolMap, "name");
                     if (nameObj != null) {
                         tool.name = nameObj.toString();
                     }
                     
-                    PyObject filenameObj = toolObj.get("filename");
+                    PyObject filenameObj = getFromPyMap(toolMap, "filename");
                     if (filenameObj != null) {
                         tool.filename = filenameObj.toString();
                     }
                     
-                    PyObject pathObj = toolObj.get("path");
+                    PyObject pathObj = getFromPyMap(toolMap, "path");
                     if (pathObj != null) {
                         tool.path = pathObj.toString();
                     }
                     
-                    PyObject modifiedObj = toolObj.get("modified");
+                    PyObject modifiedObj = getFromPyMap(toolMap, "modified");
                     if (modifiedObj != null) {
                         tool.modified = modifiedObj.toString();
                     }

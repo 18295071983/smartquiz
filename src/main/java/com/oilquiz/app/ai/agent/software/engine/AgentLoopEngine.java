@@ -284,8 +284,9 @@ public class AgentLoopEngine {
         sb.append("【工具使用规范】\n");
         sb.append("1. 需要实时信息（天气、时间、位置、搜索等）或执行操作时，调用合适的工具。\n");
         sb.append("2. 优先使用专用工具：查天气用 ai_weather，搜索用 network_search，计算用 python_calculate。\n");
-        sb.append("3. 工具失败时分析原因：参数错误则修正重试，工具不适用则更换工具。\n");
-        sb.append("4. 同一工具连续失败2次，停止重试，向用户说明并提供替代建议。\n\n");
+        sb.append("3. 你拥有文件写入权限，可以使用 file_generator 创建文件、生成网页、保存数据等。\n");
+        sb.append("4. 工具失败时分析原因：参数错误则修正重试，工具不适用则更换工具。\n");
+        sb.append("5. 同一工具连续失败2次，停止重试，向用户说明并提供替代建议。\n\n");
 
         sb.append("【输出要求】\n");
         sb.append("- 用中文回答用户问题\n");

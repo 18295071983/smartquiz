@@ -886,7 +886,6 @@ public class AIImportOrchestrator {
         q.setTags("");
         q.setAuthor("");
         q.setComment("");
-        q.setExtraOptions("");
         return q;
     }
 

@@ -3,10 +3,14 @@ package com.oilquiz.app.ai.tool;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 
 import com.oilquiz.app.SmartQuizApplication;
 import com.oilquiz.app.resource.PermissionResourceProvider;
@@ -50,33 +54,60 @@ public class PermissionManagerTool implements AITool {
     
     private static final Map<String, String> PERMISSION_MAP = new HashMap<>();
     static {
+        // === 以下所有权限均在 AndroidManifest.xml 中声明 ===
+        
+        // 相机
         PERMISSION_MAP.put("camera", Manifest.permission.CAMERA);
+        PERMISSION_MAP.put("相机", Manifest.permission.CAMERA);
+        // 录音/麦克风
         PERMISSION_MAP.put("录音", Manifest.permission.RECORD_AUDIO);
         PERMISSION_MAP.put("麦克风", Manifest.permission.RECORD_AUDIO);
+        PERMISSION_MAP.put("microphone", Manifest.permission.RECORD_AUDIO);
+        PERMISSION_MAP.put("record_audio", Manifest.permission.RECORD_AUDIO);
+        // 位置/定位
         PERMISSION_MAP.put("位置", Manifest.permission.ACCESS_FINE_LOCATION);
         PERMISSION_MAP.put("定位", Manifest.permission.ACCESS_FINE_LOCATION);
-        PERMISSION_MAP.put("蓝牙", Manifest.permission.BLUETOOTH);
-        PERMISSION_MAP.put("存储", Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        PERMISSION_MAP.put("读取存储", Manifest.permission.READ_EXTERNAL_STORAGE);
-        PERMISSION_MAP.put("发送短信", Manifest.permission.SEND_SMS);
-        PERMISSION_MAP.put("读取短信", Manifest.permission.READ_SMS);
-        PERMISSION_MAP.put("拨打电话", Manifest.permission.CALL_PHONE);
-        PERMISSION_MAP.put("读取联系人", Manifest.permission.READ_CONTACTS);
-        PERMISSION_MAP.put("写入联系人", Manifest.permission.WRITE_CONTACTS);
-        PERMISSION_MAP.put("电话状态", Manifest.permission.READ_PHONE_STATE);
-        PERMISSION_MAP.put("读取通话记录", Manifest.permission.READ_CALL_LOG);
-        PERMISSION_MAP.put("写入通话记录", Manifest.permission.WRITE_CALL_LOG);
-        PERMISSION_MAP.put("后台定位", Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        PERMISSION_MAP.put("location", Manifest.permission.ACCESS_FINE_LOCATION);
         PERMISSION_MAP.put("精确位置", Manifest.permission.ACCESS_FINE_LOCATION);
         PERMISSION_MAP.put("粗略位置", Manifest.permission.ACCESS_COARSE_LOCATION);
-        PERMISSION_MAP.put("安装应用", Manifest.permission.REQUEST_INSTALL_PACKAGES);
-        PERMISSION_MAP.put("悬浮窗", Manifest.permission.SYSTEM_ALERT_WINDOW);
-        PERMISSION_MAP.put("唤醒锁定", Manifest.permission.WAKE_LOCK);
-        PERMISSION_MAP.put("网络状态", Manifest.permission.ACCESS_NETWORK_STATE);
-        PERMISSION_MAP.put("WiFi状态", Manifest.permission.ACCESS_WIFI_STATE);
-        PERMISSION_MAP.put("更改网络状态", Manifest.permission.CHANGE_NETWORK_STATE);
-        PERMISSION_MAP.put("更改WiFi状态", Manifest.permission.CHANGE_WIFI_STATE);
-        PERMISSION_MAP.put("开机自启", Manifest.permission.RECEIVE_BOOT_COMPLETED);
+        PERMISSION_MAP.put("后台定位", Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        // 存储（根据 Android 版本映射不同权限）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            PERMISSION_MAP.put("存储", "manage_external_storage");
+            PERMISSION_MAP.put("storage", "manage_external_storage");
+            PERMISSION_MAP.put("读取存储", "manage_external_storage");
+            PERMISSION_MAP.put("文件管理", "manage_external_storage");
+            PERMISSION_MAP.put("媒体文件", "read_media");
+            PERMISSION_MAP.put("图片", Manifest.permission.READ_MEDIA_IMAGES);
+            PERMISSION_MAP.put("视频", Manifest.permission.READ_MEDIA_VIDEO);
+            PERMISSION_MAP.put("音频文件", Manifest.permission.READ_MEDIA_AUDIO);
+        } else {
+            PERMISSION_MAP.put("存储", Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            PERMISSION_MAP.put("storage", Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            PERMISSION_MAP.put("读取存储", Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+        // 电话
+        PERMISSION_MAP.put("拨打电话", Manifest.permission.CALL_PHONE);
+        PERMISSION_MAP.put("phone", Manifest.permission.CALL_PHONE);
+        PERMISSION_MAP.put("call_phone", Manifest.permission.CALL_PHONE);
+        PERMISSION_MAP.put("电话状态", Manifest.permission.READ_PHONE_STATE);
+        PERMISSION_MAP.put("read_phone_state", Manifest.permission.READ_PHONE_STATE);
+        // 联系人
+        PERMISSION_MAP.put("读取联系人", Manifest.permission.READ_CONTACTS);
+        PERMISSION_MAP.put("read_contacts", Manifest.permission.READ_CONTACTS);
+        PERMISSION_MAP.put("contacts", Manifest.permission.READ_CONTACTS);
+        PERMISSION_MAP.put("写入联系人", Manifest.permission.WRITE_CONTACTS);
+        PERMISSION_MAP.put("write_contacts", Manifest.permission.WRITE_CONTACTS);
+        // 安装应用
+        PERMISSION_MAP.put("安装应用", "request_install_packages");
+        PERMISSION_MAP.put("install", "request_install_packages");
+        PERMISSION_MAP.put("install_packages", "request_install_packages");
+        // 通知
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            PERMISSION_MAP.put("通知", Manifest.permission.POST_NOTIFICATIONS);
+            PERMISSION_MAP.put("notification", Manifest.permission.POST_NOTIFICATIONS);
+            PERMISSION_MAP.put("notifications", Manifest.permission.POST_NOTIFICATIONS);
+        }
     }
     
     public PermissionManagerTool(Context context) {
@@ -140,8 +171,15 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult("未知权限: " + permission, parameters);
         }
         
-        int result = context.checkSelfPermission(androidPermission);
-        boolean granted = result == PackageManager.PERMISSION_GRANTED;
+        // 特殊权限检查（非标准运行时权限）
+        Boolean specialResult = checkSpecialPermission(androidPermission);
+        boolean granted;
+        if (specialResult != null) {
+            granted = specialResult;
+        } else {
+            int result = context.checkSelfPermission(androidPermission);
+            granted = result == PackageManager.PERMISSION_GRANTED;
+        }
         
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("status", "success");
@@ -150,6 +188,50 @@ public class PermissionManagerTool implements AITool {
         resultMap.put("androidPermission", androidPermission);
         
         return new AIToolResult(resultMap, parameters);
+    }
+
+    /**
+     * 判断是否为特殊权限（非标准运行时权限，不能用 checkSelfPermission 检查）
+     */
+    private boolean isSpecialPermission(String androidPermission) {
+        return "manage_external_storage".equals(androidPermission)
+                || "request_install_packages".equals(androidPermission)
+                || "read_media".equals(androidPermission);
+    }
+
+    /**
+     * 检查特殊权限状态。返回 null 表示非特殊权限，走标准 checkSelfPermission。
+     */
+    private Boolean checkSpecialPermission(String androidPermission) {
+        if ("manage_external_storage".equals(androidPermission)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                return Environment.isExternalStorageManager();
+            }
+            return true;
+        }
+        if ("request_install_packages".equals(androidPermission)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // 检查是否允许安装未知来源应用
+                try {
+                    int allowed = Settings.Secure.getInt(context.getContentResolver(),
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? "install_non_market_apps" : "install_non_market_apps");
+                    return allowed == 1;
+                } catch (Settings.SettingNotFoundException e) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if ("read_media".equals(androidPermission)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                boolean img = context.checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED;
+                boolean vid = context.checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
+                return img || vid; // 至少有一个媒体权限即视为已授权
+            }
+            int result = context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE);
+            return result == PackageManager.PERMISSION_GRANTED;
+        }
+        return null;
     }
     
     private AIToolResult checkAllPermissions(Map<String, Object> parameters) {
@@ -167,8 +249,15 @@ public class PermissionManagerTool implements AITool {
         for (String permission : permissions) {
             String androidPermission = getAndroidPermission(permission);
             if (androidPermission != null) {
-                int result = context.checkSelfPermission(androidPermission);
-                if (result == PackageManager.PERMISSION_GRANTED) {
+                Boolean specialResult = checkSpecialPermission(androidPermission);
+                boolean isGranted;
+                if (specialResult != null) {
+                    isGranted = specialResult;
+                } else {
+                    int result = context.checkSelfPermission(androidPermission);
+                    isGranted = result == PackageManager.PERMISSION_GRANTED;
+                }
+                if (isGranted) {
                     granted.add(permission);
                 } else {
                     denied.add(permission);
@@ -213,8 +302,15 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult(resultMap, parameters);
         }
         
-        int result = context.checkSelfPermission(androidPermission);
-        boolean alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        // 特殊权限用专用检查
+        Boolean specialResult = checkSpecialPermission(androidPermission);
+        boolean alreadyGranted;
+        if (specialResult != null) {
+            alreadyGranted = specialResult;
+        } else {
+            int result = context.checkSelfPermission(androidPermission);
+            alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        }
         
         if (alreadyGranted) {
             resultMap.put("canRequest", false);
@@ -253,8 +349,15 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult("未知权限: " + permission, parameters);
         }
         
-        int result = context.checkSelfPermission(androidPermission);
-        boolean alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        // 特殊权限用专用检查
+        Boolean specialResult = checkSpecialPermission(androidPermission);
+        boolean alreadyGranted;
+        if (specialResult != null) {
+            alreadyGranted = specialResult;
+        } else {
+            int result = context.checkSelfPermission(androidPermission);
+            alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        }
         
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("status", "success");
@@ -276,10 +379,53 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult(resultMap, parameters);
         }
         
+        // 特殊权限：跳转对应设置页
+        if ("manage_external_storage".equals(androidPermission)) {
+            mainHandler.post(() -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                    intent.setData(Uri.parse("package:" + context.getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                } catch (Exception e) {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        activity.startActivity(intent);
+                    } catch (Exception e2) {
+                        AILogger.e(TAG, "打开文件管理设置失败: " + e2.getMessage());
+                    }
+                }
+            });
+            resultMap.put("granted", false);
+            resultMap.put("requested", true);
+            resultMap.put("message", "已打开文件管理设置页，请手动开启");
+            resultMap.put("suggestion", "使用 request_and_wait action 可以等待授权结果");
+            return new AIToolResult(resultMap, parameters);
+        }
+        if ("request_install_packages".equals(androidPermission)) {
+            mainHandler.post(() -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                    intent.setData(Uri.parse("package:" + context.getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                } catch (Exception e) {
+                    AILogger.e(TAG, "打开安装设置失败: " + e.getMessage());
+                }
+            });
+            resultMap.put("granted", false);
+            resultMap.put("requested", true);
+            resultMap.put("message", "已打开安装应用设置页，请手动开启");
+            resultMap.put("suggestion", "使用 request_and_wait action 可以等待授权结果");
+            return new AIToolResult(resultMap, parameters);
+        }
+        
         PermissionResourceProvider provider = PermissionResourceProvider.getInstance(context);
         
         mainHandler.post(() -> {
-            provider.requestPermission(activity, androidPermission, new PermissionResourceProvider.PermissionCallback() {
+            // 使用 requestPermissionDirect 跳过自定义 Dialog，直接调用系统权限请求
+            provider.requestPermissionDirect(activity, androidPermission, new PermissionResourceProvider.PermissionCallback() {
                 @Override
                 public void onGranted() {
                     AILogger.i(TAG, "权限请求成功: " + permission);
@@ -312,8 +458,15 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult("未知权限: " + permission, parameters);
         }
         
-        int result = context.checkSelfPermission(androidPermission);
-        boolean alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        // 特殊权限：先检查实际状态
+        Boolean specialCheck = checkSpecialPermission(androidPermission);
+        boolean alreadyGranted;
+        if (specialCheck != null) {
+            alreadyGranted = specialCheck;
+        } else {
+            int result = context.checkSelfPermission(androidPermission);
+            alreadyGranted = result == PackageManager.PERMISSION_GRANTED;
+        }
         
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("status", "success");
@@ -335,12 +488,109 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult(resultMap, parameters);
         }
         
+        // 特殊处理：MANAGE_EXTERNAL_STORAGE 需要跳转系统设置页
+        if ("manage_external_storage".equals(androidPermission)) {
+            try {
+                final CountDownLatch openLatch = new CountDownLatch(1);
+                mainHandler.post(() -> {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                        intent.setData(Uri.parse("package:" + context.getPackageName()));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        activity.startActivity(intent);
+                    } catch (Exception e) {
+                        AILogger.w(TAG, "打开文件管理设置失败: " + e.getMessage());
+                        try {
+                            Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            activity.startActivity(intent);
+                        } catch (Exception e2) {
+                            AILogger.e(TAG, "兑底设置也失败: " + e2.getMessage());
+                        }
+                    }
+                    openLatch.countDown();
+                });
+                openLatch.await(5, TimeUnit.SECONDS);
+                // 轮询等待用户操作（最多 60 秒）
+                for (int i = 0; i < 12; i++) {
+                    Thread.sleep(5000);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                        resultMap.put("granted", true);
+                        resultMap.put("message", "用户已在设置中授予文件管理权限");
+                        return new AIToolResult(resultMap, parameters);
+                    }
+                }
+                boolean finalGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager();
+                resultMap.put("granted", finalGranted);
+                resultMap.put("message", finalGranted ? "文件管理权限已授予" : "权限请求超时，用户未在设置中授权");
+                return new AIToolResult(resultMap, parameters);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                resultMap.put("granted", false);
+                resultMap.put("message", "权限请求被中断");
+                return new AIToolResult(resultMap, parameters);
+            }
+        }
+        
+        // 特殊处理：REQUEST_INSTALL_PACKAGES 需要跳转安装设置页
+        if ("request_install_packages".equals(androidPermission)) {
+            try {
+                final CountDownLatch openLatch = new CountDownLatch(1);
+                mainHandler.post(() -> {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                        intent.setData(Uri.parse("package:" + context.getPackageName()));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        activity.startActivity(intent);
+                    } catch (Exception e) {
+                        AILogger.e(TAG, "打开安装设置失败: " + e.getMessage());
+                    }
+                    openLatch.countDown();
+                });
+                openLatch.await(5, TimeUnit.SECONDS);
+                // 轮询等待用户操作（最多 60 秒）
+                for (int i = 0; i < 12; i++) {
+                    Thread.sleep(5000);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        boolean installOk;
+                        try {
+                            installOk = Settings.Secure.getInt(context.getContentResolver(), "install_non_market_apps") == 1;
+                        } catch (Settings.SettingNotFoundException e) {
+                            installOk = false;
+                        }
+                        if (installOk) {
+                            resultMap.put("granted", true);
+                            resultMap.put("message", "用户已在设置中授予安装应用权限");
+                            return new AIToolResult(resultMap, parameters);
+                        }
+                    }
+                }
+                boolean finalInstallGranted = false;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        finalInstallGranted = Settings.Secure.getInt(context.getContentResolver(), "install_non_market_apps") == 1;
+                    } catch (Settings.SettingNotFoundException e) {
+                        finalInstallGranted = false;
+                    }
+                }
+                resultMap.put("granted", finalInstallGranted);
+                resultMap.put("message", finalInstallGranted ? "安装应用权限已授予" : "权限请求超时，用户未在设置中授权");
+                return new AIToolResult(resultMap, parameters);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                resultMap.put("granted", false);
+                resultMap.put("message", "权限请求被中断");
+                return new AIToolResult(resultMap, parameters);
+            }
+        }
+        
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicBoolean granted = new AtomicBoolean(false);
         final PermissionResourceProvider provider = PermissionResourceProvider.getInstance(context);
         
         mainHandler.post(() -> {
-            provider.requestPermission(activity, androidPermission, new PermissionResourceProvider.PermissionCallback() {
+            // 使用 requestPermissionDirect 跳过自定义 Dialog，直接调用系统权限请求
+            provider.requestPermissionDirect(activity, androidPermission, new PermissionResourceProvider.PermissionCallback() {
                 @Override
                 public void onGranted() {
                     AILogger.i(TAG, "权限请求成功: " + permission);
@@ -360,17 +610,27 @@ public class PermissionManagerTool implements AITool {
         try {
             boolean completed = latch.await(PERMISSION_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             
-            if (!completed) {
-                resultMap.put("granted", false);
-                resultMap.put("timeout", true);
-                resultMap.put("message", "权限请求超时，用户可能未做出选择");
-                
-                result = context.checkSelfPermission(androidPermission);
-                resultMap.put("currentGranted", result == PackageManager.PERMISSION_GRANTED);
+            // 无论回调结果如何，都重新检查实际权限状态（回调可能延迟，但系统已更新）
+            Boolean specialRecheck = checkSpecialPermission(androidPermission);
+            boolean actuallyGranted;
+            if (specialRecheck != null) {
+                actuallyGranted = specialRecheck;
             } else {
-                resultMap.put("granted", granted.get());
-                if (granted.get()) {
-                    resultMap.put("message", "权限请求成功");
+                int currentResult = context.checkSelfPermission(androidPermission);
+                actuallyGranted = currentResult == PackageManager.PERMISSION_GRANTED;
+            }
+            
+            if (!completed) {
+                resultMap.put("granted", actuallyGranted);
+                resultMap.put("timeout", true);
+                resultMap.put("message", actuallyGranted 
+                    ? "权限请求超时，但检测到权限已授予" 
+                    : "权限请求超时，用户可能未做出选择");
+            } else {
+                // 以实际检查结果为准（比回调更可靠）
+                resultMap.put("granted", actuallyGranted);
+                if (actuallyGranted) {
+                    resultMap.put("message", "权限请求成功，权限已授予");
                 } else {
                     resultMap.put("message", "权限请求被用户拒绝");
                     
@@ -379,7 +639,7 @@ public class PermissionManagerTool implements AITool {
                         resultMap.put("shouldShowRationale", shouldShowRationale);
                         
                         if (!shouldShowRationale) {
-                            resultMap.put("suggestion", "用户可能选择了不再询问，需要引导用户去设置中手动授权");
+                            resultMap.put("suggestion", "用户已选择“不再询问”，需要引导用户去应用设置页手动授权");
                         } else {
                             resultMap.put("suggestion", "可以向用户解释为什么需要这个权限后再次请求");
                         }
@@ -407,8 +667,15 @@ public class PermissionManagerTool implements AITool {
             return new AIToolResult("未知权限: " + permission, parameters);
         }
         
-        int result = context.checkSelfPermission(androidPermission);
-        boolean granted = result == PackageManager.PERMISSION_GRANTED;
+        // 特殊权限用专用检查
+        Boolean specialResult = checkSpecialPermission(androidPermission);
+        boolean granted;
+        if (specialResult != null) {
+            granted = specialResult;
+        } else {
+            int result = context.checkSelfPermission(androidPermission);
+            granted = result == PackageManager.PERMISSION_GRANTED;
+        }
         
         String status;
         Activity activity = SmartQuizApplication.getCurrentActivity();
@@ -417,7 +684,10 @@ public class PermissionManagerTool implements AITool {
         if (granted) {
             status = "granted";
         } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && activity != null) {
+            // 特殊权限没有 shouldShowRationale 概念
+            if (isSpecialPermission(androidPermission)) {
+                status = "denied";
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && activity != null) {
                 shouldShowRationale = activity.shouldShowRequestPermissionRationale(androidPermission);
                 status = shouldShowRationale ? "denied" : "denied_never_ask";
             } else {
@@ -442,23 +712,46 @@ public class PermissionManagerTool implements AITool {
     }
     
     private AIToolResult listPermissions() {
-        List<Map<String, Object>> permissions = new ArrayList<>();
+        // 去重：同一个 android 权限只报告一次
+        Map<String, Map<String, Object>> uniquePermissions = new java.util.LinkedHashMap<>();
+        List<String> grantedList = new ArrayList<>();
+        List<String> deniedList = new ArrayList<>();
         
         for (Map.Entry<String, String> entry : PERMISSION_MAP.entrySet()) {
+            String androidPerm = entry.getValue();
+            if (uniquePermissions.containsKey(androidPerm)) continue;
+            
+            // 特殊权限用专用检查方法
+            Boolean specialResult = checkSpecialPermission(androidPerm);
+            boolean granted;
+            if (specialResult != null) {
+                granted = specialResult;
+            } else {
+                int result = context.checkSelfPermission(androidPerm);
+                granted = result == PackageManager.PERMISSION_GRANTED;
+            }
+            
             Map<String, Object> permissionInfo = new HashMap<>();
             permissionInfo.put("name", entry.getKey());
-            permissionInfo.put("androidPermission", entry.getValue());
+            permissionInfo.put("androidPermission", androidPerm);
+            permissionInfo.put("granted", granted);
+            uniquePermissions.put(androidPerm, permissionInfo);
             
-            int result = context.checkSelfPermission(entry.getValue());
-            permissionInfo.put("granted", result == PackageManager.PERMISSION_GRANTED);
-            
-            permissions.add(permissionInfo);
+            if (granted) {
+                grantedList.add(entry.getKey());
+            } else {
+                deniedList.add(entry.getKey());
+            }
         }
         
         Map<String, Object> result = new HashMap<>();
         result.put("status", "success");
-        result.put("permissions", permissions);
-        result.put("count", permissions.size());
+        result.put("granted", grantedList);
+        result.put("denied", deniedList);
+        result.put("grantedCount", grantedList.size());
+        result.put("deniedCount", deniedList.size());
+        result.put("permissions", new ArrayList<>(uniquePermissions.values()));
+        result.put("summary", "已授权 " + grantedList.size() + " 项，未授权 " + deniedList.size() + " 项");
         
         return new AIToolResult(result, new HashMap<>());
     }
@@ -531,8 +824,17 @@ public class PermissionManagerTool implements AITool {
     }
     
     private String getAndroidPermission(String permission) {
-        String lowerPermission = permission.toLowerCase();
-        return PERMISSION_MAP.get(lowerPermission);
+        if (permission == null) return null;
+        // 1. 先尝试原始值（支持中文键）
+        String direct = PERMISSION_MAP.get(permission);
+        if (direct != null) return direct;
+        // 2. 尝试小写
+        String lower = permission.toLowerCase();
+        String lowerResult = PERMISSION_MAP.get(lower);
+        if (lowerResult != null) return lowerResult;
+        // 3. 如果传入的已经是 Android 权限字符串（如 android.permission.CAMERA），直接返回
+        if (permission.contains(".")) return permission;
+        return null;
     }
     
     @Override

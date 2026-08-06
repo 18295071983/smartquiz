@@ -122,7 +122,8 @@ public class OnlineAgentEngine {
         }
 
         isCancelled.set(false);
-        messageHistory.clear();
+        // 不清除 messageHistory，保留对话上下文实现连续对话
+        // 仅清除本轮推理的状态
         thinkingChain.clear();
         toolLoopCount.set(0);
         totalTokenCount = 0;
@@ -161,24 +162,29 @@ public class OnlineAgentEngine {
         // 0.5 刷新工具注册系统（必须在构建系统提示词之前，确保工具列表和指南不为空）
         toolManager.refreshRegistry();
 
-        // 1. 使用 OnlinePromptBuilder 构建系统提示词（按模式选择）
-        String systemPrompt = agentMode == AgentMode.TAKEOVER
-            ? promptBuilder.buildSystemPromptTakeover()
-            : promptBuilder.buildSystemPrompt();
-        JsonObject systemMsg = new JsonObject();
-        systemMsg.addProperty("role", "system");
-        systemMsg.addProperty("content", systemPrompt);
-        messageHistory.add(systemMsg);
+        // 1. 仅首次对话时添加系统提示词和环境上下文（连续对话时 messageHistory 非空，跳过）
+        if (messageHistory.isEmpty()) {
+            String systemPrompt = agentMode == AgentMode.TAKEOVER
+                ? promptBuilder.buildSystemPromptTakeover()
+                : promptBuilder.buildSystemPrompt();
+            JsonObject systemMsg = new JsonObject();
+            systemMsg.addProperty("role", "system");
+            systemMsg.addProperty("content", systemPrompt);
+            messageHistory.add(systemMsg);
 
-        // 1.5 获取环境上下文（日期、位置、天气），注入为系统消息辅助Agent思考
-        notifyStep("环境感知", "正在获取位置和天气信息...");
-        String envContext = buildEnvironmentContext();
-        if (envContext != null && !envContext.isEmpty()) {
-            JsonObject envMsg = new JsonObject();
-            envMsg.addProperty("role", "system");
-            envMsg.addProperty("content", envContext);
-            messageHistory.add(envMsg);
-            AILogger.i(TAG, "Environment context injected: " + envContext.length() + " chars");
+            // 获取环境上下文（日期、位置、天气），注入为系统消息辅助Agent思考
+            notifyStep("环境感知", "正在获取位置和天气信息...");
+            String envContext = buildEnvironmentContext();
+            if (envContext != null && !envContext.isEmpty()) {
+                JsonObject envMsg = new JsonObject();
+                envMsg.addProperty("role", "system");
+                envMsg.addProperty("content", envContext);
+                messageHistory.add(envMsg);
+                AILogger.i(TAG, "Environment context injected: " + envContext.length() + " chars");
+            }
+            AILogger.i(TAG, "New conversation started: system prompt + env context added");
+        } else {
+            AILogger.i(TAG, "Continuing conversation: messageHistory size=" + messageHistory.size());
         }
 
         // 2. 添加用户消息
@@ -709,6 +715,7 @@ public class OnlineAgentEngine {
 
     /** 从weather工具返回的JSON中提取天气摘要 */
     private String extractWeatherSummary(String result) {
+        if (result == null || result.isEmpty()) return null;
         try {
             JsonObject json = JsonParser.parseString(result).getAsJsonObject();
             StringBuilder w = new StringBuilder();
@@ -717,8 +724,20 @@ public class OnlineAgentEngine {
             if (json.has("text")) w.append(" ").append(json.get("text").getAsString());
             else if (json.has("weather")) w.append(" ").append(json.get("weather").getAsString());
             if (json.has("humidity")) w.append(" 湿度").append(json.get("humidity").getAsString()).append("%");
+            // 尝试从 formatted_result 嵌套字段提取
+            if (w.length() == 0 && json.has("formatted_result")) {
+                String fr = json.get("formatted_result").getAsString();
+                if (fr != null && !fr.isEmpty()) return fr.length() > 100 ? fr.substring(0, 100) + "..." : fr;
+            }
             return w.length() > 0 ? w.toString() : null;
         } catch (Exception e) {
+            // JSON 解析失败，尝试从纯文本中提取温度等关键信息
+            try {
+                StringBuilder w = new StringBuilder();
+                java.util.regex.Matcher tempMatcher = java.util.regex.Pattern.compile("(-?\\d+\\.?\\d*)\\s*°?C?").matcher(result);
+                if (tempMatcher.find()) w.append(tempMatcher.group(1)).append("°C");
+                if (w.length() > 0 && w.length() < 80) return w.toString();
+            } catch (Exception ignored) {}
             AILogger.w(TAG, "Failed to extract weather summary: " + e.getMessage());
         }
         return null;

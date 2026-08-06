@@ -999,6 +999,8 @@ public class ToolResultInterpreter {
         String size = strDeep(obj, "size", "bytes_written", "file_size");
         String count = strDeep(obj, "count", "lines_written", "written_lines");
         String rows = strDeep(obj, "rows_written", "rows", "question_count");
+        String contentUri = strDeep(obj, "contentUri", "content_uri", "uri");
+        String openHint = strDeep(obj, "openHint", "open_hint");
 
         if ("success".equalsIgnoreCase(status) || msg != null) {
             sb.append("✅ ").append(msg != null ? msg : "生成/操作成功");
@@ -1010,6 +1012,14 @@ public class ToolResultInterpreter {
         if (size != null) sb.append("📦 大小：").append(size).append("\n");
         if (count != null) sb.append("📝 写入：").append(count).append(" 项\n");
         if (rows != null) sb.append("📊 数据：").append(rows).append(" 行\n");
+        // 包含可点击链接，引导 LLM 在回复中使用 markdown 链接格式
+        if (openHint != null) {
+            sb.append("\n📎 ").append(openHint).append("\n");
+            sb.append("请在回复中使用此 markdown 链接格式，让用户可以点击打开文件。\n");
+        } else if (contentUri != null) {
+            sb.append("\n📎 文件访问链接：").append(contentUri).append("\n");
+            sb.append("请在回复中用 markdown 链接格式 [文件名](链接) 告知用户，让用户可以点击打开。\n");
+        }
         return sb.toString().trim();
     }
 

@@ -4,104 +4,134 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:background="@drawable/card_bg"
     android:padding="16dp"
-    android:background="@drawable/item_question_background"
-    android:layout_marginBottom="12dp">
+    android:layout_marginBottom="10dp">
 
-    <!-- 题目编号 -->
-    <TextView
-        android:id="@+id/questionNumberTextView"
-        android:layout_width="wrap_content"
+    <!-- 头部：题号 + 题型标签 + 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="题目 1"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp"
-        android:textColor="@color/teal_700" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="10dp">
 
-    <!-- 题目类型 -->
-    <TextView
-        android:id="@+id/questionTypeTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="单选题"
-        android:textSize="12sp"
-        android:background="@color/primary_container"
-        android:textColor="@color/on_primary_container"
-        android:padding="4dp"
-        android:layout_marginBottom="8dp" />
+        <!-- 题号 -->
+        <TextView
+            android:id="@+id/questionNumberTextView"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:text="1"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary"
+            android:background="@drawable/question_number_bg"
+            android:gravity="center"
+            android:layout_marginEnd="10dp"/>
 
-    <!-- 题目内容 -->
+        <!-- 题型标签 -->
+        <TextView
+            android:id="@+id/questionTypeTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="单选题"
+            android:textSize="11sp"
+            android:textColor="@color/primary"
+            android:background="@drawable/question_type_tag_bg"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="3dp"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
+
+        <!-- 操作按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_favorite"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="收藏"
+            app:icon="@android:drawable/btn_star_big_off"
+            app:iconTint="@color/tertiary"
+            app:iconGravity="textStart"
+            app:backgroundTint="@android:color/transparent"
+            android:layout_marginEnd="4dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_delete"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="删除"
+            app:icon="@android:drawable/ic_menu_delete"
+            app:iconTint="@color/error"
+            app:iconGravity="textStart"
+            app:backgroundTint="@android:color/transparent"/>
+    </LinearLayout>
+
+    <!-- 题目内容（完整显示，不限行数） -->
     <TextView
         android:id="@+id/questionTextTextView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="题目内容"
-        android:textSize="14sp"
-        android:layout_marginBottom="12dp"
-        android:textColor="@color/black" />
+        android:textSize="15sp"
+        android:textColor="@color/text_primary"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="12dp"/>
 
-    <!-- 题目信息 -->
+    <!-- 选项动态容器（由适配器根据数据动态填充，支持A~L所有选项） -->
+    <LinearLayout
+        android:id="@+id/optionsLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="10dp"/>
+
+    <!-- 元信息行：分类 + 难度 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="12dp">
+        android:gravity="center_vertical">
+
         <TextView
             android:id="@+id/categoryTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="分类: 默认"
-            android:textSize="12sp"
-            android:textColor="@color/gray_600"
-            android:layout_marginEnd="16dp" />
+            android:text="默认"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:layout_marginEnd="8dp"/>
+
         <TextView
             android:id="@+id/difficultyTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="难度: 中等"
-            android:textSize="12sp"
-            android:textColor="@color/gray_600" />
+            android:text="中等"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"/>
     </LinearLayout>
 
-    <!-- 答案 -->
+    <!-- 答案（默认隐藏） -->
     <TextView
         android:id="@+id/answerTextView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="答案: A"
         android:textSize="14sp"
-        android:textColor="@color/primary"
-        android:visibility="gone"
-        android:layout_marginBottom="8dp" />
-
-    <!-- 操作按钮 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end">
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_favorite"
-            android:layout_width="80dp"
-            android:layout_height="wrap_content"
-            android:text="收藏"
-            android:textSize="12sp"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="8dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_delete"
-            android:layout_width="80dp"
-            android:layout_height="wrap_content"
-            android:text="删除"
-            android:textSize="12sp"
-            app:backgroundTint="@color/error"
-            android:textColor="@color/on_error"
-            app:cornerRadius="8dp"
-            android:textAllCaps="false"/>
-    </LinearLayout>
+        android:textColor="@color/success"
+        android:background="@color/success_container"
+        android:padding="10dp"
+        android:layout_marginTop="10dp"
+        android:visibility="gone"/>
 
 </LinearLayout>

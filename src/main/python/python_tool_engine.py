@@ -146,31 +146,29 @@ class PythonToolEngine:
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
         
-        local_vars = {
+        # 使用同一个 namespace 作为 globals 和 locals
+        # 避免 f-string 在分离 globals/locals 时的兼容性问题
+        namespace = {
+            "__name__": "__main__",
             "__builtins__": __builtins__,
             "engine": self,
         }
         
         if variables:
-            local_vars.update(variables)
-        
-        global_vars = {
-            "__name__": "__main__",
-            "__builtins__": __builtins__,
-        }
+            namespace.update(variables)
         
         def run_code():
             nonlocal result
             try:
                 if capture_output:
                     with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                        exec(code, global_vars, local_vars)
+                        exec(code, namespace, namespace)
                 else:
-                    exec(code, global_vars, local_vars)
+                    exec(code, namespace, namespace)
                 
                 result["success"] = True
-                if "result" in local_vars:
-                    result["result"] = local_vars["result"]
+                if "result" in namespace:
+                    result["result"] = namespace["result"]
                 
             except Exception as e:
                 result["error"] = {
@@ -307,6 +305,13 @@ class PythonToolEngine:
             'beautifulsoup4', 'bs4',
             'lxml',
             'jieba',
+            'openpyxl',
+            'yaml', 'pyyaml',
+            'tabulate',
+            'dateutil', 'python-dateutil',
+            'chardet',
+            'xlrd',
+            'pandas', 'pd',
         ]
         
         # 如果是预装的包，不返回替代方案
