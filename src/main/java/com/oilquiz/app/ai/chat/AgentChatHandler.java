@@ -549,6 +549,11 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.cancel();
     }
 
+    /** 清空对话历史（用于“新对话”/“清空对话”操作） */
+    public void clearHistory() {
+        engine.clearHistory();
+    }
+
     public boolean isGenerating() {
         return engine.isGenerating();
     }

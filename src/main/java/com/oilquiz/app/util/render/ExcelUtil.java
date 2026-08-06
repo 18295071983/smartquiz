@@ -1151,7 +1151,7 @@ public class ExcelUtil {
                         if (optionDColumn != null) {
                             question.setOptionD(getCellValueAsString(row.getCell(optionDColumn)));
                         }
-                        // —— 扩展：E~L 选项（通过 setOptionByLetter 写入 extraOptions JSON）——
+                        // —— 扩展：E~L 选项（直接写入独立列 optionE~optionL）——
                         for (int ei = 0; ei < extraLetters.length; ei++) {
                             Integer col = extraOptionColumns[ei];
                             if (col != null) {

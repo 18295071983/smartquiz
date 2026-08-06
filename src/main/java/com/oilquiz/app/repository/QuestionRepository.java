@@ -734,4 +734,54 @@ public class QuestionRepository {
             }
         });
     }
+
+    // ========== 题目统计更新方法 ==========
+
+    /**
+     * 增加题目使用次数
+     */
+    public void incrementUsageCount(final long questionId, final long timestamp) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    questionDao.incrementUsageCount(questionId, timestamp);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    /**
+     * 增加题目正确次数
+     */
+    public void incrementCorrectCount(final long questionId) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    questionDao.incrementCorrectCount(questionId);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    /**
+     * 增加题目错误次数
+     */
+    public void incrementIncorrectCount(final long questionId) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    questionDao.incrementIncorrectCount(questionId);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
 }

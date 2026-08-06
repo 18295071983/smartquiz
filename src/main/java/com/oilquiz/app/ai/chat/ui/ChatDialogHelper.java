@@ -28,6 +28,10 @@ public class ChatDialogHelper {
         void onAddSystemMessage(String message);
         void onAddAIMessage(String content);
         void onClearChat();
+        /** 开始新对话：仅清空对话上下文，不清空页面消息 */
+        void onStartNewConversation();
+        /** 重新生成：根据 messageId 找到对应 AI 消息，重新发送其前面的用户消息 */
+        void onRegenerate(String messageId);
     }
 
     private final Activity activity;
@@ -49,9 +53,14 @@ public class ChatDialogHelper {
                     callback.onShowToast("已复制");
                 }
                 break;
+            case REGENERATE:
+                if (action.messageId != null) {
+                    callback.onRegenerate(action.messageId);
+                }
+                break;
             case NEW_CHAT:
-                callback.onClearChat();
-                callback.onAddSystemMessage("已开始新对话");
+                callback.onStartNewConversation();
+                callback.onShowToast("已开始新对话（上下文已清空）");
                 break;
             case LIKE:
                 callback.onShowToast("感谢您的喜欢！");

@@ -267,7 +267,7 @@ public class AgentService {
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
         registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能", "action(操作类型: research/quick_search/deep_read/summarize_topic,默认research), topic(研究主题,research用), query(搜索关键词,quick_search用), url(网页URL,deep_read用), depth(研究深度,默认1), maxResults(最大结果数,默认5), includeDetails(是否包含详情,默认false)");
-        registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info,默认open_app), app_name(应用名称,可选), url(URL地址,可选), phone_number(电话号码,可选), message(短信内容,可选), params(附加参数JSON,可选)");
+        registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text,默认open_app), app(应用名称或包名,支持模糊匹配), url(URL地址), phone(电话号码), message(短信内容), command(Shell命令), setting_type(设置类型:system/secure/global), setting_key(设置键名), setting_value(设置值), control_action(应用控制:force_stop/clear_data/detailed_info), setting(设置页:wifi/bluetooth/location等)。提示:不确定应用名时先用list_apps查看已安装应用列表");
         registerToolSchema("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面", "action(操作类型: navigate/list_pages/go_home/go_back,默认navigate), page(页面名称:user/question/quiz/study_plan/wrong_question/note/ocr/ai等,可选)");
         registerToolSchema("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件", "action(操作类型: get_file_info/read_file/list_files,必填), file_path(文件路径,可选), directory_path(目录路径,可选)");
         registerToolSchema("file_reader", "读取文件内容", "file_path(文件路径,必填)");
@@ -928,39 +928,8 @@ public class AgentService {
      * 数据库结果格式化 - 保留表头和前几行
      */
     private String formatDatabaseResult(String result) {
-        String[] lines = result.split("\n");
-        StringBuilder sb = new StringBuilder();
-        int lineCount = 0;
-
-        for (String line : lines) {
-            if (sb.length() > 0) sb.append("\n");
-            sb.append(line);
-            lineCount++;
-
-            // 最多保留10行
-            if (lineCount >= 10) {
-                sb.append("\n...[共").append(lines.length).append("行，已截断]");
-                break;
-            }
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * 智能截断 - 保留开头和结尾的关键信息
-     */
-    private String smartTruncate(String result, int maxLength) {
-        if (result.length() <= maxLength) return result;
-
-        int keepLength = maxLength - 50; // 留空间给省略号
-        int headLength = keepLength * 2 / 3; // 开头保留2/3
-        int tailLength = keepLength / 3; // 结尾保留1/3
-
-        String head = result.substring(0, headLength);
-        String tail = result.substring(result.length() - tailLength);
-
-        return head + "\n...[中间省略" + (result.length() - headLength - tailLength) + "字]...\n" + tail;
+        // 不再截断数据库结果，全量返回
+        return result;
     }
 
     /**
@@ -983,14 +952,19 @@ public class AgentService {
             // JSON解析失败
         }
 
-        // 非JSON格式，截取关键部分
-        if (result.length() > 500) {
-            return result.substring(0, 500) + "...";
-        }
+        // 非JSON格式，全量返回
         return result;
     }
 
-    private static final int TOOL_RESULT_MAX_LENGTH = 3000;
+    /**
+     * 智能截断 - 不再截断，全量返回
+     */
+    private String smartTruncate(String result, int maxLength) {
+        return result;
+    }
+    
+    // 不再截断工具返回结果，保证数据完整性
+    private static final int TOOL_RESULT_MAX_LENGTH = Integer.MAX_VALUE;
     private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
     private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
 

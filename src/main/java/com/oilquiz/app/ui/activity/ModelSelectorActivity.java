@@ -54,6 +54,7 @@ public class ModelSelectorActivity extends AppCompatActivity
     private MaterialButton refreshButton;
     private MaterialButton addOnlineModelButton;
     private MaterialButton importLocalModelButton;
+    private MaterialButton btnApiConfig;
     private LinearLayout onlineModelsSection;
     private View onlineModelsEmptyView;
     private View localModelsEmptyView;
@@ -83,6 +84,7 @@ public class ModelSelectorActivity extends AppCompatActivity
             refreshButton = findViewById(R.id.refresh_button);
             addOnlineModelButton = findViewById(R.id.add_online_model_button);
             importLocalModelButton = findViewById(R.id.import_local_model_button);
+            btnApiConfig = findViewById(R.id.btn_api_config);
             onlineModelsSection = findViewById(R.id.online_models_section);
             onlineModelsEmptyView = findViewById(R.id.online_models_empty);
             localModelsEmptyView = findViewById(R.id.local_models_empty);
@@ -107,6 +109,11 @@ public class ModelSelectorActivity extends AppCompatActivity
             }
             if (addOnlineModelButton != null) {
                 addOnlineModelButton.setOnClickListener(v -> showAddOnlineModelDialog());
+            }
+            if (btnApiConfig != null) {
+                btnApiConfig.setOnClickListener(v -> {
+                    startActivity(new Intent(ModelSelectorActivity.this, ApiConfigActivity.class));
+                });
             }
             if (importLocalModelButton != null) {
                 importLocalModelButton.setOnClickListener(v -> importModel());

@@ -63,10 +63,23 @@ android {
                 options "--extra-index-url", "https://mirrors.aliyun.com/pypi/simple/"
                 options "--trusted-host", "mirrors.aliyun.com"
                 
+                // 已预装 native 包
                 install "regex"
                 install "Pillow"
                 install "numpy"
                 install "lxml"
+                
+                // ===== Agent 实用第三方库 =====
+                // 纯Python包 - 直接从PyPI/镜像安装
+                install "openpyxl"          // Excel .xlsx 读写
+                install "pyyaml"            // YAML 解析
+                install "tabulate"          // 数据表格美观输出
+                install "python-dateutil"   // 灵活日期解析
+                install "chardet"           // 文件编码自动检测
+                install "xlrd"              // 旧版 .xls Excel 读取
+                
+                // C扩展包 - Chaquopy提供预编译wheel
+                install "pandas"            // 数据分析（依赖numpy）
             }
         }
     }

@@ -1,9 +1,12 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import android.database.Cursor;
+import androidx.sqlite.db.SupportSQLiteDatabase;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
+import com.oilquiz.app.database.AppDatabase;
 import com.oilquiz.app.database.DatabaseManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.model.User;
@@ -12,24 +15,35 @@ import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 @Tool(
     value = "database",
-    description = "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作",
+    description = "数据库操作工具。支持：执行任意SQL查询(execute_sql)、列出所有表(list_tables)、"
+        + "查看表结构(get_table_schema)、题目管理、用户管理、分数记录等。"
+        + "execute_sql可执行任意SELECT/INSERT语句。"
+        + "【重要】add_questions每次最多传10道题，超过10道必须分批调用。"
+        + "大批量导入建议用execute_sql执行INSERT语句，每次INSERT 20-30条。",
     category = "data",
     actions = {
-        @Action(name = "execute_query", description = "执行SQL查询"),
+        @Action(name = "execute_sql", description = "执行任意SQL(SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)"),
+        @Action(name = "list_tables", description = "列出数据库所有表"),
+        @Action(name = "get_table_schema", description = "获取指定表的字段结构"),
+        @Action(name = "execute_query", description = "执行SQL查询(兼容旧接口)"),
         @Action(name = "get_questions", description = "获取题目列表"),
         @Action(name = "search_questions", description = "搜索题目"),
         @Action(name = "get_question_count", description = "获取题目数量"),
         @Action(name = "get_question_statistics", description = "获取题目统计信息"),
         @Action(name = "get_question_by_id", description = "根据ID获取题目"),
-        @Action(name = "add_questions", description = "添加题目"),
+        @Action(name = "add_questions", description = "添加题目(每次最多10道，超过须分批调用)"),
         @Action(name = "update_question", description = "更新题目"),
         @Action(name = "delete_question", description = "删除题目"),
         @Action(name = "get_user", description = "获取用户信息"),
@@ -41,6 +55,8 @@ import java.util.concurrent.TimeoutException;
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "query", type = "string", description = "SQL查询语句", required = false),
+        @Param(name = "sql", type = "string", description = "SQL语句(用于execute_sql)", required = false),
+        @Param(name = "table_name", type = "string", description = "表名(用于get_table_schema)", required = false),
         @Param(name = "keyword", type = "string", description = "搜索关键词", required = false),
         @Param(name = "id", type = "string", description = "题目/用户ID", required = false),
         @Param(name = "category", type = "string", description = "题目分类", required = false),
@@ -64,7 +80,7 @@ public class DatabaseTool implements AITool {
     public String getName() { return "database"; }
     
     @Override
-    public String getDescription() { return "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作"; }
+    public String getDescription() { return "数据库操作工具。支持任意SQL查询、列出表、查看表结构、题目管理、用户管理、分数记录等"; }
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
@@ -76,6 +92,12 @@ public class DatabaseTool implements AITool {
             String action = actionObj.toString();
             
             switch (action) {
+                case "execute_sql":
+                    return executeSql(parameters);
+                case "list_tables":
+                    return listTables(parameters);
+                case "get_table_schema":
+                    return getTableSchema(parameters);
                 case "execute_query":
                     return executeQuery(parameters);
                 case "get_questions":
@@ -121,24 +143,215 @@ public class DatabaseTool implements AITool {
         }
     }
     
+    /**
+     * 执行任意SQL查询（SELECT/PRAGMA/INSERT/UPDATE/DELETE）
+     */
+    private AIToolResult executeSql(Map<String, Object> parameters) {
+        Object sqlObj = parameters.get("sql");
+        if (sqlObj == null) sqlObj = parameters.get("query");
+        if (sqlObj == null) {
+            return new AIToolResult("缺少参数: sql", parameters);
+        }
+        String sql = sqlObj.toString().trim();
+        String sqlUpper = sql.toUpperCase();
+        boolean isWrite = sqlUpper.startsWith("INSERT") || sqlUpper.startsWith("UPDATE") 
+            || sqlUpper.startsWith("DELETE") || sqlUpper.startsWith("CREATE") 
+            || sqlUpper.startsWith("DROP") || sqlUpper.startsWith("ALTER");
+        
+        try {
+            AppDatabase db = AppDatabase.getDatabase(context);
+            
+            if (isWrite) {
+                // 写操作：INSERT/UPDATE/DELETE等
+                SupportSQLiteDatabase sqlite = db.getOpenHelper().getWritableDatabase();
+                sqlite.beginTransaction();
+                try {
+                    // 支持多条SQL语句（用分号分隔）
+                    String[] statements = sql.split(";");
+                    int totalChanges = 0;
+                    for (String stmt : statements) {
+                        stmt = stmt.trim();
+                        if (!stmt.isEmpty()) {
+                            sqlite.execSQL(stmt);
+                            totalChanges++;
+                        }
+                    }
+                    sqlite.setTransactionSuccessful();
+                    
+                    Map<String, Object> result = new LinkedHashMap<>();
+                    result.put("status", "success");
+                    result.put("sql", sql.length() > 200 ? sql.substring(0, 200) + "..." : sql);
+                    result.put("statements_executed", totalChanges);
+                    
+                    // 查询受影响的行数
+                    Cursor countCursor = sqlite.query("SELECT changes() AS affected_rows");
+                    if (countCursor.moveToFirst()) {
+                        result.put("affected_rows", countCursor.getInt(0));
+                    }
+                    countCursor.close();
+                    
+                    return new AIToolResult(result, parameters);
+                } finally {
+                    sqlite.endTransaction();
+                }
+            } else {
+                // 读操作：SELECT/PRAGMA等
+                SupportSQLiteDatabase sqlite = db.getOpenHelper().getReadableDatabase();
+                Cursor cursor = sqlite.query(sql);
+                
+                List<Map<String, Object>> rows = new ArrayList<>();
+                List<String> columns = new ArrayList<>();
+                
+                // 获取列名
+                for (int i = 0; i < cursor.getColumnCount(); i++) {
+                    columns.add(cursor.getColumnName(i));
+                }
+                
+                // 读取数据行
+                while (cursor.moveToNext()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (int i = 0; i < cursor.getColumnCount(); i++) {
+                        String colName = columns.get(i);
+                        switch (cursor.getType(i)) {
+                            case Cursor.FIELD_TYPE_NULL:
+                                row.put(colName, null);
+                                break;
+                            case Cursor.FIELD_TYPE_INTEGER:
+                                row.put(colName, cursor.getLong(i));
+                                break;
+                            case Cursor.FIELD_TYPE_FLOAT:
+                                row.put(colName, cursor.getDouble(i));
+                                break;
+                            case Cursor.FIELD_TYPE_STRING:
+                                row.put(colName, cursor.getString(i));
+                                break;
+                            case Cursor.FIELD_TYPE_BLOB:
+                                row.put(colName, "<blob>");
+                                break;
+                        }
+                    }
+                    rows.add(row);
+                }
+                cursor.close();
+                
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("status", "success");
+                result.put("sql", sql);
+                result.put("columns", columns);
+                result.put("rows", rows);
+                result.put("count", rows.size());
+                
+                return new AIToolResult(result, parameters);
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "SQL执行失败: " + e.getMessage(), e);
+            return new AIToolResult("SQL执行失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 列出数据库所有表
+     */
+    private AIToolResult listTables(Map<String, Object> parameters) {
+        try {
+            AppDatabase db = AppDatabase.getDatabase(context);
+            SupportSQLiteDatabase sqlite = db.getOpenHelper().getReadableDatabase();
+            Cursor cursor = sqlite.query(
+                "SELECT name, sql FROM sqlite_master WHERE type='table' " +
+                "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'room_%' " +
+                "ORDER BY name");
+            
+            List<Map<String, String>> tables = new ArrayList<>();
+            while (cursor.moveToNext()) {
+                Map<String, String> table = new LinkedHashMap<>();
+                table.put("name", cursor.getString(0));
+                table.put("sql", cursor.getString(1));
+                tables.add(table);
+            }
+            cursor.close();
+            
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("count", tables.size());
+            result.put("tables", tables);
+            
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("获取表列表失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 获取指定表的结构信息
+     */
+    private AIToolResult getTableSchema(Map<String, Object> parameters) {
+        Object tableNameObj = parameters.get("table_name");
+        if (tableNameObj == null) {
+            return new AIToolResult("缺少参数: table_name", parameters);
+        }
+        String tableName = tableNameObj.toString();
+        
+        try {
+            AppDatabase db = AppDatabase.getDatabase(context);
+            SupportSQLiteDatabase sqlite = db.getOpenHelper().getReadableDatabase();
+            
+            // 获取表结构
+            Cursor cursor = sqlite.query("PRAGMA table_info(" + tableName + ")");
+            List<Map<String, Object>> columns = new ArrayList<>();
+            while (cursor.moveToNext()) {
+                Map<String, Object> col = new LinkedHashMap<>();
+                col.put("cid", cursor.getInt(0));
+                col.put("name", cursor.getString(1));
+                col.put("type", cursor.getString(2));
+                col.put("notnull", cursor.getInt(3) != 0);
+                col.put("default_value", cursor.isNull(4) ? null : cursor.getString(4));
+                col.put("pk", cursor.getInt(5) != 0);
+                columns.add(col);
+            }
+            cursor.close();
+            
+            // 获取行数
+            long rowCount = 0;
+            try {
+                Cursor countCursor = sqlite.query("SELECT COUNT(*) FROM " + tableName);
+                if (countCursor.moveToNext()) {
+                    rowCount = countCursor.getLong(0);
+                }
+                countCursor.close();
+            } catch (Exception ignored) {}
+            
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("table_name", tableName);
+            result.put("row_count", rowCount);
+            result.put("columns", columns);
+            result.put("column_count", columns.size());
+            
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("获取表结构失败: " + e.getMessage(), parameters);
+        }
+    }
+    
     private AIToolResult executeQuery(Map<String, Object> parameters) {
         Object queryObj = parameters.get("query");
         if (queryObj == null) {
             return new AIToolResult("缺少参数: query", parameters);
         }
-        String query = queryObj.toString().toLowerCase().trim();
+        String query = queryObj.toString().trim();
         
         try {
-            if (query.contains("select") && query.contains("question")) {
+            // 尝试匹配特定模式，否则直接执行SQL
+            String queryLower = query.toLowerCase();
+            if (queryLower.contains("select") && queryLower.contains("question") 
+                && !queryLower.contains("join") && !queryLower.contains("where") 
+                && !queryLower.contains("group") && !queryLower.contains("order")) {
                 return getQuestions(parameters);
-            } else if (query.contains("count") && query.contains("question")) {
+            } else if (queryLower.contains("count") && queryLower.contains("question")) {
                 return getQuestionCount(parameters);
-            } else if (query.contains("statistics")) {
-                return getQuestionStatistics(parameters);
-            } else if (query.contains("category")) {
-                return getAllCategories(parameters);
             } else {
-                return getQuestions(parameters);
+                // 直接执行任意SQL
+                return executeSql(parameters);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "执行查询失败: " + e.getMessage(), e);
@@ -327,30 +540,107 @@ public class DatabaseTool implements AITool {
     @SuppressWarnings("unchecked")
     private AIToolResult addQuestions(Map<String, Object> parameters) {
         Object questionsObj = parameters.get("questions");
-        if (questionsObj == null || !(questionsObj instanceof List)) {
-            return new AIToolResult("缺少参数: questions (应为题目列表)", parameters);
+        if (questionsObj == null) {
+            return new AIToolResult("缺少参数: questions (应为题目列表或JSON数组)", parameters);
         }
         
         try {
-            List<Map<String, Object>> questionMaps = (List<Map<String, Object>>) questionsObj;
+            List<Map<String, Object>> questionMaps;
+            
+            if (questionsObj instanceof List) {
+                questionMaps = (List<Map<String, Object>>) questionsObj;
+            } else if (questionsObj instanceof String) {
+                // Agent 通过 API 传来的 questions 是 JSON 字符串
+                String jsonStr = ((String) questionsObj).trim();
+                questionMaps = parseQuestionsJson(jsonStr);
+                if (questionMaps == null) {
+                    return new AIToolResult("questions 参数 JSON 解析失败，请检查格式", parameters);
+                }
+            } else {
+                return new AIToolResult("questions 参数类型不支持: " + questionsObj.getClass().getSimpleName(), parameters);
+            }
+            
+            if (questionMaps.isEmpty()) {
+                return new AIToolResult("questions 列表为空", parameters);
+            }
+            
             List<Question> questions = new ArrayList<>();
             
             for (Map<String, Object> qm : questionMaps) {
                 Question q = new Question();
-                if (qm.containsKey("questionText")) q.setQuestionText((String) qm.get("questionText"));
-                if (qm.containsKey("optionA")) q.setOptionA((String) qm.get("optionA"));
-                if (qm.containsKey("optionB")) q.setOptionB((String) qm.get("optionB"));
-                if (qm.containsKey("optionC")) q.setOptionC((String) qm.get("optionC"));
-                if (qm.containsKey("optionD")) q.setOptionD((String) qm.get("optionD"));
-                if (qm.containsKey("correctAnswer")) q.setCorrectAnswer((String) qm.get("correctAnswer"));
-                if (qm.containsKey("explanation")) q.setExplanation((String) qm.get("explanation"));
-                if (qm.containsKey("category")) q.setCategory((String) qm.get("category"));
-                if (qm.containsKey("questionType")) q.setQuestionType((String) qm.get("questionType"));
-                if (qm.containsKey("difficulty")) {
-                    Object diff = qm.get("difficulty");
-                    if (diff instanceof Number) q.setDifficulty(((Number) diff).intValue());
+                // 支持多种字段名格式
+                q.setQuestionText(getStr(qm, "questionText", "question_text", "question"));
+                q.setOptionA(getStr(qm, "optionA", "option_a", "A"));
+                q.setOptionB(getStr(qm, "optionB", "option_b", "B"));
+                q.setOptionC(getStr(qm, "optionC", "option_c", "C"));
+                q.setOptionD(getStr(qm, "optionD", "option_d", "D"));
+                q.setOptionE(getStr(qm, "optionE", "option_e", "E"));
+                q.setOptionF(getStr(qm, "optionF", "option_f", "F"));
+                q.setOptionG(getStr(qm, "optionG", "option_g", "G"));
+                q.setOptionH(getStr(qm, "optionH", "option_h", "H"));
+                q.setOptionI(getStr(qm, "optionI", "option_i", "I"));
+                q.setOptionJ(getStr(qm, "optionJ", "option_j", "J"));
+                q.setOptionK(getStr(qm, "optionK", "option_k", "K"));
+                q.setOptionL(getStr(qm, "optionL", "option_l", "L"));
+                q.setCorrectAnswer(getStr(qm, "correctAnswer", "correct_answer", "answer"));
+                q.setExplanation(getStr(qm, "explanation", "解析"));
+                q.setCategory(getStr(qm, "category", "分类"));
+                q.setQuestionType(getStr(qm, "questionType", "question_type", "type"));
+                // v21 新增字段
+                q.setAnswerText(getStr(qm, "answerText", "answer_text", "standard_answer"));
+                q.setImageUri(getStr(qm, "imageUri", "image_uri", "image"));
+                q.setAudioUri(getStr(qm, "audioUri", "audio_uri", "audio"));
+                q.setSource(getStr(qm, "source", "来源"));
+                q.setTags(getStr(qm, "tags", "标签"));
+                q.setAnalysis(getStr(qm, "analysis", "详细解析"));
+                q.setKnowledgePoint(getStr(qm, "knowledgePoint", "knowledge_point", "知识点"));
+                q.setSubCategory(getStr(qm, "subCategory", "sub_category", "子分类"));
+                q.setHint(getStr(qm, "hint", "提示"));
+                q.setAuthor(getStr(qm, "author", "作者"));
+                q.setComment(getStr(qm, "comment", "备注"));
+                
+                Object diff = qm.get("difficulty");
+                if (diff instanceof Number) {
+                    q.setDifficulty(((Number) diff).intValue());
+                } else if (diff instanceof String) {
+                    try { q.setDifficulty(Integer.parseInt((String) diff)); } catch (Exception ignored) {}
                 }
-                questions.add(q);
+                
+                Object pts = qm.get("points");
+                if (pts instanceof Number) {
+                    q.setPoints(((Number) pts).intValue());
+                } else if (pts instanceof String) {
+                    try { q.setPoints(Integer.parseInt((String) pts)); } catch (Exception ignored) {}
+                }
+                
+                Object tl = qm.get("timeLimit");
+                if (tl instanceof Number) {
+                    q.setTimeLimit(((Number) tl).intValue());
+                } else if (tl instanceof String) {
+                    try { q.setTimeLimit(Integer.parseInt((String) tl)); } catch (Exception ignored) {}
+                }
+                
+                Object so = qm.get("sortOrder");
+                if (so instanceof Number) {
+                    q.setSortOrder(((Number) so).intValue());
+                } else if (so instanceof String) {
+                    try { q.setSortOrder(Integer.parseInt((String) so)); } catch (Exception ignored) {}
+                }
+                
+                Object pid = qm.get("parentId");
+                if (pid instanceof Number) {
+                    q.setParentId(((Number) pid).longValue());
+                } else if (pid instanceof String) {
+                    try { q.setParentId(Long.parseLong((String) pid)); } catch (Exception ignored) {}
+                }
+                
+                if (q.getQuestionText() != null && !q.getQuestionText().trim().isEmpty()) {
+                    questions.add(q);
+                }
+            }
+            
+            if (questions.isEmpty()) {
+                return new AIToolResult("没有有效题目（题目内容为空）", parameters);
             }
             
             Future<Boolean> future = databaseManager.addQuestions(questions);
@@ -364,6 +654,39 @@ public class DatabaseTool implements AITool {
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
             return new AIToolResult("添加题目失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /** 从 Map 中按多个可能的键名获取字符串值 */
+    private String getStr(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Object val = map.get(key);
+            if (val != null && !val.toString().isEmpty()) return val.toString();
+        }
+        return null;
+    }
+    
+    /** 解析 JSON 数组字符串为 List<Map> */
+    private List<Map<String, Object>> parseQuestionsJson(String jsonStr) {
+        try {
+            JSONArray arr = new JSONArray(jsonStr);
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                Map<String, Object> map = new HashMap<>();
+                JSONArray names = obj.names();
+                if (names != null) {
+                    for (int j = 0; j < names.length(); j++) {
+                        String key = names.getString(j);
+                        map.put(key, obj.get(key));
+                    }
+                }
+                list.add(map);
+            }
+            return list;
+        } catch (Exception e) {
+            AILogger.e(TAG, "JSON解析失败: " + e.getMessage(), e);
+            return null;
         }
     }
     

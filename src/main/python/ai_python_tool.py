@@ -381,7 +381,7 @@ import json
 import sys
 
 task = {repr(task)}
-context = {repr(context_data or {{}})}}
+context = {repr(context_data or {{}})}
 
 print(f"任务: {{task}}")
 print(f"Python 版本: {{sys.version}}")
@@ -406,6 +406,47 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
     def execute_script(self, name: str, args: Dict[str, Any] = None) -> Dict[str, Any]:
         """执行保存的脚本"""
         return self.engine.run_script(name, args)
+    
+    def run_code(self, code: str, timeout: int = 60) -> Dict[str, Any]:
+        """
+        直接执行 Python 代码（不解释为任务描述）
+        
+        Args:
+            code: 要执行的 Python 代码
+            timeout: 超时时间（秒）
+            
+        Returns:
+            执行结果字典
+        """
+        result = {
+            "success": False,
+            "code": code,
+            "result": None,
+            "stdout": "",
+            "stderr": "",
+            "error": None,
+            "attempts": 0,
+            "fixes": []
+        }
+        
+        exec_result = self.engine.execute_with_auto_fix(
+            code,
+            max_attempts=3,
+            timeout=timeout
+        )
+        
+        result.update({
+            "success": exec_result.get("success", False),
+            "result": exec_result.get("result"),
+            "stdout": exec_result.get("stdout", ""),
+            "stderr": exec_result.get("stderr", ""),
+            "error": exec_result.get("error"),
+            "attempts": exec_result.get("attempts", 0),
+            "fixes": exec_result.get("fixes_applied", []),
+            "code": exec_result.get("final_code", code)
+        })
+        
+        return result
 
 
 _ai_tool_instance: Optional[AIPythonTool] = None

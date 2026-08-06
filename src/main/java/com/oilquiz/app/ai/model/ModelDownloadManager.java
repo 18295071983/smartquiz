@@ -265,7 +265,7 @@ public class ModelDownloadManager {
             
             Uri uri = Uri.parse(cleanUrl);
             DownloadManager.Request request = new DownloadManager.Request(uri);
-            request.setTitle("答题宝 - 模型下载");
+            request.setTitle("答题宝 - " + modelId);
             request.setDescription("正在下载 " + fileName);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);

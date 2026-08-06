@@ -82,8 +82,7 @@ import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.chat.ModeSelectorDialog;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
-import com.oilquiz.app.ui.adapter.ChatHistoryAdapter;
-import com.oilquiz.app.ui.adapter.ChatHistoryAdapter.ChatHistoryItem;
+import com.oilquiz.app.ai.chat.history.ChatHistoryAdapter;
 import com.oilquiz.app.ui.adapter.AttachmentAdapter;
 import com.oilquiz.app.util.fileparser.FileContentExtractor;
 import com.oilquiz.app.infra.AppLogger;
@@ -92,6 +91,7 @@ import com.oilquiz.app.resource.PermissionResourceProvider;
 import com.oilquiz.app.ai.chat.status.ServiceStatusManager;
 import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
 import com.oilquiz.app.ai.chat.history.ChatHistoryController;
+import com.oilquiz.app.ai.util.ConversationSession;
 import com.oilquiz.app.ai.chat.weather.WeatherBannerController;
 import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
 import com.oilquiz.app.ai.chat.input.ChatInputManager;
@@ -106,11 +106,16 @@ import com.oilquiz.app.ui.base.BaseActivity;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.activity.result.ActivityResultLauncher;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+
+import android.media.MediaRecorder;
+import android.os.Build;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
@@ -174,6 +179,8 @@ public class AIChatActivity extends BaseActivity {
     private List<ChatMessage> chatHistory;
     private ChatAdapter chatAdapter;
     private ChatHistoryManager chatHistoryManager;
+    /** 当前会话的持久化 ID（用于更新而非重复创建） */
+    private String currentSessionId;
     private AttachmentManager attachmentManager;
     private ChatHistoryAdapter chatHistoryAdapter;
     private AttachmentAdapter attachmentAdapter;
@@ -243,6 +250,11 @@ public class AIChatActivity extends BaseActivity {
     // aiStatusObserver, loadingTimerRunnable 已移至 ServiceStatusManager
     private static final long LOADING_TIMER_INTERVAL_MS = 500;
     private ActivityResultLauncher<String[]> attachFileLauncher;
+    private ActivityResultLauncher<Uri> cameraCaptureLauncher; // 相机拍照
+    private android.net.Uri currentPhotoUri; // 当前拍照的临时URI
+    private MediaRecorder mediaRecorder; // 音频录制器
+    private String recordingFilePath; // 录音文件路径
+    private boolean isRecording = false; // 是否正在录音
     private List<Uri> attachedFiles = new ArrayList<>();
     private List<ChatMessage.Attachment> currentAttachments = new ArrayList<>();
 
@@ -407,6 +419,18 @@ public class AIChatActivity extends BaseActivity {
             setupKeyboardListener();
             updateEmptyState();
 
+            // 程序化处理状态栏内边距（替代布局中的 fitsSystemWindows）
+            View mainContent = findViewById(R.id.main_content);
+            if (mainContent != null) {
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(mainContent, (v, insets) -> {
+                    int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+                    int left = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).left;
+                    int right = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).right;
+                    v.setPadding(left, top, right, 0);
+                    return insets;
+                });
+            }
+
             if (btnLogViewer != null) {
                 btnLogViewer.setOnClickListener(v -> startActivity(new Intent(AIChatActivity.this, LogViewerActivity.class)));
             }
@@ -501,8 +525,29 @@ public class AIChatActivity extends BaseActivity {
                                 scrollToBottom(true);
                             });
                         } else {
-                            // 历史为空，显示新手引导
-                            runOnUiThread(() -> showWelcomeGuide());
+                            // 单文件历史为空，尝试从最新的会话文件中恢复
+                            List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
+                            if (sessions != null && !sessions.isEmpty()) {
+                                // 列表已按更新时间降序排列，取第一个即为最新会话
+                                ConversationSession latest = sessions.get(0);
+                                ConversationSession fullSession = chatHistoryManager.loadConversationSession(latest.id);
+                                if (fullSession != null && fullSession.messages != null && !fullSession.messages.isEmpty()) {
+                                    final String sessionId = fullSession.id;
+                                    runOnUiThread(() -> {
+                                        chatHistory.addAll(fullSession.messages);
+                                        currentSessionId = sessionId;
+                                        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+                                        updateEmptyState();
+                                        scrollToBottom(true);
+                                        showToast("已恢复上次对话");
+                                    });
+                                } else {
+                                    runOnUiThread(() -> showWelcomeGuide());
+                                }
+                            } else {
+                                // 历史为空，显示新手引导
+                                runOnUiThread(() -> showWelcomeGuide());
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -907,16 +952,20 @@ public class AIChatActivity extends BaseActivity {
             @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
             @Override public void onAddAIMessage(String content) { addAIMessage(content); }
             @Override public void onClearChat() { clearChat(); }
+            @Override public void onStartNewConversation() { startNewConversation(); }
+            @Override public void onRegenerate(String messageId) { regenerateMessage(messageId); }
         });
 
         // 3. ChatHistoryController - 历史记录管理
         historyController = new ChatHistoryController(this, new ChatHistoryController.Callback() {
             @Override public void onClearChat() { clearChat(); }
             @Override public void onShowToast(String message) { showToast(message); }
+            @Override public void onSwitchToSession(ConversationSession session) { switchToSession(session); }
+            @Override public void onDeleteSession(ConversationSession session) { deleteSession(session); }
         });
         if (drawerLayout != null && historyList != null) {
             historyController.init(drawerLayout, historyList);
-            historyController.refresh(chatHistory);
+            refreshHistoryDrawer();
         }
 
         // 4. WeatherBannerController - 天气横幅管理
@@ -963,6 +1012,44 @@ public class AIChatActivity extends BaseActivity {
 
         // 7. AttachmentProcessor - 附件处理
         attachmentProcessor = new AttachmentProcessor(this);
+        attachmentProcessor.setCallback(new AttachmentProcessor.Callback() {
+            @Override
+            public void onContentExtracted(String attachmentId, String content) {
+                Log.d(TAG, "Content extracted for attachment: " + attachmentId);
+            }
+
+            @Override
+            public void onExtractionFailed(String attachmentId, String error) {
+                Log.e(TAG, "Extraction failed for attachment: " + attachmentId + ", error: " + error);
+                runOnUiThread(() -> showToast("附件解析失败: " + error));
+            }
+
+            @Override
+            public void onSummaryGenerated(String attachmentId, String summary) {
+                Log.i(TAG, "Summary generated for attachment: " + attachmentId);
+                
+                // 在主线程更新UI
+                runOnUiThread(() -> {
+                    // 查找对应的附件并更新摘要
+                    if (inputManager != null) {
+                        List<ChatMessage.Attachment> attachments = inputManager.getCurrentAttachments();
+                        for (ChatMessage.Attachment attachment : attachments) {
+                            if (attachment.id.equals(attachmentId)) {
+                                attachment.aiSummary = summary;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 刷新适配器显示新摘要
+                    if (chatAdapter != null) {
+                        chatAdapter.notifyDataSetChanged();
+                    }
+                    
+                    showToast("✅ AI摘要生成完成");
+                });
+            }
+        });
 
         // 8. GenerationLifecycleManager - 生成生命周期管理
         lifecycleManager = new GenerationLifecycleManager(this, uiHandler, new GenerationLifecycleManager.Callback() {
@@ -1038,12 +1125,14 @@ public class AIChatActivity extends BaseActivity {
         if (btnClearChat != null) btnClearChat.setOnClickListener(v -> clearChat());
         if (btnStopGeneration != null) btnStopGeneration.setOnClickListener(v -> stopGeneration());
         if (btnSend != null) btnSend.setOnClickListener(v -> sendMessage());
-        if (btnAttach != null) btnAttach.setOnClickListener(v -> handleAttachFile());
+        if (btnAttach != null) {
+            btnAttach.setOnClickListener(v -> showAttachmentOptionsDialog());
+        }
 
         if (btnHistory != null) {
             btnHistory.setOnClickListener(v -> {
                 if (drawerLayout != null && historyController != null) {
-                    historyController.refresh(chatHistory);
+                    refreshHistoryDrawer();
                     drawerLayout.openDrawer(findViewById(R.id.history_drawer));
                 }
             });
@@ -1056,7 +1145,7 @@ public class AIChatActivity extends BaseActivity {
         if (btnClearAllHistory != null) {
             btnClearAllHistory.setOnClickListener(v -> { 
                 clearChat(); 
-                if (historyController != null) historyController.refresh(chatHistory); 
+                refreshHistoryDrawer();
                 if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer)); 
                 showToast("已清空"); 
             });
@@ -3161,6 +3250,9 @@ public class AIChatActivity extends BaseActivity {
                             String fileName = getFileNameFromUri(entry.getKey());
                             allParsedContent.append("=== 文件: ").append(fileName != null ? fileName : "未知文件").append(" ===\n");
                             allParsedContent.append(content).append("\n\n");
+                            
+                            // 更新对应附件的提取内容和状态
+                            updateAttachmentExtractionStatus(entry.getKey(), content);
                         }
                     }
 
@@ -5103,7 +5195,18 @@ public class AIChatActivity extends BaseActivity {
     private void saveHistoryAsync() {
         if (chatHistoryManager != null && chatHistory != null) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
-            new Thread(() -> chatHistoryManager.saveAIChatHistory(copy)).start();
+            final String existingId = currentSessionId;
+            new Thread(() -> {
+                chatHistoryManager.saveAIChatHistory(copy);
+                // 同步保存为会话（确保历史不丢失）
+                if (copy.size() >= 2) {
+                    ConversationSession session = chatHistoryManager.saveCurrentChatAsSession(copy, existingId);
+                    // 保存后更新 currentSessionId，下次更新同一文件而非重复创建
+                    if (session != null && session.id != null) {
+                        currentSessionId = session.id;
+                    }
+                }
+            }).start();
         }
     }
 
@@ -5269,8 +5372,16 @@ public class AIChatActivity extends BaseActivity {
                 chatViewModel.clearChatHistory();
             }
             if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
-            if (chatHistoryManager != null) new Thread(() -> chatHistoryManager.clearAIChatHistory()).start();
+            if (chatHistoryManager != null) {
+                new Thread(() -> {
+                    chatHistoryManager.clearAIChatHistory();
+                    chatHistoryManager.clearAllConversationSessions();
+                    runOnUiThread(this::refreshHistoryDrawer);
+                }).start();
+            }
             if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+            // 清空在线 Agent 引擎的对话历史，确保下次是全新对话
+            if (agentChatHandler != null) agentChatHandler.clearHistory();
             clearStreamingState();
             endGeneration();
             updateEmptyState();
@@ -5278,6 +5389,156 @@ public class AIChatActivity extends BaseActivity {
             TokenStatsManager.getInstance().resetSession();
             updateTokenStatsUI(TokenStatsManager.getInstance().getCurrentSnapshot());
         } catch (Exception e) { AppLogger.aiE(TAG, "Error clearing chat: " + e.getMessage()); }
+    }
+
+    /**
+     * 开始新对话：先自动保存当前会话到历史，再清空上下文。
+     */
+    private void startNewConversation() {
+        try {
+            if (isGenerating) {
+                if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
+                if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+                clearStreamingState();
+                endGeneration();
+            }
+            // 自动保存当前会话到历史
+            if (chatHistoryManager != null && !chatHistory.isEmpty()) {
+                new Thread(() -> {
+                    chatHistoryManager.saveCurrentChatAsSession(chatHistory);
+                    runOnUiThread(this::refreshHistoryDrawer);
+                }).start();
+            }
+            // 清空当前对话上下文和页面消息
+            currentSessionId = null; // 重置会话 ID，下次保存时创建新会话
+            chatHistory.clear();
+            if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+            if (chatHistoryManager != null) new Thread(() -> chatHistoryManager.clearAIChatHistory()).start();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+            if (agentChatHandler != null) agentChatHandler.clearHistory();
+            updateEmptyState();
+            AILogger.i(TAG, "New conversation started: current session saved, context cleared");
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error starting new conversation: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 切换到指定历史会话：先保存当前会话，再加载目标会话。
+     */
+    private void switchToSession(ConversationSession session) {
+        if (session == null || session.id == null) return;
+        try {
+            // 先保存当前会话
+            if (chatHistoryManager != null && !chatHistory.isEmpty()) {
+                chatHistoryManager.saveCurrentChatAsSession(chatHistory);
+            }
+            // 异步加载目标会话
+            new Thread(() -> {
+                ConversationSession loaded = chatHistoryManager.loadConversationSession(session.id);
+                if (loaded != null && loaded.messages != null && !loaded.messages.isEmpty()) {
+                    runOnUiThread(() -> {
+                        // 停止当前生成
+                        if (isGenerating) {
+                            if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
+                            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+                            clearStreamingState();
+                            endGeneration();
+                        }
+                        // 替换当前聊天历史
+                        currentSessionId = loaded.id; // 跟踪当前加载的会话 ID
+                        chatHistory.clear();
+                        chatHistory.addAll(loaded.messages);
+                        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+                        // 保存到单文件历史（兼容现有逻辑）
+                        chatHistoryManager.saveAIChatHistory(new ArrayList<>(chatHistory));
+                        // 清空模型上下文，让新会话从头开始
+                        if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+                        if (agentChatHandler != null) agentChatHandler.clearHistory();
+                        updateEmptyState();
+                        scrollToBottom(true);
+                        showToast("已切换到: " + loaded.title);
+                    });
+                } else {
+                    runOnUiThread(() -> showToast("加载会话失败"));
+                }
+            }).start();
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error switching session: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 删除指定的历史会话。
+     */
+    private void deleteSession(ConversationSession session) {
+        if (session == null || session.id == null) return;
+        new Thread(() -> {
+            chatHistoryManager.deleteConversationSession(session.id);
+            runOnUiThread(() -> {
+                refreshHistoryDrawer();
+                showToast("已删除");
+            });
+        }).start();
+    }
+
+    /**
+     * 刷新历史抽屉：从持久化存储加载会话列表。
+     */
+    private void refreshHistoryDrawer() {
+        if (historyController == null || chatHistoryManager == null) return;
+        new Thread(() -> {
+            List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
+            runOnUiThread(() -> historyController.refresh(sessions));
+        }).start();
+    }
+
+    /**
+     * 重新生成：找到指定 AI 消息前面的最后一条用户消息，删除该 AI 消息（及其后的所有非用户消息），
+     * 然后重新发送该用户消息。
+     */
+    private void regenerateMessage(String aiMessageId) {
+        if (isGenerating) { showToast("AI正在生成中，请稍候"); return; }
+        try {
+            // 1. 找到目标 AI 消息的索引
+            int aiIndex = -1;
+            for (int i = 0; i < chatHistory.size(); i++) {
+                ChatMessage m = chatHistory.get(i);
+                if (m != null && aiMessageId.equals(m.id)) { aiIndex = i; break; }
+            }
+            if (aiIndex < 0) { showToast("未找到对应的消息"); return; }
+
+            // 2. 向前找最后一条用户消息
+            String userContent = null;
+            int userIndex = -1;
+            for (int i = aiIndex - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m != null && m.type == ChatMessage.MessageType.USER && m.content != null) {
+                    userContent = m.content;
+                    userIndex = i;
+                    break;
+                }
+            }
+            if (userContent == null) { showToast("未找到对应的用户消息"); return; }
+
+            // 3. 删除 userIndex 之后的所有消息（保留用户消息本身）
+            int removeStart = userIndex + 1;
+            for (int i = chatHistory.size() - 1; i >= removeStart; i--) {
+                chatHistory.remove(i);
+            }
+            if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+
+            // 4. 清空上下文并重新发送用户消息
+            if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+            if (agentChatHandler != null) agentChatHandler.clearHistory();
+
+            addUserMessage(userContent);
+            processChatMessage(userContent);
+            AILogger.i(TAG, "Regenerating from user message at index " + userIndex);
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error regenerating message: " + e.getMessage());
+            showToast("重新生成失败");
+        }
     }
     
     /**
@@ -5861,7 +6122,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 设置键盘弹出时自动滚动到底部
+     * 设置键盘弹出时自动滚动到底部，并确保输入框可见
      */
     private void setupKeyboardListener() {
         final android.view.View rootView = findViewById(android.R.id.content);
@@ -5873,6 +6134,13 @@ public class AIChatActivity extends BaseActivity {
             if (keypadHeight > screenHeight * 0.15) {
                 // 键盘弹出，滚动到底部
                 scrollToBottom();
+                // 确保输入框区域可见：延迟等待布局稳定后滚动
+                if (inputMessage != null) {
+                    inputMessage.postDelayed(() -> {
+                        inputMessage.requestFocus();
+                        scrollToBottom();
+                    }, 100);
+                }
             }
         });
     }
@@ -5969,9 +6237,284 @@ public class AIChatActivity extends BaseActivity {
         else showToast("附件功能初始化中");
     }
 
+    /** 显示附件选项对话框 */
+    private void showAttachmentOptionsDialog() {
+        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+        builder.setTitle("选择附件类型")
+            .setItems(new String[]{"📷 拍照", "📁 选择文件", "🎤 录制语音"}, (dialog, which) -> {
+                switch (which) {
+                    case 0: // 拍照
+                        handleTakePhoto();
+                        break;
+                    case 1: // 选择文件
+                        handleAttachFile();
+                        break;
+                    case 2: // 录制语音
+                        handleRecordAudio();
+                        break;
+                }
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    /** 打开相机拍照 */
+    private void handleTakePhoto() {
+        try {
+            // 创建临时文件存储照片
+            File photoFile = createImageFile();
+            if (photoFile == null) {
+                showToast("无法创建照片文件");
+                return;
+            }
+            
+            currentPhotoUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                getPackageName() + ".fileprovider",
+                photoFile
+            );
+            
+            if (cameraCaptureLauncher != null) {
+                cameraCaptureLauncher.launch(currentPhotoUri);
+            } else {
+                showToast("相机功能未初始化");
+            }
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error taking photo: " + e.getMessage());
+            showToast("打开相机失败: " + e.getMessage());
+        }
+    }
+
+    /** 处理相机拍摄的照片 */
+    private void handleCameraPhoto(Uri photoUri) {
+        try {
+            // 获取文件大小
+            long fileSize = 0;
+            try {
+                java.io.InputStream inputStream = getContentResolver().openInputStream(photoUri);
+                if (inputStream != null) {
+                    fileSize = inputStream.available();
+                    inputStream.close();
+                }
+            } catch (Exception e) {
+                AppLogger.aiW(TAG, "Failed to get file size: " + e.getMessage());
+            }
+            
+            // 创建附件
+            ChatMessage.Attachment attachment = new ChatMessage.Attachment(
+                "image",
+                photoUri.toString(),
+                "photo_" + System.currentTimeMillis() + ".jpg",
+                fileSize
+            );
+            attachment.localFilePath = photoUri.getPath();
+            
+            currentAttachments.add(attachment);
+            resetAttachmentAdapter();
+            showToast("照片已添加");
+            
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error handling camera photo: " + e.getMessage());
+            showToast("处理照片失败: " + e.getMessage());
+        }
+    }
+
+    /** 处理录音功能 */
+    private void handleRecordAudio() {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            // ✅ 使用统一的权限管理工具
+            com.oilquiz.app.resource.PermissionResourceProvider provider = 
+                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+            
+            provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                @Override
+                public void onGranted() {
+                    // 权限已授予，开始录音
+                    startRecording();
+                }
+                
+                @Override
+                public void onDenied(java.util.List<String> deniedPermissions) {
+                    // 权限被拒绝
+                    showToast("❌ 需要录音权限才能使用语音功能");
+                    
+                    // 如果用户选择了“不再询问”，引导去设置页面
+                    if (!provider.shouldShowRequestPermissionRationale(AIChatActivity.this, 
+                            android.Manifest.permission.RECORD_AUDIO)) {
+                        showPermissionSettingsDialog();
+                    }
+                }
+            });
+        }
+    }
+
+    /** 开始录音 */
+    private void startRecording() {
+        try {
+            // 创建临时音频文件
+            File audioFile = createAudioFile();
+            if (audioFile == null) {
+                showToast("无法创建音频文件");
+                return;
+            }
+            recordingFilePath = audioFile.getAbsolutePath();
+            
+            // 初始化 MediaRecorder
+            mediaRecorder = new MediaRecorder();
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ 使用新的 API
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                mediaRecorder.setAudioSamplingRate(44100);
+                mediaRecorder.setAudioEncodingBitRate(128000);
+            } else {
+                // 旧版本兼容
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.DEFAULT);
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT);
+            }
+            
+            mediaRecorder.setOutputFile(recordingFilePath);
+            mediaRecorder.prepare();
+            mediaRecorder.start();
+            
+            isRecording = true;
+            showToast("🎤 开始录音...");
+            
+            // 更新按钮状态（可选：显示录音中提示）
+            updateRecordingUI(true);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            showToast("录音启动失败: " + e.getMessage());
+            releaseMediaRecorder();
+        }
+    }
+
+    /** 停止录音并添加到附件 */
+    private void stopRecording() {
+        if (!isRecording || mediaRecorder == null) {
+            return;
+        }
+        
+        try {
+            mediaRecorder.stop();
+            isRecording = false;
+            
+            // 创建音频附件
+            File audioFile = new File(recordingFilePath);
+            if (audioFile.exists() && audioFile.length() > 0) {
+                Uri audioUri = Uri.fromFile(audioFile);
+                ChatMessage.Attachment attachment = new ChatMessage.Attachment(
+                    "audio",
+                    audioUri.toString(),
+                    "语音消息"
+                );
+                currentAttachments.add(attachment);
+                
+                // 刷新附件列表显示
+                refreshAttachmentsUI();
+                
+                showToast("✅ 录音已添加");
+            } else {
+                showToast("录音文件为空");
+            }
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            showToast("录音保存失败: " + e.getMessage());
+        } finally {
+            releaseMediaRecorder();
+            updateRecordingUI(false);
+        }
+    }
+
+    /** 释放 MediaRecorder 资源 */
+    private void releaseMediaRecorder() {
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder.release();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            mediaRecorder = null;
+        }
+    }
+
+    /** 显示权限设置对话框，引导用户去系统设置页面 */
+    private void showPermissionSettingsDialog() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("需要录音权限")
+            .setMessage("语音功能需要录音权限，请在设置中授予权限")
+            .setPositiveButton("去设置", (dialog, which) -> {
+                // 打开应用设置页面
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    /** 创建临时音频文件 */
+    private File createAudioFile() throws IOException {
+        String timeStamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+            .format(new java.util.Date());
+        String audioFileName = "AUDIO_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC);
+        if (storageDir == null) {
+            storageDir = getCacheDir();
+        }
+        return File.createTempFile(audioFileName, ".mp4", storageDir);
+    }
+
+    /** 更新录音 UI 状态 */
+    private void updateRecordingUI(boolean recording) {
+        runOnUiThread(() -> {
+            if (recording) {
+                showToast("🔴 录音中...再次点击停止");
+            } else {
+                showToast("⏹️ 录音结束");
+            }
+        });
+    }
+
+    /** 刷新附件列表 UI */
+    private void refreshAttachmentsUI() {
+        // 如果有附件 RecyclerView，刷新它
+        // 这里假设有一个 attachmentRecyclerView
+        // attachmentRecyclerView.getAdapter().notifyDataSetChanged();
+    }
+
+    /** 创建临时图片文件 */
+    private File createImageFile() throws IOException {
+        String timeStamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+            .format(new java.util.Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        
+        File storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
+        if (storageDir == null) {
+            storageDir = getCacheDir();
+        }
+        
+        File image = File.createTempFile(imageFileName, ".jpg", storageDir);
+        return image;
+    }
+
     private void initAttachFileLauncher() {
         attachFileLauncher = registerForActivityResult(new ActivityResultContracts.OpenMultipleDocuments(), uris -> {
             if (uris != null && !uris.isEmpty()) handleAttachedFiles(uris);
+        });
+        
+        // 相机拍照 launcher
+        cameraCaptureLauncher = registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
+            if (success && currentPhotoUri != null) {
+                handleCameraPhoto(currentPhotoUri);
+            }
         });
     }
 
@@ -6270,6 +6813,37 @@ public class AIChatActivity extends BaseActivity {
         return modelBridge != null && modelBridge.isModelInitialized();
     }
 
+    /**
+     * 更新附件提取状态并触发AI摘要生成
+     */
+    private void updateAttachmentExtractionStatus(Uri uri, String extractedContent) {
+        if (inputManager == null || attachmentProcessor == null) return;
+        
+        List<ChatMessage.Attachment> attachments = inputManager.getCurrentAttachments();
+        String uriString = uri.toString();
+        
+        for (ChatMessage.Attachment attachment : attachments) {
+            if (uriString.equals(attachment.url)) {
+                // 更新附件的提取内容和状态
+                attachment.extractedContent = extractedContent;
+                attachment.isExtracted = true;
+                attachment.isExtracting = false;
+                
+                // 通知适配器刷新UI（显示解析完成图标）
+                runOnUiThread(() -> {
+                    if (chatAdapter != null) {
+                        chatAdapter.notifyDataSetChanged();
+                    }
+                });
+                
+                // 异步生成AI摘要
+                Log.i(TAG, "Starting AI summary generation for: " + attachment.name);
+                attachmentProcessor.generateAISummary(attachment);
+                break;
+            }
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -6427,6 +7001,11 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        // 停止时保存当前会话到历史
+        if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
+            final List<ChatMessage> copy = new ArrayList<>(chatHistory);
+            new Thread(() -> chatHistoryManager.saveCurrentChatAsSession(copy)).start();
+        }
         // 停止时取消未完成的操作
         if (isProcessingAttachments.get()) {
             AppLogger.i(TAG, "Activity停止，取消附件处理");
@@ -6513,6 +7092,8 @@ public class AIChatActivity extends BaseActivity {
     public void onRequestPermissionsResult(int requestCode, @androidx.annotation.NonNull String[] permissions,
                                            @androidx.annotation.NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
+        // ✅ 所有权限请求结果统一由 PermissionResourceProvider 处理
         com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this)
             .onRequestPermissionsResult(requestCode, permissions, grantResults);
     }

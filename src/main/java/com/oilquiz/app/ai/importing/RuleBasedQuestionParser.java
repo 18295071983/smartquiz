@@ -633,7 +633,7 @@ public class RuleBasedQuestionParser {
         int difficultyCol = findColumnByCanonical(headers, "difficulty");     // C列 → difficulty
         int scoreCol = findColumnByCanonical(headers, "points");              // D列 → points
         int stemCol = findColumnByCanonical(headers, "questionText");         // E列
-        int optionsCol = findColumn(headers, "可选项", "选项", "options");    // F列 → optionA-D + extraOptions
+        int optionsCol = findColumn(headers, "可选项", "选项", "options");    // F列 → optionA~L（独立列）
         int answerCol = findColumnByCanonical(headers, "correctAnswer");      // G列 → correctAnswer
         int parentRowCol = findColumn(headers, "父题行号", "父题");           // H列 → 关联信息
         int relatedCol = findColumn(headers, "关联题目", "关联");             // I列 → relatedQuestion
@@ -1147,32 +1147,15 @@ public class RuleBasedQuestionParser {
         q.setCorrectAnswer(answer != null ? answer.trim() : "");
         q.setExplanation(explanation != null ? explanation : "");
 
-        // 解析选项(A-D直接设字段, E-H累积到 extraOptions JSON)
+        // 解析选项(A-L全部直接设字段)
         if (options != null && options.size() >= 2) {
-            JSONObject extraOpts = null;  // 累积 E/F/G/H 选项
             for (String opt : options) {
-                Matcher m = Pattern.compile("^([A-H])[\\.\\、]\\s*(.+)").matcher(opt);
+                Matcher m = Pattern.compile("^([A-L])[\\.\\、]\\s*(.+)").matcher(opt);
                 if (m.matches()) {
                     String label = m.group(1);
                     String text = m.group(2);
-                    switch (label) {
-                        case "A": q.setOptionA(text); break;
-                        case "B": q.setOptionB(text); break;
-                        case "C": q.setOptionC(text); break;
-                        case "D": q.setOptionD(text); break;
-                        default:
-                            // E/F/G/H 存入 extraOptions JSON
-                            if (extraOpts == null) extraOpts = new JSONObject();
-                            try {
-                                extraOpts.put(label, text);
-                            } catch (JSONException ignored) {}
-                            break;
-                    }
+                    q.setOptionByLetter(label, text);
                 }
-            }
-            // 设置额外选项(JSON 格式: {"E":"...","F":"..."})
-            if (extraOpts != null && extraOpts.length() > 0) {
-                q.setExtraOptions(extraOpts.toString());
             }
 
             // 如果是选择题但没有选项，改为简答

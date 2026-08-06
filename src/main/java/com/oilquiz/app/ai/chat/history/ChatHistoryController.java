@@ -9,20 +9,29 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ui.adapter.ChatHistoryAdapter;
-import com.oilquiz.app.ui.adapter.ChatHistoryAdapter.ChatHistoryItem;
+import com.oilquiz.app.ai.util.ConversationSession;
 
 import java.util.List;
 
 /**
  * 管理聊天历史 Drawer 的控制器。
  * 从 AIChatActivity 中提取的独立模块。
+ *
+ * 支持：
+ * - 显示所有已保存的会话列表
+ * - 点击会话切换到该对话
+ * - 长按删除会话
+ * - 清空所有历史
  */
 public class ChatHistoryController {
 
     public interface Callback {
         void onClearChat();
         void onShowToast(String message);
+        /** 请求切换到指定会话 */
+        void onSwitchToSession(ConversationSession session);
+        /** 请求删除指定会话 */
+        void onDeleteSession(ConversationSession session);
     }
 
     private final Activity activity;
@@ -60,17 +69,34 @@ public class ChatHistoryController {
         return drawerLayout != null && drawerLayout.isDrawerOpen(findViewById(R.id.history_drawer));
     }
 
-    public void refresh(List<ChatMessage> chatHistory) {
-        if (historyList == null || chatHistory == null) return;
-        chatHistoryAdapter = new ChatHistoryAdapter(activity, chatHistory, new ChatHistoryAdapter.OnHistoryItemClickListener() {
-            @Override public void onItemClick(ChatHistoryItem item, int p) { closeDrawer(); }
-            @Override public void onItemLongClick(ChatHistoryItem item, int p) {}
-            @Override public void onItemDelete(ChatHistoryItem item, int p) { callback.onClearChat(); refresh(chatHistory); callback.onShowToast("已删除"); }
-            @Override public void onItemShare(ChatHistoryItem item, int p) { callback.onShowToast("分享功能开发中"); }
-            @Override public void onItemExport(ChatHistoryItem item, int p) { callback.onShowToast("导出功能开发中"); }
+    /**
+     * 刷新历史列表：从会话列表加载。
+     * @param sessions 已保存的会话列表（按时间降序）
+     */
+    public void refresh(List<ConversationSession> sessions) {
+        if (historyList == null) return;
+        chatHistoryAdapter = new ChatHistoryAdapter(activity, sessions, new ChatHistoryAdapter.OnHistoryItemClickListener() {
+            @Override public void onItemClick(ConversationSession session) {
+                closeDrawer();
+                if (callback != null) callback.onSwitchToSession(session);
+            }
+            @Override public void onItemLongClick(ConversationSession session) {}
+            @Override public void onItemDelete(ConversationSession session) {
+                if (callback != null) callback.onDeleteSession(session);
+                // 从列表中移除（延迟刷新以等待实际删除完成）
+            }
+            @Override public void onItemShare(ConversationSession session) { callback.onShowToast("分享功能开发中"); }
+            @Override public void onItemExport(ConversationSession session) { callback.onShowToast("导出功能开发中"); }
             @Override public void onClearAllHistory() { callback.onClearChat(); }
         });
         historyList.setAdapter(chatHistoryAdapter);
+    }
+
+    /** 通知列表刷新（删除/新增后调用） */
+    public void notifyChanged() {
+        if (chatHistoryAdapter != null) {
+            chatHistoryAdapter.notifyDataSetChanged();
+        }
     }
 
     private View findViewById(int id) {

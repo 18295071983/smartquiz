@@ -129,6 +129,17 @@ public class AgentRouter {
     }
 
     /**
+     * 清空对话历史（用于“新对话”/“清空对话”操作）。
+     * 清除在线引擎的消息历史，使下一次 execute() 开启全新对话。
+     */
+    public void clearHistory() {
+        if (onlineEngine != null) {
+            onlineEngine.clearHistory();
+        }
+        localEngine.clearHistory();
+    }
+
+    /**
      * 是否正在生成
      */
     public boolean isGenerating() {

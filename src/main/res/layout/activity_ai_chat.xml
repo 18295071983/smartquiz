@@ -8,11 +8,11 @@
     tools:context=".ui.activity.AIChatActivity">
 
     <LinearLayout
+        android:id="@+id/main_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:background="@color/background"
-        android:fitsSystemWindows="true">
+        android:background="@color/background">
 
         <!-- 自定义标题栏 -->
         <LinearLayout

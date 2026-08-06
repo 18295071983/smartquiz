@@ -1,6 +1,8 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import android.net.Uri;
+import android.os.Environment;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
@@ -102,29 +104,38 @@ public class FileGeneratorTool implements AITool {
     /**
      * 规范化参数：工具Schema声明的参数名为 file_name，但内部实现读取 file_path。
      * 这里将 file_name 映射到 file_path，保证LLM按Schema传参时工具能正常工作。
-     * 同时将相对路径或不可写的路径解析到应用文件目录下。
+     * 所有文件统一保存到应用外部下载目录（无需额外权限，用户可通过文件管理器访问）。
      */
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
         if (!parameters.containsKey("file_path") && parameters.containsKey("file_name")) {
             Object fileName = parameters.get("file_name");
-            // file_name 可能只是文件名，需要时可作为路径直接使用
             parameters.put("file_path", fileName);
         }
         if (!parameters.containsKey("file_name") && parameters.containsKey("file_path")) {
             parameters.put("file_name", parameters.get("file_path"));
         }
-        // 解析文件路径：相对路径或根路径映射到应用文件目录
+        // 所有文件统一保存到应用外部下载目录（无需 WRITE_EXTERNAL_STORAGE 权限）
         Object fpObj = parameters.get("file_path");
         if (fpObj instanceof String) {
             String fp = (String) fpObj;
-            if (fp == null || fp.trim().isEmpty() || fp.equals("/") || !fp.startsWith("/")) {
-                // 相对路径或根路径 → 拼接到应用文件目录
-                String baseDir = context.getFilesDir().getAbsolutePath();
-                String fileNameOnly = (fp == null || fp.trim().isEmpty() || fp.equals("/"))
-                    ? "generated_file.txt" : fp;
-                parameters.put("file_path", baseDir + "/" + fileNameOnly);
+            // 提取纯文件名（去掉可能的目录前缀）
+            String fileNameOnly = fp;
+            if (fp != null) {
+                int lastSlash = fp.lastIndexOf('/');
+                if (lastSlash >= 0 && lastSlash < fp.length() - 1) {
+                    fileNameOnly = fp.substring(lastSlash + 1);
+                }
             }
+            if (fileNameOnly == null || fileNameOnly.trim().isEmpty()) {
+                fileNameOnly = "generated_file.txt";
+            }
+            // 统一保存到应用外部下载目录
+            File downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (downloadDir == null) {
+                downloadDir = context.getFilesDir();
+            }
+            parameters.put("file_path", new File(downloadDir, fileNameOnly).getAbsolutePath());
         }
     }
 
@@ -157,15 +168,66 @@ public class FileGeneratorTool implements AITool {
                 writer.write(content);
             }
             
+            // 通过 FileProvider 生成 content:// URI，用户可直接点击打开/分享
+            String contentUri = generateContentUri(file);
+            
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
             result.put("message", "文件创建成功");
             result.put("filePath", filePath);
             result.put("size", file.length());
+            if (contentUri != null) {
+                result.put("contentUri", contentUri);
+            }
+            // 为所有文件类型生成可点击链接提示
+            if (contentUri != null) {
+                String fileName = file.getName();
+                String ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+                String desc;
+                switch (ext) {
+                    case ".html": case ".htm":
+                        desc = "查看网页"; break;
+                    case ".txt": case ".log": case ".md": case ".csv":
+                        desc = "查看文件"; break;
+                    case ".json": case ".xml": case ".yaml": case ".yml": case ".properties": case ".ini": case ".conf":
+                        desc = "查看配置文件"; break;
+                    case ".pdf":
+                        desc = "查看PDF文档"; break;
+                    case ".jpg": case ".jpeg": case ".png": case ".gif": case ".bmp": case ".webp":
+                        desc = "查看图片"; break;
+                    case ".mp3": case ".wav": case ".ogg": case ".m4a": case ".flac":
+                        desc = "播放音频"; break;
+                    case ".mp4": case ".avi": case ".mkv": case ".mov": case ".wmv":
+                        desc = "播放视频"; break;
+                    case ".xlsx": case ".xls":
+                        desc = "查看Excel文件"; break;
+                    case ".doc": case ".docx":
+                        desc = "查看Word文档"; break;
+                    case ".zip": case ".rar": case ".7z": case ".tar": case ".gz":
+                        desc = "查看压缩包"; break;
+                    case ".apk":
+                        desc = "安装应用"; break;
+                    default:
+                        desc = "打开文件"; break;
+                }
+                result.put("openHint", "用户可通过以下链接" + desc + ": [" + fileName + "](" + contentUri + ")");
+            }
             
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
             return new AIToolResult("创建文件失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /** 通过 FileProvider 生成文件的 content:// URI */
+    private String generateContentUri(File file) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    context, "com.oilquiz.app.fileprovider", file);
+            return uri.toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to generate content URI: " + e.getMessage());
+            return null;
         }
     }
     

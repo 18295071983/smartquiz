@@ -32,14 +32,14 @@ import android.content.Context;
         ChatHistory.class,
         LogEntry.class
     },
-    version = 20,
+    version = 22,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
     private static AppDatabase INSTANCE;
     
     /** 数据库版本号（需与 @Database 注解的 version 保持一致） */
-    public static final int DATABASE_VERSION = 20;
+    public static final int DATABASE_VERSION = 22;
 
     public abstract UserDao userDao();
     public abstract QuestionDao questionDao();
@@ -323,6 +323,77 @@ public abstract class AppDatabase extends RoomDatabase {
                 database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_updated ON question(updatedAt)");
                 database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_status ON question(status)");
                 database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_points ON question(points)");
+            }
+        },
+        
+        // v20 -> v21: 多题型支持增强
+        new Migration(20, 21) {
+            @Override
+            public void migrate(SupportSQLiteDatabase database) {
+                // 标准答案文本（填空题/简答题）
+                try {
+                    database.execSQL("ALTER TABLE question ADD COLUMN answerText TEXT");
+                } catch (Exception e) {}
+                // 题目配图路径
+                try {
+                    database.execSQL("ALTER TABLE question ADD COLUMN imageUri TEXT");
+                } catch (Exception e) {}
+                // 听力题音频路径
+                try {
+                    database.execSQL("ALTER TABLE question ADD COLUMN audioUri TEXT");
+                } catch (Exception e) {}
+                // 母题ID（子题关联）
+                try {
+                    database.execSQL("ALTER TABLE question ADD COLUMN parentId INTEGER DEFAULT 0");
+                } catch (Exception e) {}
+                // 排序权重
+                try {
+                    database.execSQL("ALTER TABLE question ADD COLUMN sortOrder INTEGER DEFAULT 0");
+                } catch (Exception e) {}
+                // 索引
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_parent ON question(parentId)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_sort ON question(sortOrder)");
+            }
+        },
+        
+        // v21 -> v22: 选项E~L独立列（替代extraOptions JSON）
+        new Migration(21, 22) {
+            @Override
+            public void migrate(SupportSQLiteDatabase database) {
+                // 添加 optionE~L 独立列
+                String[] optionCols = {"optionE", "optionF", "optionG", "optionH",
+                                       "optionI", "optionJ", "optionK", "optionL"};
+                for (String col : optionCols) {
+                    try {
+                        database.execSQL("ALTER TABLE question ADD COLUMN " + col + " TEXT");
+                    } catch (Exception e) {}
+                }
+                // 迁移 extraOptions JSON 数据到新列
+                try {
+                    android.database.Cursor cursor = database.query(
+                        "SELECT id, extraOptions FROM question WHERE extraOptions IS NOT NULL AND extraOptions != ''");
+                    while (cursor.moveToNext()) {
+                        long id = cursor.getLong(0);
+                        String json = cursor.getString(1);
+                        if (json != null && !json.isEmpty()) {
+                            try {
+                                org.json.JSONObject jo = new org.json.JSONObject(json);
+                                java.util.Iterator<String> keys = jo.keys();
+                                while (keys.hasNext()) {
+                                    String key = keys.next();
+                                    String val = jo.optString(key, "");
+                                    if (!val.isEmpty()) {
+                                        database.execSQL(
+                                            "UPDATE question SET " + key + " = ? WHERE id = ?",
+                                            new Object[]{val, id}
+                                        );
+                                    }
+                                }
+                            } catch (Exception ignore) {}
+                        }
+                    }
+                    cursor.close();
+                } catch (Exception ignore) {}
             }
         }
     };

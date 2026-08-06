@@ -753,13 +753,18 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作")
-                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info", false, "open_app")
-                    .addParameter("app_name", "string", "应用名称(如微信、QQ、支付宝等)", false)
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器")
+                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
+                    .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址", false)
-                    .addParameter("phone_number", "string", "电话号码", false)
+                    .addParameter("phone", "string", "电话号码", false)
                     .addParameter("message", "string", "短信内容", false)
-                    .addParameter("params", "string", "附加参数JSON", false)
+                    .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500）", false)
+                    .addParameter("setting_type", "string", "设置类型: system/secure/global", false)
+                    .addParameter("setting_key", "string", "设置键名", false)
+                    .addParameter("setting_value", "string", "设置值", false)
+                    .addParameter("control_action", "string", "应用控制: force_stop/clear_data/detailed_info", false)
+                    .addParameter("setting", "string", "设置页: wifi/bluetooth/location/display/sound/storage/app/battery", false)
                     .category("system")
                     .build();
             case "python_execute":
