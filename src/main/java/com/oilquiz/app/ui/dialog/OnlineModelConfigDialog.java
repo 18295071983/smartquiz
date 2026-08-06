@@ -72,6 +72,9 @@ public class OnlineModelConfigDialog {
     private String selectedModelId;
     private List<ApiModel> fetchedModels = new ArrayList<>();
     
+    /** 正在编辑的已有配置（null 表示新建） */
+    private OnlineModelManager.OnlineModelConfig editingConfig;
+    
     private OnConfigSaveListener saveListener;
     
     public interface OnConfigSaveListener {
@@ -108,6 +111,7 @@ public class OnlineModelConfigDialog {
     }
 
     public void show(OnlineModelManager.OnlineModelConfig existingConfig) {
+        this.editingConfig = existingConfig;
         dialog = new Dialog(context);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(R.layout.dialog_online_model_config);
@@ -336,16 +340,30 @@ public class OnlineModelConfigDialog {
             }
         }
 
-        // 通过 addModel 创建配置，然后直接在同一对象上设置扩展字段
-        OnlineModelManager.OnlineModelConfig config =
-                modelManager.addModel(name, url, selectedModel, key);
+        OnlineModelManager.OnlineModelConfig config;
+        boolean isEditing = editingConfig != null;
+
+        if (isEditing) {
+            // 编辑模式：更新已有配置
+            modelManager.updateModel(editingConfig.id, name, url, selectedModel, key, editingConfig.enabled);
+            config = modelManager.getModel(editingConfig.id);
+            if (config == null) {
+                Toast.makeText(context, "保存失败：配置不存在", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        } else {
+            // 新建模式
+            config = modelManager.addModel(name, url, selectedModel, key);
+        }
+
+        // 更新扩展字段
         config.selectedModel = selectedModel;
         config.autoFetchModels = true;
         if (cachedModelsJson != null) {
             config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();
         }
-        // 通过 updateModelConfig 持久化扩展字段
+        // 持久化扩展字段
         modelManager.updateModelConfig(config);
 
         // 反向同步到 APIKeyManager，确保数据源互通
@@ -369,7 +387,7 @@ public class OnlineModelConfigDialog {
             saveListener.onConfigSaved(config);
         }
 
-        Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(context, isEditing ? "配置已更新" : "配置已保存", Toast.LENGTH_SHORT).show();
         dialog.dismiss();
     }
 

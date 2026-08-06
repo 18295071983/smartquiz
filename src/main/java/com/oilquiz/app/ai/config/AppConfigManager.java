@@ -76,7 +76,7 @@ public class AppConfigManager {
                 .put("maxTokens", 2048)
                 .put("temperature", 0.7f)
                 .put("topP", 0.9f)
-                .put("enableAgent", false)
+                .put("enableAgent", true)
                 .put("enableTools", true));
 
             // 缓存配置

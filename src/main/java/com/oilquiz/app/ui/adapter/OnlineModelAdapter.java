@@ -51,6 +51,8 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         void onAddClick();
         void onFetchModelsClick(String modelName);
         void onModelSelected(String modelName, String selectedModel);
+        /** 编辑已有在线模型配置 */
+        default void onEditClick(String modelName) {}
     }
 
     private static class DisplayItem {
@@ -463,6 +465,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         TextView apiUrlTextView;
         View statusIndicator;
         MaterialButton deleteButton;
+        MaterialButton editButton;
         MaterialButton enableButton;
         MaterialButton fetchModelsButton;
         Spinner modelSpinner;
@@ -477,6 +480,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             apiUrlTextView = itemView.findViewById(R.id.online_model_url);
             statusIndicator = itemView.findViewById(R.id.status_indicator);
             deleteButton = itemView.findViewById(R.id.delete_online_model_button);
+            editButton = itemView.findViewById(R.id.edit_online_model_button);
             enableButton = itemView.findViewById(R.id.enable_button);
             fetchModelsButton = itemView.findViewById(R.id.fetch_models_button);
             modelSpinner = itemView.findViewById(R.id.model_spinner);
@@ -520,6 +524,18 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                     }
                 }
             });
+
+            if (editButton != null) {
+                editButton.setOnClickListener(v -> {
+                    int position = getAdapterPosition();
+                    if (position != RecyclerView.NO_POSITION && listener != null) {
+                        DisplayItem item = displayItems.get(position);
+                        if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
+                            listener.onEditClick(item.modelName);
+                        }
+                    }
+                });
+            }
 
             if (enableButton != null) {
                 enableButton.setOnClickListener(v -> {
@@ -675,7 +691,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                             break;
                         case 1: // 编辑配置
                             if (listener != null) {
-                                listener.onModelClick(item.modelName);
+                                listener.onEditClick(item.modelName);
                             }
                             break;
                         case 2: // 测试连接
