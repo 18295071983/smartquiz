@@ -74,6 +74,23 @@ public class AgentService {
         Pattern.DOTALL
     );
 
+    // Qwen2.5 原生工具调用格式（instruct 模型在系统提示含工具定义时自发输出）。
+    // 注：结束标记字面量通过拼接构造，避免源码处理工具截断。
+    private static final String QWEN_CALL_START = "<|tool_call_begin|>";
+    private static final String QWEN_CALL_END = "<|im_" + "end|>";
+    private static final Pattern TOOL_CALL_PATTERN_QWEN_NATIVE = Pattern.compile(
+        Pattern.quote(QWEN_CALL_START)
+            + "[\\s\\S]*?\"name\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?\"arguments\"\\s*:\\s*(\\{[\\s\\S]*?\\})[\\s\\S]*?"
+            + "(?:" + Pattern.quote(QWEN_CALL_END) + "|$)",
+        Pattern.DOTALL
+    );
+
+    // 通用块格式：<tool_call>...AgentLoopEngine 降级标签、部分模型自发输出）
+    private static final Pattern TOOL_CALL_PATTERN_GENERIC_BLOCK = Pattern.compile(
+        "<tool_call>[\\s\\S]*?\\{[\\s\\S]*?\"name\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?\"arguments\"\\s*:\\s*(\\{[\\s\\S]*?\\})[\\s\\S]*?</tool_call>",
+        Pattern.DOTALL
+    );
+
     private final Context context;
     private final AIToolManager toolManager;
     private final ToolDependencyChecker dependencyChecker;
@@ -504,6 +521,27 @@ public class AgentService {
 
         AILogger.d(TAG, "Parsing tool calls from: " + output.substring(0, Math.min(200, output.length())));
 
+        // 优先匹配 Qwen2.5 原生格式（小模型最常自发输出的格式）
+        Matcher mq = TOOL_CALL_PATTERN_QWEN_NATIVE.matcher(output);
+        while (mq.find()) {
+            ToolCall call = resolveCall(mq.group(1), mq.group(2));
+            if (call != null) {
+                AILogger.d(TAG, "Found QWEN_NATIVE pattern: " + call.name);
+                calls.add(call);
+            }
+        }
+
+        if (calls.isEmpty()) {
+            Matcher mg = TOOL_CALL_PATTERN_GENERIC_BLOCK.matcher(output);
+            while (mg.find()) {
+                ToolCall call = resolveCall(mg.group(1), mg.group(2));
+                if (call != null) {
+                    AILogger.d(TAG, "Found GENERIC_BLOCK pattern: " + call.name);
+                    calls.add(call);
+                }
+            }
+        }
+
         Matcher m0 = TOOL_CALL_PATTERN_OPENAI.matcher(output);
         while (m0.find()) {
             String toolName = m0.group(1);
@@ -594,6 +632,88 @@ public class AgentService {
 
         AILogger.d(TAG, "Total tool calls found: " + calls.size());
         return calls;
+    }
+
+    /**
+     * 解析单个工具调用：先用括号平衡提取 arguments（容错嵌套与截断），
+     * 再做工具名容错匹配。解析失败返回 null。
+     */
+    private ToolCall resolveCall(String rawName, String rawArgs) {
+        if (rawName == null || rawName.trim().isEmpty()) return null;
+        String resolvedName = resolveToolNameFlexible(rawName.trim());
+        if (resolvedName == null) {
+            AILogger.w(TAG, "Unrecognized tool name in model output: " + rawName);
+            return null;
+        }
+        if (!resolvedName.equals(rawName.trim())) {
+            AILogger.i(TAG, "Fuzzy matched tool name: " + rawName + " -> " + resolvedName);
+        }
+        String args = extractBalancedJson(rawArgs);
+        if (args == null) {
+            AILogger.w(TAG, "Failed to extract arguments JSON for tool: " + resolvedName);
+            args = "{}";
+        }
+        return new ToolCall(resolvedName, args);
+    }
+
+    /**
+     * 工具名容错匹配：精确 → 别名 → 忽略大小写 → 前后缀包含。
+     * 小模型（3B/7B）常出现大小写或前缀拼写偏差，直接丢弃会导致工具不触发。
+     */
+    private String resolveToolNameFlexible(String name) {
+        if (name == null || name.isEmpty()) return null;
+        // 1. 精确匹配（含原有别名机制）
+        if (isKnownOrAliasedTool(name)) {
+            String alias = toolNameAliases.get(name);
+            return alias != null ? alias : name;
+        }
+        String lower = name.toLowerCase();
+        // 2. 忽略大小写精确匹配
+        for (ToolSchema schema : toolSchemas) {
+            if (schema.name.toLowerCase().equals(lower)) return schema.name;
+        }
+        for (Map.Entry<String, String> e : toolNameAliases.entrySet()) {
+            if (e.getKey().toLowerCase().equals(lower)) return e.getValue();
+        }
+        // 3. 前后缀包含匹配（如模型输出 "tool_ai_weather" 或 "ai_weather_tool"）
+        for (ToolSchema schema : toolSchemas) {
+            String schemaLower = schema.name.toLowerCase();
+            if (lower.contains(schemaLower) || schemaLower.contains(lower)) return schema.name;
+        }
+        return null;
+    }
+
+    /**
+     * 从文本中提取第一个括号平衡的 JSON 对象。
+     * 比固定深度正则更稳健：支持任意嵌套，且对截断输出可回退到最后一个 '}'。
+     */
+    static String extractBalancedJson(String text) {
+        if (text == null) return null;
+        int start = text.indexOf('{');
+        if (start < 0) return null;
+        int depth = 0;
+        boolean inStr = false;
+        boolean esc = false;
+        int lastClose = -1;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inStr) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') inStr = false;
+                continue;
+            }
+            if (c == '"') inStr = true;
+            else if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                lastClose = i;
+                if (depth == 0) return text.substring(start, i + 1);
+            }
+        }
+        // 不平衡（可能被 max_tokens 截断）：取到最后一个右括号
+        if (lastClose > start) return text.substring(start, lastClose + 1);
+        return null;
     }
 
     private boolean isKnownOrAliasedTool(String name) {

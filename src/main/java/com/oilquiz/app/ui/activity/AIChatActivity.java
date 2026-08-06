@@ -208,6 +208,8 @@ public class AIChatActivity extends BaseActivity {
     /** 思考轮次计数（agent多轮迭代时递增） */
     private volatile int thinkingRoundCount = 0;
     private volatile Boolean lastUseOnlineModel = null;
+    /** 在线模型变更监听器，用于实时更新模型名称显示 */
+    private OnlineModelManager.ModelChangeListener modelChangeListener;
     private volatile boolean isInTag = false;
     private volatile StringBuilder tagBuffer = null;
     // 流式 UI 更新节流：避免高频 token 导致主线程过载卡顿
@@ -435,6 +437,9 @@ public class AIChatActivity extends BaseActivity {
             onlineModelManager = coordinator.getOnlineModelManager();
             chatHistoryManager = coordinator.getChatHistoryManager();
             aiConfig = coordinator.getAIConfig();
+
+            // 注册在线模型变更监听，确保模型切换后名称即时刷新
+            registerModelChangeListener();
 
             // 创建模型执行桥接器 - UI与模型之间的唯一通道
             modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
@@ -1019,6 +1024,13 @@ public class AIChatActivity extends BaseActivity {
         if (btnModelSelect != null) {
             btnModelSelect.setOnClickListener(v -> {
                 // 打开模型选择页面
+                Intent intent = new Intent(AIChatActivity.this, ModelSelectorActivity.class);
+                startActivity(intent);
+            });
+        }
+        // 模型名称文字也可点击，打开模型选择页面
+        if (modelNameText != null) {
+            modelNameText.setOnClickListener(v -> {
                 Intent intent = new Intent(AIChatActivity.this, ModelSelectorActivity.class);
                 startActivity(intent);
             });
@@ -3484,8 +3496,14 @@ public class AIChatActivity extends BaseActivity {
                     processChatMessageWithAgent(message);
                     return;
                 }
-                // 本地agent：继续往下走，由 isAgentMode 分支路由到 AgentExecutionEngine
-                // （本地 Agent 单循环：原生 Function Calling + 工具执行 + 流式输出）
+                // 本地agent：屏蔽，发送友好引导提示，不执行实际Agent调用
+                addSystemMessage("🚫 本地模型的 Agent 能力有限，暂不支持智能工具调用。\n\n"
+                        + "请切换到**在线模型**以使用完整的 Agent 功能：\n"
+                        + "1. 点击顶部模型名称 → 进入模型选择页面\n"
+                        + "2. 选择在线模型（如通义千问、DeepSeek 等）\n"
+                        + "3. 重新发送您的问题即可\n\n"
+                        + "在线模型支持实时搜索、天气查询、文件处理等智能工具调用，体验更佳！");
+                return;
             }
 
             // 非 Agent 模式：检查是否应该使用在线模型（直接流式，无工具调用）
@@ -5155,6 +5173,39 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 注册在线模型变更监听，模型切换时自动刷新名称显示
+     */
+    private void registerModelChangeListener() {
+        if (onlineModelManager == null) return;
+        modelChangeListener = new OnlineModelManager.ModelChangeListener() {
+            @Override
+            public void onModelListChanged() {
+                // 模型列表变化时刷新名称显示
+                runOnUiThread(() -> updateModelNameDisplay());
+            }
+            @Override
+            public void onActiveModelChanged(String activeModelId) {
+                // 激活模型变化时立即刷新名称和模式按钮
+                runOnUiThread(() -> {
+                    updateModelNameDisplay();
+                    updateModeButtonText();
+                });
+            }
+        };
+        onlineModelManager.addListener(modelChangeListener);
+    }
+
+    /**
+     * 注销在线模型变更监听，避免内存泄漏
+     */
+    private void unregisterModelChangeListener() {
+        if (onlineModelManager != null && modelChangeListener != null) {
+            onlineModelManager.removeListener(modelChangeListener);
+            modelChangeListener = null;
+        }
+    }
+
     private void initAgentChatHandler() {
         // 确保 agentService 已初始化
         if (agentService == null) {
@@ -6223,7 +6274,18 @@ public class AIChatActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         updateModelNameDisplay();
+        updateModeButtonText();
         initAgentChatHandler();
+
+        // 检测模型类型是否变化（在线↔本地），及时更新状态
+        boolean nowOnline = shouldUseOnlineModel();
+        if (lastUseOnlineModel != null && lastUseOnlineModel != nowOnline) {
+            // 模型类型已切换，重新初始化 Agent 处理器并提示用户
+            String modelDesc = nowOnline ? "在线模型" : "本地模型";
+            addSystemMessage("🔄 已切换到" + modelDesc, ChatMessage.SystemMessageType.INFO);
+        }
+        lastUseOnlineModel = nowOnline;
+
         // 再次进入页面时滚动到最新消息
         scrollToBottom(true);
     }
@@ -6350,6 +6412,8 @@ public class AIChatActivity extends BaseActivity {
             }
 
             unregisterAIStatusObserver();
+            // 注销在线模型变更监听
+            unregisterModelChangeListener();
             unregisterComponentCallbacks(memoryCallback);
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
             if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }

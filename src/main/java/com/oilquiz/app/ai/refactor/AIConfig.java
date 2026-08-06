@@ -116,10 +116,10 @@ public class AIConfig {
         }
         
         try {
-            agentEnabled = prefs.getBoolean("agent_enabled", false);
+            agentEnabled = prefs.getBoolean("agent_enabled", true);
         } catch (ClassCastException e) {
-            prefs.edit().remove("agent_enabled").putBoolean("agent_enabled", false).apply();
-            agentEnabled = false;
+            prefs.edit().remove("agent_enabled").putBoolean("agent_enabled", true).apply();
+            agentEnabled = true;
         }
         
         try {
