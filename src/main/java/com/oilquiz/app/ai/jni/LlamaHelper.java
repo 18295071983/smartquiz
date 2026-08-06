@@ -544,6 +544,60 @@ public class LlamaHelper {
 
     private static native void nativeGenerateStreamFromMessages(String[] roles, byte[][] contents, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
 
+    /**
+     * 原生 Function Calling 生成
+     * 使用 llama.cpp 底层的 common_chat_templates_apply 传入 tools，
+     * 模型会根据原生格式（Qwen Hermes/Llama3/Mistral 等）自动格式化工具调用。
+     *
+     * @param roles 消息角色数组
+     * @param contents 消息内容字节数组
+     * @param toolsJson OpenAI 格式的 tools JSON 数组
+     * @param maxTokens 最大生成 token 数
+     * @param temperature 温度
+     * @param topP top_p
+     * @param topK top_k
+     * @param enableThinking 是否启用思考
+     * @param callback Token 回调
+     */
+    public static void generateWithTools(String[] roles, byte[][] contents, byte[] toolsJson,
+                                          int maxTokens, float temperature, float topP, int topK,
+                                          boolean enableThinking, TokenCallback callback) {
+        String threadName = Thread.currentThread().getName();
+        AILogger.i(TAG, "[generateWithTools] 入口: thread=" + threadName
+                + ", messages=" + roles.length
+                + ", toolsJsonLen=" + (toolsJson != null ? toolsJson.length : 0));
+
+        if (!libraryLoaded) {
+            if (callback != null) callback.onError("AI model not available");
+            return;
+        }
+
+        // 获取推理锁
+        long lockStart = System.currentTimeMillis();
+        try {
+            if (!inferenceLock.writeLock().tryLock(120, TimeUnit.SECONDS)) {
+                AILogger.e(TAG, "[generateWithTools] 获取推理锁超时");
+                if (callback != null) callback.onError("Inference lock timeout");
+                return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (callback != null) callback.onError("Interrupted");
+            return;
+        }
+
+        try {
+            nativeGenerateWithTools(roles, contents, toolsJson, maxTokens, temperature, topP, topK, enableThinking, callback);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "[generateWithTools] UnsatisfiedLinkError: " + e.getMessage());
+            if (callback != null) callback.onError("Native method not available");
+        } finally {
+            inferenceLock.writeLock().unlock();
+        }
+    }
+
+    private static native void nativeGenerateWithTools(String[] roles, byte[][] contents, byte[] toolsJson, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
+
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
         String threadName = Thread.currentThread().getName();
@@ -1225,6 +1279,38 @@ public class LlamaHelper {
         }
     }
 
+    public static boolean chatAddAssistantToolCall(String toolCallContent) {
+        if (!libraryLoaded || chatContextHandle == 0) return false;
+        if (toolCallContent == null || toolCallContent.isEmpty()) {
+            AILogger.w(TAG, "chatAddAssistantToolCall: content is empty");
+            return false;
+        }
+        try {
+            nativeChatAddAssistantToolCall(chatContextHandle, toolCallContent);
+            AILogger.i(TAG, "chatAddAssistantToolCall: added, len=" + toolCallContent.length());
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "chatAddAssistantToolCall failed: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    public static boolean chatAddToolResult(String toolResultContent) {
+        if (!libraryLoaded || chatContextHandle == 0) return false;
+        if (toolResultContent == null || toolResultContent.isEmpty()) {
+            AILogger.w(TAG, "chatAddToolResult: content is empty");
+            return false;
+        }
+        try {
+            nativeChatAddToolResult(chatContextHandle, toolResultContent);
+            AILogger.i(TAG, "chatAddToolResult: added, len=" + toolResultContent.length());
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "chatAddToolResult failed: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
     public static void chatSend(String message, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback) {
         if (!libraryLoaded) {
             handleValidationError(callback, "Native库未加载，无法发送消息");
@@ -1433,6 +1519,8 @@ public class LlamaHelper {
     private static native void nativeChatDestroy(long handle);
     private static native String nativeChatGetInfo(long handle);
     private static native boolean nativeChatUpdatePrompts(long handle, String globalPrompt, String systemPrompt, String normalPrompt);
+    private static native void nativeChatAddAssistantToolCall(long handle, String toolCallContent);
+    private static native void nativeChatAddToolResult(long handle, String toolResultContent);
     private static native int nativeHandleMemoryPressure(int level);
     private static native int nativeGetContextSize(long handle);
     private static native int nativeGetContextUsedTokens(long handle);
