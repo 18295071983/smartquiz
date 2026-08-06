@@ -112,8 +112,9 @@ public class AgentRouter {
             AILogger.i(TAG, "Routing to OnlineAgentEngine (native function calling)");
             executeOnline(message, maxTokens);
         } else {
-            AILogger.i(TAG, "Routing to UnifiedAgentEngine (local)");
-            localEngine.execute(message, maxTokens, enableThinking);
+            // 本地小模型 Agent 效果不佳，屏蔽并引导用户使用在线 Agent
+            AILogger.i(TAG, "Local agent blocked, guiding user to online agent");
+            notifyLocalAgentDisabled();
         }
     }
 
@@ -226,6 +227,22 @@ public class AgentRouter {
             AILogger.w(TAG, "Failed to resolve engine type: " + e.getMessage());
         }
         return EngineType.LOCAL;
+    }
+
+    /**
+     * 本地 Agent 已禁用，发送友好引导提示
+     */
+    private void notifyLocalAgentDisabled() {
+        String guide = "当前本地模型的 Agent 能力有限，暂不支持智能工具调用。\n\n"
+                + "请切换到**在线模型**以使用完整的 Agent 功能：\n"
+                + "1. 点击左上角菜单 → **模型设置**\n"
+                + "2. 选择在线模型（如通义千问、DeepSeek 等）\n"
+                + "3. 重新发送您的问题即可\n\n"
+                + "在线模型支持实时搜索、天气查询、文件处理等智能工具调用，体验更佳！";
+        if (callback != null) {
+            callback.onStepUpdate("提示", "本地Agent暂不可用");
+            callback.onComplete(guide);
+        }
     }
 
     /**

@@ -4,18 +4,25 @@ import android.app.Activity;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.python.PythonToolManager;
 import com.oilquiz.app.ai.refactor.UnifiedContextManager;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIToolUsageGuide;
+import com.oilquiz.app.ai.tool.openai.ParamDefinition;
+import com.oilquiz.app.ai.tool.openai.ToolDefinition;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.util.AILogger;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,8 +31,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -68,14 +77,15 @@ public class UnifiedAgentEngine {
 
     private static final String TAG = "UnifiedAgentEngine";
 
-    // 使用 ChatModeManager 的统一基础提示词
+    // Agent 专用提示词：针对 Qwen2.5-3B/7B 等小模型极简化
+    // 小模型无法处理复杂多规则指令，只给最核心的角色+格式
     private static String getDefaultGlobalPrompt() {
-        return "你是一个AI助手，请用中文回答。";
+        return "你是答题宝智能助手，请用中文回答。";
     }
 
     private static String getDefaultSystemPrompt() {
-        // 使用统一基础提示词
-        return ChatModeManager.getBaseSystemPrompt();
+        // 极简：只给角色定义。3B模型会复述提示词，所以不加任何工具格式说明。
+        return "你是答题宝智能助手，请用中文简洁回答用户问题。";
     }
 
     private static String getDefaultNormalPrompt() {
@@ -537,11 +547,10 @@ public class UnifiedAgentEngine {
                 }
                 // =====================================
 
-                // 离线Agent模式：直接走ReAct循环，模型通过TOOLS_CALL格式自主选择工具
-                // 已移除意图识别（SmartIntentRecognizer），改用快捷输入引导用户选择工具
-                notifyStep("Agent启动", "ReAct推理模式");
-                AILogger.i(TAG, "Execute via ReAct loop (intent recognition removed): " + message);
-                executeReActLoop(message, maxTokens, enableThinking);
+                // 离线Agent模式：使用原生 generateWithTools 接口（llama.cpp chat template + tool calling）
+                notifyStep("Agent启动", "原生工具调用模式");
+                AILogger.i(TAG, "Execute via native agent loop: " + message);
+                executeNativeAgentLoop(message, maxTokens);
             } catch (Throwable t) {
                 AILogger.e(TAG, "Error in execute: " + t.getMessage(), t);
                 finishGeneration();
@@ -755,27 +764,360 @@ public class UnifiedAgentEngine {
         StringBuilder sb = new StringBuilder();
 
         if (isFirstRound) {
-            // 首轮：格式说明 + 精简工具列表（只有名+描述，不含参数详情）
-            sb.append("[ReAct模式] 每次只调一个工具，等结果后决定下一步。不需工具时直接回答。\n\n");
-            sb.append("工具调用格式（TOOLS_CALL和TOOLS_END独占一行，中间是有效JSON）：\n");
-            sb.append("TOOLS_CALL\n");
-            sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-            sb.append("TOOLS_END\n");
-            sb.append("示例：TOOLS_CALL\n{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\"}}\nTOOLS_END\n\n");
-            sb.append("如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]，系统将返回该工具的完整说明。\n");
-            sb.append("如需查看完整工具调用指南（含示例和规则），输出 [TOOL_GUIDE]。\n");
-            sb.append("工具可以组合使用，如查天气可先用 location 定位再用 ai_weather 查询。\n\n");
-            sb.append("=== 可用工具 ===\n");
-            sb.append(buildToolListBrief());
-            sb.append("\n=== 用户问题 ===\n");
+            // 极简：只给用户问题。3B模型会复述提示词内容，所以不加任何工具说明。
+            // 解析器已支持多种工具格式（Qwen原生/TOOLS_CALL/通用块），模型自发输出即可识别。
             sb.append(userMessage);
+            sb.append("\n回答：");
+            return sb.toString();
         } else {
-            // 后续轮：工具结果/指令 + 工具名速查（极小），不重复完整列表和格式说明
+            // 后续轮：只给工具结果，不加格式说明
             sb.append(userMessage);
-            sb.append("\n\n[工具速查] ").append(buildToolNamesOnly());
-            sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
         }
         return sb.toString();
+    }
+
+    // ==================== 原生 Function Calling Agent 循环 ====================
+
+    private static final int NATIVE_MAX_ITERATIONS = 10;
+    private static final int NATIVE_SYNC_TIMEOUT_MS = 120000;
+    private static final int NATIVE_MAX_TOOL_RESULT_LEN = 2000;
+
+    /**
+     * 本地小模型的核心工具白名单：只暴露常用、参数简单的工具。
+     * 复杂工具（database 20+参数、app_toolkit 聚合工具、元工具等）对小模型负担太大，不传入。
+     */
+    private static final Set<String> NATIVE_CORE_TOOLS = new HashSet<>(java.util.Arrays.asList(
+            "ai_weather", "network_search", "python_calculate", "translation",
+            "location", "smart_research", "file_reader", "webpage_reader",
+            "file", "system_resource", "app_operation"
+    ));
+
+    /**
+     * 原生 FC Agent 循环：使用 llama.cpp chat template + generateWithTools，
+     * 模型按原生格式（Qwen2.5 / Hermes / Llama3 等）输出 tool_call，无需文本格式提示词。
+     */
+    private void executeNativeAgentLoop(String userMessage, int maxTokens) {
+        AIToolManager toolManager = AIToolManager.getInstance(activity);
+        String toolsJson = buildNativeToolsJson(toolManager);
+        byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
+        AILogger.i(TAG, "Native FC: tools=" + toolManager.getToolsMap().size() + ", schemaLen=" + toolsJson.length());
+
+        // 构建对话历史
+        List<NativeChatMsg> history = new ArrayList<>();
+        history.add(new NativeChatMsg("system", getDefaultSystemPrompt()));
+        history.add(new NativeChatMsg("user", userMessage));
+
+        for (int iteration = 1; iteration <= NATIVE_MAX_ITERATIONS; iteration++) {
+            if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
+
+            notifyStep("原生推理", "第 " + iteration + " 轮");
+            AILogger.i(TAG, "Native FC iteration " + iteration);
+
+            // 同步调用 generateWithTools
+            String response = nativeGenerateSync(history, toolsJsonBytes, 500, 0.7f);
+
+            if (response == null || response.trim().isEmpty()) {
+                AILogger.w(TAG, "Native FC: empty response at iteration " + iteration);
+                break;
+            }
+
+            AILogger.i(TAG, "Native FC response len=" + response.length() + ": " + response.substring(0, Math.min(200, response.length())));
+
+            // 解析工具调用
+            List<NativeToolCall> toolCalls = parseNativeToolCalls(response);
+
+            if (toolCalls.isEmpty()) {
+                // 无工具调用 = 最终答案
+                String cleanAnswer = cleanNativeResponse(response);
+                if (cleanAnswer.isEmpty()) cleanAnswer = response;
+                contextSummary.add("助手: " + truncateForContext(cleanAnswer));
+                streamNativeAnswer(cleanAnswer);
+                notifyComplete(cleanAnswer);
+                finishGeneration();
+                cleanupAfterCompletion();
+                return;
+            }
+
+            // 将模型回复追加到历史
+            history.add(new NativeChatMsg("assistant", response));
+
+            // 执行所有工具
+            boolean anySuccess = false;
+            for (NativeToolCall tc : toolCalls) {
+                toolLoopCount.incrementAndGet();
+                iterationCount.incrementAndGet();
+                AILogger.i(TAG, "Native FC tool call: " + tc.name + " args=" + tc.argsStr);
+                notifyToolCallStart(tc.name, tc.argsStr);
+                notifyStep("工具调用", tc.name);
+
+                // 构建参数 Map
+                Map<String, Object> params = jsonToMap(tc.argsJson);
+                if (params == null) params = new HashMap<>();
+
+                // 执行工具
+                AgentService.ToolCall agentCall = new AgentService.ToolCall(tc.name, tc.argsStr);
+                agentCall.resolvedArgs = params;
+                AgentService.ToolResult result = executeToolWithTimeout(agentCall);
+
+                String resultStr;
+                if (result == null) {
+                    resultStr = "工具执行失败: 返回空";
+                    AILogger.w(TAG, "Native FC tool " + tc.name + " returned null");
+                } else {
+                    resultStr = result.result != null ? result.result : "工具执行失败: " + result.errorMessage;
+                    if (resultStr.length() > NATIVE_MAX_TOOL_RESULT_LEN) {
+                        resultStr = resultStr.substring(0, NATIVE_MAX_TOOL_RESULT_LEN) + "…(截断)";
+                    }
+                }
+
+                AILogger.i(TAG, "Native FC tool " + tc.name + " result: " + resultStr.substring(0, Math.min(200, resultStr.length())));
+                contextSummary.add("工具结果[" + tc.name + "]: " + truncateForContext(resultStr, 500));
+
+                // 通知 UI
+                final String toolName = tc.name;
+                final String toolResultStr = resultStr;
+                final boolean toolSuccess = result != null && result.success;
+                activity.runOnUiThread(() -> {
+                    if (callback != null && isValid()) {
+                        callback.onToolCallComplete(toolName,
+                            OnlineToolResult.failure(null, toolName, toolSuccess ? "成功" : toolResultStr, 0));
+                    }
+                });
+
+                // 工具结果以 tool role 追加到历史
+                history.add(new NativeChatMsg("tool", resultStr));
+                if (result != null && result.success) anySuccess = true;
+            }
+        }
+
+        // 达到最大迭代：强制总结
+        AILogger.w(TAG, "Native FC: reached max iterations, forcing final");
+        String fallback = buildNativeFallback(userMessage, history);
+        streamNativeAnswer(fallback);
+        notifyComplete(fallback);
+        finishGeneration();
+        cleanupAfterCompletion();
+    }
+
+    /**
+     * 同步包装 generateWithTools：使用 CountDownLatch 等待异步回调
+     */
+    private String nativeGenerateSync(List<NativeChatMsg> history, byte[] toolsJsonBytes,
+                                      int maxTokens, float temperature) {
+        CountDownLatch latch = new CountDownLatch(1);
+        StringBuilder result = new StringBuilder();
+        final String[] errorHolder = {null};
+
+        int size = history.size();
+        String[] roles = new String[size];
+        byte[][] contents = new byte[size][];
+        for (int i = 0; i < size; i++) {
+            roles[i] = history.get(i).role;
+            contents[i] = history.get(i).content.getBytes(StandardCharsets.UTF_8);
+        }
+
+        try {
+            LlamaHelper.generateWithTools(roles, contents, toolsJsonBytes, maxTokens, temperature,
+                    0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                        @Override
+                        public void onToken(String token) {
+                            if (token != null && !token.isEmpty()) {
+                                result.append(token);
+                            }
+                        }
+                        @Override
+                        public void onComplete(String fullText) {
+                            if (fullText != null && !fullText.isEmpty()) {
+                                synchronized (result) {
+                                    result.setLength(0);
+                                    result.append(fullText);
+                                }
+                            }
+                            latch.countDown();
+                        }
+                        @Override
+                        public void onError(String error) {
+                            errorHolder[0] = error;
+                            latch.countDown();
+                        }
+                    });
+
+            boolean done = latch.await(NATIVE_SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!done) {
+                AILogger.e(TAG, "nativeGenerateSync timeout");
+                return null;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "nativeGenerateSync error: " + e.getMessage());
+            return null;
+        }
+
+        if (errorHolder[0] != null) {
+            AILogger.e(TAG, "nativeGenerateSync callback error: " + errorHolder[0]);
+            return null;
+        }
+        return result.toString();
+    }
+
+    /**
+     * 解析原生 FC 输出中的工具调用。
+     * llama.cpp chat template 处理后，模型输出通常包含 JSON 块：
+     * {"name": "tool_name", "arguments": {...}}
+     * 或 OpenAI 格式：{"function": {"name": "...", "arguments": "..."}}
+     */
+    private List<NativeToolCall> parseNativeToolCalls(String response) {
+        List<NativeToolCall> calls = new ArrayList<>();
+        if (response == null) return calls;
+
+        // 使用括号计数法提取所有 JSON 块
+        List<String> jsonBlocks = findNativeJsonBlocks(response);
+        for (String block : jsonBlocks) {
+            try {
+                JSONObject json = new JSONObject(block);
+                // 提取工具名：支持多种格式
+                String name = json.optString("name", "");
+                if (name.isEmpty()) {
+                    JSONObject fn = json.optJSONObject("function");
+                    if (fn != null) name = fn.optString("name", "");
+                }
+                if (name.isEmpty()) continue;
+
+                // 提取参数
+                JSONObject args = json.optJSONObject("arguments");
+                if (args == null) args = json.optJSONObject("args");
+                String argsStr = "{}";
+                JSONObject argsJson = args != null ? args : new JSONObject();
+                if (args == null) {
+                    JSONObject fn = json.optJSONObject("function");
+                    if (fn != null) {
+                        String fnArgs = fn.optString("arguments", "{}");
+                        try { argsJson = new JSONObject(fnArgs); } catch (Exception ignored) {}
+                    }
+                }
+                argsStr = argsJson.toString();
+
+                calls.add(new NativeToolCall(name, argsStr, argsJson));
+                AILogger.i(TAG, "Parsed native tool call: " + name);
+            } catch (Exception e) {
+                AILogger.w(TAG, "Parse native tool call failed: " + block.substring(0, Math.min(100, block.length())));
+            }
+        }
+        return calls;
+    }
+
+    /**
+     * 括号计数法提取文本中所有 JSON 对象块
+     */
+    private List<String> findNativeJsonBlocks(String text) {
+        List<String> blocks = new ArrayList<>();
+        if (text == null) return blocks;
+        int depth = 0;
+        boolean inStr = false, started = false;
+        StringBuilder cur = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '"' && (i == 0 || text.charAt(i - 1) != '\\')) {
+                inStr = !inStr;
+                if (started) cur.append(c);
+            } else if (!inStr) {
+                if (c == '{') {
+                    if (!started) { started = true; depth = 0; cur.setLength(0); }
+                    depth++;
+                    cur.append(c);
+                } else if (c == '}') {
+                    depth--;
+                    cur.append(c);
+                    if (depth == 0 && started) {
+                        blocks.add(cur.toString());
+                        cur.setLength(0);
+                        started = false;
+                    }
+                } else if (started) {
+                    cur.append(c);
+                }
+            } else if (started) {
+                cur.append(c);
+            }
+        }
+        return blocks;
+    }
+
+    /**
+     * 构建工具 JSON（OpenAI function calling 格式），供 generateWithTools 使用
+     */
+    private String buildNativeToolsJson(AIToolManager toolManager) {
+        JSONArray tools = new JSONArray();
+        int skipped = 0;
+        for (Map.Entry<String, ?> entry : toolManager.getToolsMap().entrySet()) {
+            String toolName = entry.getKey();
+            // 小模型过滤：只暴露核心工具，跳过复杂/元工具
+            if (!NATIVE_CORE_TOOLS.contains(toolName)) {
+                skipped++;
+                continue;
+            }
+            ToolDefinition def = toolManager.getToolDefinition(toolName);
+            if (def == null) continue;
+            try {
+                JSONObject tool = new JSONObject();
+                tool.put("type", "function");
+                JSONObject function = new JSONObject();
+                function.put("name", def.getName());
+                function.put("description", def.getDescription());
+                JSONObject params = new JSONObject();
+                params.put("type", "object");
+                JSONObject props = new JSONObject();
+                JSONArray required = new JSONArray();
+                if (def.getParameters() != null) {
+                    for (ParamDefinition p : def.getParameters()) {
+                        JSONObject prop = new JSONObject();
+                        prop.put("type", p.getType());
+                        prop.put("description", p.getDescription());
+                        if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
+                        props.put(p.getName(), prop);
+                        if (p.isRequired()) required.put(p.getName());
+                    }
+                }
+                params.put("properties", props);
+                if (required.length() > 0) params.put("required", required);
+                function.put("parameters", params);
+                tool.put("function", function);
+                tools.put(tool);
+            } catch (Exception e) {
+                AILogger.w(TAG, "Build native tool JSON failed: " + toolName);
+            }
+        }
+        AILogger.i(TAG, "Native tools: included=" + tools.length() + ", skipped=" + skipped);
+        return tools.toString();
+    }
+
+    /**
+     * 将最终答案分块推送给 UI（模拟流式效果）
+     */
+    private void streamNativeAnswer(String answer) {
+        if (answer == null || answer.isEmpty()) return;
+        int chunkSize = 4;
+        for (int i = 0; i < answer.length(); i += chunkSize) {
+            if (isCancelled.get()) break;
+            int end = Math.min(i + chunkSize, answer.length());
+            String chunk = answer.substring(i, end);
+            if (callback != null) {
+                final String c = chunk;
+                activity.runOnUiThread(() -> callback.onToken(c));
+            }
+        }
+    }
+
+    /**
+     * 清理模型输出中的思考标签等无关内容
+     */
+    private String cleanNativeResponse(String response) {
+        if (response == null) return "";
+        String cleaned = response
+                .replaceAll("(?s)<thought>.*?</thought>", "")
+                .trim();
+        // 去掉模型可能重复输出的对话角色前缀
+        cleaned = cleaned.replaceAll("(?i)^(user|assistant|system|用户|助手)\\s*[:：]\\s*", "");
+        return cleaned.trim();
     }
 
     private void handleReActToolCall(String responseText, int maxTokens) {
@@ -2359,6 +2701,103 @@ public class UnifiedAgentEngine {
         String reason = "";
         String suggestion = "";
         String summarizedResult = "";
+    }
+
+    // ========== 原生 FC 内部类 ==========
+
+    private static class NativeChatMsg {
+        final String role;
+        final String content;
+        NativeChatMsg(String role, String content) {
+            this.role = role;
+            this.content = content;
+        }
+    }
+
+    private static class NativeToolCall {
+        final String name;
+        final String argsStr;
+        final JSONObject argsJson;
+        NativeToolCall(String name, String argsStr, JSONObject argsJson) {
+            this.name = name;
+            this.argsStr = argsStr;
+            this.argsJson = argsJson;
+        }
+    }
+
+    /**
+     * 原生 FC 达到最大迭代时的回退回答
+     */
+    private String buildNativeFallback(String userMessage, List<NativeChatMsg> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("关于「").append(truncateForContext(userMessage, 100)).append("」\n");
+        boolean hasToolResult = false;
+        for (NativeChatMsg m : history) {
+            if ("tool".equals(m.role)) {
+                hasToolResult = true;
+                break;
+            }
+        }
+        if (hasToolResult) {
+            sb.append("根据已获取的信息，以下是处理结果。\n");
+            // 追加工具结果摘要
+            for (NativeChatMsg m : history) {
+                if ("tool".equals(m.role)) {
+                    sb.append(truncateForContext(m.content, 300)).append("\n");
+                }
+            }
+        } else {
+            sb.append("我暂时无法提供详细回答。");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * JSONObject 转 Map<String, Object>
+     */
+    private Map<String, Object> jsonToMap(JSONObject json) {
+        if (json == null) return null;
+        Map<String, Object> map = new HashMap<>();
+        try {
+            JSONArray keys = json.names();
+            if (keys != null) {
+                for (int i = 0; i < keys.length(); i++) {
+                    String k = keys.getString(i);
+                    Object v = json.get(k);
+                    if (v instanceof JSONObject) map.put(k, jsonObjToMap((JSONObject) v));
+                    else if (v instanceof JSONArray) {
+                        List<Object> list = new ArrayList<>();
+                        JSONArray arr = (JSONArray) v;
+                        for (int j = 0; j < arr.length(); j++) {
+                            Object item = arr.get(j);
+                            if (item instanceof JSONObject) map.put(k, jsonObjToMap((JSONObject) item));
+                            else list.add(item);
+                        }
+                        map.put(k, list);
+                    } else map.put(k, v);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "jsonToMap failed: " + e.getMessage());
+            return null;
+        }
+        return map;
+    }
+
+    private Map<String, Object> jsonObjToMap(JSONObject obj) {
+        Map<String, Object> map = new HashMap<>();
+        try {
+            JSONArray keys = obj.names();
+            if (keys != null) {
+                for (int i = 0; i < keys.length(); i++) {
+                    String k = keys.getString(i);
+                    Object v = obj.get(k);
+                    if (v instanceof JSONObject) map.put(k, jsonObjToMap((JSONObject) v));
+                    else map.put(k, v);
+                }
+            }
+        } catch (Exception ignored) {}
+        return map;
     }
 
     /**
