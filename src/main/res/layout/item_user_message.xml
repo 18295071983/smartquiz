@@ -29,6 +29,15 @@
             android:layout_marginLeft="48dp"
             android:gravity="end">
 
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/attachments_recycler"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="3dp"
+                android:layout_gravity="end"
+                android:visibility="gone"
+                android:clipToPadding="false" />
+
             <TextView
                 android:id="@+id/message_text"
                 android:layout_width="wrap_content"

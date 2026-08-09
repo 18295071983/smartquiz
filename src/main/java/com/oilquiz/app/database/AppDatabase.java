@@ -32,14 +32,14 @@ import android.content.Context;
         ChatHistory.class,
         LogEntry.class
     },
-    version = 22,
+    version = 24,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
     private static AppDatabase INSTANCE;
     
     /** 数据库版本号（需与 @Database 注解的 version 保持一致） */
-    public static final int DATABASE_VERSION = 22;
+    public static final int DATABASE_VERSION = 24;
 
     public abstract UserDao userDao();
     public abstract QuestionDao questionDao();
@@ -394,6 +394,106 @@ public abstract class AppDatabase extends RoomDatabase {
                     }
                     cursor.close();
                 } catch (Exception ignore) {}
+            }
+        },
+        
+        // v22 -> v23: 添加 questionType 索引优化查询性能
+        new Migration(22, 23) {
+            @Override
+            public void migrate(SupportSQLiteDatabase database) {
+                // 索引名必须与 Room @Index 自动生成的名称一致: index_{table}_{column}
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_questionType ON question(questionType)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_questionType_status ON question(questionType, status)");
+            }
+        },
+
+        // v23 -> v24: P0 修复
+        // 1) question 表 14 个 NOT NULL 字段补 DEFAULT（重建表方式，SQLite 不支持 ALTER 修改默认值）
+        //    使外部 INSERT 只填业务字段即可成功，不再报 NOT NULL constraint failed
+        // 2) score_history / wrong_question / favorite_question 补 userId 索引
+        new Migration(23, 24) {
+            @Override
+            public void migrate(SupportSQLiteDatabase database) {
+                // ---- 重建 question 表：新表结构必须与 Room 根据 Entity 生成的完全一致 ----
+                database.execSQL("CREATE TABLE IF NOT EXISTS question_new (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "questionText TEXT, " +
+                    "optionA TEXT, " +
+                    "optionB TEXT, " +
+                    "optionC TEXT, " +
+                    "optionD TEXT, " +
+                    "correctAnswer TEXT, " +
+                    "category TEXT, " +
+                    "difficulty INTEGER NOT NULL DEFAULT 1, " +
+                    "explanation TEXT, " +
+                    "relatedQuestion TEXT, " +
+                    "questionType TEXT, " +
+                    "favorite INTEGER NOT NULL DEFAULT 0, " +
+                    "createdAt INTEGER NOT NULL DEFAULT 0, " +
+                    "updatedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "source TEXT, " +
+                    "tags TEXT, " +
+                    "points INTEGER NOT NULL DEFAULT 0, " +
+                    "timeLimit INTEGER NOT NULL DEFAULT 0, " +
+                    "hint TEXT, " +
+                    "analysis TEXT, " +
+                    "knowledgePoint TEXT, " +
+                    "subCategory TEXT, " +
+                    "usageCount INTEGER NOT NULL DEFAULT 0, " +
+                    "correctCount INTEGER NOT NULL DEFAULT 0, " +
+                    "incorrectCount INTEGER NOT NULL DEFAULT 0, " +
+                    "lastUsedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "status INTEGER NOT NULL DEFAULT 0, " +
+                    "isPublic INTEGER NOT NULL DEFAULT 1, " +
+                    "author TEXT, " +
+                    "comment TEXT, " +
+                    "optionE TEXT, " +
+                    "optionF TEXT, " +
+                    "optionG TEXT, " +
+                    "optionH TEXT, " +
+                    "optionI TEXT, " +
+                    "optionJ TEXT, " +
+                    "optionK TEXT, " +
+                    "optionL TEXT, " +
+                    "answerText TEXT, " +
+                    "imageUri TEXT, " +
+                    "audioUri TEXT, " +
+                    "parentId INTEGER NOT NULL DEFAULT 0, " +
+                    "sortOrder INTEGER NOT NULL DEFAULT 0)");
+
+                // 迁移存量数据
+                database.execSQL("INSERT INTO question_new SELECT " +
+                    "id, questionText, optionA, optionB, optionC, optionD, correctAnswer, " +
+                    "category, difficulty, explanation, relatedQuestion, questionType, favorite, " +
+                    "createdAt, updatedAt, source, tags, points, timeLimit, hint, analysis, " +
+                    "knowledgePoint, subCategory, usageCount, correctCount, incorrectCount, " +
+                    "lastUsedAt, status, isPublic, author, comment, " +
+                    "optionE, optionF, optionG, optionH, optionI, optionJ, optionK, optionL, " +
+                    "answerText, imageUri, audioUri, parentId, sortOrder FROM question");
+
+                database.execSQL("DROP TABLE question");
+                database.execSQL("ALTER TABLE question_new RENAME TO question");
+
+                // 重建 Entity 声明的 6 个索引（名称必须与 Room 自动生成一致）
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_category ON question(category)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_difficulty ON question(difficulty)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_favorite ON question(favorite)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_questionType ON question(questionType)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_category_difficulty ON question(category, difficulty)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_question_questionType_status ON question(questionType, status)");
+
+                // 恢复旧迁移创建的非 Entity 索引（DROP TABLE 会一并丢失，避免查询性能回归）
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_created ON question(createdAt)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_updated ON question(updatedAt)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_status ON question(status)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_points ON question(points)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_parent ON question(parentId)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_sort ON question(sortOrder)");
+
+                // ---- 补 userId 索引（P0-5）----
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_score_history_userId ON score_history(userId)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_wrong_question_userId ON wrong_question(userId)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_favorite_question_userId ON favorite_question(userId)");
             }
         }
     };

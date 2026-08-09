@@ -288,7 +288,8 @@ public class FileContentExtractor {
         StringBuilder extractedText = new StringBuilder();
         final Object lock = new Object();
         
-        ocrManager.processImage(bitmap, new OCRManager.OCRCallback() {
+        // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+        ocrManager.processImageOnlineFirst(bitmap, new OCRManager.OCRCallback() {
             @Override
             public void onSuccess(String text) {
                 synchronized (lock) {
@@ -307,7 +308,7 @@ public class FileContentExtractor {
         });
 
         synchronized (lock) {
-            lock.wait(10000);
+            lock.wait(60000); // 在线 OCR 可能需要更长时间
         }
         
         return extractedText.length() > 0 ? extractedText.toString() : "OCR未识别到文本";

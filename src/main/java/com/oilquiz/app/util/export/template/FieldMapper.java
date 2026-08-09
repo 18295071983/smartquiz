@@ -20,14 +20,37 @@ public class FieldMapper {
         FIELD_METHOD_MAP.put("optionB", "getOptionB");
         FIELD_METHOD_MAP.put("optionC", "getOptionC");
         FIELD_METHOD_MAP.put("optionD", "getOptionD");
+        FIELD_METHOD_MAP.put("optionE", "getOptionE");
+        FIELD_METHOD_MAP.put("optionF", "getOptionF");
+        FIELD_METHOD_MAP.put("optionG", "getOptionG");
+        FIELD_METHOD_MAP.put("optionH", "getOptionH");
+        FIELD_METHOD_MAP.put("optionI", "getOptionI");
+        FIELD_METHOD_MAP.put("optionJ", "getOptionJ");
+        FIELD_METHOD_MAP.put("optionK", "getOptionK");
+        FIELD_METHOD_MAP.put("optionL", "getOptionL");
         FIELD_METHOD_MAP.put("correctAnswer", "getCorrectAnswer");
+        FIELD_METHOD_MAP.put("answerText", "getAnswerText");
         FIELD_METHOD_MAP.put("explanation", "getExplanation");
+        FIELD_METHOD_MAP.put("analysis", "getAnalysis");
+        FIELD_METHOD_MAP.put("knowledgePoint", "getKnowledgePoint");
         FIELD_METHOD_MAP.put("questionType", "getQuestionType");
         FIELD_METHOD_MAP.put("difficulty", "getDifficulty");
         FIELD_METHOD_MAP.put("category", "getCategory");
+        FIELD_METHOD_MAP.put("subCategory", "getSubCategory");
+        FIELD_METHOD_MAP.put("tags", "getTags");
+        FIELD_METHOD_MAP.put("hint", "getHint");
+        FIELD_METHOD_MAP.put("source", "getSource");
         FIELD_METHOD_MAP.put("id", "getId");
         FIELD_METHOD_MAP.put("relatedQuestion", "getRelatedQuestion");
         FIELD_METHOD_MAP.put("favorite", "isFavorite");
+        FIELD_METHOD_MAP.put("points", "getPoints");
+        FIELD_METHOD_MAP.put("timeLimit", "getTimeLimit");
+        FIELD_METHOD_MAP.put("status", "getStatus");
+        FIELD_METHOD_MAP.put("author", "getAuthor");
+        FIELD_METHOD_MAP.put("comment", "getComment");
+        FIELD_METHOD_MAP.put("usageCount", "getUsageCount");
+        FIELD_METHOD_MAP.put("correctCount", "getCorrectCount");
+        FIELD_METHOD_MAP.put("incorrectCount", "getIncorrectCount");
     }
 
     /**
@@ -75,23 +98,40 @@ public class FieldMapper {
     }
 
     /**
-     * 获取所有可用字段
+     * 获取所有可用字段（有序展示用，Key 为字段名）
      */
     public static Map<String, String> getAllAvailableFields() {
         Map<String, String> fields = new HashMap<>();
-        fields.put("id", "ID");
-        fields.put("questionType", "题目类型");
+        fields.put("id", "序号");
+        fields.put("questionType", "题型");
         fields.put("questionText", "题目内容");
         fields.put("optionA", "选项A");
         fields.put("optionB", "选项B");
         fields.put("optionC", "选项C");
         fields.put("optionD", "选项D");
-        fields.put("correctAnswer", "答案");
+        fields.put("optionE", "选项E");
+        fields.put("optionF", "选项F");
+        fields.put("optionG", "选项G");
+        fields.put("optionH", "选项H");
+        fields.put("optionI", "选项I");
+        fields.put("optionJ", "选项J");
+        fields.put("optionK", "选项K");
+        fields.put("optionL", "选项L");
+        fields.put("correctAnswer", "正确答案");
+        fields.put("answerText", "答案文本");
         fields.put("explanation", "解析");
+        fields.put("analysis", "详细解析");
+        fields.put("knowledgePoint", "知识点");
         fields.put("category", "分类");
+        fields.put("subCategory", "子分类");
         fields.put("difficulty", "难度");
+        fields.put("tags", "标签");
+        fields.put("hint", "提示");
         fields.put("relatedQuestion", "相关题目");
+        fields.put("source", "来源");
         fields.put("favorite", "收藏");
+        fields.put("points", "分值");
+        fields.put("timeLimit", "时限(秒)");
         return fields;
     }
 }

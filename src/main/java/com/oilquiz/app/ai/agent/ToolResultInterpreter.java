@@ -45,8 +45,8 @@ import java.util.concurrent.TimeUnit;
 public class ToolResultInterpreter {
 
     private static final String TAG = "ToolResultInterpreter";
-    /** 在线解析超时时间（秒）：15s，防止工具解读卡死主线程外阻塞过久 */
-    private static final long ONLINE_TIMEOUT_SECONDS = 15L;
+    /** 在线解析超时时间（秒）：完整结果+2048输出token耗时较长，放宽到60s防频繁超时回退 */
+    private static final long ONLINE_TIMEOUT_SECONDS = 60L;
     /** 工具解读在线模型输出上限：2048 tokens（允许完整详细的自然语言摘要，不截断内容） */
     private static final int ONLINE_INTERPRET_MAX_TOKENS = 2048;
     /** 工具解读本地模型输出上限：1024 tokens（本地模型上下文较小，保守放宽） */
@@ -199,10 +199,40 @@ public class ToolResultInterpreter {
             ALChat lc = getLocalChat();
             if (lc == null || !lc.isInitialized()) return null;
             String prompt = buildPromptLocal(toolName, result);
-            // maxTokens=LOCAL_INTERPRET_MAX_TOKENS(1024), temp=0.1(保守), topP=0.9, repeatPenalty=40
-            String output = lc.sendMessage(prompt, LOCAL_INTERPRET_MAX_TOKENS, 0.1f, 0.9f, 40);
+            // 动态输出预算：本地上下文窗口随优化模式变化（TURBO 4096 ~ ULTIMATE 16384），
+            // 固定 1024 输出在小窗口+长摘要时会被 native 层 "Prompt too long" 中止，
+            // 这里按实际可用空间动态收缩，保证 prompt+output 始终在安全参考值内
+            int maxTokens = LOCAL_INTERPRET_MAX_TOKENS;
+            try {
+                int ctxSize = com.oilquiz.app.ai.jni.LlamaHelper.getContextSize();
+                if (ctxSize > 0) {
+                    int safeRef = com.oilquiz.app.ai.jni.LlamaHelper.getSafeContextReference(ctxSize);
+                    int promptTokens = com.oilquiz.app.ai.jni.LlamaHelper.countTokens(prompt);
+                    if (promptTokens <= 0) {
+                        // token 计数不可用时按中文 1 字≈1 token 保守估算
+                        promptTokens = prompt.length();
+                    }
+                    int budget = safeRef - promptTokens - 256; // 预留 256 安全边距
+                    if (budget < 128) {
+                        Log.w(TAG, "本地上下文空间不足，跳过本地解读: promptTokens="
+                                + promptTokens + ", safeRef=" + safeRef);
+                        return null;
+                    }
+                    maxTokens = Math.min(LOCAL_INTERPRET_MAX_TOKENS, budget);
+                }
+            } catch (Throwable ignore) {
+                // 预算计算失败时沿用默认值，由 native 层保护兜底
+            }
+            // temp=0.1(保守), topP=0.9, repeatPenalty=40
+            String output = lc.sendMessage(prompt, maxTokens, 0.1f, 0.9f, 40);
             if (output == null) return null;
             output = cleanModelOutput(output);
+            // LlamaHelper 在锁超时/模型不可用/生成超时等场景返回 "Error: xxx" 字符串，
+            // 不能当作解读结果展示给用户，此时返回 null 走模板兜底
+            if (isModelErrorOutput(output)) {
+                Log.w(TAG, "本地 LLM 解读返回错误输出，降级为模板: " + output);
+                return null;
+            }
             return output;
         } catch (OutOfMemoryError oom) {
             Log.e(TAG, "本地 LLM OOM: " + oom.getMessage());
@@ -211,6 +241,19 @@ public class ToolResultInterpreter {
             Log.w(TAG, "本地 LLM 解析异常: " + t.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 判断输出是否为底层推理错误文本（LlamaHelper 失败时返回 "Error: xxx" 字符串而非抛异常）。
+     * 这类文本若直接展示给用户会造成困惑，应降级为模板摘要。
+     */
+    private static boolean isModelErrorOutput(String output) {
+        if (output == null) return false;
+        String trimmed = output.trim();
+        if (trimmed.startsWith("Error:") || trimmed.startsWith("error:")) return true;
+        return trimmed.startsWith("AI model not available")
+                || trimmed.startsWith("Inference lock timeout")
+                || trimmed.startsWith("Generation timeout");
     }
 
     /** 在线模型输出最大 token 数（实际使用 ONLINE_INTERPRET_MAX_TOKENS=2048，此常量保留作兼容） */

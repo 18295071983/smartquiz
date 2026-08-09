@@ -469,7 +469,7 @@ public class LogViewerActivity extends AppCompatActivity {
     }
     
     private void openFilePicker() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(Intent.createChooser(intent, "选择文件"), REQUEST_FILE_PICKER);

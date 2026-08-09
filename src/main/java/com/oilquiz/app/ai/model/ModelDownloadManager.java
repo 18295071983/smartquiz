@@ -6,6 +6,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
 import android.util.Log;
+import com.oilquiz.app.util.AILogger;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -216,7 +217,59 @@ public class ModelDownloadManager {
             modelId, presetInfo.downloadUrl, modelPath,
             presetInfo.sizeMB * 1024 * 1024, null
         );
-        return download(request, callback);
+        String downloadId = download(request, callback);
+
+        // 如果是多模态模型，同时下载 mmproj 投影文件
+        if (presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
+            String mmprojPath = modelDir + File.separator + getFileNameFromUrl(presetInfo.mmprojUrl);
+            File mmprojFile = new File(mmprojPath);
+            if (!mmprojFile.exists()) {
+                String mmprojId = modelId + "_mmproj";
+                AILogger.i(TAG, "Downloading mmproj for multimodal model: " + presetInfo.name);
+                ModelDownloadRequest mmprojRequest = new ModelDownloadRequest(
+                    mmprojId, presetInfo.mmprojUrl, mmprojPath,
+                    0, null
+                );
+                download(mmprojRequest, new DownloadCallback() {
+                    @Override
+                    public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
+                        if (callback != null) {
+                            callback.onProgress(id, progress, downloadedMB, totalMB);
+                        }
+                    }
+                    @Override
+                    public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
+                        if (callback != null) callback.onSpeedUpdate(id, speedBps, etaSeconds);
+                    }
+                    @Override
+                    public void onComplete(String id, String filePath) {
+                        AILogger.i(TAG, "mmproj downloaded: " + filePath);
+                        if (callback != null) callback.onComplete(id, filePath);
+                    }
+                    @Override
+                    public void onError(String id, String error) {
+                        AILogger.e(TAG, "mmproj download failed: " + error);
+                        if (callback != null) callback.onError(id, error);
+                    }
+                    @Override
+                    public void onPaused(String id) {
+                        if (callback != null) callback.onPaused(id);
+                    }
+                    @Override
+                    public void onCancelled(String id) {
+                        if (callback != null) callback.onCancelled(id);
+                    }
+                    @Override
+                    public void onResumed(String id) {
+                        if (callback != null) callback.onResumed(id);
+                    }
+                });
+            } else {
+                AILogger.i(TAG, "mmproj already exists: " + mmprojPath);
+            }
+        }
+
+        return downloadId;
     }
 
     public String downloadFromCustomUrl(String modelId, String url, DownloadCallback callback) {
@@ -791,7 +844,8 @@ public class ModelDownloadManager {
             String desc = model.description.toLowerCase();
             switch (category) {
                 case CHINESE:
-                    if (name.contains("qwen") || name.contains("glm") || name.contains("minicpm") || desc.contains("中文"))
+                    if (name.contains("qwen") || name.contains("glm") || name.contains("minicpm")
+                            || name.contains("deepseek") || name.contains("qwq") || desc.contains("中文"))
                         filtered.add(model);
                     break;
                 case CODE:
@@ -799,7 +853,7 @@ public class ModelDownloadManager {
                         filtered.add(model);
                     break;
                 case LIGHTWEIGHT:
-                    if (model.sizeMB < 1000) filtered.add(model);
+                    if (model.sizeMB <= 1500) filtered.add(model);
                     break;
                 case PERFORMANCE:
                     if (model.sizeMB >= 2000) filtered.add(model);
@@ -820,7 +874,30 @@ public class ModelDownloadManager {
         "https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
         "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf",
         "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
+        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+        // Qwen3 系列：内置思考/非思考双模式（模板支持 enable_thinking，native 层按模板能力自动启用）
+        "https://hf-mirror.com/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+        "https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        // 更多支持思考/推理的模型（均经 HEAD 验证可用）
+        "https://hf-mirror.com/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf",
+        "https://hf-mirror.com/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
+        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf",
+        "https://hf-mirror.com/Qwen/QwQ-32B-GGUF/resolve/main/qwq-32b-q4_k_m.gguf",
+        "https://hf-mirror.com/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf",
+        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+        "https://hf-mirror.com/ibm-granite/granite-4.0-h-micro-GGUF/resolve/main/granite-4.0-h-micro-Q4_K_M.gguf",
+        // 多模态视觉模型（需要配合 mmproj 投影文件使用）
+        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+    };
+
+    // 多模态模型的 mmproj 投影文件 URL（与 PRESET_DOMESTIC_MODEL_URLS 索引对应，null 表示无 mmproj）
+    public static final String[] PRESET_MMPROJ_URLS = {
+        null, null, null, null, null, null, null, null, null, null, null,  // 0-10: 非多模态
+        null, null, null, null, null, null, null, null, null,
+        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
+        null,  // 20: Granite-4.0-Micro
+        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf"  // 21: Qwen2.5-VL-3B
     };
 
     public List<ModelPresetInfo> getPresetDomesticModels() {
@@ -836,6 +913,20 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("minicpm3-4b", "MiniCPM3-4B", "面壁中文模型", PRESET_DOMESTIC_MODEL_URLS[8], 2400, "Q4_K_M", 32768, 4096, 8));
         list.add(new ModelPresetInfo("glm-edge-1.5b", "GLM-Edge-1.5B", "智谱对话模型", PRESET_DOMESTIC_MODEL_URLS[9], 1000, "Q4_K_M", 32768, 2048, 4));
         list.add(new ModelPresetInfo("deepseek-r1-1.5b", "DeepSeek-R1-1.5B", "推理模型", PRESET_DOMESTIC_MODEL_URLS[10], 1100, "Q4_K_M", 32768, 2048, 4));
+        // Qwen3 系列：支持思考链（深度思考模式可用），工具调用能力也更强
+        list.add(new ModelPresetInfo("qwen3-1.7b", "Qwen3-1.7B", "支持思考链的轻量中文模型", PRESET_DOMESTIC_MODEL_URLS[11], 1050, "Q4_K_M", 32768, 2048, 4));
+        list.add(new ModelPresetInfo("qwen3-4b-2507", "Qwen3-4B-2507", "支持思考链的强推理中文模型", PRESET_DOMESTIC_MODEL_URLS[12], 2400, "Q4_K_M", 32768, 4096, 8));
+        // 更多思考/推理模型：R1蒸馏系列自带<think>思考链，Qwen3支持双模式，其余为强推理模型
+        list.add(new ModelPresetInfo("qwen3-0.6b", "Qwen3-0.6B", "超轻量思考链模型", PRESET_DOMESTIC_MODEL_URLS[13], 380, "Q4_K_M", 32768, 1024, 2));
+        list.add(new ModelPresetInfo("qwen3-8b", "Qwen3-8B", "支持思考链的高性能中文模型", PRESET_DOMESTIC_MODEL_URLS[14], 4700, "Q4_K_M", 32768, 8192, 16));
+        list.add(new ModelPresetInfo("deepseek-r1-qwen-7b", "DeepSeek-R1-Qwen-7B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[15], 4400, "Q4_K_M", 32768, 8192, 16));
+        list.add(new ModelPresetInfo("deepseek-r1-llama-8b", "DeepSeek-R1-Llama-8B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[16], 4600, "Q4_K_M", 32768, 8192, 16));
+        list.add(new ModelPresetInfo("qwq-32b", "QwQ-32B", "旗舰级思考模型（需大内存）", PRESET_DOMESTIC_MODEL_URLS[17], 18500, "Q4_K_M", 32768, 20480, 28));
+        list.add(new ModelPresetInfo("phi-4-mini", "Phi-4-mini", "微软强推理小模型", PRESET_DOMESTIC_MODEL_URLS[18], 2300, "Q4_K_M", 131072, 4096, 8));
+        list.add(new ModelPresetInfo("gemma-3-4b", "Gemma-3-4B", "谷歌多语言推理模型", PRESET_DOMESTIC_MODEL_URLS[19], 2300, "Q4_K_M", 32768, 4096, 8));
+        list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
+        // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
+        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21]));
         return list;
     }
 
@@ -849,10 +940,19 @@ public class ModelDownloadManager {
         public final int contextLength;
         public final long minRamMB;
         public final int recommendedGpuLayers;
+        public final String mmprojUrl;  // 多模态投影文件 URL，null 表示非多模态模型
+        public final boolean multimodal;
 
         public ModelPresetInfo(String id, String name, String description, String downloadUrl,
                                long sizeMB, String quantization, int contextLength,
                                long minRamMB, int recommendedGpuLayers) {
+            this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
+                 minRamMB, recommendedGpuLayers, null);
+        }
+
+        public ModelPresetInfo(String id, String name, String description, String downloadUrl,
+                               long sizeMB, String quantization, int contextLength,
+                               long minRamMB, int recommendedGpuLayers, String mmprojUrl) {
             this.id = id;
             this.name = name;
             this.description = description;
@@ -862,6 +962,8 @@ public class ModelDownloadManager {
             this.contextLength = contextLength;
             this.minRamMB = minRamMB;
             this.recommendedGpuLayers = recommendedGpuLayers;
+            this.mmprojUrl = mmprojUrl;
+            this.multimodal = mmprojUrl != null && !mmprojUrl.isEmpty();
         }
     }
 }

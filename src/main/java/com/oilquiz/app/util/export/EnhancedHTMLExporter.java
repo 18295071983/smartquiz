@@ -3,8 +3,9 @@ package com.oilquiz.app.util.export;
 import com.oilquiz.app.model.Question;
 
 import java.io.File;
-import java.io.FileWriter;
+import java.io.OutputStreamWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -27,7 +28,7 @@ public class EnhancedHTMLExporter implements Exporter {
         }
         File exportFile = new File(ExportManager.getExportDirectory(task.getContext()), fileName + "." + getFileExtension());
 
-        try (FileWriter writer = new FileWriter(exportFile)) {
+        try (OutputStreamWriter writer = new OutputStreamWriter(new java.io.FileOutputStream(exportFile), StandardCharsets.UTF_8)) {
             // 按题型分组并排序
             Map<String, List<Question>> questionsByType = new HashMap<>();
             for (Question question : questions) {
@@ -262,7 +263,15 @@ public class EnhancedHTMLExporter implements Exporter {
             writer.write("  margin-bottom: 8px;\n");
             writer.write("  color: #0d47a1;\n");
             writer.write("  font-size: 14px;\n");
-            writer.write("}");
+            writer.write("}\n");
+            writer.write(".analysis {\n");
+            writer.write("  margin-top: 10px;\n");
+            writer.write("  padding: 15px;\n");
+            writer.write("  background-color: #f3e5f5;\n");
+            writer.write("  border-left: 4px solid #9c27b0;\n");
+            writer.write("  border-radius: 4px;\n");
+            writer.write("  color: #6a1b9a;\n");
+            writer.write("}\n");
             writer.write(".footer {\n");
             writer.write("  margin-top: 40px;\n");
             writer.write("  padding-top: 20px;\n");
@@ -352,7 +361,7 @@ public class EnhancedHTMLExporter implements Exporter {
             writer.write("\n");
             writer.write("      typeQuestions.forEach(question => {\n");
             writer.write("        const difficultyText = question.querySelector('.difficulty');\n");
-            writer.write("        const difficulty = difficultyText ? difficultyText.textContent.trim().replace('难度: ', '') : '1';\n");
+            writer.write("        const difficulty = difficultyText ? difficultyText.textContent.trim().replace('难度: ', '') : '未设置';\n");
             writer.write("\n");
             writer.write("        // 类型筛选\n");
             writer.write("        const typeMatch = selectedType === 'all' || typeName === selectedType;\n");
@@ -466,11 +475,10 @@ public class EnhancedHTMLExporter implements Exporter {
             writer.write("<label for=\"difficulty-filter\">难度:</label>\n");
             writer.write("<select id=\"difficulty-filter\">\n");
             writer.write("<option value=\"all\">全部</option>\n");
-            writer.write("<option value=\"1\">1</option>\n");
-            writer.write("<option value=\"2\">2</option>\n");
-            writer.write("<option value=\"3\">3</option>\n");
-            writer.write("<option value=\"4\">4</option>\n");
-            writer.write("<option value=\"5\">5</option>\n");
+            writer.write("<option value=\"简单\">简单</option>\n");
+            writer.write("<option value=\"中等\">中等</option>\n");
+            writer.write("<option value=\"困难\">困难</option>\n");
+            writer.write("<option value=\"未设置\">未设置</option>\n");
             writer.write("</select>\n");
             writer.write("</div>\n");
             writer.write("<div class=\"filter-group\">\n");
@@ -513,43 +521,55 @@ public class EnhancedHTMLExporter implements Exporter {
                     writer.write("</div>\n");
                     
                     if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
-                        writer.write("<div class=\"question-text\">" + question.getQuestionText() + "</div>\n");
+                        writer.write("<div class=\"question-text\">" + ExportUtils.escapeHtml(question.getQuestionText()) + "</div>\n");
                     }
                     
                     // 题目信息
                     writer.write("<div class=\"question-info\">\n");
-                    writer.write("<span class=\"question-type\">" + type + "</span>\n");
+                    writer.write("<span class=\"question-type\">" + ExportUtils.escapeHtml(type) + "</span>\n");
                     if (task.getConfig().isIncludeDifficulty()) {
-                        writer.write("<span class=\"difficulty\">难度: " + question.getDifficulty() + "</span>\n");
+                        writer.write("<span class=\"difficulty\">难度: " + ExportUtils.escapeHtml(question.getDifficultyText()) + "</span>\n");
                     }
                     writer.write("</div>\n");
                     
                     writer.write("<div class=\"options\">\n");
-                    if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                        writer.write("<div class=\"option\">A. " + question.getOptionA() + "</div>\n");
-                    }
-                    if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                        writer.write("<div class=\"option\">B. " + question.getOptionB() + "</div>\n");
-                    }
-                    if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                        writer.write("<div class=\"option\">C. " + question.getOptionC() + "</div>\n");
-                    }
-                    if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                        writer.write("<div class=\"option\">D. " + question.getOptionD() + "</div>\n");
+                    // 选项（A~L 动态渲染）
+                    for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                        Object optionValue = ExportUtils.getOptionValue(question, o);
+                        if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                        writer.write("<div class=\"option\">" + ExportUtils.OPTION_LABELS[o] + ". " + ExportUtils.escapeHtml(optionValue.toString()) + "</div>\n");
                     }
                     writer.write("</div>\n");
                     
-                    // 根据配置决定是否包含答案
-                    if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                        writer.write("<div class=\"correct\">正确答案: " + question.getCorrectAnswer() + "</div>\n");
+                    // 根据配置决定是否包含答案（正确答案 + 答案文本）
+                    if (task.getConfig().isIncludeAnswers()) {
+                        StringBuilder answerText = new StringBuilder();
+                        if (question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                            answerText.append("正确答案: ").append(ExportUtils.escapeHtml(question.getCorrectAnswer()));
+                        }
+                        if (question.getAnswerText() != null && !question.getAnswerText().isEmpty()) {
+                            if (answerText.length() > 0) answerText.append(" ");
+                            answerText.append(ExportUtils.escapeHtml(question.getAnswerText()));
+                        }
+                        if (answerText.length() > 0) {
+                            writer.write("<div class=\"correct\">" + answerText + "</div>\n");
+                        }
                     }
                     
-                    // 根据配置决定是否包含解析
-                    if (task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
-                        writer.write("<div class=\"explanation\">\n");
-                        writer.write("<h4>解析</h4>\n");
-                        writer.write(question.getExplanation() + "\n");
-                        writer.write("</div>\n");
+                    // 根据配置决定是否包含解析（解析 + 详细解析）
+                    if (task.getConfig().isIncludeExplanations()) {
+                        if (question.getExplanation() != null && !question.getExplanation().isEmpty()) {
+                            writer.write("<div class=\"explanation\">\n");
+                            writer.write("<h4>解析</h4>\n");
+                            writer.write(ExportUtils.escapeHtml(question.getExplanation()) + "\n");
+                            writer.write("</div>\n");
+                        }
+                        if (question.getAnalysis() != null && !question.getAnalysis().isEmpty()) {
+                            writer.write("<div class=\"explanation analysis\">\n");
+                            writer.write("<h4>详细解析</h4>\n");
+                            writer.write(ExportUtils.escapeHtml(question.getAnalysis()) + "\n");
+                            writer.write("</div>\n");
+                        }
                     }
                     
                     writer.write("</div>\n");

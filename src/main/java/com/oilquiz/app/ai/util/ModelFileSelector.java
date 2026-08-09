@@ -28,9 +28,15 @@ public class ModelFileSelector {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
         
-        // 添加文件类型过滤，只显示.gguf文件
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Environment.getExternalStorageDirectory().toString());
+        // 添加初始目录：必须是合法的 DocumentsContract URI（裸路径字符串会导致部分厂商选择器崩溃）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+                        DocumentsContract.buildDocumentUri(
+                                "com.android.externalstorage.documents", "primary:"));
+            } catch (Exception e) {
+                Log.w(TAG, "设置 EXTRA_INITIAL_URI 失败，使用默认目录: " + e.getMessage());
+            }
         }
         
         return intent;

@@ -259,4 +259,11 @@
     <color name="log_warn">#FBBF24</color>
     <color name="log_error">#F87171</color>
 
+    <!-- 边框和分割线 - 暗色模式 -->
+    <color name="border">#374151</color>
+    <color name="border_light">#2D3748</color>
+
+    <!-- Violet系 - 暗色模式 -->
+    <color name="violet_200">#4338CA</color>
+
 </resources>

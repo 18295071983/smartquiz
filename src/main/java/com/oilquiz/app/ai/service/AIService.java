@@ -676,7 +676,7 @@ public class AIService implements ComponentCallbacks2 {
                 try {
                     UnifiedContextManager ctxManager = UnifiedContextManager.getInstance();
                     ctxManager.setChatContextReady(false);
-                    success = initChatContext("", "", "");
+                    success = initChatContext(buildDefaultChatSystemPrompt(), "", "");
                 } catch (Exception e) {
                     AILogger.e(TAG, "Chat context rebuild failed: " + e.getMessage(), e);
                     success = false;
@@ -874,6 +874,29 @@ public class AIService implements ComponentCallbacks2 {
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
             int gpuLayers = resourceConfig.getOptimalGpuLayers(
                     hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB, contextSize, modelSizeMB, modelFile.getName());
+
+            // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
+            long availMemMB = memoryInfo.availableMemoryMB;
+            if (gpuLayers > 0 && availMemMB > 0) {
+                int originalGpuLayers = gpuLayers;
+                if (availMemMB < 800) {
+                    // 可用内存极低：大幅降低 GPU 层数，优先保证系统稳定
+                    gpuLayers = Math.min(gpuLayers, 10);
+                    AILogger.w(TAG, "Low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
+                } else if (availMemMB < 1500) {
+                    // 可用内存较低：限制到 15 层
+                    gpuLayers = Math.min(gpuLayers, 15);
+                    AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
+                } else if (availMemMB < 2500) {
+                    // 可用内存一般：限制到 20 层
+                    gpuLayers = Math.min(gpuLayers, 20);
+                    AILogger.i(TAG, "Moderate available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
+                }
+                if (gpuLayers != originalGpuLayers) {
+                    AILogger.i(TAG, "GPU layers adjusted: " + originalGpuLayers + " -> " + gpuLayers + " (available memory: " + availMemMB + "MB)");
+                }
+            }
+
             int threadCount = resourceConfig.getOptimalThreadCount();
             int batchSize = resourceConfig.getOptimalBatchSize(LlamaHelper.getBatchSize());
             int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(LlamaHelper.getMemoryPoolSize());
@@ -958,6 +981,9 @@ public class AIService implements ComponentCallbacks2 {
                 }
 
                 UnifiedContextManager.getInstance().setModelContextReady(true);
+
+                // 多模态支持：模型加载成功后，自动搜索并加载 mmproj 投影文件
+                tryAutoLoadMmproj(modelFile);
                 
                 long totalLoadTimeMs = System.currentTimeMillis() - totalStartTime;
                 AILogger.i(TAG, "AI service initialized successfully with model: " + modelName);
@@ -969,7 +995,7 @@ public class AIService implements ComponentCallbacks2 {
                 
                 AILogger.i(TAG, "Creating default chat context...");
                 updateServiceStage(AIServiceState.ServiceStage.CHAT_CONTEXT_CREATING, "创建对话上下文...", 95);
-                boolean ctxCreated = initChatContext("", "", "");
+                boolean ctxCreated = initChatContext(buildDefaultChatSystemPrompt(), "", "");
                 if (ctxCreated) {
                     AILogger.i(TAG, "Default chat context created successfully");
                     UnifiedContextManager.getInstance().setChatContextReady(true);
@@ -2152,6 +2178,63 @@ public class AIService implements ComponentCallbacks2 {
      * OpenCL库由系统提供（/vendor/lib64/libOpenCL.so）
      * llama-jni的JNI_OnLoad会自动尝试从系统路径加载
      */
+
+    /**
+     * 模型加载成功后，自动搜索并加载同目录下的 mmproj 投影文件
+     * 搜索规则：
+     * 1. 精确匹配：<modelFileName去掉.gguf>.mmproj.gguf
+     * 2. 通配匹配：目录下任意 *.mmproj.gguf 文件
+     */
+    private void tryAutoLoadMmproj(File modelFile) {
+        if (modelFile == null || !modelFile.exists()) return;
+
+        File modelDir = modelFile.getParentFile();
+        if (modelDir == null || !modelDir.exists()) return;
+
+        String modelFileName = modelFile.getName();
+        // 规则1：精确匹配 <basename>.mmproj.gguf
+        String baseName = modelFileName;
+        if (baseName.toLowerCase().endsWith(".gguf")) {
+            baseName = baseName.substring(0, baseName.length() - 5);
+        }
+        String exactMmproj = baseName + ".mmproj.gguf";
+        File exactFile = new File(modelDir, exactMmproj);
+
+        if (exactFile.exists()) {
+            AILogger.i(TAG, "Found exact mmproj match: " + exactFile.getAbsolutePath());
+            loadMmprojSafe(exactFile.getAbsolutePath());
+            return;
+        }
+
+        // 规则2：搜索目录下所有 *.mmproj.gguf
+        File[] mmprojFiles = modelDir.listFiles((dir, name) ->
+                name.toLowerCase().endsWith(".mmproj.gguf"));
+        if (mmprojFiles != null && mmprojFiles.length > 0) {
+            AILogger.i(TAG, "Found mmproj file: " + mmprojFiles[0].getAbsolutePath());
+            loadMmprojSafe(mmprojFiles[0].getAbsolutePath());
+            return;
+        }
+
+        AILogger.i(TAG, "No mmproj file found for model: " + modelFileName + " (multimodal not available)");
+    }
+
+    /**
+     * 安全加载 mmproj，失败不影响主模型运行
+     */
+    private void loadMmprojSafe(String mmprojPath) {
+        try {
+            AILogger.i(TAG, "Loading mmproj: " + mmprojPath);
+            boolean success = LlamaHelper.loadMultimodal(mmprojPath);
+            if (success) {
+                AILogger.i(TAG, "Multimodal projection loaded successfully");
+            } else {
+                AILogger.w(TAG, "Failed to load mmproj (model still works in text-only mode)");
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "Error loading mmproj: " + e.getMessage(), e);
+        }
+    }
+
     private void preloadOpenClIfNeeded() {
         if (openClPreloaded) {
             return;
@@ -3297,6 +3380,28 @@ public class AIService implements ComponentCallbacks2 {
         return 0;
     }
 
+    /**
+     * 构建默认对话系统提示词（参照 Agent 的系统信息注入机制）。
+     * 包含：角色定义 + 环境上下文（当前日期时间）。
+     * 用于所有默认/恢复路径创建的聊天上下文，使本地模型知道自身角色和当前时间，
+     * 支持时间相关提问（"今天星期几"等）。位置/天气由 Agent 工具链按需获取，
+     * 不在此处同步拉取，避免拖慢上下文创建。
+     */
+    private String buildDefaultChatSystemPrompt() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("你是答题宝智能助手，一个集成在答题宝App中的AI助手。请用中文简洁、准确地回答用户问题。\n");
+            sb.append("【环境上下文】\n");
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                    "yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA);
+            sb.append("当前时间：").append(sdf.format(new java.util.Date()));
+            return sb.toString();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "buildDefaultChatSystemPrompt failed: " + t.getMessage());
+            return "你是答题宝智能助手，请用中文回答。";
+        }
+    }
+
     public boolean restoreChatHistory(long conversationId) {
         if (chatRepository == null) {
             AILogger.w(TAG, "Cannot restore history: chatRepository is null");
@@ -3480,7 +3585,7 @@ public class AIService implements ComponentCallbacks2 {
                 if (isInitialized && LlamaHelper.isModelInitialized() && !LlamaHelper.isChatContextActive()) {
                     AILogger.i(TAG, "Chat context not active, attempting to create...");
                     try {
-                        boolean ctxCreated = initChatContext("", "", "");
+                        boolean ctxCreated = initChatContext(buildDefaultChatSystemPrompt(), "", "");
                         if (ctxCreated && canSendChat()) {
                             AILogger.i(TAG, "Chat context created successfully, continuing chatSend");
                             // 不递归重试，直接继续执行

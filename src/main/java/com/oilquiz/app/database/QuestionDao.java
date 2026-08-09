@@ -166,4 +166,22 @@ public interface QuestionDao {
     // 搜索时同时搜索answerText字段
     @Query("SELECT * FROM question WHERE questionText LIKE '%' || :keyword || '%' OR answerText LIKE '%' || :keyword || '%'")
     List<Question> searchQuestionsIncludingAnswer(String keyword);
+    
+    // ========== v23 性能优化查询 ==========
+    
+    // 按题型随机抽题（利用 questionType 索引）
+    @Query("SELECT * FROM question WHERE questionType = :type ORDER BY RANDOM() LIMIT :limit")
+    List<Question> getRandomQuestionsByType(String type, int limit);
+    
+    // 按分类限量查询（利用 category 索引 + LIMIT）
+    @Query("SELECT * FROM question WHERE category = :category ORDER BY RANDOM() LIMIT :limit")
+    List<Question> getRandomQuestionsByCategoryLimited(String category, int limit);
+    
+    // 按题型+分类随机抽题（复合索引优化）
+    @Query("SELECT * FROM question WHERE questionType = :type AND category = :category ORDER BY RANDOM() LIMIT :limit")
+    List<Question> getRandomQuestionsByTypeAndCategory(String type, String category, int limit);
+    
+    // 全局限量随机抽题
+    @Query("SELECT * FROM question ORDER BY RANDOM() LIMIT :limit")
+    List<Question> getRandomQuestionsLimited(int limit);
 }

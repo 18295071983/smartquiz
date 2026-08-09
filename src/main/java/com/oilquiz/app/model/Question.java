@@ -1,5 +1,6 @@
 package com.oilquiz.app.model;
 
+import androidx.room.ColumnInfo;
 import androidx.room.Entity;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
@@ -14,7 +15,9 @@ import androidx.room.PrimaryKey;
         @Index(value = "category"),
         @Index(value = "difficulty"),
         @Index(value = "favorite"),
-        @Index(value = {"category", "difficulty"})
+        @Index(value = "questionType", name = "index_question_questionType"),
+        @Index(value = {"category", "difficulty"}),
+        @Index(value = {"questionType", "status"}, name = "index_question_questionType_status")
     }
 )
 public class Question implements java.io.Serializable {
@@ -49,14 +52,19 @@ public class Question implements java.io.Serializable {
     private String optionD;
     private String correctAnswer;
     private String category;
+    // 默认值 1（简单）：保证外部 INSERT 省略该列时不报 NOT NULL 约束失败
+    @ColumnInfo(defaultValue = "1")
     private int difficulty;
     private String explanation;
     private String relatedQuestion;
     private String questionType;
+    @ColumnInfo(defaultValue = "0")
     private boolean favorite;
     
     // 新增字段：创建和更新时间
+    @ColumnInfo(defaultValue = "0")
     private long createdAt;
+    @ColumnInfo(defaultValue = "0")
     private long updatedAt;
     
     // 新增字段：题目来源
@@ -66,9 +74,11 @@ public class Question implements java.io.Serializable {
     private String tags;
     
     // 新增字段：题目分值
+    @ColumnInfo(defaultValue = "0")
     private int points;
     
     // 新增字段：答题时限（秒）
+    @ColumnInfo(defaultValue = "0")
     private int timeLimit;
     
     // 新增字段：题目提示
@@ -84,15 +94,22 @@ public class Question implements java.io.Serializable {
     private String subCategory;
     
     // 新增字段：使用统计
+    @ColumnInfo(defaultValue = "0")
     private int usageCount;
+    @ColumnInfo(defaultValue = "0")
     private int correctCount;
+    @ColumnInfo(defaultValue = "0")
     private int incorrectCount;
+    @ColumnInfo(defaultValue = "0")
     private long lastUsedAt;
     
     // 新增字段：题目状态（0-正常，1-禁用，2-待审核）
+    // 默认 0（正常）：App 查询均带 WHERE status=0，默认 0 保证外部导入题目可见
+    @ColumnInfo(defaultValue = "0")
     private int status;
     
     // 新增字段：是否公开（0-私有，1-公开）
+    @ColumnInfo(defaultValue = "1")
     private int isPublic;
     
     // 新增字段：题目作者
@@ -124,9 +141,11 @@ public class Question implements java.io.Serializable {
     private String audioUri;
     
     // 母题ID（子题关联，如"材料分析第1/2/3小题"共享题干）
+    @ColumnInfo(defaultValue = "0")
     private long parentId;
     
     // 排序权重（组卷时控制题目顺序）
+    @ColumnInfo(defaultValue = "0")
     private int sortOrder;
 
     public Question() {
@@ -651,8 +670,8 @@ public class Question implements java.io.Serializable {
      */
     public boolean checkAnswer(String userAnswer) {
         if (correctAnswer == null || userAnswer == null) return false;
-        String normalizedCorrect = correctAnswer.trim().toUpperCase().replaceAll("\\s+", "");
-        String normalizedUser = userAnswer.trim().toUpperCase().replaceAll("\\s+", "");
+        String normalizedCorrect = normalizeChoiceAnswer(correctAnswer);
+        String normalizedUser = normalizeChoiceAnswer(userAnswer);
         return normalizedCorrect.equals(normalizedUser);
     }
 
@@ -663,11 +682,22 @@ public class Question implements java.io.Serializable {
      */
     public boolean checkMultipleAnswer(String userAnswer) {
         if (correctAnswer == null || userAnswer == null) return false;
-        char[] correct = correctAnswer.trim().toUpperCase().toCharArray();
-        char[] user = userAnswer.trim().toUpperCase().toCharArray();
+        char[] correct = normalizeChoiceAnswer(correctAnswer).toCharArray();
+        char[] user = normalizeChoiceAnswer(userAnswer).toCharArray();
         java.util.Arrays.sort(correct);
         java.util.Arrays.sort(user);
         return java.util.Arrays.equals(correct, user);
+    }
+
+    /**
+     * 规范化选择题答案：去除分隔符（;；,，、空白）并转大写。
+     * 兼容历史脏数据如 "A;B;C" → "ABC"；非字母答案（如填空题文本）原样保留。
+     */
+    public static String normalizeChoiceAnswer(String ans) {
+        if (ans == null) return "";
+        String n = ans.replaceAll("[;；,，、\\s]+", "").toUpperCase();
+        if (!n.isEmpty() && n.matches("[A-L]+")) return n;
+        return ans.trim();
     }
 
     /**

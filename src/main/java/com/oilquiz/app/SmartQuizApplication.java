@@ -24,6 +24,12 @@ import dagger.hilt.android.HiltAndroidApp;
 public class SmartQuizApplication extends Application {
 
     private static final String TAG = "SmartQuizApplication";
+    private static final String CRASH_PREFS = "crash_protection_prefs";
+    private static final String CRASH_COUNT_KEY = "consecutive_crash_count";
+    private static final String CRASH_TIMESTAMP_KEY = "last_crash_timestamp";
+    private static final int MAX_CRASH_BEFORE_SKIP = 2;
+    private static final long SURVIVE_RESET_MS = 30_000; // 存活30秒后重置计数
+
     private static SmartQuizApplication instance;
     private static android.app.Activity currentActivity;
     private int resumeCount = 0;
@@ -87,10 +93,29 @@ public class SmartQuizApplication extends Application {
                 // 预加载AI服务（延迟一点，避免影响启动速度）
                 try {
                     Thread.sleep(500); // 延迟启动，避免资源竞争
-                    preloadAIServiceInternal();
-                    
+
+                    // 崩溃保护：检查是否连续崩溃
+                    int crashCount = getCrashCount();
+                    com.oilquiz.app.util.AILogger.i(TAG, "连续崩溃计数: " + crashCount);
+                    if (crashCount >= MAX_CRASH_BEFORE_SKIP) {
+                        com.oilquiz.app.util.AILogger.w(TAG,
+                            "检测到连续 " + crashCount + " 次崩溃，跳过模型自动加载，防止崩溃循环");
+                        // 重置计数，下次启动允许重试
+                        resetCrashCount();
+                    } else {
+                        // 记录本次启动，如果崩溃则计数+1
+                        incrementCrashCount();
+                        preloadAIServiceInternal();
+                    }
+
                     // 启动AI处理服务作为前台服务，确保应用运行时持续运行
                     startAIProcessingService();
+
+                    // 存活超过阈值后重置崩溃计数
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        resetCrashCount();
+                        com.oilquiz.app.util.AILogger.i(TAG, "应用存活超过30秒，重置崩溃计数");
+                    }, SURVIVE_RESET_MS);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -204,6 +229,23 @@ public class SmartQuizApplication extends Application {
         });
     }
     
+    private int getCrashCount() {
+        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
+        return prefs.getInt(CRASH_COUNT_KEY, 0);
+    }
+
+    private void incrementCrashCount() {
+        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
+        int count = prefs.getInt(CRASH_COUNT_KEY, 0) + 1;
+        prefs.edit().putInt(CRASH_COUNT_KEY, count).putLong(CRASH_TIMESTAMP_KEY, System.currentTimeMillis()).apply();
+        com.oilquiz.app.util.AILogger.i(TAG, "崩溃计数递增: " + count);
+    }
+
+    private void resetCrashCount() {
+        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
+        prefs.edit().putInt(CRASH_COUNT_KEY, 0).apply();
+    }
+
     /**
      * 预加载AI服务 - 在应用启动时就初始化AI模型，实现热启动
      * 内部方法：直接调用，不启动新线程
@@ -221,7 +263,6 @@ public class SmartQuizApplication extends Application {
                 if (availableModels != null && availableModels.length > 0) {
                     String modelName = availableModels[0];
                     com.oilquiz.app.util.AILogger.i(TAG, "找到可用模型: " + modelName);
-
                     // 直接加载模型（预加载在后台异步进行，不会阻塞本次加载）
                     boolean success = aiService.switchModel(modelName);
                     com.oilquiz.app.util.AILogger.i(TAG, "模型加载结果: " + success);

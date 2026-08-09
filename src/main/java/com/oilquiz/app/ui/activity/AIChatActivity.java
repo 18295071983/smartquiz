@@ -146,6 +146,20 @@ public class AIChatActivity extends BaseActivity {
     private EditText inputMessage;
     private MaterialButton btnSend;
     private MaterialButton btnAttach;
+    private MaterialButton btnVoice; // 语音输入按钮（录音→ASR→填入输入框）
+    private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
+    private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
+    private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
+    private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
+    private boolean streamTtsFed = false; // 本轮生成是否已进行过流式朗读
+    private String voiceInputBaseText = ""; // 系统识别开始前输入框已有文本（实时展示部分结果时作为前缀）
+    private View voiceRecordingBar; // 录音状态横幅
+    private android.widget.TextView tvVoiceRecordingTime; // 录音计时
+    private android.widget.TextView tvVoiceRecordingDot; // 录音红点
+    private final android.os.Handler speechTimerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable speechTimerRunnable;
+    private int speechRecordingSeconds = 0;
+    private String speakingMessageId; // 当前正在朗读的消息 ID（再次点击可停止）
     private MaterialButton btnCloseHistory;
     private MaterialButton btnClearAllHistory;
     private View thinkingIndicator;
@@ -154,6 +168,12 @@ public class AIChatActivity extends BaseActivity {
     private Chip chipThinkingAssist;
     private Chip chipWeather;
     private Chip chipClear;
+    /** 快捷工具栏：键盘弹出时自动折叠 */
+    private ChipGroup quickActionsChipGroup;
+    private ImageView ivQuickExpand;
+    private boolean quickBarExpanded = true;
+    /** 标记是否由键盘弹出自动折叠，键盘隐藏时仅恢复这种情况 */
+    private boolean keyboardAutoCollapsed = false;
     /** 自动获取的环境上下文（如定位得到的city/lat/lon），供引导流程注入 */
     private Map<String, String> autoContext = new HashMap<>();
 
@@ -202,6 +222,8 @@ public class AIChatActivity extends BaseActivity {
 
     private volatile boolean isGenerating = false;
     private volatile boolean isDirectStreaming = false;
+    /** 强制本地Agent执行标志：用户点击"🚀 强行使用本地Agent"后置位，processChatMessage 消费一次后清除 */
+    private volatile boolean forceLocalAgentOnce = false;
     // 在线模型 API 返回的 Token 统计（由 onTokenStats 回调写入）
     // 当大于 0 时，UI 优先使用 API 数据，实现数据源自动切换
     private volatile int onlinePromptTokens = 0;
@@ -252,6 +274,10 @@ public class AIChatActivity extends BaseActivity {
     private ActivityResultLauncher<String[]> attachFileLauncher;
     private ActivityResultLauncher<Uri> cameraCaptureLauncher; // 相机拍照
     private android.net.Uri currentPhotoUri; // 当前拍照的临时URI
+    private MediaRecorder speechMediaRecorder; // 语音输入录音器（ASR）
+    private String speechRecordingFilePath; // 语音输入临时录音文件路径
+    private boolean isSpeechRecording = false; // 是否正在语音输入录音
+    private boolean isOfflineAsrMode = false; // 语音输入是否处于离线/系统识别模式（在线ASR不可用时的兜底）
     private MediaRecorder mediaRecorder; // 音频录制器
     private String recordingFilePath; // 录音文件路径
     private boolean isRecording = false; // 是否正在录音
@@ -352,6 +378,11 @@ public class AIChatActivity extends BaseActivity {
             inputMessage = findViewById(R.id.input_message);
             btnSend = findViewById(R.id.btn_send);
             btnAttach = findViewById(R.id.btn_attach);
+            btnVoice = findViewById(R.id.btn_voice);
+            btnAutoTts = findViewById(R.id.btn_auto_tts);
+            voiceRecordingBar = findViewById(R.id.voice_recording_bar);
+            tvVoiceRecordingTime = findViewById(R.id.tv_voice_recording_time);
+            tvVoiceRecordingDot = findViewById(R.id.tv_voice_recording_dot);
             btnCloseHistory = findViewById(R.id.btn_close_history);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
@@ -363,22 +394,23 @@ public class AIChatActivity extends BaseActivity {
 
             // 快捷工具栏相关视图
             View quickBarHeader = findViewById(R.id.quick_bar_header);
-            ChipGroup quickActionsChipGroup = findViewById(R.id.quick_actions_chip_group);
-            ImageView ivQuickExpand = findViewById(R.id.iv_quick_expand);
+            quickActionsChipGroup = findViewById(R.id.quick_actions_chip_group);
+            ivQuickExpand = findViewById(R.id.iv_quick_expand);
 
             // 快捷工具栏折叠/展开功能（默认展开）
-            final boolean[] isExpanded = {true};
+            quickBarExpanded = true;
             if (ivQuickExpand != null) {
                 ivQuickExpand.setImageResource(R.drawable.ic_collapse);
             }
             if (quickBarHeader != null) {
                 quickBarHeader.setOnClickListener(v -> {
-                    isExpanded[0] = !isExpanded[0];
+                    quickBarExpanded = !quickBarExpanded;
+                    keyboardAutoCollapsed = false; // 用户手动操作，清除键盘自动折叠标记
                     if (quickActionsChipGroup != null) {
-                        quickActionsChipGroup.setVisibility(isExpanded[0] ? View.VISIBLE : View.GONE);
+                        quickActionsChipGroup.setVisibility(quickBarExpanded ? View.VISIBLE : View.GONE);
                     }
                     if (ivQuickExpand != null) {
-                        ivQuickExpand.setImageResource(isExpanded[0] ? R.drawable.ic_collapse : R.drawable.ic_expand);
+                        ivQuickExpand.setImageResource(quickBarExpanded ? R.drawable.ic_collapse : R.drawable.ic_expand);
                     }
                 });
             }
@@ -414,6 +446,18 @@ public class AIChatActivity extends BaseActivity {
             chatHistory = new ArrayList<>();
             chatAdapter = new ChatAdapter(chatHistory, this::handleAction);
             chatAdapter.setRetryClickListener(messageId -> regenerateLastMessage());
+            // 消息点击/长按：长按 AI 消息弹出朗读等操作
+            chatAdapter.setMessageClickListener(new ChatAdapter.OnMessageClickListener() {
+                @Override
+                public void onMessageClick(ChatMessage message) {
+                    // 单击不做处理
+                }
+
+                @Override
+                public void onMessageLongClick(ChatMessage message) {
+                    showMessageSpeechOptions(message);
+                }
+            });
             messageList.setAdapter(chatAdapter);
 
             setupKeyboardListener();
@@ -794,8 +838,23 @@ public class AIChatActivity extends BaseActivity {
                     String contentSnapshot;
                     synchronized (streamingLock) {
                         if (currentStreamingContent == null) return;
-                        currentStreamingContent.append(text);
+                        if (isComplete) {
+                            // OutputRouter.complete() 会在流式结束时把完整正文再整体发送一次
+                            // （isComplete=true，含思考兜底移入主回复的场景）。
+                            // 流式期间 token 已逐个追加，此处必须用替换而非追加，否则正文翻倍重复。
+                            // text 为空时保留已有内容，避免误清空工具结果等直接追加的内容。
+                            if (!text.isEmpty()) {
+                                currentStreamingContent.setLength(0);
+                                currentStreamingContent.append(text);
+                            }
+                        } else {
+                            currentStreamingContent.append(text);
+                        }
                         contentSnapshot = currentStreamingContent.toString();
+                    }
+                    // 完成事件只是全文重发，流式期间已逐 token 投喂过朗读，不能重复投喂
+                    if (!isComplete) {
+                        feedStreamingTts(text);
                     }
                     ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
                     msg.content = contentSnapshot;
@@ -921,6 +980,7 @@ public class AIChatActivity extends BaseActivity {
                         if (chatAdapter != null) {
                             chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                         }
+                        finishAutoSpeak(msg);
                     }
                     saveHistoryAsync();
                 });
@@ -1128,6 +1188,19 @@ public class AIChatActivity extends BaseActivity {
         if (btnAttach != null) {
             btnAttach.setOnClickListener(v -> showAttachmentOptionsDialog());
         }
+        if (btnVoice != null) {
+            btnVoice.setOnClickListener(v -> handleSpeechInput());
+        }
+
+        // 自动语音合成开关：状态持久化，开启后 AI 回复流式按句自动朗读
+        streamingTtsSpeaker = new com.oilquiz.app.ai.speech.StreamingTtsSpeaker(this);
+        autoTtsEnabled = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
+                .getBoolean("auto_tts_enabled", false);
+        if (btnAutoTts != null) {
+            updateAutoTtsButtonUI();
+            btnAutoTts.setOnClickListener(v -> toggleAutoTts());
+        }
+        updateVoiceButtonAvailability();
 
         if (btnHistory != null) {
             btnHistory.setOnClickListener(v -> {
@@ -1564,7 +1637,7 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
         } else if (step.type == ToolGuideFlow.GuideStep.StepType.INPUT) {
-            // 文本输入框
+            // 文本输入框（动态列表步骤同时保留手动输入兜底）
             final EditText editText = new EditText(this);
             editText.setHint(step.hint != null ? step.hint : "请输入");
             editText.setTextSize(14);
@@ -1581,6 +1654,84 @@ public class AIChatActivity extends BaseActivity {
             etParams.topMargin = 16;
             editText.setLayoutParams(etParams);
             container.addView(editText);
+
+            // 动态选项：声明了 dynamicOptions 时异步拉取列表渲染为可点选项，减少手动输入
+            if (step.dynamicOptions != null) {
+                final LinearLayout optionsBox = new LinearLayout(this);
+                optionsBox.setOrientation(LinearLayout.VERTICAL);
+                LinearLayout.LayoutParams obLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                obLp.topMargin = dp(12);
+                optionsBox.setLayoutParams(obLp);
+                container.addView(optionsBox);
+
+                TextView loadingView = new TextView(this);
+                loadingView.setText("⏳ 正在获取可选列表...");
+                loadingView.setTextSize(12);
+                loadingView.setTextColor(0xFF888888);
+                optionsBox.addView(loadingView);
+
+                final ToolGuideFlow.GuideStep.DynamicOptionsSpec spec = step.dynamicOptions;
+                new Thread(() -> {
+                    java.util.List<String> values = loadGuideDynamicOptions(spec);
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        optionsBox.removeAllViews();
+                        if (values == null || values.isEmpty()) {
+                            TextView failView = new TextView(this);
+                            failView.setText("ℹ️ 未能获取列表，请直接输入");
+                            failView.setTextSize(12);
+                            failView.setTextColor(0xFF888888);
+                            optionsBox.addView(failView);
+                            return;
+                        }
+                        TextView tipView = new TextView(this);
+                        tipView.setText("👇 点击选择（或在上方直接输入）");
+                        tipView.setTextSize(12);
+                        tipView.setTextColor(0xFF666666);
+                        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                        tipLp.bottomMargin = dp(6);
+                        tipView.setLayoutParams(tipLp);
+                        optionsBox.addView(tipView);
+
+                        // 可点选项：点击后回填输入框并自动进入下一步
+                        final int MAX_OPTIONS = 60;
+                        int shown = Math.min(values.size(), MAX_OPTIONS);
+                        for (int i = 0; i < shown; i++) {
+                            final String val = values.get(i);
+                            TextView chip = new TextView(this);
+                            chip.setText(val.isEmpty() ? (spec.allOptionLabel != null ? spec.allOptionLabel : "全部") : val);
+                            chip.setTextSize(13);
+                            chip.setTextColor(0xFF333333);
+                            chip.setPadding(dp(12), dp(10), dp(12), dp(10));
+                            android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
+                            chipBg.setColor(0xFFF5F5F5);
+                            chipBg.setCornerRadius(dp(8));
+                            chip.setBackground(chipBg);
+                            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                            chipLp.bottomMargin = dp(6);
+                            chip.setLayoutParams(chipLp);
+                            chip.setOnClickListener(cv -> {
+                                editText.setText(val);
+                                selectedParams.put(step.paramKey, val);
+                                activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
+                                currentStepIdx[0]++;
+                                renderStep(dialog, flow, toolName, selectedParams, currentStepIdx, activeStepsHolder);
+                            });
+                            optionsBox.addView(chip);
+                        }
+                        if (values.size() > MAX_OPTIONS) {
+                            TextView moreView = new TextView(this);
+                            moreView.setText("… 共 " + values.size() + " 项，其余请直接输入");
+                            moreView.setTextSize(11);
+                            moreView.setTextColor(0xFFAAAAAA);
+                            optionsBox.addView(moreView);
+                        }
+                    });
+                }).start();
+            }
 
             // 下一步按钮
             android.widget.Button nextBtn = new android.widget.Button(this);
@@ -1717,21 +1868,42 @@ public class AIChatActivity extends BaseActivity {
             execLp.topMargin = 24;
             execBtn.setLayoutParams(execLp);
             execBtn.setOnClickListener(v -> {
-                // 收集参数
+                // 防重复点击：首次点击后禁用按钮，避免并行重复执行工具
+                if (!execBtn.isEnabled()) return;
+                execBtn.setEnabled(false);
+                execBtn.setText("正在执行...");
+
+                // 收集参数：仅保留当前活跃步骤涉及的参数，
+                // 避免回退改选后旧分支的残留参数被一并提交
                 final Map<String, Object> execParams = new HashMap<>();
+                java.util.Set<String> activeParamKeys = new java.util.HashSet<>();
+                for (ToolGuideFlow.GuideStep s : activeSteps) {
+                    if (s != null && s.paramKey != null && !s.paramKey.isEmpty()) {
+                        activeParamKeys.add(s.paramKey);
+                    }
+                }
                 for (Map.Entry<String, String> entry : selectedParams.entrySet()) {
-                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    if (entry.getValue() != null && !entry.getValue().isEmpty()
+                            && activeParamKeys.contains(entry.getKey())) {
                         execParams.put(entry.getKey(), entry.getValue());
                     }
                 }
                 // 注入已自动获取的上下文（不覆盖用户已填值）
                 injectAutoContext(execParams);
 
+                // app_toolkit 部分分类（计算/获取信息）无 action 子步骤，直接用分类名作为 action
+                if ("app_toolkit".equals(toolName)
+                        && execParams.containsKey("category") && !execParams.containsKey("action")) {
+                    String cat = String.valueOf(execParams.get("category"));
+                    if ("calculate".equals(cat) || "get_info".equals(cat)) {
+                        execParams.put("action", cat);
+                    }
+                }
+
                 // 执行前检查缺失的环境上下文
                 List<String> missing = ToolContextProvider.getMissingContext(flow, execParams);
                 if (missing.contains("location") && "ai_weather".equals(toolName)) {
                     // 缺少位置且为天气工具：异步定位后再执行
-                    execBtn.setEnabled(false);
                     execBtn.setText("正在定位...");
                     addSystemMessage("📍 正在定位...");
                     final android.widget.Button execBtnRef = execBtn;
@@ -1884,6 +2056,11 @@ public class AIChatActivity extends BaseActivity {
                     } catch (Exception ignore) { }
                     // 2) 自动解读：①写入 toolCallInfo.interpretedMessage（工具卡片内展示）
                     //              ②再添加一条新的独立 AI 主气泡（addAIMessage）——两处都显示
+                    // 本地模型解读可能耗时数十秒，先给进度提示避免用户以为功能卡死
+                    addSystemMessage("💡 正在AI解读结果...");
+                    scrollToBottom();
+                    // 记录进度消息位置，无模型可用时关闭提示避免"正在解读"文案残留
+                    final int progressMsgPos = chatHistory.size() - 1;
                     final Runnable doContinue = onComplete;
                     final String fallback = resultStr;
                     final int targetMsgPos = msgPos;
@@ -1891,16 +2068,28 @@ public class AIChatActivity extends BaseActivity {
                         new ToolResultInterpreter.InterpretCallback() {
                             @Override
                             public void onInterpreted(String summary) {
-                                String content = (summary != null && !summary.isEmpty()) ? summary : fallback;
+                                boolean hasInterpret = summary != null && !summary.isEmpty();
+                                String content = hasInterpret ? summary : fallback;
                                 writeInterpretedToMessage(targetMsgPos, content);
-                                addAIMessage(content);
+                                // 只有真正的 AI 解读才额外加 AI 主气泡；
+                                // fallback（模板文本）已在工具卡片展示，不再重复显示
+                                if (hasInterpret) {
+                                    addAIMessage(content);
+                                    // 同步注入本地模型主对话上下文，使后续追问可连续对话
+                                    injectInterpretToLocalContext(content);
+                                } else {
+                                    // 无任何可用模型（在线/本地均不可用）：关闭进度提示，
+                                    // 工具结果已以模板形式展示在工具卡片，功能不中断
+                                    updateSystemMessageText(progressMsgPos, "ℹ️ 无可用AI模型解读，已展示模板结果");
+                                }
                                 scrollToBottom();
                                 if (doContinue != null) doContinue.run();
                             }
                             @Override
                             public void onError(String error) {
                                 writeInterpretedToMessage(targetMsgPos, fallback);
-                                addAIMessage(fallback);
+                                // 同上：模板兜底内容已在工具卡片内，不重复加 AI 气泡
+                                updateSystemMessageText(progressMsgPos, "ℹ️ AI解读失败，已展示模板结果");
                                 scrollToBottom();
                                 if (doContinue != null) doContinue.run();
                             }
@@ -2480,7 +2669,12 @@ public class AIChatActivity extends BaseActivity {
                             try {
                                 ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
                             } catch (Exception ignore) { }
-                            // 2) 自动解读：①写工具卡片 + ②新的独立 AI 主气泡，两处都显示
+                            // 2) 自动解读：①写工具卡片 + ②新的独立 AI 主气泡（仅真正解读时）
+                            // 解读可能耗时较长，先给进度提示
+                            addSystemMessage("💡 正在AI解读结果...");
+                            scrollToBottom();
+                            // 记录进度消息位置，无模型可用时关闭提示避免"正在解读"文案残留
+                            final int progressMsgPos2 = chatHistory.size() - 1;
                             final int nextIndex = stepIndex + 1;
                             final String fallback = resultStr;
                             final int targetMsgPos2 = msgPos;
@@ -2488,16 +2682,26 @@ public class AIChatActivity extends BaseActivity {
                                 new ToolResultInterpreter.InterpretCallback() {
                                     @Override
                                     public void onInterpreted(String summary) {
-                                        String content = (summary != null && !summary.isEmpty()) ? summary : fallback;
+                                        boolean hasInterpret = summary != null && !summary.isEmpty();
+                                        String content = hasInterpret ? summary : fallback;
                                         writeInterpretedToMessage(targetMsgPos2, content);
-                                        addAIMessage(content);
+                                        // 仅真正 AI 解读才加主气泡，模板兜底已在工具卡片展示
+                                        if (hasInterpret) {
+                                            addAIMessage(content);
+                                            // 同步注入本地模型主对话上下文，使后续追问可连续对话
+                                            injectInterpretToLocalContext(content);
+                                        } else {
+                                            // 无任何可用模型：关闭进度提示，组合流程继续执行下一步
+                                            updateSystemMessageText(progressMsgPos2, "ℹ️ 无可用AI模型解读，已展示模板结果");
+                                        }
                                         scrollToBottom();
                                         executeCompositeFlow(flow, nextIndex);
                                     }
                                     @Override
                                     public void onError(String error) {
                                         writeInterpretedToMessage(targetMsgPos2, fallback);
-                                        addAIMessage(fallback);
+                                        // 模板兜底内容已在工具卡片内，不重复加 AI 气泡
+                                        updateSystemMessageText(progressMsgPos2, "ℹ️ AI解读失败，已展示模板结果");
                                         scrollToBottom();
                                         executeCompositeFlow(flow, nextIndex);
                                     }
@@ -2608,7 +2812,7 @@ public class AIChatActivity extends BaseActivity {
                     try {
                         ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
                     } catch (Exception ignore) { }
-                    // 2) 自动解读：①写工具卡片 + ②新的独立 AI 主气泡，两处都显示
+                    // 2) 自动解读：①写工具卡片 + ②仅真正解读时加独立 AI 主气泡（模板兜底不重复显示）
                     final int nextIndex = stepIndex + 1;
                     final String fallback = resultStr;
                     final int targetMsgPos3 = msgPos;
@@ -2616,16 +2820,21 @@ public class AIChatActivity extends BaseActivity {
                         new ToolResultInterpreter.InterpretCallback() {
                             @Override
                             public void onInterpreted(String summary) {
-                                String content = (summary != null && !summary.isEmpty()) ? summary : fallback;
+                                boolean hasInterpret = summary != null && !summary.isEmpty();
+                                String content = hasInterpret ? summary : fallback;
                                 writeInterpretedToMessage(targetMsgPos3, content);
-                                addAIMessage(content);
+                                if (hasInterpret) {
+                                    addAIMessage(content);
+                                    // 同步注入本地模型主对话上下文，使后续追问可连续对话
+                                    injectInterpretToLocalContext(content);
+                                }
                                 scrollToBottom();
                                 executeCompositeFlow(flow, nextIndex);
                             }
                             @Override
                             public void onError(String error) {
                                 writeInterpretedToMessage(targetMsgPos3, fallback);
-                                addAIMessage(fallback);
+                                // 模板兜底已在工具卡片展示，不重复加 AI 气泡
                                 scrollToBottom();
                                 executeCompositeFlow(flow, nextIndex);
                             }
@@ -3034,33 +3243,21 @@ public class AIChatActivity extends BaseActivity {
 
         saveAttachmentsToLocal(uris).thenAccept(localFileMap -> {
             runOnUiThread(() -> {
+                // 1. 先展示上传状态（状态闭环起点：文件已落盘，开始解析）
                 StringBuilder displayMsg = new StringBuilder();
-                displayMsg.append("📎 已上传 ").append(filtered.size()).append(" 个附件\n\n");
+                displayMsg.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
                 if (!skippedFiles.isEmpty()) {
                     displayMsg.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
                 }
-                displayMsg.append("---\n\n");
-                int idx = 1;
-                int totalLen = 0;
                 for (ChatMessage.Attachment att : filtered) {
-                    displayMsg.append("【文件").append(idx++).append("】").append(att.name).append("\n");
-                    displayMsg.append("  类型: ").append(att.type).append("\n");
-                    displayMsg.append("  大小: ").append(formatFileSize(att.size)).append("\n");
                     Uri uri = Uri.parse(att.url);
-                    String localPath = localFileMap.get(uri);
-                    if (localPath != null) {
-                        displayMsg.append("  状态: 已准备就绪\n");
-                    } else {
-                        displayMsg.append("  状态: 保存失败\n");
-                    }
-                    displayMsg.append("\n");
-                    totalLen += att.name.length() + att.type.length();
-                    if (totalLen > 2000) {
-                        displayMsg.append("... 更多文件已省略\n");
-                        break;
-                    }
+                    boolean saved = localFileMap.get(uri) != null;
+                    displayMsg.append("• ").append(att.name)
+                            .append("（").append(formatFileSize(att.size)).append("）")
+                            .append(saved ? " → 正在解析..." : " → ❗保存失败")
+                            .append("\n");
                 }
-                displayMsg.append("AI 正在分析附件内容，请稍候...");
+                displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
 
                 ChatMessage sysMsg = ChatMessage.createSystemMessage(
                         java.util.UUID.randomUUID().toString(),
@@ -3071,13 +3268,130 @@ public class AIChatActivity extends BaseActivity {
                 chatHistory.add(sysMsg);
                 if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
                 scrollToBottom();
-                saveHistoryAsync();
 
-                String augmentedMessage = buildAgentAugmentedMessage(originalMessage, filtered, localFileMap, skippedFiles);
-                AppLogger.ai(TAG, "Agent augmented message with " + localFileMap.size() + " local files");
-                processChatMessage(augmentedMessage);
+                // 2. 异步预解析（带进度更新 + 缓存 + 错误分类）
+                getAttachmentPreParser().parseAllAsync(filtered, localFileMap,
+                        new com.oilquiz.app.ai.chat.input.AttachmentPreParser.ProgressCallback() {
+                    @Override
+                    public void onProgress(int doneCount, int totalCount, String currentFile, String stage) {
+                        runOnUiThread(() -> {
+                            StringBuilder sb = rebuildParseProgressMsg(filtered, localFileMap, skippedFiles,
+                                    doneCount, totalCount, currentFile, stage);
+                            sysMsg.content = sb.toString();
+                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            scrollToBottom();
+                        });
+                    }
+
+                    @Override
+                    public void onAllCompleted(List<com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> results) {
+                        runOnUiThread(() -> {
+                            // 3. 解析完成：展示确定性结果（成功/部分成功/失败+原因）
+                            sysMsg.content = buildParseSummaryMsg(filtered, results).toString();
+                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            scrollToBottom();
+                            saveHistoryAsync();
+
+                            // 4. 构建确定性状态的增强消息，交给 Agent
+                            java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> resultMap =
+                                    new java.util.HashMap<>();
+                            for (com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r : results) {
+                                resultMap.put(r.attachmentId, r);
+                            }
+                            String augmentedMessage = buildAgentAugmentedMessage(
+                                    originalMessage, filtered, localFileMap, skippedFiles, resultMap);
+                            AppLogger.ai(TAG, "Agent augmented message with " + localFileMap.size()
+                                    + " local files, " + results.size() + " parse results");
+                            // 附件处理必须走 Agent 引擎（含工具调用），不能因聊天模式不同而退化为纯文本推理
+                            processChatMessageWithAgent(augmentedMessage);
+                        });
+                    }
+                });
             });
         });
+    }
+
+    /**
+     * 附件预解析器（懒加载）
+     */
+    private com.oilquiz.app.ai.chat.input.AttachmentPreParser attachmentPreParser;
+    private com.oilquiz.app.ai.chat.input.AttachmentPreParser getAttachmentPreParser() {
+        if (attachmentPreParser == null) {
+            attachmentPreParser = new com.oilquiz.app.ai.chat.input.AttachmentPreParser(this);
+        }
+        return attachmentPreParser;
+    }
+
+    /**
+     * 构建解析进度中的系统消息
+     */
+    private StringBuilder rebuildParseProgressMsg(List<ChatMessage.Attachment> filtered,
+            java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
+            int doneCount, int totalCount, String currentFile, String stage) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
+        if (skippedFiles != null && !skippedFiles.isEmpty()) {
+            sb.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+        }
+        int idx = 0;
+        for (ChatMessage.Attachment att : filtered) {
+            String statusText;
+            if (idx < doneCount) {
+                statusText = att.isExtracted ? "✅ 解析完成" : "❌ 解析失败";
+            } else if (idx == doneCount) {
+                statusText = "⏳ " + stage;
+            } else {
+                statusText = "⏸ 排队中";
+            }
+            sb.append("• ").append(att.name).append(" → ").append(statusText).append("\n");
+            idx++;
+        }
+        sb.append("\n⏳ 正在解析附件（").append(doneCount).append("/").append(totalCount).append("）...");
+        return sb;
+    }
+
+    /**
+     * 构建解析完成的确定性结果摘要（用户可见）
+     */
+    private StringBuilder buildParseSummaryMsg(List<ChatMessage.Attachment> filtered,
+            List<com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> results) {
+        java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> map = new java.util.HashMap<>();
+        for (com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r : results) {
+            map.put(r.attachmentId, r);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("📎 附件解析结果\n\n");
+        for (ChatMessage.Attachment att : filtered) {
+            com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r = map.get(att.id);
+            sb.append("• ").append(att.name);
+            if (r == null) {
+                sb.append(" → ❓ 状态未知\n");
+            } else if (r.isUsable()) {
+                sb.append(" → ✅ ").append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS ? "部分解析成功" : "解析成功");
+                sb.append("（").append(methodLabel(r.method)).append("）");
+                if (r.fromCache) sb.append("（缓存）");
+                if (r.errorMessage != null) sb.append("：").append(r.errorMessage);
+                sb.append("\n");
+            } else {
+                sb.append(" → ❌ 解析失败：").append(r.errorMessage != null ? r.errorMessage : "未知错误").append("\n");
+            }
+        }
+        sb.append("\n✅ AI 开始分析附件内容...");
+        return sb;
+    }
+
+    /**
+     * 解析方式可读标签
+     */
+    private String methodLabel(String method) {
+        if (method == null) return "未知";
+        switch (method) {
+            case "text_extract": return "文本提取";
+            case "online_ocr": return "在线视觉模型OCR";
+            case "local_ocr": return "本地OCR";
+            case "pdf_pages_ocr": return "PDF逐页OCR";
+            default: return method;
+        }
     }
 
     private java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> saveAttachmentsToLocal(List<Uri> uris) {
@@ -3111,24 +3425,58 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private String buildAgentAugmentedMessage(String originalMessage, List<ChatMessage.Attachment> attachments,
-                                               java.util.Map<Uri, String> localFileMap, List<String> skippedFiles) {
+                                               java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
+                                               java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> parseResults) {
         StringBuilder sb = new StringBuilder();
         sb.append("用户消息: ").append(originalMessage).append("\n\n");
-        sb.append("=== 已上传附件 ===\n\n");
+        sb.append("=== 附件解析状态（系统已预处理，状态确定） ===\n\n");
 
+        int successCount = 0;
         int idx = 1;
         for (ChatMessage.Attachment att : attachments) {
             Uri uri = Uri.parse(att.url);
             String localPath = localFileMap.get(uri);
+            com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r =
+                    parseResults != null ? parseResults.get(att.id) : null;
 
-            sb.append("【附件").append(idx).append("】\n");
-            sb.append("  文件名: ").append(att.name).append("\n");
-            sb.append("  类型: ").append(att.type).append("\n");
-            sb.append("  大小: ").append(formatFileSize(att.size)).append("\n");
+            sb.append("【附件").append(idx).append("】").append(att.name).append("\n");
+            sb.append("  类型: ").append(att.type).append("，大小: ").append(formatFileSize(att.size)).append("\n");
             if (localPath != null) {
                 sb.append("  本地路径: ").append(localPath).append("\n");
+            }
+
+            if (r != null && r.isUsable()) {
+                successCount++;
+                sb.append("  解析状态: ").append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS
+                        ? "PARTIAL_SUCCESS" : "SUCCESS").append("\n");
+                sb.append("  解析方式: ").append(r.method).append(r.fromCache ? "（缓存命中）" : "").append("\n");
+                if (r.errorMessage != null) {
+                    sb.append("  备注: ").append(r.errorMessage).append("\n");
+                }
+                sb.append("  内容如下:\n");
+                sb.append("--- 附件内容开始 ---\n");
+                String content = r.content;
+                int maxLen = 12000;
+                if (content.length() > maxLen) {
+                    sb.append(content, 0, maxLen);
+                    sb.append("\n...(内容过长已截断，完整内容共 ").append(content.length())
+                      .append(" 字符，可用 file_read_lines 工具读取本地路径获取剩余部分)\n");
+                } else {
+                    sb.append(content).append("\n");
+                }
+                sb.append("--- 附件内容结束 ---\n");
             } else {
-                sb.append("  本地路径: (未保存成功，跳过)\n");
+                // 失败：明确错误码与原因，禁止模型笼统说"未检测到附件"
+                sb.append("  解析状态: FAILED\n");
+                if (r != null) {
+                    sb.append("  错误码: ").append(r.errorCode).append("\n");
+                    sb.append("  失败原因: ").append(r.errorMessage).append("\n");
+                    if (localPath != null) {
+                        sb.append("  可选操作: 可尝试用工具重新解析（file_parse_text/ocr_recognize）\n");
+                    }
+                } else {
+                    sb.append("  失败原因: 未获取到解析结果\n");
+                }
             }
             sb.append("\n");
             idx++;
@@ -3138,32 +3486,25 @@ public class AIChatActivity extends BaseActivity {
             sb.append("⚠️ 以下文件已跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
         }
 
-        sb.append("=== 工具调用格式 ===\n");
-        sb.append("必须使用以下格式调用工具，参数用JSON格式：\n");
-        sb.append("  <|tool_call_begin|>app_toolkit|{\"action\": \"action_name\", \"param_name\": \"value\"}<|tool_call_end|>\n\n");
+        sb.append("=== 重要规则 ===\n");
+        if (successCount > 0) {
+            sb.append("- 以上 ").append(successCount).append(" 个附件的内容已由系统解析完成并直接提供，请基于上述内容直接回答，无需再调用解析工具\n");
+        }
+        sb.append("- 附件确实已上传，严禁说“未检测到附件”或要求用户重新上传\n");
+        sb.append("- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n");
+        sb.append("- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n");
 
-        sb.append("=== 可用工具及参数 ===\n");
-        sb.append("1. file_parse_text - 解析文本文件、PDF\n");
-        sb.append("   参数: file_path=本地文件路径 (必填)\n");
-        sb.append("2. file_parse_csv - 解析CSV表格\n");
-        sb.append("   参数: file_path=本地文件路径 (必填)\n");
-        sb.append("3. file_parse_json - 解析JSON文件\n");
-        sb.append("   参数: file_path=本地文件路径 (必填)\n");
-        sb.append("4. file_read_lines - 按行读取文件\n");
-        sb.append("   参数: file_path=本地文件路径 (必填), start_line, line_count\n");
-        sb.append("5. ocr_recognize - 图片文字识别\n");
-        sb.append("   参数: image_path=图片本地路径 (必填), language(可选)\n");
-        sb.append("6. ocr_recognize_pdf - PDF文字识别\n");
-        sb.append("   参数: pdf_path=PDF本地路径 (必填)\n\n");
+        sb.append("=== 备用工具（仅在内容截断或需重试时使用） ===\n");
+        sb.append("调用格式: <|tool_call_begin|>app_toolkit|{\"action\": \"名称\", ...}<|tool_call_end|>\n");
+        sb.append("- file_parse_text: file_path | file_read_lines: file_path, start_line, line_count\n");
+        sb.append("- ocr_recognize: image_path | ocr_recognize_pdf: pdf_path\n\n");
 
-        sb.append("=== 重要提示 ===\n");
-        sb.append("- 从附件列表中复制完整的「本地路径」作为参数值\n");
-        sb.append("- 文本/PDF文件优先使用 file_parse_text，失败再试 ocr_recognize_pdf\n");
-        sb.append("- 图片必须使用 ocr_recognize\n");
-        sb.append("- 工具返回的内容可能很长，先读取摘要再决定是否继续\n");
-        sb.append("- 解析完所有需要的附件后再回答用户问题\n\n");
-
-        sb.append("请开始处理附件。");
+        // 直发附件的默认占位文案已表达“分析附件”意图，不再重复注入结尾指令
+        if (!DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage)) {
+            sb.append("请基于附件内容回答用户问题。");
+        } else {
+            sb.append("开始分析。");
+        }
 
         return sb.toString();
     }
@@ -3178,158 +3519,284 @@ public class AIChatActivity extends BaseActivity {
     private final java.util.concurrent.atomic.AtomicBoolean isProcessingAttachments = new java.util.concurrent.atomic.AtomicBoolean(false);
     private static final int MAX_CONCURRENT_ATTACHMENTS = 3; // 最大并发处理附件数
 
+    /** 直发附件（无文字输入）时的默认占位文案 */
+    private static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
+
     private void processMessageWithAttachments(String originalMessage, List<ChatMessage.Attachment> attachments) {
-        // 并发控制：检查是否正在处理附件
-        if (isProcessingAttachments.compareAndSet(false, true)) {
-            showToast("正在解析附件内容...");
-        } else {
-            showToast("正在处理其他附件，请稍候...");
-            return;
-        }
-
-        // 限制并发处理的附件数量
-        List<ChatMessage.Attachment> limitedAttachments = attachments;
-        if (attachments.size() > MAX_CONCURRENT_ATTACHMENTS) {
-            limitedAttachments = attachments.subList(0, MAX_CONCURRENT_ATTACHMENTS);
-            showToast("附件过多，仅处理前 " + MAX_CONCURRENT_ATTACHMENTS + " 个");
-        }
-
-        // 过滤有效附件
-        List<Uri> uris = new ArrayList<>();
+        // 过滤有效附件（限制数量与大小）
+        List<ChatMessage.Attachment> filtered = new ArrayList<>();
         List<String> skippedFiles = new ArrayList<>();
-        List<ChatMessage.Attachment> validAttachments = new ArrayList<>();
-        for (ChatMessage.Attachment att : limitedAttachments) {
-            if (att.size > MAX_ATTACHMENT_FILE_SIZE) {
+        for (ChatMessage.Attachment att : attachments) {
+            if (filtered.size() >= MAX_CONCURRENT_ATTACHMENTS) {
+                skippedFiles.add(att.name + "(超出数量限制)");
+            } else if (att.size > MAX_ATTACHMENT_FILE_SIZE) {
                 skippedFiles.add(att.name + "(" + formatFileSize(att.size) + ")");
-                continue;
+            } else {
+                filtered.add(att);
             }
-            uris.add(Uri.parse(att.url));
-            validAttachments.add(att);
         }
 
         if (!skippedFiles.isEmpty()) {
-            showToast("跳过 " + skippedFiles.size() + " 个大文件");
+            showToast("跳过 " + skippedFiles.size() + " 个文件");
         }
 
-        if (uris.isEmpty()) {
-            // 没有有效附件，直接发送文本
-            isProcessingAttachments.set(false);
+        if (filtered.isEmpty()) {
             if (!originalMessage.isEmpty()) {
                 processChatMessage(originalMessage);
             }
             return;
         }
 
-        final String displayMessage = originalMessage;
-        final List<String> finalSkippedFiles = skippedFiles;
-        final List<ChatMessage.Attachment> finalValidAttachments = validAttachments;
+        showToast("正在准备附件供AI处理...");
 
-        // 使用自定义线程池限制并发
-        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        List<Uri> uris = new ArrayList<>();
+        for (ChatMessage.Attachment att : filtered) {
+            uris.add(Uri.parse(att.url));
+        }
 
-        extractAllAttachmentContents(uris).thenAcceptAsync(extractedMap -> {
-            // 检查Activity状态
+        // 与在线 Agent 路径同一套闭环：落盘 → 预解析（缓存+错误分类）→ 确定性注入 → 调用本地模型推理
+        saveAttachmentsToLocal(uris).thenAccept(localFileMap -> {
             if (isFinishing() || isDestroyed()) {
                 AppLogger.w(TAG, "Activity已销毁，取消附件发送");
-                isProcessingAttachments.set(false);
-                executor.shutdown();
                 return;
             }
 
-            runOnUiThread(() -> {
-                try {
-                    int successCount = 0;
-                    StringBuilder allParsedContent = new StringBuilder();
-                    java.util.List<java.util.Map.Entry<Uri, String>> successfulExtracts = new ArrayList<>();
-
-                    for (java.util.Map.Entry<Uri, String> entry : extractedMap.entrySet()) {
-                        String content = entry.getValue();
-                        if (content != null && !isExtractFailed(content)) {
-                            successCount++;
-                            successfulExtracts.add(entry);
-                            String fileName = getFileNameFromUri(entry.getKey());
-                            allParsedContent.append("=== 文件: ").append(fileName != null ? fileName : "未知文件").append(" ===\n");
-                            allParsedContent.append(content).append("\n\n");
-                            
-                            // 更新对应附件的提取内容和状态
-                            updateAttachmentExtractionStatus(entry.getKey(), content);
+            // 多模态路径：如果有图片附件且本地多模态已加载，直接走视觉理解
+            if (LlamaHelper.isMultimodalLoaded()) {
+                ChatMessage.Attachment imageAtt = null;
+                String imagePath = null;
+                for (ChatMessage.Attachment att : filtered) {
+                    if (isImageFileName(att.name)) {
+                        Uri attUri = Uri.parse(att.url);
+                        String localPath = localFileMap.get(attUri);
+                        if (localPath != null) {
+                            imageAtt = att;
+                            imagePath = localPath;
+                            break;
                         }
                     }
-
-                    if (successCount == 0 && finalSkippedFiles.isEmpty()) {
-                        showToast("所有附件解析失败");
-                        addSystemMessage("附件解析失败，请检查文件格式或稍后重试。", ChatMessage.SystemMessageType.ERROR);
-                        return;
-                    }
-
-                    if (successCount > 0) {
-                        showToast("已解析 " + successCount + " 个附件");
-                    }
-
-                    StringBuilder parsedContentDisplay = new StringBuilder();
-                    parsedContentDisplay.append("附件解析结果\n\n");
-                    parsedContentDisplay.append("共解析 ").append(successCount).append(" 个文件\n");
-                    if (!finalSkippedFiles.isEmpty()) {
-                        parsedContentDisplay.append("跳过: ").append(String.join(", ", finalSkippedFiles)).append("\n");
-                    }
-                    parsedContentDisplay.append("\n---\n\n");
-
-                    int idx = 1;
-                    int totalContentLength = 0;
-                    for (java.util.Map.Entry<Uri, String> entry : successfulExtracts) {
-                        String fileName = getFileNameFromUri(entry.getKey());
-                        String content = entry.getValue();
-                        if (content == null) continue;
-
-                        int displayLimit = 500;
-                        if (totalContentLength + content.length() > 3000) {
-                            displayLimit = Math.max(100, 3000 - totalContentLength);
-                        }
-
-                        parsedContentDisplay.append("【文件").append(idx++).append("】");
-                        if (fileName != null) parsedContentDisplay.append(" ").append(fileName);
-                        parsedContentDisplay.append("\n");
-
-                        if (content.length() > displayLimit) {
-                            parsedContentDisplay.append(content, 0, displayLimit)
-                                    .append("\n...(内容过长，已截断，共").append(content.length()).append("字符)\n\n");
-                            totalContentLength += displayLimit;
-                        } else {
-                            parsedContentDisplay.append(content).append("\n\n");
-                            totalContentLength += content.length();
-                        }
-                    }
-
-                    chatHistory.add(ChatMessage.createSystemMessage(
-                            java.util.UUID.randomUUID().toString(),
-                            parsedContentDisplay.toString(),
-                            ChatMessage.SystemMessageType.INFO,
-                            System.currentTimeMillis()
-                    ));
-                    if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-                    scrollToBottom();
-                    saveHistoryAsync();
-
-                    // 附件已解析显示，不调用AI推理
-                    AppLogger.i(TAG, "Attachments parsed: " + successCount + " files, no AI inference");
-
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "附件处理异常: " + e.getMessage(), e);
-                    showToast("附件处理失败: " + e.getMessage());
-                } finally {
-                    // 释放并发控制
-                    isProcessingAttachments.set(false);
-                    executor.shutdown();
                 }
+                if (imageAtt != null && imagePath != null) {
+                    final String finalImagePath = imagePath;
+                    final String finalImageName = imageAtt.name;
+                    AppLogger.ai(TAG, "Multimodal path: using image " + finalImageName + " -> " + finalImagePath);
+                    runOnUiThread(() -> processMultimodalWithImage(originalMessage, finalImagePath, finalImageName));
+                    return;
+                }
+            }
+            runOnUiThread(() -> {
+                // 1. 展示上传状态
+                StringBuilder displayMsg = new StringBuilder();
+                displayMsg.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
+                if (!skippedFiles.isEmpty()) {
+                    displayMsg.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+                }
+                for (ChatMessage.Attachment att : filtered) {
+                    Uri uri = Uri.parse(att.url);
+                    boolean saved = localFileMap.get(uri) != null;
+                    displayMsg.append("• ").append(att.name)
+                            .append("（").append(formatFileSize(att.size)).append("）")
+                            .append(saved ? " → 正在解析..." : " → ❗保存失败")
+                            .append("\n");
+                }
+                displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
+
+                ChatMessage sysMsg = ChatMessage.createSystemMessage(
+                        java.util.UUID.randomUUID().toString(),
+                        displayMsg.toString(),
+                        ChatMessage.SystemMessageType.INFO,
+                        System.currentTimeMillis()
+                );
+                chatHistory.add(sysMsg);
+                if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                scrollToBottom();
+
+                // 2. 异步预解析（带进度更新 + 缓存 + 错误分类）
+                getAttachmentPreParser().parseAllAsync(filtered, localFileMap,
+                        new com.oilquiz.app.ai.chat.input.AttachmentPreParser.ProgressCallback() {
+                    @Override
+                    public void onProgress(int doneCount, int totalCount, String currentFile, String stage) {
+                        runOnUiThread(() -> {
+                            StringBuilder sb = rebuildParseProgressMsg(filtered, localFileMap, skippedFiles,
+                                    doneCount, totalCount, currentFile, stage);
+                            sysMsg.content = sb.toString();
+                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            scrollToBottom();
+                        });
+                    }
+
+                    @Override
+                    public void onAllCompleted(List<com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> results) {
+                        runOnUiThread(() -> {
+                            // 3. 展示确定性解析结果
+                            sysMsg.content = buildParseSummaryMsg(filtered, results).toString();
+                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            scrollToBottom();
+                            saveHistoryAsync();
+
+                            // 4. 拼接解析内容，真正调用本地模型推理
+                            StringBuilder allContent = new StringBuilder();
+                            int successCount = 0;
+                            List<String> failedDesc = new ArrayList<>();
+                            for (com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r : results) {
+                                if (r.isUsable()) {
+                                    successCount++;
+                                    String name = getAttachmentNameById(filtered, r.attachmentId);
+                                    allContent.append("=== 文件: ").append(name).append(" ===\n");
+                                    allContent.append(r.content).append("\n\n");
+                                } else if (r.errorMessage != null) {
+                                    failedDesc.add(getAttachmentNameById(filtered, r.attachmentId)
+                                            + "[" + r.errorCode + "]: " + r.errorMessage);
+                                }
+                            }
+
+                            if (successCount == 0) {
+                                String reason = failedDesc.isEmpty() ? "未知原因" : String.join("; ", failedDesc);
+                                addSystemMessage("所有附件解析失败，无法交给AI分析：" + reason,
+                                        ChatMessage.SystemMessageType.ERROR);
+                                return;
+                            }
+
+                            String prompt = buildSafeAttachmentAnalysisPrompt(
+                                    originalMessage, allContent.toString(), successCount);
+                            if (prompt == null) {
+                                addSystemMessage("构建附件分析提示词失败", ChatMessage.SystemMessageType.ERROR);
+                                return;
+                            }
+                            AppLogger.ai(TAG, "Local model attachment analysis: " + successCount
+                                    + " files parsed, prompt_len=" + prompt.length());
+                            // 调用本地模型推理（不再只展示解析结果）
+                            processChatMessage(prompt);
+                        });
+                    }
+                });
             });
-        }, executor).exceptionally(ex -> {
-            // 异常处理
-            AppLogger.e(TAG, "附件内容提取失败: " + ex.getMessage());
-            isProcessingAttachments.set(false);
-            executor.shutdown();
-            runOnUiThread(() -> showToast("附件处理失败: " + ex.getMessage()));
-            return null;
         });
+    }
+
+    /**
+     * 判断文件名是否为图片
+     */
+    private boolean isImageFileName(String fileName) {
+        if (fileName == null) return false;
+        String lower = fileName.toLowerCase();
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
+                || lower.endsWith(".bmp") || lower.endsWith(".webp");
+    }
+
+    /**
+     * 多模态视觉推理：使用本地多模态模型直接理解图片
+     */
+    private void processMultimodalWithImage(String userText, String imagePath, String imageName) {
+        if (aiService == null) { addSystemMessage("AI服务未初始化"); return; }
+
+        synchronized (streamingLock) {
+            if (isGenerating) {
+                showToast("AI正在生成中，请稍候");
+                return;
+            }
+        }
+
+        // 构建提示词（包含用户文字和图片引用）
+        String prompt = (userText != null && !userText.trim().isEmpty())
+                ? userText.trim()
+                : "请描述这张图片的内容";
+
+        AppLogger.ai(TAG, "Multimodal inference: prompt='" + prompt + "', image=" + imageName);
+
+        // 初始化流式状态
+        synchronized (streamingLock) {
+            agentToolLoopCount = 0;
+            thinkingRoundEnded = false;
+            thinkingRoundCount = 1;
+            currentThinkingMessageIndex = -1;
+            currentStreamingContent = new StringBuilder();
+            currentThinkingContent = new StringBuilder();
+            currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+            resetStreamingTts();
+            resetStreamingState();
+
+            ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
+            initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
+            initialMessage.status = ChatMessage.MessageStatus.GENERATING;
+            chatHistory.add(initialMessage);
+            currentStreamingMessageIndex = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
+            scrollToBottom();
+        }
+
+        beginGeneration();
+
+        final int streamingIndex = currentStreamingMessageIndex;
+        final String streamingId = currentStreamingMessageId;
+
+        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
+
+        boolean enableThinking = ChatModeManager.getInstance(this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+        if (outputRouter != null) {
+            outputRouter.reset();
+            outputRouter.setThinkingEnabled(enableThinking);
+        }
+        isInThinking = enableThinking;
+
+        int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 2048;
+        float temperature = 0.7f;
+        float topP = 0.9f;
+        int topK = 40;
+
+        LlamaHelper.generateWithImage(prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking,
+            new LlamaHelper.TokenCallback() {
+                @Override
+                public void onToken(String token) {
+                    runOnUiThread(() -> {
+                        if (currentStreamingContent != null) {
+                            currentStreamingContent.append(token);
+                            if (chatAdapter != null && currentStreamingMessageIndex < chatHistory.size()) {
+                                ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                                msg.content = currentStreamingContent.toString();
+                                chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
+                            }
+                            scrollToBottom();
+                        }
+                    });
+                }
+
+                @Override
+                public void onComplete(String fullText) {
+                    runOnUiThread(() -> {
+                        String finalText = (fullText != null && !fullText.isEmpty()) ? fullText :
+                                (currentStreamingContent != null ? currentStreamingContent.toString() : "");
+                        if (chatAdapter != null && currentStreamingMessageIndex < chatHistory.size()) {
+                            ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+                            msg.content = finalText;
+                            msg.status = ChatMessage.MessageStatus.COMPLETED;
+                            chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
+                        }
+                        endGeneration();
+                        saveHistoryAsync();
+                        scrollToBottom();
+                    });
+                }
+
+                @Override
+                public void onError(String error) {
+                    runOnUiThread(() -> {
+                        addSystemMessage("多模态推理失败: " + error, ChatMessage.SystemMessageType.ERROR);
+                        endGeneration();
+                    });
+                }
+            }
+        );
+    }
+
+    /**
+     * 根据附件 ID 查找文件名
+     */
+    private String getAttachmentNameById(List<ChatMessage.Attachment> attachments, String id) {
+        for (ChatMessage.Attachment att : attachments) {
+            if (att.id != null && att.id.equals(id)) return att.name;
+        }
+        return "未知文件";
     }
 
     /**
@@ -3337,10 +3804,21 @@ public class AIChatActivity extends BaseActivity {
      */
     private String buildSafeAttachmentAnalysisPrompt(String originalMessage, String attachmentContent, int fileCount) {
         try {
+            // 防崩溃：附件内容上限随当前模式的上下文窗口动态计算
+            // 中文约 1 字 ≈ 1 token，预留输出与历史对话空间，附件内容最多占上下文 40%
+            int contextSize = aiConfig.getContextSize();
+            int contentLimit = Math.min((int) (contextSize * 0.4), 16000);
+            if (attachmentContent != null && attachmentContent.length() > contentLimit) {
+                AppLogger.w(TAG, "附件内容过长(" + attachmentContent.length() + " 字符, 上下文="
+                        + contextSize + ")，截断到 " + contentLimit);
+                attachmentContent = attachmentContent.substring(0, contentLimit)
+                        + "\n...[附件内容过长已截断，请基于已提供内容分析]";
+            }
+
             StringBuilder prompt = new StringBuilder();
             prompt.append("用户上传了 ").append(fileCount).append(" 个附件。");
 
-            if (originalMessage != null && !originalMessage.isEmpty() && !originalMessage.equals("请分析这些附件的内容")) {
+            if (originalMessage != null && !originalMessage.isEmpty() && !originalMessage.equals(DEFAULT_ATTACHMENT_MESSAGE)) {
                 prompt.append("用户问题：").append(originalMessage).append("\n\n");
             } else {
                 prompt.append("请分析这些附件的主要内容，并提供摘要。\n\n");
@@ -3353,10 +3831,12 @@ public class AIChatActivity extends BaseActivity {
 
             String finalPrompt = prompt.toString();
 
-            // 长度限制
-            if (finalPrompt.length() > 32768) {
-                AppLogger.w(TAG, "提示词过长(" + finalPrompt.length() + ")，截断到32768字符");
-                finalPrompt = finalPrompt.substring(0, 32768) + "...[内容过长已截断]";
+            // 最终硬保护：整个提示词不超过上下文 60%（给输出和历史留空间），防 native 层 SIGSEGV
+            int hardLimit = (int) (contextSize * 0.6);
+            if (finalPrompt.length() > hardLimit) {
+                AppLogger.w(TAG, "提示词仍超限(" + finalPrompt.length() + "/" + hardLimit + ")，强制截断");
+                finalPrompt = finalPrompt.substring(0, hardLimit)
+                        + "\n...[内容过长已截断]\n请基于以上内容回答。";
             }
 
             return finalPrompt;
@@ -3583,18 +4063,16 @@ public class AIChatActivity extends BaseActivity {
             // Agent 模式优先：在线AGENT走ReAct（含友好引导），本地AGENT进入本地Agent流程
             if (currentMode == ChatModeManager.ChatMode.AGENT) {
                 if (shouldUseOnlineModel()) {
+                    // 在线路径不需要强制本地标志，防止残留影响后续消息
+                    forceLocalAgentOnce = false;
                     // 在线agent：先显示友好引导，再走ReAct
                     showOnlineAgentFriendlyGuide(message);
                     processChatMessageWithAgent(message);
                     return;
                 }
-                // 本地agent：屏蔽，发送友好引导提示，不执行实际Agent调用
-                addSystemMessage("🚫 本地模型的 Agent 能力有限，暂不支持智能工具调用。\n\n"
-                        + "请切换到**在线模型**以使用完整的 Agent 功能：\n"
-                        + "1. 点击顶部模型名称 → 进入模型选择页面\n"
-                        + "2. 选择在线模型（如通义千问、DeepSeek 等）\n"
-                        + "3. 重新发送您的问题即可\n\n"
-                        + "在线模型支持实时搜索、天气查询、文件处理等智能工具调用，体验更佳！");
+                // 本地agent已禁用：引导用户切换到在线模型
+                forceLocalAgentOnce = false;
+                addSystemMessage("🚫 本地 Agent 已禁用\n\n本地模型的工具调用能力有限，请使用在线模型体验完整的 Agent 功能。\n\n切换方式：菜单 → 模型设置 → 选择在线模型", ChatMessage.SystemMessageType.WARNING);
                 return;
             }
 
@@ -3647,6 +4125,7 @@ public class AIChatActivity extends BaseActivity {
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+                resetStreamingTts();
                 resetStreamingState();
 
                 ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
@@ -3701,6 +4180,14 @@ public class AIChatActivity extends BaseActivity {
             endGeneration();
             addSystemMessage("处理消息时出错: " + e.getMessage());
         }
+    }
+
+    /**
+     * 强制走本地 Agent 流程（用户点击拦截提示中的"🚀 强行使用本地Agent"触发）。
+     * 可重复调用：每次点击都会把原始问题重新发送到本地 Agent 引擎执行。
+     */
+    private void forceRunLocalAgent(String message) {
+        addSystemMessage("🚫 本地 Agent 已禁用\n\n请使用在线模型体验完整的 Agent 功能。\n\n切换方式：菜单 → 模型设置 → 选择在线模型", ChatMessage.SystemMessageType.WARNING);
     }
 
     /**
@@ -3901,6 +4388,7 @@ public class AIChatActivity extends BaseActivity {
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+                resetStreamingTts();
                 resetStreamingState();
 
                 ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
@@ -3968,6 +4456,7 @@ public class AIChatActivity extends BaseActivity {
             synchronized (streamingLock) {
                 currentStreamingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+                resetStreamingTts();
 
                 ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
                 initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
@@ -4058,6 +4547,7 @@ public class AIChatActivity extends BaseActivity {
                                     currentStreamingContent.append(token);
                                 }
                             }
+                            feedStreamingTts(token);
                             onlineTokenCount++;
                             // 每 5 个 token 或每 80ms 更新一次 UI，避免刷屏
                             if (onlineTokenCount % 5 == 0) {
@@ -4105,6 +4595,9 @@ public class AIChatActivity extends BaseActivity {
                                     }
                                     saveHistoryAsync();
                                     scrollToBottom();
+
+                                    // 自动语音合成：在线回复完成后自动朗读（流式已朗读则冲刷收尾）
+                                    finishAutoSpeak(msg);
 
                                     // 在线模式直接使用 API 返回的 token 统计累加到 session
                                     if (finalCompletionTokens > 0 || finalPromptTokens > 0) {
@@ -4374,7 +4867,9 @@ public class AIChatActivity extends BaseActivity {
 
             case THINKING_TOKEN:
                 if (event.text != null) {
-                    handleStreamToken(event.text);
+                    // 思考 token 直接路由到思考布局，不能走 outputRouter：
+                    // Agent 模式 thinkingEnabled=false，processToken 会把思考内容当正文写入主消息
+                    appendAgentThinkingToken(event.text);
                 }
                 break;
 
@@ -4430,6 +4925,29 @@ public class AIChatActivity extends BaseActivity {
 
             default:
                 break;
+        }
+    }
+
+    /**
+     * Agent 模式思考 token 直接路由到思考布局（msg.thinkingContent）。
+     * 保证所有模式下思考内容都显示在思考布局中，不泄漏到主消息。
+     */
+    private void appendAgentThinkingToken(String token) {
+        if (token == null || token.isEmpty()) return;
+        if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size()) return;
+        String snapshot;
+        synchronized (streamingLock) {
+            if (currentThinkingContent == null) {
+                currentThinkingContent = new StringBuilder();
+            }
+            currentThinkingContent.append(token);
+            snapshot = currentThinkingContent.toString();
+        }
+        isInThinking = true;
+        ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+        msg.thinkingContent = snapshot;
+        if (chatAdapter != null) {
+            chatAdapter.updateMessageThinkingContent(currentStreamingMessageIndex, snapshot);
         }
     }
 
@@ -4639,6 +5157,7 @@ public class AIChatActivity extends BaseActivity {
                 totalTokensGenerated++;
             }
         }
+        feedStreamingTts(token);
         if (streamingUpdateManager != null) {
             streamingUpdateManager.addToken(token);
         } else {
@@ -4781,6 +5300,9 @@ public class AIChatActivity extends BaseActivity {
                     String prompt = messageIndex >= 1 ? chatHistory.get(messageIndex - 1).content : "";
                     if (!prompt.isEmpty()) cacheManager.cacheResponse(prompt, finalContent);
                 }
+
+                // 自动语音合成：开启时 AI 回复完成后自动朗读（流式已朗读则冲刷收尾）
+                finishAutoSpeak(finalMsg);
             }
             synchronized (streamingLock) {
                 currentStreamingContent = null;
@@ -4856,6 +5378,7 @@ public class AIChatActivity extends BaseActivity {
                     currentStreamingContent.append(token);
                 }
             }
+            feedStreamingTts(token);
             // 节流：距上次 UI 更新 ≥ 80ms 才刷新，避免高频 token 卡顿主线程
             long now = System.currentTimeMillis();
             if (now - lastTokenUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
@@ -5532,6 +6055,9 @@ public class AIChatActivity extends BaseActivity {
             if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
             if (agentChatHandler != null) agentChatHandler.clearHistory();
 
+            // 重新生成时失效缓存，确保重新推理而非返回缓存结果
+            if (cacheManager != null) cacheManager.invalidateCache(userContent);
+
             addUserMessage(userContent);
             processChatMessage(userContent);
             AILogger.i(TAG, "Regenerating from user message at index " + userIndex);
@@ -5763,6 +6289,8 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null && actualRemoved > 0) chatAdapter.notifyItemRangeRemoved(removeStart, actualRemoved);
         saveHistoryAsync();
         if (aiService != null) aiService.chatClear();
+        // 重新生成时失效缓存，确保重新推理
+        if (cacheManager != null) cacheManager.invalidateCache(lastUserMsg);
         processChatMessage(lastUserMsg);
     }
 
@@ -5878,6 +6406,75 @@ public class AIChatActivity extends BaseActivity {
         }
         scrollToBottom(true);
         saveHistoryAsync();
+    }
+
+    /**
+     * 将工具结果的 AI 解读注入本地模型的主对话上下文（native chatMessages）。
+     * 本地多轮历史由 native KV 侧维护而非 chatHistory，若不注入，
+     * 用户追问时本地模型看不到解读内容，无法连续对话。
+     * 仅在当前使用本地模型且主上下文激活时执行；在线模型不需要（history 由 chatHistory 重建）。
+     */
+    private void injectInterpretToLocalContext(String interpretation) {
+        try {
+            if (interpretation == null || interpretation.isEmpty()) return;
+            if (shouldUseOnlineModel()) return;
+            if (!com.oilquiz.app.ai.jni.LlamaHelper.isChatContextActive()) return;
+            boolean ok = com.oilquiz.app.ai.jni.LlamaHelper.chatAddAssistant(interpretation);
+            AppLogger.ai(TAG, "Inject interpretation to local context: " + ok + ", len=" + interpretation.length());
+        } catch (Throwable t) {
+            AppLogger.aiE(TAG, "injectInterpretToLocalContext error: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 更新指定位置系统消息的文案（用于把"正在解读"进度提示改为终态）。
+     * 位置无效或该位置已不是系统消息（可能因后续插入发生偏移）时静默跳过。
+     */
+    private void updateSystemMessageText(int pos, String text) {
+        try {
+            if (chatHistory == null || pos < 0 || pos >= chatHistory.size()) return;
+            ChatMessage msg = chatHistory.get(pos);
+            if (msg == null || msg.type != ChatMessage.MessageType.SYSTEM) return;
+            msg.content = text;
+            if (chatAdapter != null) chatAdapter.notifyItemChanged(pos);
+        } catch (Throwable ignore) { }
+    }
+
+    /**
+     * 拉取引导步骤的动态选项列表（后台线程调用）。
+     * 执行 spec 声明的工具 action，从结果 Map 的 listKey 中提取字符串列表；
+     * 元素为 Map 时取 itemField 字段。spec 声明了 allOptionLabel 时列表顶部加空值"全部"项。
+     * 任何失败返回 null，调用方退化为纯手动输入。
+     */
+    private java.util.List<String> loadGuideDynamicOptions(ToolGuideFlow.GuideStep.DynamicOptionsSpec spec) {
+        try {
+            if (spec == null || spec.toolName == null || spec.action == null || spec.listKey == null) return null;
+            Map<String, Object> params = new HashMap<>();
+            params.put("action", spec.action);
+            AIToolResult result = AIToolManager.getInstance(this).executeTool(spec.toolName, params);
+            if (result == null || !result.isSuccess()) return null;
+            Object raw = result.getResult();
+            if (!(raw instanceof Map)) return null;
+            Object listObj = ((Map<?, ?>) raw).get(spec.listKey);
+            if (!(listObj instanceof List)) return null;
+
+            java.util.List<String> values = new ArrayList<>();
+            if (spec.allOptionLabel != null) values.add(""); // 空值 = "全部/不限"，CONFIRM 收集时自动跳过空值
+            for (Object item : (List<?>) listObj) {
+                String v = null;
+                if (item instanceof Map && spec.itemField != null) {
+                    Object f = ((Map<?, ?>) item).get(spec.itemField);
+                    v = f != null ? f.toString() : null;
+                } else if (item != null) {
+                    v = item.toString();
+                }
+                if (v != null && !v.trim().isEmpty()) values.add(v.trim());
+            }
+            return values;
+        } catch (Throwable t) {
+            AppLogger.aiE(TAG, "loadGuideDynamicOptions error: " + t.getMessage());
+            return null;
+        }
     }
 
     private void addSystemMessage(String message) {
@@ -6123,6 +6720,7 @@ public class AIChatActivity extends BaseActivity {
 
     /**
      * 设置键盘弹出时自动滚动到底部，并确保输入框可见
+     * 键盘弹出时自动折叠快捷工具栏，避免挤压输入框
      */
     private void setupKeyboardListener() {
         final android.view.View rootView = findViewById(android.R.id.content);
@@ -6132,7 +6730,14 @@ public class AIChatActivity extends BaseActivity {
             int screenHeight = rootView.getRootView().getHeight();
             int keypadHeight = screenHeight - r.bottom;
             if (keypadHeight > screenHeight * 0.15) {
-                // 键盘弹出，滚动到底部
+                // 键盘弹出：自动折叠快捷工具栏，为输入框腾出空间
+                if (quickBarExpanded && quickActionsChipGroup != null && quickActionsChipGroup.getVisibility() == View.VISIBLE) {
+                    quickBarExpanded = false;
+                    keyboardAutoCollapsed = true; // 标记为键盘自动折叠
+                    quickActionsChipGroup.setVisibility(View.GONE);
+                    if (ivQuickExpand != null) ivQuickExpand.setImageResource(R.drawable.ic_expand);
+                }
+                // 滚动到底部
                 scrollToBottom();
                 // 确保输入框区域可见：延迟等待布局稳定后滚动
                 if (inputMessage != null) {
@@ -6141,14 +6746,32 @@ public class AIChatActivity extends BaseActivity {
                         scrollToBottom();
                     }, 100);
                 }
+            } else {
+                // 键盘隐藏：仅恢复被键盘自动折叠的工具栏，不影响用户手动折叠的状态
+                if (keyboardAutoCollapsed && quickActionsChipGroup != null) {
+                    keyboardAutoCollapsed = false;
+                    quickBarExpanded = true;
+                    quickActionsChipGroup.setVisibility(View.VISIBLE);
+                    if (ivQuickExpand != null) ivQuickExpand.setImageResource(R.drawable.ic_collapse);
+                }
             }
         });
     }
 
     private void handleAction(ChatMessage.Action action) {
+        // 处理"强行使用本地Agent"按钮：优先处理，避免被 dialogHelper 当作未知 Action
+        if (action != null && action.type == ChatMessage.ActionType.FORCE_LOCAL_AGENT) {
+            forceRunLocalAgent(action.content);
+            return;
+        }
         // 处理 AI 深度解读按钮：优先于 dialogHelper，避免被 dialogHelper 当作未知 Action 吞掉
         if (action != null && action.type == ChatMessage.ActionType.AI_INTERPRET_RESULT) {
             handleAiInterpretAction(action);
+            return;
+        }
+        // 处理 AI 消息"朗读"按钮：再次点击同一消息则停止朗读
+        if (action != null && action.type == ChatMessage.ActionType.SPEAK) {
+            handleSpeakAction(action);
             return;
         }
         if (dialogHelper != null) dialogHelper.handleAction(action, chatHistory);
@@ -6241,7 +6864,7 @@ public class AIChatActivity extends BaseActivity {
     private void showAttachmentOptionsDialog() {
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
         builder.setTitle("选择附件类型")
-            .setItems(new String[]{"📷 拍照", "📁 选择文件", "🎤 录制语音"}, (dialog, which) -> {
+            .setItems(new String[]{"📷 拍照", "📁 选择文件", "🎤 录制语音（作为附件）", "⚙️ 语音模型设置"}, (dialog, which) -> {
                 switch (which) {
                     case 0: // 拍照
                         handleTakePhoto();
@@ -6249,8 +6872,11 @@ public class AIChatActivity extends BaseActivity {
                     case 1: // 选择文件
                         handleAttachFile();
                         break;
-                    case 2: // 录制语音
+                    case 2: // 录制语音附件
                         handleRecordAudio();
+                        break;
+                    case 3: // 语音模型设置
+                        handleSpeechModelConfig();
                         break;
                 }
             })
@@ -6260,6 +6886,32 @@ public class AIChatActivity extends BaseActivity {
 
     /** 打开相机拍照 */
     private void handleTakePhoto() {
+        // ✅ 使用统一的权限管理工具请求相机权限（与OCR界面保持一致）
+        AppResourceManager resources = AppResourceManager.getInstance(this);
+        if (!resources.hasCameraPermission()) {
+            resources.permissions().requestCameraPermission(this, new PermissionResourceProvider.PermissionCallback() {
+                @Override
+                public void onGranted() {
+                    launchCamera();
+                }
+
+                @Override
+                public void onDenied(java.util.List<String> deniedPermissions) {
+                    showToast("❌ 需要相机权限才能拍照");
+                    // 如果用户选择了“不再询问”，引导去设置页面
+                    if (!resources.permissions().shouldShowRequestPermissionRationale(
+                            AIChatActivity.this, android.Manifest.permission.CAMERA)) {
+                        showPermissionSettingsDialog();
+                    }
+                }
+            });
+        } else {
+            launchCamera();
+        }
+    }
+
+    /** 权限已授予后实际启动相机 */
+    private void launchCamera() {
         try {
             // 创建临时文件存储照片
             File photoFile = createImageFile();
@@ -6283,6 +6935,494 @@ public class AIChatActivity extends BaseActivity {
             AppLogger.aiE(TAG, "Error taking photo: " + e.getMessage());
             showToast("打开相机失败: " + e.getMessage());
         }
+    }
+
+    /** 长按消息弹出语音操作菜单 */
+    private void showMessageSpeechOptions(ChatMessage message) {
+        if (message == null) return;
+        String content = message.getContent();
+        boolean canSpeak = message.isAIMessage() && content != null && !content.trim().isEmpty();
+        if (!canSpeak) return;
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("消息操作")
+            .setItems(new String[]{"🔊 朗读此消息", "⏹️ 停止朗读"}, (dialog, which) -> {
+                if (which == 0) {
+                    speakMessage(message);
+                } else {
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopSpeaking();
+                    showToast("已停止朗读");
+                }
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    /** 使用 TTS 朗读 AI 消息（优先在线模型，未配置时自动回退系统TTS） */
+    private void speakMessage(ChatMessage message) {
+        speakMessage(message, message != null ? message.id : null);
+    }
+
+    private void speakMessage(ChatMessage message, final String messageId) {
+        String text = toSpeakableText(message.getContent());
+        if (text.isEmpty()) {
+            showToast("消息内容为空或不可朗读");
+            return;
+        }
+        if (text.length() > 2000) {
+            text = text.substring(0, 2000);
+            showToast("内容较长，仅朗读前 2000 字");
+        }
+        speakTextInternal(text, messageId, false);
+    }
+
+    /**
+     * 将 AI 回复转换为可朗读文本：去除代码块、表格、Markdown 符号、
+     * 工具调用痕迹、链接与 emoji；清洗后为空说明内容不适合朗读
+     */
+    private String toSpeakableText(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return "";
+        String t = raw;
+        // 代码块整体省略
+        t = t.replaceAll("(?s)```.*?```", "");
+        // 行内代码去反引号
+        t = t.replaceAll("`([^`]*)`", "$1");
+        // 表格行与分隔行
+        t = t.replaceAll("(?m)^\\s*\\|.*$\\n?", "");
+        // 工具调用/思考痕迹行
+        t = t.replaceAll("(?m)^\\s*🔧.*$\\n?", "");
+        // 图片与链接（保留链接文字）
+        t = t.replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "");
+        t = t.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");
+        // Markdown 格式符号
+        t = t.replaceAll("[*_#>~|\\\\]", "");
+        // emoji 与其他特殊符号
+        t = t.replaceAll("[\\p{So}\\p{Cn}]", "");
+        // 压缩空白
+        t = t.replaceAll("\\s+", " ").trim();
+        return t;
+    }
+
+    /** 实际朗读入口：silent=true 时不弹任何提示（自动朗读模式） */
+    private void speakTextInternal(String text, final String messageId, final boolean silent) {
+        speakingMessageId = messageId;
+        if (!silent) {
+            showToast("🔊 开始合成语音...");
+        }
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).speakLocked(text,
+                new com.oilquiz.app.ai.speech.TTSService.PlaybackCallback() {
+            @Override
+            public void onStart() {
+                if (!silent) {
+                    runOnUiThread(() -> showToast("🔊 正在朗读，再次点击朗读按钮可停止"));
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                runOnUiThread(() -> {
+                    if (messageId != null && messageId.equals(speakingMessageId)) {
+                        speakingMessageId = null;
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (messageId != null && messageId.equals(speakingMessageId)) {
+                        speakingMessageId = null;
+                    }
+                    if (!silent) {
+                        showToast("朗读已结束");
+                    }
+                });
+            }
+        });
+    }
+
+    /** 处理 AI 消息操作行的"朗读"按钮：同一条消息再次点击则停止 */
+    private void handleSpeakAction(ChatMessage.Action action) {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        if (action.messageId != null && action.messageId.equals(speakingMessageId) && speech.isSpeaking()) {
+            speech.stopSpeaking();
+            speakingMessageId = null;
+            showToast("⏹️ 已停止朗读");
+            return;
+        }
+        ChatMessage target = null;
+        if (chatHistory != null) {
+            for (ChatMessage m : chatHistory) {
+                if (m != null && m.id != null && m.id.equals(action.messageId)) {
+                    target = m;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            // 兼容：直接用 Action 携带的内容构造临时消息
+            target = ChatMessage.createAIMessage(action.content != null ? action.content : "");
+        }
+        speakMessage(target, action.messageId);
+    }
+
+    /** 语音输入：录音 → ASR 识别 → 文字填入输入框；在线不可用时自动兜底到系统识别 */
+    private void handleSpeechInput() {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        // 离线/系统识别模式：再次点击停止识别并出结果
+        if (isOfflineAsrMode) {
+            speech.stopOfflineRecognition();
+            return;
+        }
+        if (isSpeechRecording) {
+            stopSpeechRecording();
+            return;
+        }
+        // ✅ 使用统一的权限管理工具请求麦克风权限
+        com.oilquiz.app.resource.PermissionResourceProvider provider =
+            com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+        provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+            @Override
+            public void onGranted() {
+                startSpeechInputFlow();
+            }
+
+            @Override
+            public void onDenied(java.util.List<String> deniedPermissions) {
+                showToast("需要录音权限才能使用语音输入");
+                setVoiceButtonEnabled(false);
+            }
+        });
+    }
+
+    /** 选择语音输入路径：在线ASR可用→录音上传识别；否则兜底系统语音识别 */
+    private void startSpeechInputFlow() {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        if (speech.isAsrAvailable()) {
+            startSpeechRecording();
+        } else if (speech.isOfflineAsrAvailable()) {
+            showToast("使用系统语音识别");
+            startOfflineSpeechRecognition(false);
+        } else {
+            showToast("语音识别暂不可用，可在模型管理中配置语音识别模型");
+            setVoiceButtonEnabled(false);
+        }
+    }
+
+    // ===================== 自动语音合成开关 =====================
+
+    /** 切换自动语音合成开关（持久化），关闭时同时停止当前朗读 */
+    private void toggleAutoTts() {
+        autoTtsEnabled = !autoTtsEnabled;
+        getSharedPreferences("ai_chat_prefs", MODE_PRIVATE).edit()
+                .putBoolean("auto_tts_enabled", autoTtsEnabled).apply();
+        updateAutoTtsButtonUI();
+        if (autoTtsEnabled) {
+            showToast("已开启自动语音合成");
+        } else {
+            lastAutoSpokenMessageId = null;
+            // 关闭开关：停止当前朗读并清空待播队列（保留 streamTtsFed，避免完成时重复整条朗读）
+            if (streamingTtsSpeaker != null) {
+                streamingTtsSpeaker.reset();
+            }
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopSpeaking();
+            showToast("已关闭自动语音合成");
+        }
+    }
+
+    /** 更新自动语音合成按钮样式（开启时高亮） */
+    private void updateAutoTtsButtonUI() {
+        if (btnAutoTts == null) return;
+        btnAutoTts.setText(autoTtsEnabled ? "🔊自动" : "🔇自动");
+        btnAutoTts.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                getResources().getColor(autoTtsEnabled ? R.color.primary_container : R.color.surface_variant, getTheme())));
+        btnAutoTts.setTextColor(getResources().getColor(autoTtsEnabled ? R.color.on_primary_container : R.color.text_secondary, getTheme()));
+    }
+
+    /** AI 消息完成后，若自动朗读开启则自动朗读（清洗后无有效内容则跳过，同一消息不重复朗读） */
+    private void maybeAutoSpeak(ChatMessage msg) {
+        if (!autoTtsEnabled || msg == null || !msg.isAIMessage()) return;
+        if (msg.id != null && msg.id.equals(lastAutoSpokenMessageId)) return;
+        String text = toSpeakableText(msg.getContent());
+        if (text.length() < 2) return; // 纯代码/表格/空内容不自动朗读
+        if (text.length() > 2000) {
+            text = text.substring(0, 2000);
+        }
+        lastAutoSpokenMessageId = msg.id;
+        speakTextInternal(text, msg.id, true);
+    }
+
+    /** 向流式朗读器投喂 token（仅自动朗读开启时生效） */
+    private void feedStreamingTts(String token) {
+        if (!autoTtsEnabled || token == null || token.isEmpty()) return;
+        if (streamingTtsSpeaker == null) return;
+        streamTtsFed = true;
+        streamingTtsSpeaker.feed(token);
+    }
+
+    /** 新一轮生成开始：重置流式朗读状态 */
+    private void resetStreamingTts() {
+        streamTtsFed = false;
+        if (streamingTtsSpeaker != null) {
+            streamingTtsSpeaker.reset();
+        }
+    }
+
+    /**
+     * 生成完成时的自动朗读收尾：
+     * - 本轮已流式朗读：冲刷剩余缓冲继续播完（若开关已关则静默），不重复整条朗读
+     * - 本轮未流式朗读（如开关中途才开启前已完成）：走原有整条朗读逻辑
+     */
+    private void finishAutoSpeak(ChatMessage msg) {
+        if (streamTtsFed) {
+            if (autoTtsEnabled && streamingTtsSpeaker != null) {
+                streamingTtsSpeaker.finish();
+            }
+            if (msg != null) {
+                lastAutoSpokenMessageId = msg.id;
+            }
+            return;
+        }
+        maybeAutoSpeak(msg);
+    }
+
+    // ===================== 语音输入按钮可用性 =====================
+
+    /** 设置语音输入按钮启用/禁用样式 */
+    private void setVoiceButtonEnabled(boolean enabled) {
+        if (btnVoice == null) return;
+        btnVoice.setEnabled(enabled);
+        btnVoice.setAlpha(enabled ? 1f : 0.4f);
+    }
+
+    /**
+     * 刷新语音输入按钮可用性：
+     * - 麦克风权限未授予：保持可点（用于触发授权，被拒后再禁用）
+     * - 权限已授予：在线ASR 或 系统离线识别可用才启用，否则禁用（不弹引导对话框）
+     */
+    private void updateVoiceButtonAvailability() {
+        if (btnVoice == null || isSpeechRecording || isOfflineAsrMode) return;
+        boolean micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        boolean available;
+        if (!micGranted) {
+            available = true; // 未授权时保留可点，点击后走授权流程；被拒时再禁用
+        } else {
+            com.oilquiz.app.ai.speech.SpeechManager speech =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+            available = speech.isAsrAvailable() || speech.isOfflineAsrAvailable();
+        }
+        setVoiceButtonEnabled(available);
+    }
+
+    /** 启动离线/系统语音识别（在线ASR不可用或失败时的兜底，需用户重新说话） */
+    private void startOfflineSpeechRecognition(boolean isFallbackAfterOnlineFail) {
+        isOfflineAsrMode = true;
+        // 记录识别前输入框已有文本，部分结果实时拼接展示
+        voiceInputBaseText = (inputMessage != null && inputMessage.getText() != null)
+                ? inputMessage.getText().toString() : "";
+        updateVoiceRecordingUI(true);
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).startOfflineRecognition(
+                new com.oilquiz.app.ai.speech.SystemSpeechRecognizer.RecognitionCallback() {
+            @Override
+            public void onResult(String text) {
+                appendRecognizedText(text);
+                showToast("✅ 识别完成（系统识别）");
+            }
+
+            @Override
+            public void onPartialResult(String text) {
+                // 说话过程中实时把部分结果写入输入框（保留原有前缀）
+                if (inputMessage != null && text != null) {
+                    inputMessage.setText(voiceInputBaseText + text);
+                    inputMessage.setSelection(inputMessage.getText().length());
+                    inputMessage.requestFocus();
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                showToast("语音识别暂不可用，可在模型管理中配置语音识别模型");
+            }
+
+            @Override
+            public void onEnd() {
+                isOfflineAsrMode = false;
+                updateVoiceRecordingUI(false);
+            }
+        });
+        if (isFallbackAfterOnlineFail) {
+            showToast("使用系统语音识别，请重新说话");
+        }
+    }
+
+    /** 开始语音输入录音 */
+    private void startSpeechRecording() {
+        try {
+            File audioFile = createAudioFile();
+            if (audioFile == null) {
+                showToast("无法创建录音文件");
+                return;
+            }
+            speechRecordingFilePath = audioFile.getAbsolutePath();
+
+            speechMediaRecorder = new MediaRecorder();
+            speechMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            speechMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            speechMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            speechMediaRecorder.setAudioSamplingRate(44100);
+            speechMediaRecorder.setAudioEncodingBitRate(128000);
+            speechMediaRecorder.setOutputFile(speechRecordingFilePath);
+            speechMediaRecorder.prepare();
+            speechMediaRecorder.start();
+
+            isSpeechRecording = true;
+            updateVoiceRecordingUI(true);
+            showToast("🎙️ 正在录音，说完后点击 🎤 按钮结束并识别");
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "语音输入录音启动失败: " + e.getMessage());
+            showToast("录音启动失败: " + e.getMessage());
+            releaseSpeechRecorder();
+            updateVoiceRecordingUI(false);
+        }
+    }
+
+    /** 更新语音输入的录音状态 UI（按钮图标/横幅/计时） */
+    private void updateVoiceRecordingUI(boolean recording) {
+        if (btnVoice != null) {
+            btnVoice.setText(recording ? "⏹️" : "🎤");
+            btnVoice.setTextColor(recording ? 0xFFE53935 : getResources().getColor(R.color.text_secondary, getTheme()));
+        }
+        if (voiceRecordingBar != null) {
+            voiceRecordingBar.setVisibility(recording ? View.VISIBLE : View.GONE);
+        }
+        if (recording) {
+            speechRecordingSeconds = 0;
+            if (tvVoiceRecordingTime != null) tvVoiceRecordingTime.setText("00:00");
+            if (speechTimerRunnable != null) speechTimerHandler.removeCallbacks(speechTimerRunnable);
+            speechTimerRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isSpeechRecording) return;
+                    speechRecordingSeconds++;
+                    if (tvVoiceRecordingTime != null) {
+                        tvVoiceRecordingTime.setText(String.format(java.util.Locale.US, "%02d:%02d",
+                                speechRecordingSeconds / 60, speechRecordingSeconds % 60));
+                    }
+                    // 红点闪烁
+                    if (tvVoiceRecordingDot != null) {
+                        tvVoiceRecordingDot.setAlpha(speechRecordingSeconds % 2 == 0 ? 1f : 0.3f);
+                    }
+                    speechTimerHandler.postDelayed(this, 1000);
+                }
+            };
+            speechTimerHandler.postDelayed(speechTimerRunnable, 1000);
+        } else {
+            if (speechTimerRunnable != null) {
+                speechTimerHandler.removeCallbacks(speechTimerRunnable);
+                speechTimerRunnable = null;
+            }
+            if (tvVoiceRecordingDot != null) tvVoiceRecordingDot.setAlpha(1f);
+        }
+    }
+
+    /** 停止语音输入录音并执行 ASR 识别 */
+    private void stopSpeechRecording() {
+        if (!isSpeechRecording || speechMediaRecorder == null) return;
+        try {
+            speechMediaRecorder.stop();
+            isSpeechRecording = false;
+            updateVoiceRecordingUI(false);
+            releaseSpeechRecorder();
+
+            File audioFile = new File(speechRecordingFilePath);
+            if (!audioFile.exists() || audioFile.length() == 0) {
+                showToast("录音文件无效");
+                return;
+            }
+
+            showToast("🔄 正在识别语音...");
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this)
+                .recognizeSpeech(audioFile, null)
+                .whenComplete((result, error) -> runOnUiThread(() -> {
+                    audioFile.delete();
+                    if (error != null) {
+                        Throwable cause = error instanceof java.util.concurrent.CompletionException
+                                && error.getCause() != null ? error.getCause() : error;
+                        AppLogger.aiE(TAG, "在线语音识别失败: " + cause.getMessage());
+                        // 兜底：在线识别失败时自动切换系统/离线识别（需重新说话）
+                        if (com.oilquiz.app.ai.speech.SpeechManager.getInstance(AIChatActivity.this)
+                                .isOfflineAsrAvailable()) {
+                            startOfflineSpeechRecognition(true);
+                        } else {
+                            showToast("语音识别暂不可用，可在模型管理中配置语音识别模型");
+                        }
+                    } else if (result != null && result.text != null && !result.text.isEmpty()) {
+                        appendRecognizedText(result.text);
+                        showToast("✅ 识别完成（" + result.modelName + "）");
+                    } else {
+                        showToast("未识别到语音内容");
+                    }
+                }));
+        } catch (Exception e) {
+            isSpeechRecording = false;
+            updateVoiceRecordingUI(false);
+            releaseSpeechRecorder();
+            showToast("录音处理失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 将识别结果写入输入框：直接操作 EditText（不依赖 ChatInputManager 内部状态，
+     * 避免其未 init 时文本丢失），并让输入框获焦、光标定位到末尾
+     */
+    private void appendRecognizedText(String text) {
+        if (text == null || text.isEmpty()) return;
+        runOnUiThread(() -> {
+            if (inputMessage != null) {
+                inputMessage.append(text);
+                inputMessage.requestFocus();
+                inputMessage.setSelection(inputMessage.getText().length());
+            } else if (inputManager != null) {
+                inputManager.appendText(text);
+            }
+        });
+    }
+
+    /** 释放语音输入录音器 */
+    private void releaseSpeechRecorder() {
+        if (speechMediaRecorder != null) {
+            try {
+                speechMediaRecorder.release();
+            } catch (Exception ignored) {
+            }
+            speechMediaRecorder = null;
+        }
+    }
+
+    /** 语音模型设置：配置语音识别/语音合成专用模型 */
+    private void handleSpeechModelConfig() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("语音模型设置")
+            .setItems(new String[]{"🎙️ 语音识别模型（语音转文字）", "🔊 语音合成模型（文字转语音）"},
+                (dialog, which) -> {
+                    if (which == 0) {
+                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
+                                AIChatActivity.this,
+                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.ASR)
+                            .show();
+                    } else {
+                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
+                                AIChatActivity.this,
+                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.TTS)
+                            .show();
+                    }
+                })
+            .setNegativeButton("取消", null)
+            .show();
     }
 
     /** 处理相机拍摄的照片 */
@@ -6337,14 +7477,8 @@ public class AIChatActivity extends BaseActivity {
                 
                 @Override
                 public void onDenied(java.util.List<String> deniedPermissions) {
-                    // 权限被拒绝
-                    showToast("❌ 需要录音权限才能使用语音功能");
-                    
-                    // 如果用户选择了“不再询问”，引导去设置页面
-                    if (!provider.shouldShowRequestPermissionRationale(AIChatActivity.this, 
-                            android.Manifest.permission.RECORD_AUDIO)) {
-                        showPermissionSettingsDialog();
-                    }
+                    showToast("需要录音权限才能使用语音功能");
+                    setVoiceButtonEnabled(false);
                 }
             });
         }
@@ -6778,7 +7912,27 @@ public class AIChatActivity extends BaseActivity {
                 else if (mimeType.startsWith("audio/")) type = "audio";
                 else if (mimeType.contains("pdf")) type = "pdf";
             }
-            if (inputManager != null) inputManager.addAttachment(new ChatMessage.Attachment(type, uri.toString(), fileName, getFileSizeFromUri(uri)));
+
+            String attachmentUrl = uri.toString();
+            String localFilePath = null;  // 本地文件路径（用于 thumbnailPath）
+
+            // 对 content:// URI 复制到本地，避免权限过期后无法访问
+            if ("content".equals(uri.getScheme())) {
+                String localPath = copyUriToCacheFile(uri);
+                if (localPath != null) {
+                    localFilePath = localPath;
+                    attachmentUrl = Uri.fromFile(new java.io.File(localPath)).toString();  // 使用 file:// URI
+                }
+            }
+
+            if (inputManager != null) {
+                ChatMessage.Attachment attachment = new ChatMessage.Attachment(type, attachmentUrl, fileName, getFileSizeFromUri(uri));
+                // 如果是图片且已复制到本地，设置 thumbnailPath 便于快速显示
+                if ("image".equals(type) && localFilePath != null) {
+                    attachment.thumbnailPath = localFilePath;  // 纯文件路径
+                }
+                inputManager.addAttachment(attachment);
+            }
         }
         showToast("已添加 " + uris.size() + " 个附件");
         sendMessageWithAttachments();
@@ -6794,13 +7948,21 @@ public class AIChatActivity extends BaseActivity {
         List<ChatMessage.Attachment> savedAttachments = inputManager.getCurrentAttachments();
         inputManager.clearAttachments();
 
-        String defaultMessage = "请分析这些附件的内容";
+        String defaultMessage = DEFAULT_ATTACHMENT_MESSAGE;
         ChatMessage userMessage = ChatMessage.createUserMessage(defaultMessage, savedAttachments);
         chatHistory.add(userMessage);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         scrollToBottom();
         saveHistoryAsync();
-        processMessageWithAttachments(defaultMessage, savedAttachments);
+
+        // 与 sendMessage() 保持一致的路由：在线模型走 Agent，附件信息会传递给 AI
+        if (shouldUseOnlineModel()) {
+            processMessageWithAttachmentsViaAgent(defaultMessage, savedAttachments);
+        } else if (fileContentExtractor != null) {
+            processMessageWithAttachments(defaultMessage, savedAttachments);
+        } else {
+            processChatMessage(defaultMessage);
+        }
     }
 
     /**
@@ -6850,6 +8012,8 @@ public class AIChatActivity extends BaseActivity {
         updateModelNameDisplay();
         updateModeButtonText();
         initAgentChatHandler();
+        // 权限/模型配置可能已变化，刷新语音输入按钮可用性
+        updateVoiceButtonAvailability();
 
         // 检测模型类型是否变化（在线↔本地），及时更新状态
         boolean nowOnline = shouldUseOnlineModel();
@@ -6899,8 +8063,12 @@ public class AIChatActivity extends BaseActivity {
             if (isDirectStreaming || !AIProcessingService.ACTION_AI_TOKEN_UPDATE.equals(intent.getAction())) return;
             String token = intent.getStringExtra(AIProcessingService.EXTRA_TOKEN);
             if (token != null) {
-                if (currentStreamingContent == null) currentStreamingContent = new StringBuilder();
+                if (currentStreamingContent == null) {
+                    currentStreamingContent = new StringBuilder();
+                    resetStreamingTts();
+                }
                 currentStreamingContent.append(token);
+                feedStreamingTts(token);
                 tokenCountSinceLastUpdate++;
                 long now = System.currentTimeMillis();
                 if (tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT || now - lastUpdateTime >= BATCH_INTERVAL_MS || !isUpdateScheduled) {
@@ -6945,6 +8113,8 @@ public class AIChatActivity extends BaseActivity {
                     msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
                     saveHistoryAsync();
+                    // 自动语音合成：后台服务返回结果后自动朗读（流式已朗读则冲刷收尾）
+                    finishAutoSpeak(msg);
                 } else addAIMessage(result);
             }
             currentStreamingContent = null; currentStreamingMessageIndex = -1; currentStreamingMessageId = null;
@@ -6955,6 +8125,20 @@ public class AIChatActivity extends BaseActivity {
     protected void onDestroy() {
         super.onDestroy();
         try {
+            // 释放语音输入录音器与 TTS 播放资源
+            releaseSpeechRecorder();
+            if (speechTimerRunnable != null) {
+                speechTimerHandler.removeCallbacks(speechTimerRunnable);
+                speechTimerRunnable = null;
+            }
+            com.oilquiz.app.ai.speech.SpeechManager speechManagerRef =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+            speechManagerRef.cancelOfflineRecognition();
+            speechManagerRef.stopSpeaking();
+            if (streamingTtsSpeaker != null) {
+                streamingTtsSpeaker.reset();
+            }
+
             // 保存聊天历史
             saveHistoryAsync();
 

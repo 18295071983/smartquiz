@@ -155,6 +155,8 @@ public class ExcelUtil {
         public String defaultOption;
         public String defaultAnswer;
         public String optionsDelimiter;
+        /** 拆分部分自定义映射：拆分部分索引(0-based) → 选项字段名（如"选项A"），为null时按A~L顺序分配 */
+        public Map<Integer, String> splitPartMapping;
         public List<ValidationRule> customValidationRules;
     }
     
@@ -1000,7 +1002,7 @@ public class ExcelUtil {
         isImportCancelled = true;
     }
     
-    public static void importExcel(File file, int sheetIndex, Map<String, Integer> fieldMapping, ImportSettings settings, Map<String, String> questionTypeMapping, Map<String, String> difficultyMapping, Map<String, String> categoryMapping, ImportCallback callback) {
+    public static void importExcel(File file, int sheetIndex, Map<String, Integer> fieldMapping, ImportSettings settings, Map<String, String> questionTypeMapping, Map<String, String> difficultyMapping, Map<String, String> categoryMapping, DataIssueReport issueReport, ImportCallback callback) {
         if (file == null || !file.exists()) {
             if (callback != null) {
                 callback.onError("文件不存在");
@@ -1012,11 +1014,11 @@ public class ExcelUtil {
         FileFormat format = detectFileFormat(file);
         if (format == FileFormat.CSV) {
             Log.d(TAG, "检测到CSV格式，走importCsv分支（含智能编码检测）");
-            importCsv(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, callback);
+            importCsv(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, issueReport, callback);
             return;
         } else if (format == FileFormat.JSON) {
             Log.d(TAG, "检测到JSON格式，走importJson分支（含智能编码检测）");
-            importJson(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, callback);
+            importJson(file, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, issueReport, callback);
             return;
         }
         // EXCEL / 其他格式继续走原有POI逻辑
@@ -1067,6 +1069,16 @@ public class ExcelUtil {
                 char[] extraLetters = new char[]{'E','F','G','H','I','J','K','L'};
                 for (int _i = 0; _i < extraLetters.length; _i++) {
                     extraOptionColumns[_i] = resolveColumn(finalFieldMapping, "option" + extraLetters[_i]);
+                }
+                // —— 选项(拆分)列：单列包含所有选项，按分隔符拆分分配到 A~L ——
+                Integer optionSplitCol = null;
+                if (finalFieldMapping != null && finalFieldMapping.containsKey("选项(拆分)")) {
+                    optionSplitCol = finalFieldMapping.get("选项(拆分)");
+                }
+                // 冲突检测：拆分模式与独立选项列同时存在时，拆分优先并记录警告
+                if (optionSplitCol != null && (optionAColumn != null || optionBColumn != null
+                        || optionCColumn != null || optionDColumn != null)) {
+                    Log.w(TAG, "选项(拆分)与独立选项列同时映射，将使用拆分模式，忽略独立选项列");
                 }
                 Integer[] blankAnswerColumns = new Integer[12];
                 for (int n = 0; n < 12; n++) {
@@ -1138,26 +1150,84 @@ public class ExcelUtil {
                             question.setQuestionType(finalSettings.defaultQuestionType);
                         }
                         
-                        // 设置选项（A~D）
-                        if (optionAColumn != null) {
-                            question.setOptionA(getCellValueAsString(row.getCell(optionAColumn)));
-                        }
-                        if (optionBColumn != null) {
-                            question.setOptionB(getCellValueAsString(row.getCell(optionBColumn)));
-                        }
-                        if (optionCColumn != null) {
-                            question.setOptionC(getCellValueAsString(row.getCell(optionCColumn)));
-                        }
-                        if (optionDColumn != null) {
-                            question.setOptionD(getCellValueAsString(row.getCell(optionDColumn)));
-                        }
-                        // —— 扩展：E~L 选项（直接写入独立列 optionE~optionL）——
-                        for (int ei = 0; ei < extraLetters.length; ei++) {
-                            Integer col = extraOptionColumns[ei];
-                            if (col != null) {
-                                String v = getCellValueAsString(row.getCell(col));
-                                if (v != null && !v.isEmpty()) {
-                                    question.setOptionByLetter(String.valueOf(extraLetters[ei]), v);
+                        // —— 选项(拆分)模式：单列拆分为 A~L 多个选项 ——
+                        String optDelimiter = (finalSettings != null) ? finalSettings.optionsDelimiter : null;
+                        boolean splitMode = optDelimiter != null && !optDelimiter.isEmpty() && optionSplitCol != null;
+                        
+                        if (splitMode) {
+                            // 拆分模式：从"选项(拆分)"列拆分，支持自定义部分→选项映射
+                            String rawValue = getCellValueAsString(row.getCell(optionSplitCol));
+                            if (rawValue != null && !rawValue.isEmpty()) {
+                                char[] allLetters = {'A','B','C','D','E','F','G','H','I','J','K','L'};
+                                // 1) 先拆分得到各部分内容
+                                java.util.List<String> partList = new java.util.ArrayList<>();
+                                if ("LETTER_PATTERN".equals(optDelimiter)) {
+                                    java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                                        "(?s)([A-H])[.、．]\\s*(.*?)(?=\\s*[A-H][.、．]|$)")
+                                        .matcher(rawValue);
+                                    while (m.find() && partList.size() < allLetters.length) {
+                                        partList.add(m.group(2).trim());
+                                    }
+                                } else {
+                                    String[] parts = rawValue.split(java.util.regex.Pattern.quote(optDelimiter), -1);
+                                    for (int pi = 0; pi < parts.length && pi < allLetters.length; pi++) {
+                                        partList.add(parts[pi].trim());
+                                    }
+                                }
+                                // 2) 计算每个部分的目标选项字母（优先用户自定义映射，剩余按可用字母顺序补位）
+                                java.util.Map<Integer, String> partMap = (finalSettings != null) ? finalSettings.splitPartMapping : null;
+                                java.util.Set<String> usedLetters = new java.util.HashSet<>();
+                                String[] targets = new String[partList.size()];
+                                if (partMap != null && !partMap.isEmpty()) {
+                                    for (int pi = 0; pi < partList.size(); pi++) {
+                                        String f = partMap.get(pi);
+                                        if (f != null && !f.isEmpty()) {
+                                            String letter = f.substring(f.length() - 1).toUpperCase();
+                                            targets[pi] = letter;
+                                            usedLetters.add(letter);
+                                        }
+                                    }
+                                }
+                                for (int pi = 0; pi < partList.size(); pi++) {
+                                    if (targets[pi] == null) {
+                                        for (char letter : allLetters) {
+                                            if (!usedLetters.contains(String.valueOf(letter))) {
+                                                targets[pi] = String.valueOf(letter);
+                                                usedLetters.add(String.valueOf(letter));
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                // 3) 按目标字母写入选项
+                                for (int pi = 0; pi < partList.size(); pi++) {
+                                    String part = partList.get(pi);
+                                    if (!part.isEmpty() && targets[pi] != null) {
+                                        question.setOptionByLetter(targets[pi], part);
+                                    }
+                                }
+                            }
+                        } else {
+                            // 普通模式：每列对应一个选项（A~L）
+                            if (optionAColumn != null) {
+                                question.setOptionA(getCellValueAsString(row.getCell(optionAColumn)));
+                            }
+                            if (optionBColumn != null) {
+                                question.setOptionB(getCellValueAsString(row.getCell(optionBColumn)));
+                            }
+                            if (optionCColumn != null) {
+                                question.setOptionC(getCellValueAsString(row.getCell(optionCColumn)));
+                            }
+                            if (optionDColumn != null) {
+                                question.setOptionD(getCellValueAsString(row.getCell(optionDColumn)));
+                            }
+                            for (int ei = 0; ei < extraLetters.length; ei++) {
+                                Integer col = extraOptionColumns[ei];
+                                if (col != null) {
+                                    String v = getCellValueAsString(row.getCell(col));
+                                    if (v != null && !v.isEmpty()) {
+                                        question.setOptionByLetter(String.valueOf(extraLetters[ei]), v);
+                                    }
                                 }
                             }
                         }
@@ -1197,6 +1267,11 @@ public class ExcelUtil {
                         // 设置解析
                         if (explanationColumn != null) {
                             question.setExplanation(getCellValueAsString(row.getCell(explanationColumn)));
+                        }
+                        
+                        // 应用数据问题修复（在导入循环内，行号精确匹配）
+                        if (issueReport != null) {
+                            applyCorrectionsToQuestion(question, issueReport, i + 1);
                         }
                         
                         // 验证题目
@@ -1394,6 +1469,7 @@ public class ExcelUtil {
                                   Map<String, String> questionTypeMapping,
                                   Map<String, String> difficultyMapping,
                                   Map<String, String> categoryMapping,
+                                  DataIssueReport issueReport,
                                   ImportCallback callback) {
         if (file == null || !file.exists()) {
             if (callback != null) callback.onError("CSV文件不存在");
@@ -1481,6 +1557,11 @@ public class ExcelUtil {
 
                         // 解析字段已由 Registry.extractFromRow 填充
 
+                        // 应用数据问题修复
+                        if (issueReport != null) {
+                            applyCorrectionsToQuestion(question, issueReport, i + 1);
+                        }
+
                         if (isValidQuestion(question, finalSettings)) {
                             questions.add(question);
                             result.validQuestions++;
@@ -1515,6 +1596,7 @@ public class ExcelUtil {
                                    Map<String, String> questionTypeMapping,
                                    Map<String, String> difficultyMapping,
                                    Map<String, String> categoryMapping,
+                                   DataIssueReport issueReport,
                                    ImportCallback callback) {
         if (file == null || !file.exists()) {
             if (callback != null) callback.onError("JSON文件不存在");
@@ -1579,6 +1661,11 @@ public class ExcelUtil {
                         String cat = q.getCategory();
                         if (cat != null && !cat.isEmpty() && categoryMapping != null && categoryMapping.containsKey(cat)) {
                             q.setCategory(categoryMapping.get(cat));
+                        }
+
+                        // 应用数据问题修复
+                        if (issueReport != null) {
+                            applyCorrectionsToQuestion(q, issueReport, i + 1);
                         }
 
                         if (isValidQuestion(q, finalSettings)) {

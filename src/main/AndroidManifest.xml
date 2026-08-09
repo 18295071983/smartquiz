@@ -182,10 +182,13 @@
         <activity
             android:name=".ui.activity.ImportActivity"
             android:exported="false" />
-        <activity android:name=".ui.activity.AIImportActivity" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" />
+        <activity android:name=".ui.activity.AIImportActivity" android:exported="true" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.activity.ImportGuideActivity"
-            android:exported="false" />
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
+        <activity
+            android:name=".ui.activity.TemplateImportActivity"
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.activity.ImportResultActivity"
             android:exported="false" />
@@ -224,6 +227,9 @@
             android:name=".ui.activity.DataIssueFixActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.activity.QuestionRepairActivity"
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
+        <activity
             android:name=".ui.activity.ApiConfigActivity"
             android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />
@@ -235,7 +241,7 @@
             android:exported="false" />
         <activity
             android:name=".ui.export.TemplateSelectionActivity"
-            android:exported="false" />
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.export.FieldConfigActivity"
             android:exported="false" />

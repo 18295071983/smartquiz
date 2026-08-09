@@ -98,6 +98,13 @@ public class QuestionBankActivity extends BaseActivity {
             btnFilter.setOnClickListener(v -> showFilterDialog());
         }
 
+        // 题库智能修复入口
+        View btnRepair = findViewById(R.id.btnRepair);
+        if (btnRepair != null) {
+            btnRepair.setOnClickListener(v ->
+                    startActivity(new android.content.Intent(this, QuestionRepairActivity.class)));
+        }
+
         // 视图模式切换
         View btnListView = findViewById(R.id.btnListView);
         if (btnListView != null) {
@@ -153,6 +160,7 @@ public class QuestionBankActivity extends BaseActivity {
     }
 
     private boolean isCardViewMode = true; // 默认使用卡片视图
+    private boolean isAnswerVisible = false; // 默认隐藏答案
 
     private void loadQuestions() {
         // 加载所有题目
@@ -187,14 +195,9 @@ public class QuestionBankActivity extends BaseActivity {
                 filteredQuestions = new ArrayList<>();
             }
             
-            if (questionAdapter == null) {
-                questionAdapter = new QuestionAdapter(this, filteredQuestions, isCardViewMode, false, listener);
-                questionListView.setAdapter(questionAdapter);
-            } else {
-                // 视图模式变了，需要重建适配器
-                questionAdapter = new QuestionAdapter(this, filteredQuestions, isCardViewMode, false, listener);
-                questionListView.setAdapter(questionAdapter);
-            }
+            // 重建适配器（数据列表引用已变，必须重建）
+            questionAdapter = new QuestionAdapter(this, filteredQuestions, isCardViewMode, isAnswerVisible, listener);
+            questionListView.setAdapter(questionAdapter);
         }
         
         // 更新统计信息（通过适配器 header）
@@ -1124,14 +1127,9 @@ public class QuestionBankActivity extends BaseActivity {
         }
     }
 
-    private static final int ACTION_TOGGLE_VIEW_MODE = 1001; // 临时菜单项ID
-
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.question_bank_menu, menu);
-        // 添加切换视图模式的菜单项
-        MenuItem viewModeItem = menu.add(Menu.NONE, ACTION_TOGGLE_VIEW_MODE, Menu.NONE, isCardViewMode ? "切换到列表视图" : "切换到卡片视图");
-        viewModeItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         return true;
     }
 
@@ -1140,6 +1138,12 @@ public class QuestionBankActivity extends BaseActivity {
         int id = item.getItemId();
         if (id == R.id.action_add_question) {
             showAddQuestionDialog();
+            return true;
+        } else if (id == R.id.action_start_quiz) {
+            startQuiz();
+            return true;
+        } else if (id == R.id.action_toggle_answer) {
+            toggleAnswerVisibility();
             return true;
         } else if (id == R.id.action_import_questions) {
             importQuestions();
@@ -1162,9 +1166,6 @@ public class QuestionBankActivity extends BaseActivity {
         } else if (id == R.id.action_clear_all) {
             clearAllQuestions();
             return true;
-        } else if (id == ACTION_TOGGLE_VIEW_MODE) {
-            toggleViewMode();
-            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -1172,10 +1173,21 @@ public class QuestionBankActivity extends BaseActivity {
     // 切换视图模式
     private void toggleViewMode() {
         isCardViewMode = !isCardViewMode;
-        // 重新加载题目以应用新的视图模式
         loadQuestions();
-        // 重新创建菜单以更新菜单项文本
         invalidateOptionsMenu();
+    }
+    
+    // 切换答案显示/隐藏
+    private void toggleAnswerVisibility() {
+        isAnswerVisible = !isAnswerVisible;
+        loadQuestions();
+        invalidateOptionsMenu();
+    }
+    
+    // 开始测验（跳转到模式选择页）
+    private void startQuiz() {
+        Intent intent = new Intent(this, StartQuizActivity.class);
+        startActivity(intent);
     }
 
     // 清空所有题目

@@ -24,7 +24,18 @@ public class DatabaseFieldManager {
     private static final String TAG = "DatabaseFieldManager";
     private static DatabaseFieldManager instance;
     private final Context context;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // 非 final：shutdown() 后通过 getExecutor() 自动重建，避免单例线程池永久失效
+    private volatile ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    /**
+     * 获取可用线程池；若已 shutdown/terminated 则自动重建。
+     */
+    private synchronized ExecutorService getExecutor() {
+        if (executor == null || executor.isShutdown() || executor.isTerminated()) {
+            executor = Executors.newSingleThreadExecutor();
+        }
+        return executor;
+    }
 
     private DatabaseFieldManager(Context context) {
         this.context = context.getApplicationContext();
@@ -106,7 +117,7 @@ public class DatabaseFieldManager {
      * 获取所有表名
      */
     public Future<List<String>> getAllTables() {
-        return executor.submit(() -> getAllTablesSync());
+        return getExecutor().submit(() -> getAllTablesSync());
     }
 
     public List<String> getAllTablesSync() {
@@ -134,7 +145,7 @@ public class DatabaseFieldManager {
      * 获取表的字段列表
      */
     public Future<List<FieldInfo>> getTableFields(String tableName) {
-        return executor.submit(() -> getTableFieldsSync(tableName));
+        return getExecutor().submit(() -> getTableFieldsSync(tableName));
     }
 
     public List<FieldInfo> getTableFieldsSync(String tableName) {
@@ -176,7 +187,7 @@ public class DatabaseFieldManager {
      * 检查字段是否存在
      */
     public Future<Boolean> fieldExists(String tableName, String fieldName) {
-        return executor.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 AppDatabase db = AppDatabase.getDatabase(context);
                 SupportSQLiteDatabase sqlite = db.getOpenHelper().getReadableDatabase();
@@ -238,7 +249,7 @@ public class DatabaseFieldManager {
      */
     public Future<OperationResult> addField(String tableName, String fieldName, String fieldType,
                                            boolean nullable, String defaultValue) {
-        return executor.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 // 直接检查字段是否存在（不使用异步调用）
                 if (checkFieldExistsSync(tableName, fieldName)) {
@@ -324,7 +335,7 @@ public class DatabaseFieldManager {
      */
     @Deprecated
     public Future<OperationResult> removeField(String tableName, String fieldName) {
-        return executor.submit(() -> {
+        return getExecutor().submit(() -> {
             Log.w(TAG, "删除字段功能已禁用: " + tableName + "." + fieldName);
             String reason = getFieldProtectionReason(fieldName);
             return OperationResult.failure(
@@ -345,7 +356,7 @@ public class DatabaseFieldManager {
      */
     @Deprecated
     public Future<OperationResult> modifyFieldType(String tableName, String fieldName, String newType) {
-        return executor.submit(() -> {
+        return getExecutor().submit(() -> {
             Log.w(TAG, "修改字段类型功能已禁用: " + tableName + "." + fieldName + " -> " + newType);
             return OperationResult.failure(
                 "修改字段类型功能已禁用以保护系统安全。\n\n" +
@@ -361,7 +372,7 @@ public class DatabaseFieldManager {
      * 初始化基础数据
      */
     public Future<Boolean> initializeBasicData() {
-        return executor.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 AppDatabase db = AppDatabase.getDatabase(context);
                 SupportSQLiteDatabase sqlite = db.getOpenHelper().getWritableDatabase();
@@ -424,6 +435,7 @@ public class DatabaseFieldManager {
      * 关闭执行器
      */
     public void shutdown() {
+        // 允许外部调用关闭；后续任务提交时会通过 getExecutor() 自动重建线程池
         executor.shutdown();
     }
 }

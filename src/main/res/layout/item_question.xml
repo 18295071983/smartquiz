@@ -82,6 +82,16 @@
         android:lineSpacingExtra="4dp"
         android:layout_marginBottom="12dp"/>
 
+    <!-- 题目配图（默认隐藏，由适配器根据imageUri动态显示） -->
+    <ImageView
+        android:id="@+id/questionImageView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"/>
+
     <!-- 选项动态容器（由适配器根据数据动态填充，支持A~L所有选项） -->
     <LinearLayout
         android:id="@+id/optionsLayout"
@@ -132,6 +142,19 @@
         android:background="@color/success_container"
         android:padding="10dp"
         android:layout_marginTop="10dp"
+        android:visibility="gone"/>
+
+    <!-- 解析（默认隐藏，答案可见时同步显示） -->
+    <TextView
+        android:id="@+id/explanationTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textColor="@color/text_secondary"
+        android:background="@drawable/explanation_bg"
+        android:padding="10dp"
+        android:layout_marginTop="8dp"
+        android:lineSpacingExtra="3dp"
         android:visibility="gone"/>
 
 </LinearLayout>

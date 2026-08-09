@@ -187,6 +187,9 @@ public class ChatMessage {
     /** 思考内容文本（流式思考过程的纯文本） */
     public String thinkingContent;
 
+    /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
+    public String actionPayload;
+
     /**
      * 思考区域是否展开（默认折叠，用户可点击切换）。
      * 注意：流式生成中也保持折叠以节省屏幕空间，但 label 会显示"思考中..."。
@@ -833,6 +836,11 @@ public class ChatMessage {
         public boolean isExtracted = false; // 是否已解析完成
         public String extractionError; // 解析错误信息
         public String aiSummary; // AI生成的智能摘要
+        
+        // OCR 模型追踪（多层数据传递）
+        public String ocrModelName; // 用于 OCR 的模型名称
+        public String ocrModelId; // 用于 OCR 的模型 ID
+        public long ocrTimestamp; // OCR 处理时间戳
 
         public Attachment(String type, String url, String name) {
             this.id = UUID.randomUUID().toString();
@@ -985,8 +993,12 @@ public class ChatMessage {
         VIEW_TOOL_DETAILS,
         EXPORT_SUMMARY,
         REPORT_ERROR,
+        /** 用户点击 AI 消息操作行的"朗读"按钮：由 AIChatActivity 触发 TTS 朗读/停止 */
+        SPEAK,
         /** 用户点击工具调用卡片中的"AI深度解读"按钮：由 AIChatActivity 触发 LLM 解释 */
-        AI_INTERPRET_RESULT
+        AI_INTERPRET_RESULT,
+        /** 用户点击本地Agent拦截提示中的"强行使用本地Agent"：重发原问题到本地Agent流程 */
+        FORCE_LOCAL_AGENT
     }
 
     /**
@@ -1043,12 +1055,22 @@ public class ChatMessage {
             return new Action(ActionType.REPORT_ERROR, messageId, content);
         }
 
+        /** 朗读指定 AI 消息（再次点击同一消息则停止） */
+        public static Action speak(String messageId, String content) {
+            return new Action(ActionType.SPEAK, messageId, content);
+        }
+
         /**
          * 触发 AI 深度解读指定工具调用消息。
          * @param messageId 工具调用消息的 ID（用于定位 toolName + rawResult）
          */
         public static Action aiInterpretResult(String messageId) {
             return new Action(ActionType.AI_INTERPRET_RESULT, messageId, null);
+        }
+
+        /** 强行使用本地Agent执行（content 为需要重发的原始问题） */
+        public static Action forceLocalAgent(String content) {
+            return new Action(ActionType.FORCE_LOCAL_AGENT, null, content);
         }
     }
 

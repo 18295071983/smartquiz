@@ -6,8 +6,9 @@ import com.oilquiz.app.model.Question;
 import com.oilquiz.app.util.export.ExportUtils;
 
 import java.io.File;
-import java.io.FileWriter;
+import java.io.OutputStreamWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public class JSONExporter implements Exporter {
@@ -26,20 +27,21 @@ public class JSONExporter implements Exporter {
         }
         File exportFile = new File(ExportManager.getExportDirectory(task.getContext()), fileName + "." + getFileExtension());
 
-        try (FileWriter writer = new FileWriter(exportFile)) {
+        // UTF-8 写入，保证中文字符在任何编辑器下可读
+        try (OutputStreamWriter writer = new OutputStreamWriter(new java.io.FileOutputStream(exportFile), StandardCharsets.UTF_8)) {
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             
             List<String> selectedFields = task.getConfig().getSelectedFields();
             int total = questions.size();
             
             if (selectedFields == null || selectedFields.isEmpty()) {
-                // 默认导出所有非空字段
+                // 默认导出所有非空字段（LinkedHashMap 保持字段顺序）
                 List<java.util.Map<String, Object>> filteredQuestions = new java.util.ArrayList<>();
                 for (int i = 0; i < total; i++) {
                     Question question = questions.get(i);
-                    java.util.Map<String, Object> filteredQuestion = new java.util.HashMap<>();
+                    java.util.Map<String, Object> filteredQuestion = new java.util.LinkedHashMap<>();
                     for (String fieldName : ExportUtils.getQuestionFields()) {
-                        Object value = ExportUtils.getFieldValue(question, fieldName);
+                        Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         if (value != null && !value.toString().isEmpty()) {
                             filteredQuestion.put(fieldName, value);
                         }
@@ -54,13 +56,13 @@ public class JSONExporter implements Exporter {
                 }
                 gson.toJson(filteredQuestions, writer);
             } else {
-                // 只导出选中的非空字段
+                // 只导出选中的非空字段（按模板字段顺序输出）
                 List<java.util.Map<String, Object>> filteredQuestions = new java.util.ArrayList<>();
                 for (int i = 0; i < total; i++) {
                     Question question = questions.get(i);
-                    java.util.Map<String, Object> filteredQuestion = new java.util.HashMap<>();
+                    java.util.Map<String, Object> filteredQuestion = new java.util.LinkedHashMap<>();
                     for (String fieldName : selectedFields) {
-                        Object value = ExportUtils.getFieldValue(question, fieldName);
+                        Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         if (value != null && !value.toString().isEmpty()) {
                             filteredQuestion.put(fieldName, value);
                         }

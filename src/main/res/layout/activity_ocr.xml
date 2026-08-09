@@ -245,6 +245,57 @@
                         
                     </LinearLayout>
                     
+                    <!-- OCR 模型选择（可点击行） -->
+                    <LinearLayout
+                        android:id="@+id/btn_ocr_model"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="?attr/selectableItemBackground"
+                        android:padding="12dp"
+                        android:layout_marginTop="4dp">
+                        
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+                            
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:src="@drawable/ic_ai_model"
+                                android:layout_marginEnd="8dp"
+                                app:tint="@color/primary" />
+                            
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="OCR 模型"
+                                android:textSize="14sp"
+                                android:textColor="@color/on_surface" />
+                            
+                            <ImageView
+                                android:layout_width="16dp"
+                                android:layout_height="16dp"
+                                android:src="@drawable/ic_chevron_right"
+                                app:tint="@color/on_surface_variant" />
+                            
+                        </LinearLayout>
+                        
+                        <TextView
+                            android:id="@+id/tv_ocr_model_name"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="自动选择（推荐）"
+                            android:textSize="12sp"
+                            android:textColor="@color/primary"
+                            android:layout_marginStart="28dp"
+                            android:layout_marginTop="2dp" />
+                        
+                    </LinearLayout>
+                    
                 </LinearLayout>
                 
             </com.google.android.material.card.MaterialCardView>

@@ -42,9 +42,9 @@ public class ExcelTemplateExporter extends TemplateBasedExporter {
             // 写入数据
             writeExcelData(sheet, questions, task);
             
-            // 自动调整列宽
+            // 设置固定列宽（禁用 POI autoSizeColumn：其依赖 java.awt 字体渲染，Android 上会抛 NoClassDefFoundError）
             if (task.getConfig().isAutoSizeColumns()) {
-                autoSizeColumns(sheet);
+                applyFixedColumnWidths(sheet);
             }
             
             workbook.write(fos);
@@ -120,11 +120,12 @@ public class ExcelTemplateExporter extends TemplateBasedExporter {
     }
 
     /**
-     * 自动调整列宽
+     * 设置固定列宽（替代已禁用的 autoSizeColumn）
      */
-    private void autoSizeColumns(Sheet sheet) {
+    private void applyFixedColumnWidths(Sheet sheet) {
+        if (sheet.getRow(0) == null) return;
         for (int i = 0; i < sheet.getRow(0).getLastCellNum(); i++) {
-            sheet.autoSizeColumn(i);
+            sheet.setColumnWidth(i, 25 * 256);
         }
     }
 

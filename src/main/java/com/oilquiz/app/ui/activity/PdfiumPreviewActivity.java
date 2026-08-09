@@ -302,7 +302,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
      * 启动文件选择器
      */
     private void launchFilePicker() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("application/pdf");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         

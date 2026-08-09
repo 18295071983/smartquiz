@@ -192,15 +192,50 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     }
 
     private void bindImageAttachment(ImageAttachmentViewHolder holder, ChatMessage.Attachment attachment) {
+        boolean loaded = false;
+
+        // 优先使用本地缩略图文件
         if (attachment.thumbnailPath != null && !attachment.thumbnailPath.isEmpty()) {
             File thumbFile = new File(attachment.thumbnailPath);
             if (thumbFile.exists()) {
                 holder.imageView.setImageURI(Uri.fromFile(thumbFile));
-            } else if (attachment.url != null && !attachment.url.isEmpty()) {
-                holder.imageView.setImageURI(Uri.parse(attachment.url));
+                loaded = true;
             }
-        } else if (attachment.url != null && !attachment.url.isEmpty()) {
-            holder.imageView.setImageURI(Uri.parse(attachment.url));
+        }
+
+        // 回退到 URL（可能是 content:// 或 file:// 或 http:// 或纯文件路径）
+        if (!loaded && attachment.url != null && !attachment.url.isEmpty()) {
+            try {
+                Uri uri;
+                // 处理纯文件路径（无 scheme）
+                if (attachment.url.startsWith("/")) {
+                    File f = new File(attachment.url);
+                    if (f.exists()) {
+                        uri = Uri.fromFile(f);
+                    } else {
+                        uri = Uri.parse(attachment.url);
+                    }
+                } else {
+                    uri = Uri.parse(attachment.url);
+                }
+                holder.imageView.setImageURI(uri);
+                loaded = true;
+            } catch (SecurityException e) {
+                // content:// URI 权限已过期，无法访问
+                android.util.Log.w("MessageAttachmentAdapter", "无法访问图片URI（权限过期）: " + attachment.url, e);
+                loaded = false;
+            } catch (Exception e) {
+                android.util.Log.w("MessageAttachmentAdapter", "加载图片失败: " + attachment.url, e);
+                loaded = false;
+            }
+        }
+
+        // 加载失败时显示占位图
+        if (!loaded) {
+            holder.imageView.setImageResource(R.drawable.ic_ai_image);
+            holder.imageView.setColorFilter(holder.itemView.getContext().getColor(R.color.text_secondary));
+        } else {
+            holder.imageView.clearColorFilter();
         }
 
         if (holder.uploadProgress != null) {

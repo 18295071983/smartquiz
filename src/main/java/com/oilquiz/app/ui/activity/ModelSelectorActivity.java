@@ -62,6 +62,9 @@ public class ModelSelectorActivity extends AppCompatActivity
     private View statusIndicator;
     private TextView tvServiceStatus;
     private TextView tvUsageInfo;
+    private TextView tvAsrModelValue;  // 语音识别模型显示
+    private TextView tvTtsModelValue;  // 语音合成模型显示
+    private TextView tvTtsVoiceValue;  // TTS 音色显示
 
     /** 在线模型配置变更监听器（需在 onDestroy 中注销避免内存泄漏） */
     private OnlineModelManager.ModelChangeListener modelChangeListener;
@@ -115,6 +118,27 @@ public class ModelSelectorActivity extends AppCompatActivity
                     startActivity(new Intent(ModelSelectorActivity.this, ApiConfigActivity.class));
                 });
             }
+
+            // 功能专用模型：语音识别 / 语音合成（点击弹出模型选择器）
+            tvAsrModelValue = findViewById(R.id.tv_asr_model_value);
+            tvTtsModelValue = findViewById(R.id.tv_tts_model_value);
+            tvTtsVoiceValue = findViewById(R.id.tv_tts_voice_value);
+            View rowAsrModel = findViewById(R.id.row_asr_model);
+            View rowTtsModel = findViewById(R.id.row_tts_model);
+            View rowTtsVoice = findViewById(R.id.row_tts_voice);
+            if (rowAsrModel != null) {
+                rowAsrModel.setOnClickListener(v -> showSpeechModelSelector(
+                        com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.ASR));
+            }
+            if (rowTtsModel != null) {
+                rowTtsModel.setOnClickListener(v -> showSpeechModelSelector(
+                        com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.TTS));
+            }
+            if (rowTtsVoice != null) {
+                rowTtsVoice.setOnClickListener(v ->
+                        new com.oilquiz.app.ui.dialog.TTSVoiceSelectorDialog(this).show());
+            }
+            updateFeatureModelsDisplay();
             if (importLocalModelButton != null) {
                 importLocalModelButton.setOnClickListener(v -> importModel());
             }
@@ -593,6 +617,39 @@ public class ModelSelectorActivity extends AppCompatActivity
         super.onResume();
         refreshModels();
         updateServiceStatus();
+        updateFeatureModelsDisplay();
+    }
+
+    /** 弹出语音模型选择器（ASR/TTS） */
+    private void showSpeechModelSelector(com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode mode) {
+        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(this, mode)
+                .setListener((modelId, modelName) -> updateFeatureModelsDisplay())
+                .show();
+    }
+
+    /** 刷新功能专用模型的当前配置显示 */
+    private void updateFeatureModelsDisplay() {
+        if (tvAsrModelValue != null) {
+            tvAsrModelValue.setText(com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getCurrentAsrModelDisplay());
+        }
+        if (tvTtsModelValue != null) {
+            tvTtsModelValue.setText(com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getCurrentTtsModelDisplay());
+        }
+        if (tvTtsVoiceValue != null) {
+            // 未保存过音色时不回填默认值，显示"跟随模型默认"避免误导
+            String savedVoice = com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getSavedTtsVoice();
+            if (savedVoice == null || savedVoice.isEmpty()) {
+                tvTtsVoiceValue.setText("跟随模型默认");
+            } else if (savedVoice.startsWith(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX)) {
+                tvTtsVoiceValue.setText("系统·"
+                        + savedVoice.substring(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX.length()));
+            } else {
+                tvTtsVoiceValue.setText(savedVoice);
+            }
+        }
     }
 
     @Override

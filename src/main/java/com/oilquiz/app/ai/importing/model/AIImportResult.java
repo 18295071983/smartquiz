@@ -57,6 +57,23 @@ public class AIImportResult implements Serializable {
     /** v4: 扩展信息（parseMethod/formatDetected 等） */
     private Map<String, String> extraInfo;
 
+    // ======================== v7: 导入质量报告 ========================
+
+    /** 源规模估算题数（Excel 数据行数/文本题号数，0 表示无法估算） */
+    private int sourceEstimate;
+
+    /** 数量对账是否通过（缺口 ≤10%；sourceEstimate=0 时视为通过） */
+    private boolean qaPassed = true;
+
+    /** 缺口重试的 chunk 数 */
+    private int retriedChunks;
+
+    /** 方法分布：规则通道入库题数 */
+    private int ruleCount;
+
+    /** 方法分布：AI 通道入库题数 */
+    private int aiCount;
+
     /** 默认构造 */
     public AIImportResult() {
     }
@@ -155,6 +172,46 @@ public class AIImportResult implements Serializable {
 
     public void setExtraInfo(Map<String, String> extraInfo) {
         this.extraInfo = extraInfo;
+    }
+
+    public int getSourceEstimate() {
+        return sourceEstimate;
+    }
+
+    public void setSourceEstimate(int sourceEstimate) {
+        this.sourceEstimate = sourceEstimate;
+    }
+
+    public boolean isQaPassed() {
+        return qaPassed;
+    }
+
+    public void setQaPassed(boolean qaPassed) {
+        this.qaPassed = qaPassed;
+    }
+
+    public int getRetriedChunks() {
+        return retriedChunks;
+    }
+
+    public void setRetriedChunks(int retriedChunks) {
+        this.retriedChunks = retriedChunks;
+    }
+
+    public int getRuleCount() {
+        return ruleCount;
+    }
+
+    public void setRuleCount(int ruleCount) {
+        this.ruleCount = ruleCount;
+    }
+
+    public int getAiCount() {
+        return aiCount;
+    }
+
+    public void setAiCount(int aiCount) {
+        this.aiCount = aiCount;
     }
 
     /** 返回有效题目数 */
