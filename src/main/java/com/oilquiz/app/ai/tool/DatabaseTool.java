@@ -289,7 +289,11 @@ public class DatabaseTool implements AITool {
         if (tableNameObj == null) {
             return new AIToolResult("缺少参数: table_name", parameters);
         }
-        String tableName = tableNameObj.toString();
+        String tableName = tableNameObj.toString().trim();
+        // 白名单校验：仅允许字母/数字/下划线，防止 SQL 拼接注入
+        if (!tableName.matches("[A-Za-z0-9_]+")) {
+            return new AIToolResult("非法表名: " + tableName + "（仅允许字母、数字、下划线）", parameters);
+        }
         
         try {
             AppDatabase db = AppDatabase.getDatabase(context);
@@ -389,12 +393,19 @@ public class DatabaseTool implements AITool {
             }
             
             List<Question> questions = future.get(10, TimeUnit.SECONDS);
+            // 防御：过滤无法作答的选择题（缺少选项），避免把坏数据展示给模型/用户
+            int before = questions.size();
+            questions = filterUsableQuestions(questions);
             List<Map<String, Object>> questionList = convertQuestionsToMap(questions);
             
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
             result.put("count", questions.size());
             result.put("questions", questionList);
+            if (before > questions.size()) {
+                result.put("filtered_out", before - questions.size());
+                result.put("note", "已过滤 " + (before - questions.size()) + " 道缺少选项的选择题（数据不完整，无法作答）");
+            }
             
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
@@ -422,6 +433,8 @@ public class DatabaseTool implements AITool {
             }
             
             List<Question> questions = future.get(10, TimeUnit.SECONDS);
+            // 防御：过滤无法作答的选择题（缺少选项）
+            questions = filterUsableQuestions(questions);
             List<Map<String, Object>> questionList = convertQuestionsToMap(questions);
             
             Map<String, Object> result = new HashMap<>();
@@ -582,7 +595,8 @@ public class DatabaseTool implements AITool {
                 q.setOptionJ(getStr(qm, "optionJ", "option_j", "J"));
                 q.setOptionK(getStr(qm, "optionK", "option_k", "K"));
                 q.setOptionL(getStr(qm, "optionL", "option_l", "L"));
-                q.setCorrectAnswer(getStr(qm, "correctAnswer", "correct_answer", "answer"));
+                // 答案格式规范化：去除分隔符并转大写（"a;B; c" -> "ABC"）
+                q.setCorrectAnswer(normalizeAnswer(getStr(qm, "correctAnswer", "correct_answer", "answer")));
                 q.setExplanation(getStr(qm, "explanation", "解析"));
                 q.setCategory(getStr(qm, "category", "分类"));
                 q.setQuestionType(getStr(qm, "questionType", "question_type", "type"));
@@ -634,9 +648,15 @@ public class DatabaseTool implements AITool {
                     try { q.setParentId(Long.parseLong((String) pid)); } catch (Exception ignored) {}
                 }
                 
-                if (q.getQuestionText() != null && !q.getQuestionText().trim().isEmpty()) {
-                    questions.add(q);
+                if (q.getQuestionText() == null || q.getQuestionText().trim().isEmpty()) {
+                    continue;
                 }
+                // 入库校验：选择题必须带选项，防止坏数据入库
+                if (isChoiceType(q.getQuestionType()) && q.getOptionCount() < 2) {
+                    return new AIToolResult("题目校验失败：题型为" + q.getQuestionType()
+                        + "但选项不足（至少需要2个选项），题干：" + q.getQuestionText() + "。请补全选项后重新提交", parameters);
+                }
+                questions.add(q);
             }
             
             if (questions.isEmpty()) {
@@ -716,7 +736,10 @@ public class DatabaseTool implements AITool {
             if (parameters.containsKey("optionB")) question.setOptionB((String) parameters.get("optionB"));
             if (parameters.containsKey("optionC")) question.setOptionC((String) parameters.get("optionC"));
             if (parameters.containsKey("optionD")) question.setOptionD((String) parameters.get("optionD"));
-            if (parameters.containsKey("correctAnswer")) question.setCorrectAnswer((String) parameters.get("correctAnswer"));
+            if (parameters.containsKey("correctAnswer")) {
+                Object ansObj = parameters.get("correctAnswer");
+                question.setCorrectAnswer(ansObj == null ? null : normalizeAnswer(ansObj.toString()));
+            }
             if (parameters.containsKey("explanation")) question.setExplanation((String) parameters.get("explanation"));
             if (parameters.containsKey("category")) question.setCategory((String) parameters.get("category"));
             if (parameters.containsKey("questionType")) question.setQuestionType((String) parameters.get("questionType"));
@@ -977,6 +1000,36 @@ public class DatabaseTool implements AITool {
         } catch (Exception e) {
             return new AIToolResult("获取数据库版本失败: " + e.getMessage(), parameters);
         }
+    }
+    
+    /**
+     * 规范化答案字符串：去除分隔符（;；,，、空白）并转大写。
+     * 例如 "a;B; c" -> "ABC"，填空题文本答案不含分隔符则不受影响。
+     */
+    static String normalizeAnswer(String ans) {
+        if (ans == null) return null;
+        String n = ans.replaceAll("[;；,，、\\s]+", "").toUpperCase();
+        // 仅当规范化结果为纯选项字母（A-L）时才采用，避免破坏含标点的填空/简答文本答案
+        if (!n.isEmpty() && n.matches("[A-L]+")) return n;
+        return ans.trim();
+    }
+    
+    /** 判断题型是否为需要选项的选择题 */
+    static boolean isChoiceType(String type) {
+        return type != null && (type.contains("单选") || type.contains("多选"));
+    }
+    
+    /** 过滤掉缺少选项的选择题（无法作答的坏数据） */
+    private List<Question> filterUsableQuestions(List<Question> questions) {
+        if (questions == null || questions.isEmpty()) return questions;
+        List<Question> usable = new ArrayList<>();
+        for (Question q : questions) {
+            if (isChoiceType(q.getQuestionType()) && q.getOptionCount() < 2) {
+                continue;
+            }
+            usable.add(q);
+        }
+        return usable;
     }
     
     private List<Map<String, Object>> convertQuestionsToMap(List<Question> questions) {

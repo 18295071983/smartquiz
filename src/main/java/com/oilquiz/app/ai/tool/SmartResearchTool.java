@@ -257,9 +257,21 @@ public class SmartResearchTool implements AITool {
             Object raw = parameters.get("urls");
             if (raw instanceof List) {
                 urls = (List<String>) raw;
+            } else if (raw instanceof String && !((String) raw).trim().isEmpty()) {
+                // 兼容单个 url 字符串（引导卡片/模型只传了 url 参数）
+                urls = new ArrayList<>();
+                urls.add(((String) raw).trim());
             }
         } catch (ClassCastException e) {
             AILogger.w(TAG, "urls参数类型不匹配: " + e.getMessage());
+        }
+        // 兼容单个 url 参数（引导卡片收集的 paramKey 为 url）
+        if ((urls == null || urls.isEmpty())) {
+            String singleUrl = getStringParam(parameters, "url", null);
+            if (singleUrl != null && !singleUrl.trim().isEmpty()) {
+                urls = new ArrayList<>();
+                urls.add(singleUrl.trim());
+            }
         }
 
         if (urls == null || urls.isEmpty()) {

@@ -100,8 +100,13 @@ public class ImportValidator {
         s = singleToDoubleQuotes(s);
 
         // 4. 移除尾逗号(,} -> }, ,] -> ])
-        s = s.replaceAll(",\\s*}", "}");
-        s = s.replaceAll(",\\s*]", "]");
+        //    ⚠ Android ICU 正则引擎要求 } 和 ] 必须转义，否则抛 PatternSyntaxException
+        try {
+            s = s.replaceAll(",\\s*\\}", "}");
+            s = s.replaceAll(",\\s*\\]", "]");
+        } catch (java.util.regex.PatternSyntaxException ignored) {
+            // 防御：正则异常不影响主流程，跳过尾逗号修复
+        }
 
         // 5. 修复未闭合的 } 和 ] (统计括号配对补齐)
         s = closeUnclosedBrackets(s);

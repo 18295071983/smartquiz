@@ -338,6 +338,9 @@ public class AIToolManager {
         }
         
         try {
+            // 参数类型归一：引导卡片等UI入口传的都是String，
+            // 而工具内部多处用 (Integer)/(Boolean) 强转，不转换会 ClassCastException
+            normalizeParamTypes(parameters);
             return tool.execute(parameters);
         } catch (Exception e) {
             Log.e(TAG, "Error executing tool: " + toolName, e);
@@ -345,6 +348,42 @@ public class AIToolManager {
             additionalInfo.put("toolName", toolName);
             additionalInfo.put("error", e.getMessage());
             return new AIToolResult("Error executing tool: " + e.getMessage(), additionalInfo);
+        }
+    }
+
+    /** 已知应为整数类型的参数名（白名单，避免误转 id/编号类字符串参数） */
+    private static final java.util.Set<String> INTEGER_PARAM_NAMES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "page", "page_size", "difficulty", "limit", "num_results", "maxResults", "maxDepth", "maxLinks",
+            "startLine", "endLine", "start_line", "end_line", "maxLength",
+            "width", "height", "x", "y", "angle",
+            "sheet_index", "max_rows", "max_items"
+    ));
+
+    /** 已知应为布尔类型的参数名 */
+    private static final java.util.Set<String> BOOLEAN_PARAM_NAMES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "regex", "newLine", "allowMultiple", "includeDetails", "enableThinking"
+    ));
+
+    /**
+     * 将字符串形式的参数按白名单转换为 Integer/Boolean，
+     * 保证引导卡片（全String传参）与模型调用（原生类型传参）两条链路都能正常执行。
+     */
+    private void normalizeParamTypes(Map<String, Object> parameters) {
+        if (parameters == null || parameters.isEmpty()) return;
+        for (Map.Entry<String, Object> entry : parameters.entrySet()) {
+            Object value = entry.getValue();
+            if (!(value instanceof String)) continue;
+            String str = ((String) value).trim();
+            if (str.isEmpty()) continue;
+            String key = entry.getKey();
+            try {
+                if (INTEGER_PARAM_NAMES.contains(key) && str.matches("-?\\d+")) {
+                    entry.setValue(Integer.parseInt(str));
+                } else if (BOOLEAN_PARAM_NAMES.contains(key)
+                        && (str.equalsIgnoreCase("true") || str.equalsIgnoreCase("false"))) {
+                    entry.setValue(Boolean.parseBoolean(str));
+                }
+            } catch (NumberFormatException ignored) { }
         }
     }
     
@@ -544,6 +583,27 @@ public class AIToolManager {
     public List<String> getRegisteredToolNames() {
         return new ArrayList<>(toolFactories.keySet());
     }
+
+    /**
+     * 获取用户创建的动态工具名称列表（已实例化，查询无额外开销）
+     */
+    public List<String> getDynamicToolNames() {
+        return new ArrayList<>(dynamicTools.keySet());
+    }
+
+    /**
+     * 解析工具定义：优先静态定义，动态工具回退到从 AITool 实例反射生成。
+     * 修复本地 Agent 无法调用动态工具的问题（getToolDefinition 对动态工具返回 null）。
+     */
+    public ToolDefinition resolveToolDefinition(String toolName) {
+        ToolDefinition def = getToolDefinition(toolName);
+        if (def != null) return def;
+        AITool dyn = dynamicTools.get(toolName);
+        if (dyn != null) {
+            return createToolDefinitionFromAITool(dyn);
+        }
+        return null;
+    }
     
     /**
      * 获取工具的Class对象，用于通过反射获取注解信息
@@ -695,9 +755,11 @@ public class AIToolManager {
                     .category("file")
                     .build();
             case "database":
-                return ToolDefinition.builder("database", "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作")
-                    .addParameter("action", "string", "操作类型: execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_all_categories/get_all_question_types/get_question_by_id/add_questions/update_question/delete_question/clear_all_questions/get_user/add_user/get_score_history/add_score/get_average_score/get_database_version", true)
-                    .addParameter("query", "string", "SQL查询语句(execute_query用，实际按关键字路由)", false)
+                return ToolDefinition.builder("database", "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入建议用execute_sql执行INSERT语句，每次INSERT 20-30条。add_questions每次最多10道题")
+                    .addParameter("action", "string", "操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_all_categories/get_all_question_types/get_question_by_id/add_questions/update_question/delete_question/clear_all_questions/get_user/add_user/get_score_history/add_score/get_average_score/get_database_version", true)
+                    .addParameter("sql", "string", "SQL语句(execute_sql用，SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)", false)
+                    .addParameter("table_name", "string", "表名(get_table_schema用)", false)
+                    .addParameter("query", "string", "SQL查询语句(execute_query用，兼容旧接口)", false)
                     .addParameter("keyword", "string", "搜索关键词(search_questions用)", false)
                     .addParameter("id", "string", "题目/用户ID(get_question_by_id/update_question/delete_question用)", false)
                     .addParameter("category", "string", "题目分类", false)
@@ -815,7 +877,7 @@ public class AIToolManager {
                         "操作类型(必填)。可选值:\n" +
                         "  天气: weather_current, weather_forecast, weather_hourly, weather_air, weather_alerts, weather_indices, weather_all\n" +
                         "  计算: calculate\n" +
-                        "  OCR: ocr_recognize, ocr_recognize_pdf, ocr_set_language, ocr_get_language\n" +
+                        "  OCR: ocr_recognize(在线视觉模型,高精度), ocr_recognize_pdf, ocr_set_language, ocr_get_language\n" +
                         "  图像识别: image_label_recognize, object_detect\n" +
                         "  图像处理: image_save, image_scale, image_crop, image_rotate, image_generate_color, image_generate_text\n" +
                         "  文件解析: file_parse_text, file_parse_csv, file_parse_json, file_read_lines, file_get_type\n" +

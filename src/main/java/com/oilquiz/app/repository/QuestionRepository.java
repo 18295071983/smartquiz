@@ -385,28 +385,12 @@ public class QuestionRepository {
             @Override
             public void run() {
                 try {
-                    // 先获取所有题目，然后随机选择
-                    List<Question> allQuestions = questionDao.getQuestions();
-                    List<Question> resultQuestions = new ArrayList<>();
-                    if (allQuestions.size() <= count) {
-                        resultQuestions = allQuestions;
-                    } else {
-                        // 随机选择 count 个题目
-                        Random random = new Random();
-                        Set<Integer> selectedIndices = new HashSet<>();
-                        
-                        while (selectedIndices.size() < count) {
-                            int index = random.nextInt(allQuestions.size());
-                            if (selectedIndices.add(index)) {
-                                resultQuestions.add(allQuestions.get(index));
-                            }
-                        }
-                    }
-                    final List<Question> finalQuestions = resultQuestions;
+                    // v23优化: 使用SQL层RANDOM()+LIMIT，不再全量加载
+                    final List<Question> questions = questionDao.getRandomQuestionsLimited(count);
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            callback.onSuccess(finalQuestions);
+                            callback.onSuccess(questions);
                         }
                     });
                 } catch (final Exception e) {
@@ -456,15 +440,92 @@ public class QuestionRepository {
             @Override
             public void run() {
                 try {
-                    List<Question> questions = questionDao.getQuestionsByCategory(category);
-                    if (limit > 0 && questions.size() > limit) {
-                        questions = questions.subList(0, limit);
+                    // v23优化: 使用SQL层LIMIT，不再全量加载后subList
+                    final List<Question> questions;
+                    if (limit > 0) {
+                        questions = questionDao.getRandomQuestionsByCategoryLimited(category, limit);
+                    } else {
+                        questions = questionDao.getQuestionsByCategory(category);
                     }
-                    final List<Question> finalQuestions = questions;
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            callback.onSuccess(finalQuestions);
+                            callback.onSuccess(questions);
+                        }
+                    });
+                } catch (final Exception e) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onFailure(e.getMessage());
+                        }
+                    });
+                }
+            }
+        });
+    }
+    
+    /** v23优化: 按题型限量随机抽题（利用索引） */
+    public void getRandomQuestionsByType(final String type, final int limit, final RepositoryCallback<List<Question>> callback) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<Question> questions = questionDao.getRandomQuestionsByType(type, limit);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onSuccess(questions);
+                        }
+                    });
+                } catch (final Exception e) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onFailure(e.getMessage());
+                        }
+                    });
+                }
+            }
+        });
+    }
+    
+    /** v23优化: 按分类限量随机抽题（利用索引） */
+    public void getRandomQuestionsByCategory(final String category, final int limit, final RepositoryCallback<List<Question>> callback) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<Question> questions = questionDao.getRandomQuestionsByCategoryLimited(category, limit);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onSuccess(questions);
+                        }
+                    });
+                } catch (final Exception e) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onFailure(e.getMessage());
+                        }
+                    });
+                }
+            }
+        });
+    }
+    
+    /** v23优化: 全局限量随机抽题 */
+    public void getRandomQuestionsLimited(final int limit, final RepositoryCallback<List<Question>> callback) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<Question> questions = questionDao.getRandomQuestionsLimited(limit);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onSuccess(questions);
                         }
                     });
                 } catch (final Exception e) {

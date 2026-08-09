@@ -1,0 +1,112 @@
+﻿.\gradlew.bat : Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+所在位置 行:1 字符: 49
++ ... ing=UTF-8'; .\gradlew.bat compileDebugJavaWithJavac -x lint -x genera ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Picked up JAVA_....encoding=UTF-8:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Configuration on demand is an incubating feature.
+> Task :preBuild UP-TO-DATE
+> Task :preDebugBuild UP-TO-DATE
+> Task :dataBindingMergeDependencyArtifactsDebug UP-TO-DATE
+> Task :generateDebugResValues UP-TO-DATE
+> Task :generateDebugResources UP-TO-DATE
+> Task :mergeDebugResources UP-TO-DATE
+> Task :packageDebugResources UP-TO-DATE
+> Task :parseDebugLocalResources UP-TO-DATE
+> Task :dataBindingGenBaseClassesDebug UP-TO-DATE
+> Task :extractDebugPythonBuildPackages UP-TO-DATE
+> Task :mergeDebugPythonSources UP-TO-DATE
+> Task :generateDebugPythonProxies UP-TO-DATE
+> Task :javaPreCompileDebug UP-TO-DATE
+> Task :checkDebugAarMetadata UP-TO-DATE
+> Task :mapDebugSourceSetPaths UP-TO-DATE
+> Task :createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :extractDeepLinksDebug UP-TO-DATE
+> Task :processDebugMainManifest UP-TO-DATE
+> Task :processDebugManifest UP-TO-DATE
+> Task :processDebugManifestForPackage UP-TO-DATE
+> Task :processDebugResources UP-TO-DATE
+
+> Task :compileDebugJavaWithJavac
+The following annotation processors are not incremental: prism4j-bundler-2.0.0.jar (io.noties:prism4j-bundler:2.0.0).
+Make sure all annotation processors are incremental to improve your build speed.
+璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋嬪簭 'org.gradle.api.internal.tasks.compile.processing.TimeTrackingProcessor' 鐨勫彈鏀寔 source 鐗堟湰 'RELEASE_8
+' 浣庝簬 -source '17'
+D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:134: 閿欒: 鎵句笉鍒扮鍙?        if (
+!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; }
+                                                      ^
+  绗﹀彿:   鏂规硶 createSceneMistakeTemplate()
+  浣嶇疆: 绫?TemplateManager
+D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:135: 閿欒: 鎵句笉鍒扮鍙?        if (
+!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; }
+                                                   ^
+  绗﹀彿:   鏂规硶 createSceneExamTemplate()
+  浣嶇疆: 绫?TemplateManager
+D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:152: 閿欒: 鎵句笉鍒扮鍙?        crea
+teSceneMistakeTemplate();
+        ^
+  绗﹀彿:   鏂规硶 createSceneMistakeTemplate()
+  浣嶇疆: 绫?TemplateManager
+D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:153: 閿欒: 鎵句笉鍒扮鍙?        crea
+teSceneExamTemplate();
+        ^
+  绗﹀彿:   鏂规硶 createSceneExamTemplate()
+  浣嶇疆: 绫?TemplateManager
+娉? 鏌愪簺杈撳叆鏂囦欢浣跨敤鎴栬鐩栦簡宸茶繃鏃剁殑 API銆?
+娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:deprecation 閲嶆柊缂栬瘧銆?
+娉? 鏌愪簺杈撳叆鏂囦欢浣跨敤浜嗘湭缁忔鏌ユ垨涓嶅畨鍏ㄧ殑鎿嶄綔銆?
+娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:unchecked 閲嶆柊缂栬瘧銆?
+4 涓敊璇?
+1 涓鍛?
+
+> Task :compileDebugJavaWithJavac FAILED
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋嬪簭 'org.gradle.api.internal.tasks.compile.processing.TimeTrackingProcessor' 鐨勫彈鏀寔 source 鐗堟湰 'RELEASE
+_8' 浣庝簬 -source '17'
+  D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:134: 閿欒: 鎵句笉鍒扮鍙?          
+if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; }
+                                                        ^
+    绗﹀彿:   鏂规硶 createSceneMistakeTemplate()
+    浣嶇疆: 绫?TemplateManager
+  D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:135: 閿欒: 鎵句笉鍒扮鍙?          
+if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; }
+                                                     ^
+    绗﹀彿:   鏂规硶 createSceneExamTemplate()
+    浣嶇疆: 绫?TemplateManager
+  D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:152: 閿欒: 鎵句笉鍒扮鍙?          
+createSceneMistakeTemplate();
+          ^
+    绗﹀彿:   鏂规硶 createSceneMistakeTemplate()
+    浣嶇疆: 绫?TemplateManager
+  D:\qzq\smartquiz\src\main\java\com\oilquiz\app\util\export\template\TemplateManager.java:153: 閿欒: 鎵句笉鍒扮鍙?          
+createSceneExamTemplate();
+          ^
+    绗﹀彿:   鏂规硶 createSceneExamTemplate()
+    浣嶇疆: 绫?TemplateManager
+  娉? 鏌愪簺杈撳叆鏂囦欢浣跨敤鎴栬鐩栦簡宸茶繃鏃剁殑 API銆?
+  娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:deprecation 閲嶆柊缂栬瘧銆?
+  娉? 鏌愪簺杈撳叆鏂囦欢浣跨敤浜嗘湭缁忔鏌ユ垨涓嶅畨鍏ㄧ殑鎿嶄綔銆?
+  娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:unchecked 閲嶆柊缂栬瘧銆?
+  4 涓敊璇?
+  1 涓鍛?
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 32s
+20 actionable tasks: 1 executed, 19 up-to-date

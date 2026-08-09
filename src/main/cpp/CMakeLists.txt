@@ -10,8 +10,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Use -O3 without -ffast-math, and explicitly disable finite-math-only
 add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 
+# SPIRV-Headers 全局包含路径 (Vulkan 后端需要)
+add_compile_options(-I${CMAKE_SOURCE_DIR}/spirv-headers/include)
+
 option(GGML_OPENCL "Enable OpenCL backend" OFF)
-option(GGML_VULKAN "Enable Vulkan backend (experimental, may improve speed on Adreno 7xx+ GPUs)" OFF)
+option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" ON)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
@@ -26,15 +29,20 @@ option(LLAMA_BUILD_SERVER "llama: build server example" OFF)
 option(LLAMA_BUILD_APP "llama: build the unified binary" OFF)
 set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils library" FORCE)
 
+# 多模态支持：构建 mtmd 库（视觉投影 mmproj 加载与图片编码）
+# 禁用视频支持（依赖 ffmpeg），仅保留图片能力
+set(MTMD_VIDEO OFF CACHE BOOL "enable video support in mtmd" FORCE)
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "llama: build mtmd library" FORCE)
+
 set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
 set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Use Adreno-optimized OpenCL kernels" FORCE)
 set(GGML_OPENCL_TARGET_VERSION "300" CACHE STRING "OpenCL API version" FORCE)
 
-# --- Vulkan auto-detection ---
-# Check for glslc (needed for SPIR-V shader compilation).
-# If not found, gracefully disable Vulkan instead of failing the build.
-# Common location: $ANDROID_NDK/shader-tools/<host-platform>/glslc[.exe]
+# --- Vulkan 配置 ---
+# 使用 NDK 自带的 Vulkan headers + libvulkan.so + glslc
+# 需要 SPIRV-Headers (已下载到 spirv-headers/ 目录)
 if(GGML_VULKAN)
+    # 查找 glslc (优先 NDK shader-tools，其次系统 PATH)
     find_program(GLSLC_EXECUTABLE glslc
         PATHS
             ${ANDROID_NDK}/shader-tools/windows-x86_64
@@ -47,12 +55,44 @@ if(GGML_VULKAN)
     endif()
 
     if(NOT GLSLC_EXECUTABLE)
-        message(WARNING "Vulkan: glslc not found! Install Vulkan SDK or ensure "
-                        "ANDROID_NDK is set (needs shader-tools/ subdirectory). "
-                        "Falling back to OpenCL-only. Disabling Vulkan.")
+        message(WARNING "Vulkan: glslc not found! Disabling Vulkan.")
         set(GGML_VULKAN OFF)
     else()
         message(STATUS "Vulkan: glslc found at ${GLSLC_EXECUTABLE}")
+
+        # 配置 NDK Vulkan headers 和 library (根据目标架构动态选择)
+        set(NDK_VULKAN_INCLUDE "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include")
+        # 映射 ANDROID_ABI 到 NDK 库路径三元组
+        if(ANDROID_ABI STREQUAL "arm64-v8a")
+            set(NDK_VULKAN_ARCH_TRIPLE "aarch64-linux-android")
+        elseif(ANDROID_ABI STREQUAL "x86_64")
+            set(NDK_VULKAN_ARCH_TRIPLE "x86_64-linux-android")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            set(NDK_VULKAN_ARCH_TRIPLE "arm-linux-androideabi")
+        elseif(ANDROID_ABI STREQUAL "x86")
+            set(NDK_VULKAN_ARCH_TRIPLE "i686-linux-android")
+        else()
+            set(NDK_VULKAN_ARCH_TRIPLE "aarch64-linux-android")
+        endif()
+        # 使用 NDK 标准 Vulkan 存根 (API 34)
+        # 存根仅用于编译链接，运行时由 Android 系统 Vulkan 加载器提供实际驱动
+        # ggml-vulkan 通过 vkGetInstanceProcAddr 动态加载所有 Vulkan 函数，自适应任何 GPU
+        set(NDK_VULKAN_LIB "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/${NDK_VULKAN_ARCH_TRIPLE}/34/libvulkan.so")
+        message(STATUS "Vulkan: Using NDK stub libvulkan.so (API 34) - runtime adaptive via vkGetInstanceProcAddr")
+        
+        if(EXISTS "${NDK_VULKAN_INCLUDE}/vulkan/vulkan.h")
+            message(STATUS "Vulkan: NDK headers found at ${NDK_VULKAN_INCLUDE}")
+        else()
+            message(WARNING "Vulkan: NDK headers not found! Disabling Vulkan.")
+            set(GGML_VULKAN OFF)
+        endif()
+        
+        if(GGML_VULKAN AND EXISTS "${NDK_VULKAN_LIB}")
+            message(STATUS "Vulkan: NDK library found at ${NDK_VULKAN_LIB}")
+        elseif(GGML_VULKAN)
+            message(WARNING "Vulkan: NDK library not found at ${NDK_VULKAN_LIB}")
+            set(GGML_VULKAN OFF)
+        endif()
     endif()
 endif()
 
@@ -67,6 +107,25 @@ set(OPENCL_ICD_LIB "${CMAKE_SOURCE_DIR}/opencl/build/lib/libOpenCL.so")
 
 if(GGML_VULKAN)
     message(STATUS "Vulkan backend: ENABLED (glslc: ${GLSLC_EXECUTABLE})")
+    
+    # 预配置 Vulkan find_package 变量 (NDK 交叉编译)
+    set(Vulkan_INCLUDE_DIRS "${NDK_VULKAN_INCLUDE}" CACHE PATH "Vulkan include dirs" FORCE)
+    set(Vulkan_LIBRARIES "${NDK_VULKAN_LIB}" CACHE FILEPATH "Vulkan libraries" FORCE)
+    set(Vulkan_LIBRARY "${NDK_VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
+    set(Vulkan_FOUND TRUE CACHE BOOL "Vulkan found" FORCE)
+    set(Vulkan_GLSLC_EXECUTABLE "${GLSLC_EXECUTABLE}" CACHE FILEPATH "glslc" FORCE)
+    
+    # SPIRV-Headers 路径 (使用自定义 config)
+    set(SPIRV_HEADERS_DIR "${CMAKE_SOURCE_DIR}/spirv-headers")
+    set(SPIRV-Headers_DIR "${CMAKE_SOURCE_DIR}/cmake")
+    list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/cmake")
+    
+    # 交叉编译时 vulkan-shaders-gen 需要主机工具链
+    if(CMAKE_CROSSCOMPILING)
+        set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${CMAKE_SOURCE_DIR}/cmake/host-toolchain-windows.cmake" 
+            CACHE FILEPATH "Host toolchain for vulkan-shaders-gen" FORCE)
+        message(STATUS "Vulkan: Host toolchain for shader gen: ${GGML_VULKAN_SHADERS_GEN_TOOLCHAIN}")
+    endif()
 else()
     message(STATUS "Vulkan backend: DISABLED (use -DGGML_VULKAN=ON to enable; requires Vulkan SDK with glslc)")
 endif()
@@ -117,9 +176,11 @@ include_directories(
     ${LLAMA_CPP_PATH}/common
     ${LLAMA_CPP_PATH}/include
     ${LLAMA_CPP_PATH}/ggml/include
+    ${LLAMA_CPP_PATH}/tools/mtmd
     ${LLAMA_CPP_PATH}/vendor
     ${OPENCL_HEADERS_DIR}
     ${CMAKE_SOURCE_DIR}/vulkan
+    ${CMAKE_SOURCE_DIR}/spirv-headers/include
     ${CMAKE_SOURCE_DIR}/../java/com/oilquiz/app/ai/jni
 )
 
@@ -134,6 +195,7 @@ target_link_libraries(
     llama-jni
     llama
     llama-common
+    mtmd
     log
     android
     z
@@ -144,6 +206,11 @@ target_link_libraries(
 
 if(GGML_OPENCL)
     target_link_libraries(llama-jni ggml-opencl)
+endif()
+
+if(GGML_VULKAN)
+    target_link_libraries(llama-jni ggml-vulkan)
+    message(STATUS "Vulkan: Linked ggml-vulkan backend")
 endif()
 
 if(GGML_OPENCL)

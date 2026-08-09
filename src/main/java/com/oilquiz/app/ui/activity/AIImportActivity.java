@@ -93,6 +93,8 @@ public class AIImportActivity extends BaseActivity {
     private File currentFile;
     /** 原始文件名(Excel 选定 sheet 后记录为"原名 > sheetName",供 tvFileName 显示) */
     private String originalFileName;
+    /** v6: Excel 选定的工作表参数（非 Excel 时为 null，导入时传原文件给 Orchestrator 直读） */
+    private ExcelSheetPicker.SheetProfile selectedSheet;
     /** AI 导入编排引擎 */
     private AIImportOrchestrator orchestrator;
     /** 预览题目列表(由编排引擎累计快照替换填充) */
@@ -285,14 +287,33 @@ public class AIImportActivity extends BaseActivity {
                     String method = result.getExtraInfo().get("parseMethod");
                     if ("rule".equals(method)) parseMethod = "规则引擎";
                     else if ("hybrid".equals(method)) parseMethod = "混合模式";
+                    else if ("rule_fallback".equals(method)) parseMethod = "规则引擎兜底";
                 }
-                agentView.completeExecution("导入完成 (" + parseMethod + ")");
+                // v7: 导入质量报告（数量对账 + 方法分布）
+                StringBuilder qa = new StringBuilder();
+                if (result.getSourceEstimate() > 0) {
+                    qa.append(" 对账:").append(result.getValidCount())
+                            .append("/").append(result.getSourceEstimate())
+                            .append(result.isQaPassed() ? "✓" : "⚠有缺口");
+                }
+                if (result.getRuleCount() > 0 || result.getAiCount() > 0) {
+                    qa.append(" 规则").append(result.getRuleCount())
+                            .append("题/AI").append(result.getAiCount()).append("题");
+                }
+                if (result.getRetriedChunks() > 0) {
+                    qa.append(" 重试").append(result.getRetriedChunks()).append("块");
+                }
+                agentView.completeExecution("导入完成 (" + parseMethod + ")" + qa.toString());
                 updateStats(result);
                 updateCoverage(result);
                 refreshModelInfo();
                 // 存在无效题目时弹窗提示错误数
                 if (result.getInvalidCount() > 0) {
                     showInvalidDialog(result.getInvalidCount());
+                }
+                // v7: 对账未通过时提醒人工复核
+                if (result.getSourceEstimate() > 0 && !result.isQaPassed()) {
+                    showLongToast("数量对账存在缺口，建议人工复核题目数量");
                 }
             }
 
@@ -304,7 +325,22 @@ public class AIImportActivity extends BaseActivity {
             }
         };
 
-        orchestrator.start(currentFile, listener);
+        dispatchStart(listener);
+    }
+
+    /** 启动导入：Excel 已选定工作表时走原文件直读，否则走通用入口 */
+    private void dispatchStart(AIImportOrchestrator.ImportListener listener) {
+        if (selectedSheet != null && currentFile != null) {
+            orchestrator.startWithSheet(currentFile, listener,
+                    selectedSheet.sheetIndex,
+                    selectedSheet.headerRowIndex,
+                    selectedSheet.subHeaderRowIndex,
+                    selectedSheet.dataStartRowIndex,
+                    selectedSheet.sheetName,
+                    selectedSheet.inferredQuestionType);
+        } else {
+            orchestrator.start(currentFile, listener);
+        }
     }
 
     /** 更新阶段图标行激活状态:当前及之前 alpha=1,之后 alpha=0.3 */
@@ -477,6 +513,7 @@ public class AIImportActivity extends BaseActivity {
                     handleExcelSheetSelection(file);
                 } else {
                     // 非 Excel:保持原流程
+                    selectedSheet = null;
                     originalFileName = file.getName();
                     tvFileName.setText(file.getName());
                     btnStartImport.setEnabled(true);
@@ -511,7 +548,7 @@ public class AIImportActivity extends BaseActivity {
         es.shutdown();
     }
 
-    /** 弹出工作表单选对话框,确认后导出选定 sheet 为 .md 临时文件并替换 currentFile */
+    /** 弹出工作表单选对话框,确认后记录选定 SheetProfile（v6: 导入时由 Orchestrator 内存直读原文件,不再写临时 .md） */
     private void showSheetPickerDialog(File excelFile,
                                         final List<ExcelSheetPicker.SheetProfile> profiles) {
         final int n = profiles.size();
@@ -528,62 +565,20 @@ public class AIImportActivity extends BaseActivity {
                 .setSingleChoiceItems(items, 0, (dialog, which) -> checked[0] = which)
                 .setPositiveButton("导入此表", (dialog, which) -> {
                     final ExcelSheetPicker.SheetProfile selected = profiles.get(checked[0]);
-                    // 后台导出为 Markdown(POI 耗时)
-                    ExecutorService es = Executors.newSingleThreadExecutor();
-                    es.execute(() -> {
-                        // 带 META（题型、sheet名）导出，下游 Orchestrator 解析回填 questionType
-                        final String md = ExcelSheetPicker.exportSheetAsMarkdownWithMeta(
-                                excelFile, selected.sheetIndex,
-                                selected.headerRowIndex, selected.subHeaderRowIndex,
-                                selected.dataStartRowIndex,
-                                selected.sheetName,
-                                selected.inferredQuestionType);
-                        if (md == null || md.isEmpty()) {
-                            runOnUiThread(() -> {
-                                showToast("导出工作表失败,请检查文件");
-                                currentFile = null;
-                                originalFileName = null;
-                                tvFileName.setText("未选择");
-                                btnStartImport.setEnabled(false);
-                            });
-                            return;
-                        }
-                        // 写入临时 .md 文件(UTF-8)
-                        File mdFile;
-                        try {
-                            mdFile = File.createTempFile("ai_sheet", ".md", getCacheDir());
-                            try (FileOutputStream fos = new FileOutputStream(mdFile);
-                                 OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-                                osw.write(md);
-                            }
-                            mdFile.deleteOnExit();
-                        } catch (IOException e) {
-                            final String msg = e.getMessage();
-                            runOnUiThread(() -> {
-                                showToast("写入临时文件失败:" + msg);
-                                currentFile = null;
-                                originalFileName = null;
-                                tvFileName.setText("未选择");
-                                btnStartImport.setEnabled(false);
-                            });
-                            return;
-                        }
-                        // currentFile 改为 .md 临时文件,走正常 File 导入流程
-                        final File finalMdFile = mdFile;
-                        final String displayName = excelFile.getName() + " > " + selected.sheetName;
-                        runOnUiThread(() -> {
-                            currentFile = finalMdFile;
-                            originalFileName = displayName;
-                            tvFileName.setText(displayName);
-                            btnStartImport.setEnabled(true);
-                            showToast("已选择工作表:" + selected.sheetName
-                                    + ",表头第" + (selected.headerRowIndex + 1) + "行,可开始导入");
-                        });
-                    });
-                    es.shutdown();
+                    // v6: currentFile 保持为 Excel 原文件，只记录选定 sheet 参数，
+                    // 导入时 Orchestrator 在 PROFILE 阶段用 POI 内存直读，不再写临时 .md 文件
+                    final String displayName = excelFile.getName() + " > " + selected.sheetName;
+                    currentFile = excelFile;
+                    selectedSheet = selected;
+                    originalFileName = displayName;
+                    tvFileName.setText(displayName);
+                    btnStartImport.setEnabled(true);
+                    showToast("已选择工作表:" + selected.sheetName
+                            + ",表头第" + (selected.headerRowIndex + 1) + "行,可开始导入");
                 })
                 .setNegativeButton("取消", (dialog, which) -> {
                     currentFile = null;
+                    selectedSheet = null;
                     originalFileName = null;
                     tvFileName.setText("未选择");
                     btnStartImport.setEnabled(false);

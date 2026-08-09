@@ -84,6 +84,17 @@
             app:iconTint="@color/text_secondary"
             app:backgroundTint="@android:color/transparent"
             android:layout_marginStart="8dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRepair"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            app:icon="@android:drawable/ic_menu_manage"
+            app:iconTint="@color/text_secondary"
+            app:backgroundTint="@android:color/transparent"
+            android:contentDescription="题库智能修复"
+            android:layout_marginStart="4dp"/>
     </LinearLayout>
 
     <!-- 题目列表（统计卡片作为 header item 由适配器渲染） -->

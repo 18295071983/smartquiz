@@ -1,97 +1,122 @@
 package com.oilquiz.app.ui.activity;
 
+import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.os.Bundle;
+import android.net.Uri;
 import android.view.View;
-import com.google.android.material.button.MaterialButton;
 import android.widget.CheckBox;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.content.DialogInterface;
-import android.net.Uri;
-import java.io.File;
+
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.cardview.widget.CardView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.lifecycle.ViewModelProvider;
+
+import com.google.android.material.button.MaterialButton;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.manager.ConfigManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.SystemUIResourceAdapter;
-
+import com.oilquiz.app.ui.export.ExportQuestionsHolder;
+import com.oilquiz.app.ui.export.TemplateSelectionActivity;
+import com.oilquiz.app.util.export.ExportFileSaver;
 import com.oilquiz.app.util.export.ExportManager;
 import com.oilquiz.app.util.export.ExportUtils;
+import com.oilquiz.app.util.export.template.Template;
+import com.oilquiz.app.util.export.template.TemplateManager;
 import com.oilquiz.app.viewmodel.QuestionViewModel;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 导出功能主页面
+ * 支持：场景模板选择（标准/刷题/答案解析/讲义/记忆卡片/数据分析）+ 格式选择 + 范围过滤 + 字段自定义，
+ * 导出文件保存到公共「下载/OilQuiz」目录（文件管理器可见可编辑）。
+ */
 public class ExportActivity extends AppCompatActivity {
 
-    private static final int REQUEST_CODE_STORAGE_PERMISSION = 1001;
-
     private QuestionViewModel questionViewModel;
-    private Spinner spinnerExportFormat;
+
     private MaterialButton btnSelectFields;
     private MaterialButton btnStartExport;
     private MaterialButton btnSelectTemplate;
     private CheckBox cbIncludeAnswers;
     private CheckBox cbIncludeExplanations;
     private CheckBox cbIncludeDifficulty;
+    private RadioGroup rgExportScope;
     private TextView tvSelectedFields;
     private TextView tvQuestionCount;
-    private TextView tvExportDirectory;
+    private TextView tvTemplateDesc;
+    private LinearLayout llTemplateScenes;
+    private LinearLayout llFormatOptions;
+
     private List<String> selectedFields;
+    private Template selectedTemplate;
+    private ExportManager.ExportFormat selectedFormat;
+    private List<Template> sceneTemplates = new ArrayList<>();
+    private List<Map<String, String>> exportFormats = new ArrayList<>();
+    private MaterialButton currentFormatChip;
+    private MaterialButton currentSceneChip;
+    /** 模板要求仅导出答错过的题目（错题本版） */
+    private boolean onlyIncorrect;
+    /** 模板要求按难度/分类分组（试卷版/讲义版） */
+    private boolean sortByDifficulty;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(android.os.Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
+
         // 应用系统UI主题
         SystemUIResourceAdapter uiAdapter = SystemUIResourceAdapter.getInstance(this);
         uiAdapter.applySystemTheme(this);
-        
+
         setContentView(R.layout.activity_export);
 
         questionViewModel = new ViewModelProvider(this).get(QuestionViewModel.class);
 
         // 初始化UI组件
-        spinnerExportFormat = findViewById(R.id.spinner_export_format);
         btnSelectFields = findViewById(R.id.btn_select_fields);
         btnStartExport = findViewById(R.id.btn_start_export);
         btnSelectTemplate = findViewById(R.id.btn_select_template);
         cbIncludeAnswers = findViewById(R.id.cb_include_answers);
         cbIncludeExplanations = findViewById(R.id.cb_include_explanations);
         cbIncludeDifficulty = findViewById(R.id.cb_include_difficulty);
+        rgExportScope = findViewById(R.id.rg_export_scope);
         tvSelectedFields = findViewById(R.id.tv_selected_fields);
         tvQuestionCount = findViewById(R.id.textQuestionCount);
-        tvExportDirectory = findViewById(R.id.tvExportDirectory);
+        tvTemplateDesc = findViewById(R.id.tv_template_desc);
+        llTemplateScenes = findViewById(R.id.ll_template_scenes);
+        llFormatOptions = findViewById(R.id.ll_format_options);
 
+        // 初始化模板管理器与场景模板
+        TemplateManager.getInstance().init(this);
+        sceneTemplates = TemplateManager.getInstance().getDefaultTemplates();
+        initSceneTemplateChips();
 
+        // 初始化导出格式 chips
+        initFormatChips();
 
-        // 初始化导出格式选择器
-        initExportFormatSpinner();
+        // 默认选中第一个场景模板
+        if (!sceneTemplates.isEmpty()) {
+            selectSceneTemplate(sceneTemplates.get(0), null);
+        } else {
+            // 无模板时默认全字段
+            selectedFields = ExportUtils.getQuestionFields();
+            updateSelectedFieldsText();
+        }
 
-        // 初始化选中字段（默认全选）
-        selectedFields = ExportUtils.getQuestionFields();
-        updateSelectedFieldsText();
-        
         // 加载题目数量
         loadQuestionCount();
-        
-        // 显示导出目录
-        displayExportDirectory();
 
         // 设置选择字段按钮点击事件
         btnSelectFields.setOnClickListener(new View.OnClickListener() {
@@ -101,37 +126,26 @@ public class ExportActivity extends AppCompatActivity {
             }
         });
 
-        // 设置选择模板按钮点击事件
+        // 设置模板管理按钮点击事件（进入完整模板选择页面）
         btnSelectTemplate.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // 获取题目数据
                 questionViewModel.getQuestions(new QuestionViewModel.GetQuestionsCallback() {
                     @Override
                     public void onSuccess(List<Question> questions) {
                         if (questions != null && !questions.isEmpty()) {
-                            Intent intent = new Intent(ExportActivity.this, com.oilquiz.app.ui.export.TemplateSelectionActivity.class);
-                            intent.putExtra("questions", (java.io.Serializable) questions);
+                            // 题目列表通过内存持有器传递，避免 Intent 序列化超 Binder 上限抛 TransactionTooLargeException
+                            ExportQuestionsHolder.set(questions);
+                            Intent intent = new Intent(ExportActivity.this, TemplateSelectionActivity.class);
                             startActivity(intent);
                         } else {
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
-                                }
-                            });
-                            return;
+                            Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
                         }
                     }
 
                     @Override
                     public void onError(String error) {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
-                            }
-                        });
+                        Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -147,23 +161,204 @@ public class ExportActivity extends AppCompatActivity {
     }
 
     /**
-     * 初始化导出格式选择器
+     * 动态生成场景模板 chips
      */
-    private void initExportFormatSpinner() {
-        // 获取导出格式列表
-        ConfigManager configManager = ConfigManager.getInstance(this);
-        List<Map<String, String>> exportFormats = configManager.getExportFormats();
+    private void initSceneTemplateChips() {
+        llTemplateScenes.removeAllViews();
+        for (int i = 0; i < sceneTemplates.size(); i++) {
+            Template template = sceneTemplates.get(i);
+            final int index = i;
+            MaterialButton chip = createChip(template.getName());
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectSceneTemplate(sceneTemplates.get(index), chip);
+                }
+            });
+            llTemplateScenes.addView(chip);
+        }
+    }
 
-        // 提取格式标签
-        List<String> formatLabels = new java.util.ArrayList<>();
-        for (Map<String, String> format : exportFormats) {
-            formatLabels.add(format.get("label"));
+    /**
+     * 选中场景模板：应用其字段组合与选项状态
+     */
+    private void selectSceneTemplate(Template template, MaterialButton chip) {
+        selectedTemplate = template;
+
+        // 高亮当前 chip
+        if (chip != null) {
+            if (currentSceneChip != null) {
+                setChipSelected(currentSceneChip, false);
+            }
+            currentSceneChip = chip;
+            setChipSelected(chip, true);
         }
 
-        // 创建适配器
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, formatLabels);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerExportFormat.setAdapter(adapter);
+        // 应用模板字段
+        if (template.getFields() != null && !template.getFields().isEmpty()) {
+            selectedFields = new ArrayList<>(template.getFields());
+        } else {
+            selectedFields = ExportUtils.getQuestionFields();
+        }
+        updateSelectedFieldsText();
+
+        // 应用模板描述
+        String desc = template.getDescription();
+        if (desc != null && !desc.isEmpty()) {
+            tvTemplateDesc.setText(desc);
+        }
+
+        // 应用模板选项状态（config 中存在时才覆盖）
+        Map<String, Object> config = template.getConfig();
+        if (config != null) {
+            if (config.containsKey("includeAnswers")) {
+                cbIncludeAnswers.setChecked(Boolean.TRUE.equals(config.get("includeAnswers")));
+            }
+            if (config.containsKey("includeExplanations")) {
+                cbIncludeExplanations.setChecked(Boolean.TRUE.equals(config.get("includeExplanations")));
+            }
+            if (config.containsKey("includeDifficulty")) {
+                cbIncludeDifficulty.setChecked(Boolean.TRUE.equals(config.get("includeDifficulty")));
+            }
+            // 错题本版：仅导出答错过的题目
+            onlyIncorrect = Boolean.TRUE.equals(config.get("onlyIncorrect"));
+            // 试卷版/讲义版：导出时按难度排序
+            sortByDifficulty = Boolean.TRUE.equals(config.get("sortByDifficulty"));
+        }
+
+        // 模板不支持当前格式时，自动切到第一个支持的格式
+        if (selectedFormat != null && !template.supportsFormat(selectedFormat.name())) {
+            switchToFirstSupportedFormat(template);
+        }
+    }
+
+    /**
+     * 动态生成导出格式 chips（来自 ConfigManager 配置）
+     */
+    private void initFormatChips() {
+        ConfigManager configManager = ConfigManager.getInstance(this);
+        exportFormats = configManager.getExportFormats();
+        llFormatOptions.removeAllViews();
+
+        // 默认选中 Excel（第一个）
+        boolean first = true;
+        for (Map<String, String> format : exportFormats) {
+            final String value = format.get("value");
+            final String label = format.get("label");
+            MaterialButton chip = createChip(label);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectFormat(value, label, chip);
+                }
+            });
+            llFormatOptions.addView(chip);
+            if (first) {
+                selectFormat(value, label, chip);
+                first = false;
+            }
+        }
+    }
+
+    private void selectFormat(String value, String label, MaterialButton chip) {
+        try {
+            selectedFormat = ExportManager.ExportFormat.valueOf(value);
+        } catch (Exception e) {
+            Toast.makeText(this, "不支持的导出格式：" + label, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (currentFormatChip != null) {
+            setChipSelected(currentFormatChip, false);
+        }
+        currentFormatChip = chip;
+        setChipSelected(chip, true);
+
+        // 当前模板不支持该格式时，提示并切换模板
+        if (selectedTemplate != null && !selectedTemplate.supportsFormat(value)) {
+            Template supported = findTemplateForFormat(value);
+            if (supported != null) {
+                Toast.makeText(this, "当前模板不支持" + label + "，已切换到「" + supported.getName() + "」", Toast.LENGTH_SHORT).show();
+                selectSceneTemplate(supported, findSceneChip(supported));
+            }
+        }
+    }
+
+    private void switchToFirstSupportedFormat(Template template) {
+        for (Map<String, String> format : exportFormats) {
+            if (template.supportsFormat(format.get("value"))) {
+                selectFormat(format.get("value"), format.get("label"), findFormatChip(format.get("value")));
+                return;
+            }
+        }
+    }
+
+    private Template findTemplateForFormat(String formatValue) {
+        for (Template template : sceneTemplates) {
+            if (template.supportsFormat(formatValue)) {
+                return template;
+            }
+        }
+        return null;
+    }
+
+    private MaterialButton findSceneChip(Template template) {
+        if (template == null) return null;
+        int idx = -1;
+        for (int i = 0; i < sceneTemplates.size(); i++) {
+            if (sceneTemplates.get(i).getId() != null && sceneTemplates.get(i).getId().equals(template.getId())) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx >= 0 && idx < llTemplateScenes.getChildCount()) {
+            return (MaterialButton) llTemplateScenes.getChildAt(idx);
+        }
+        return null;
+    }
+
+    private MaterialButton findFormatChip(String value) {
+        for (Map<String, String> format : exportFormats) {
+            if (format.get("value").equals(value)) {
+                int idx = exportFormats.indexOf(format);
+                if (idx >= 0 && idx < llFormatOptions.getChildCount()) {
+                    return (MaterialButton) llFormatOptions.getChildAt(idx);
+                }
+            }
+        }
+        return null;
+    }
+
+    private MaterialButton createChip(String text) {
+        MaterialButton chip = new MaterialButton(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMarginEnd(12);
+        chip.setLayoutParams(params);
+        chip.setText(text);
+        chip.setTextSize(13);
+        chip.setAllCaps(false);
+        chip.setCornerRadius(20);
+        chip.setMinimumHeight(48);
+        chip.setPadding(40, 0, 40, 0);
+        setChipSelected(chip, false);
+        return chip;
+    }
+
+    private void setChipSelected(MaterialButton chip, boolean selected) {
+        if (chip == null) return;
+        if (selected) {
+            chip.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    getColor(com.oilquiz.app.R.color.primary)));
+            chip.setTextColor(android.graphics.Color.WHITE);
+            chip.setStrokeWidth(0);
+        } else {
+            chip.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    getColor(com.oilquiz.app.R.color.surface)));
+            chip.setTextColor(getColor(com.oilquiz.app.R.color.primary));
+            chip.setStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(com.oilquiz.app.R.color.primary)));
+            chip.setStrokeWidth(2);
+        }
     }
 
     /**
@@ -187,7 +382,7 @@ public class ExportActivity extends AppCompatActivity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(20, 20, 20, 20);
 
-        final List<String> tempSelectedFields = new java.util.ArrayList<>(selectedFields);
+        final List<String> tempSelectedFields = new ArrayList<>(selectedFields);
 
         for (int i = 0; i < fields.size(); i++) {
             CheckBox checkBox = new CheckBox(this);
@@ -227,8 +422,10 @@ public class ExportActivity extends AppCompatActivity {
      * 更新选中字段文本
      */
     private void updateSelectedFieldsText() {
-        if (selectedFields.size() == ExportUtils.getQuestionFields().size()) {
-            tvSelectedFields.setText("已选择所有字段");
+        if (selectedFields == null || selectedFields.isEmpty()) {
+            tvSelectedFields.setText("已选择 0 个字段");
+        } else if (selectedFields.size() >= ExportUtils.getQuestionFields().size()) {
+            tvSelectedFields.setText("已选择所有字段（" + selectedFields.size() + " 个）");
         } else {
             tvSelectedFields.setText("已选择 " + selectedFields.size() + " 个字段");
         }
@@ -258,51 +455,59 @@ public class ExportActivity extends AppCompatActivity {
      * 继续执行导出操作
      */
     private void proceedWithExport() {
-        // 获取选择的导出格式
-        String selectedFormatLabel = (String) spinnerExportFormat.getSelectedItem();
-        ConfigManager configManager = ConfigManager.getInstance(this);
-        List<Map<String, String>> exportFormats = configManager.getExportFormats();
-
-        String formatValue = null;
-        for (Map<String, String> format : exportFormats) {
-            if (format.get("label").equals(selectedFormatLabel)) {
-                formatValue = format.get("value");
-                break;
-            }
-        }
-
-        if (formatValue == null) {
+        if (selectedFormat == null) {
             Toast.makeText(this, "请选择导出格式", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        ExportManager.ExportFormat exportFormat = ExportManager.ExportFormat.valueOf(formatValue);
+        final ExportManager.ExportFormat exportFormat = selectedFormat;
 
         // 获取题目数据
         questionViewModel.getQuestions(new QuestionViewModel.GetQuestionsCallback() {
             @Override
             public void onSuccess(List<Question> questions) {
                 if (questions != null && !questions.isEmpty()) {
-                    exportQuestions(questions, exportFormat);
-                } else {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
+                    // 范围过滤：仅收藏 / 仅错题（错题本版模板）
+                    List<Question> exportList = questions;
+                    if (rgExportScope != null && rgExportScope.getCheckedRadioButtonId() == R.id.rb_scope_favorite) {
+                        exportList = new ArrayList<>();
+                        for (Question q : questions) {
+                            if (q != null && q.isFavorite()) {
+                                exportList.add(q);
+                            }
                         }
-                    });
-                    return;
+                        if (exportList.isEmpty()) {
+                            Toast.makeText(ExportActivity.this, "没有收藏的题目可导出", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                    } else if (onlyIncorrect) {
+                        // 错题本版：仅导出答错过（答错次数>0）的题目
+                        exportList = new ArrayList<>();
+                        for (Question q : questions) {
+                            if (q != null && q.getIncorrectCount() > 0) {
+                                exportList.add(q);
+                            }
+                        }
+                        if (exportList.isEmpty()) {
+                            Toast.makeText(ExportActivity.this, "没有答错过的题目可导出（错题本为空）", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        Toast.makeText(ExportActivity.this, "已过滤出 " + exportList.size() + " 道错题", Toast.LENGTH_SHORT).show();
+                    }
+                    // 试卷版/模拟考试版：按难度从易到难排序，组卷更合理
+                    if (sortByDifficulty && exportList.size() > 1) {
+                        exportList = new ArrayList<>(exportList);
+                        exportList.sort((a, b) -> Integer.compare(a.getDifficulty(), b.getDifficulty()));
+                    }
+                    exportQuestions(exportList, exportFormat);
+                } else {
+                    Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
                 }
             }
 
             @Override
             public void onError(String error) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
-                    }
-                });
+                Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -315,45 +520,37 @@ public class ExportActivity extends AppCompatActivity {
         config.setIncludeExplanations(cbIncludeExplanations.isChecked());
         config.setIncludeDifficulty(cbIncludeDifficulty.isChecked());
         config.setSelectedFields(selectedFields);
+        if (selectedTemplate != null) {
+            config.setTemplateId(selectedTemplate.getId());
+        }
 
         // 根据导出格式选择对话框布局
-        View progressView;
         AlertDialog.Builder progressBuilder = new AlertDialog.Builder(ExportActivity.this);
-        ProgressBar progressBar;
-        TextView progressText;
-        final TextView[] exportLog = new TextView[1];
-        final ScrollView[] logScrollView = new ScrollView[1];
-        
-        // 动态生成普通进度对话框布局
+        final ProgressBar[] progressBarRef = new ProgressBar[1];
+
         progressBuilder.setTitle("导出中");
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(24, 24, 24, 24);
-        
-        // 添加进度条
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+
+        ProgressBar progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
-        LinearLayout.LayoutParams progressBarParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        layout.addView(progressBar, progressBarParams);
-        
-        // 添加进度文本
-        progressText = new TextView(this);
-        progressText.setText("导出中...");
+        layout.addView(progressBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        progressBarRef[0] = progressBar;
+
+        TextView progressText = new TextView(this);
+        progressText.setText("正在生成文件...");
         progressText.setTextSize(16);
         progressText.setTextColor(SystemUIResourceAdapter.getInstance(this).getTextPrimaryColor());
         progressText.setGravity(android.view.Gravity.CENTER);
-        LinearLayout.LayoutParams progressTextParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        progressTextParams.setMargins(0, 16, 0, 0);
-        layout.addView(progressText, progressTextParams);
-        
-        progressView = layout;
-        
-        progressBar.setMax(100);
-        progressBuilder.setView(progressView);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        textParams.setMargins(0, 16, 0, 0);
+        layout.addView(progressText, textParams);
+
+        progressBuilder.setView(layout);
         progressBuilder.setCancelable(false);
-        // 添加关闭按钮
         progressBuilder.setNegativeButton("关闭", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
@@ -361,7 +558,7 @@ public class ExportActivity extends AppCompatActivity {
             }
         });
         AlertDialog progressDialog = progressBuilder.create();
-        
+
         // 创建导出任务
         ExportManager.ExportTask task = new ExportManager.ExportTask();
         task.setConfig(config);
@@ -383,7 +580,9 @@ public class ExportActivity extends AppCompatActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        progressBar.setProgress(progress);
+                        if (progressBarRef[0] != null) {
+                            progressBarRef[0].setProgress(progress);
+                        }
                     }
                 });
             }
@@ -399,7 +598,10 @@ public class ExportActivity extends AppCompatActivity {
                     @Override
                     public void run() {
                         progressDialog.dismiss();
-                        showExportCompleteDialog(file);
+                        // 复制到公共「下载/OilQuiz」目录，用户可在文件管理器中查看与编辑
+                        String savedPath = ExportFileSaver.copyToDownloads(
+                                ExportActivity.this, file, getMimeType(file.getAbsolutePath()));
+                        showExportCompleteDialog(file, savedPath);
                     }
                 });
             }
@@ -414,8 +616,6 @@ public class ExportActivity extends AppCompatActivity {
                     }
                 });
             }
-
-
         });
 
         // 开始导出
@@ -425,36 +625,45 @@ public class ExportActivity extends AppCompatActivity {
     /**
      * 显示导出完成对话框
      */
-    private void showExportCompleteDialog(File file) {
+    private void showExportCompleteDialog(File file, String savedPath) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("导出完成");
-        builder.setMessage("导出成功！\n\n文件路径: " + file.getPath() + "\n文件大小: " + (file.length() / 1024) + " KB");
-        
+
+        String message;
+        if (savedPath != null) {
+            message = "导出成功！\n\n文件已保存到：\n" + savedPath
+                    + "\n\n文件大小: " + (file.length() / 1024) + " KB"
+                    + "\n\n可在系统「文件管理 → 下载 → OilQuiz」中查看和编辑";
+        } else {
+            message = "导出成功！\n\n文件路径: " + file.getPath()
+                    + "\n文件大小: " + (file.length() / 1024) + " KB"
+                    + "\n\n（保存到公共目录失败，文件暂存于应用缓存）";
+        }
+        builder.setMessage(message);
+
         builder.setPositiveButton("查看文件", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 openFile(file);
             }
         });
-        
+
         builder.setNeutralButton("分享文件", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 shareFile(file);
             }
         });
-        
+
         builder.setNegativeButton("确定", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
             }
         });
-        
+
         builder.show();
     }
-
-
 
     /**
      * 打开文件
@@ -463,23 +672,23 @@ public class ExportActivity extends AppCompatActivity {
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             Uri uri;
-            
+
             // 使用FileProvider创建Uri，避免FileUriExposedException
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                uri = androidx.core.content.FileProvider.getUriForFile(
-                    this,
-                    "com.oilquiz.app.fileprovider",
-                    file
+                uri = FileProvider.getUriForFile(
+                        this,
+                        "com.oilquiz.app.fileprovider",
+                        file
                 );
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else {
                 // 旧版本Android使用传统方式
                 uri = Uri.fromFile(file);
             }
-            
+
             String mimeType = getMimeType(file.getAbsolutePath());
             intent.setDataAndType(uri, mimeType);
-            
+
             // 确保有应用可以处理此Intent
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "选择打开方式"));
@@ -532,26 +741,26 @@ public class ExportActivity extends AppCompatActivity {
         try {
             Intent intent = new Intent(Intent.ACTION_SEND);
             Uri uri;
-            
+
             // 使用FileProvider创建Uri，避免FileUriExposedException
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                uri = androidx.core.content.FileProvider.getUriForFile(
-                    this,
-                    "com.oilquiz.app.fileprovider",
-                    file
+                uri = FileProvider.getUriForFile(
+                        this,
+                        "com.oilquiz.app.fileprovider",
+                        file
                 );
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else {
                 // 旧版本Android使用传统方式
                 uri = Uri.fromFile(file);
             }
-            
+
             String mimeType = getMimeType(file.getAbsolutePath());
             intent.setType(mimeType);
             intent.putExtra(Intent.EXTRA_STREAM, uri);
             intent.putExtra(Intent.EXTRA_SUBJECT, "导出文件");
             intent.putExtra(Intent.EXTRA_TEXT, "这是从OilQuiz应用导出的文件：" + file.getName());
-            
+
             // 确保有应用可以处理此Intent
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "分享文件"));
@@ -564,15 +773,11 @@ public class ExportActivity extends AppCompatActivity {
         }
     }
 
-
-
-
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         AppResourceManager.getInstance(this).permissions().onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
+
         // 检查权限是否授予成功
         if (AppResourceManager.getInstance(this).hasStoragePermission()) {
             // 权限授予成功，继续执行导出操作
@@ -583,7 +788,7 @@ public class ExportActivity extends AppCompatActivity {
             Toast.makeText(this, "存储权限被拒绝，无法执行导出操作", Toast.LENGTH_SHORT).show();
         }
     }
-    
+
     /**
      * 加载题目数量
      */
@@ -599,7 +804,7 @@ public class ExportActivity extends AppCompatActivity {
                     }
                 });
             }
-            
+
             @Override
             public void onError(String error) {
                 runOnUiThread(new Runnable() {
@@ -610,15 +815,5 @@ public class ExportActivity extends AppCompatActivity {
                 });
             }
         });
-    }
-    
-    /**
-     * 显示导出目录
-     */
-    private void displayExportDirectory() {
-        File exportDir = com.oilquiz.app.util.export.ExportManager.getExportDirectory(this);
-        if (exportDir != null) {
-            tvExportDirectory.setText("• 导出目录: " + exportDir.getAbsolutePath());
-        }
     }
 }

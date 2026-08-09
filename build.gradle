@@ -8,10 +8,12 @@ plugins {
 afterEvaluate {
     if (android?.applicationVariants) {
         android.applicationVariants.all { variant ->
-            variant.mergeAssets.doLast {
-                println "验证${variant.name}变体的assets目录..."
-                def assetsDir = variant.mergeAssets.outputDir.get().asFile
-                println "${variant.name}变体的assets目录: ${assetsDir.absolutePath}"
+            variant.mergeAssetsProvider.configure { task ->
+                task.doLast {
+                    println "验证${variant.name}变体的assets目录..."
+                    def assetsDir = task.outputDir.get().asFile
+                    println "${variant.name}变体的assets目录: ${assetsDir.absolutePath}"
+                }
             }
         }
     }
@@ -30,6 +32,7 @@ android {
         minSdk 31
         targetSdk 34
         versionCode 2
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         versionName "2.0"
         multiDexEnabled true
         
@@ -39,7 +42,7 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON"
+                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=OFF", "-DGGML_VULKAN=ON"
             }
         }
         ndk {

@@ -82,6 +82,45 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardSourceImport"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="4dp"
+                app:cardCornerRadius="8dp"
+                android:layout_marginBottom="16dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="📁 一键导入 source 目录"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="8dp"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="批量导入 OilQuiz/source 目录下全部题库文件（自动断点续导，支持 csv/xlsx/json/sql/db）"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_secondary"
+                        android:layout_marginBottom="16dp"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSourceImport"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="开始批量导入"
+                        app:backgroundTint="@color/primary"
+                        android:textColor="@android:color/white"
+                        app:cornerRadius="12dp"
+                        android:textAllCaps="false"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardDirectImport"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

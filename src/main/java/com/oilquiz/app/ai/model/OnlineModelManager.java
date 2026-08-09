@@ -10,7 +10,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class OnlineModelManager {
@@ -18,12 +20,26 @@ public class OnlineModelManager {
     private static final String PREFS_NAME = "online_models_config";
     private static final String KEY_MODELS = "models_json";
     private static final String KEY_ACTIVE_ID = "active_model_id";
+    private static final String KEY_FEATURE_MODELS = "feature_models"; // 功能专用模型 Map
+    private static final String KEY_FEATURE_MODEL_NAMES = "feature_model_names"; // 功能专用模型的具体模型名
+    private static final String KEY_TTS_VOICE = "tts_voice"; // TTS 音色（如 alloy/longwan）
+    
+    // 功能专用模型的 feature key 常量
+    public static final String FEATURE_OCR = "ocr";           // OCR 文字识别
+    public static final String FEATURE_TRANSLATION = "translation"; // 翻译
+    public static final String FEATURE_SUMMARY = "summary";     // 摘要生成
+    public static final String FEATURE_CODE = "code";           // 代码生成
+    public static final String FEATURE_ASR = "asr";             // 语音识别（Speech-to-Text）
+    public static final String FEATURE_TTS = "tts";             // 语音合成（Text-to-Speech）
+    // 后续可继续添加更多功能...
 
     private static volatile OnlineModelManager INSTANCE;
     private final Context context;
     private final SharedPreferences prefs;
     private final List<OnlineModelConfig> modelList = new CopyOnWriteArrayList<>();
     private String activeModelId;
+    private final Map<String, String> featureModelIds = new ConcurrentHashMap<>(); // feature -> modelId（API 端点配置）
+    private final Map<String, String> featureModelNames = new ConcurrentHashMap<>(); // feature -> 具体模型名（同一 API Key 下的某个模型）
     private final List<ModelChangeListener> listeners = new CopyOnWriteArrayList<>();
 
     public static class OnlineModelConfig {
@@ -127,6 +143,50 @@ public class OnlineModelManager {
     private void loadFromPrefs() {
         String json = prefs.getString(KEY_MODELS, null);
         activeModelId = prefs.getString(KEY_ACTIVE_ID, null);
+        
+        // 加载功能专用模型 Map
+        String featureJson = prefs.getString(KEY_FEATURE_MODELS, null);
+        if (featureJson != null) {
+            try {
+                JSONObject obj = new JSONObject(featureJson);
+                JSONArray keys = obj.names();
+                if (keys != null) {
+                    for (int i = 0; i < keys.length(); i++) {
+                        String key = keys.getString(i);
+                        featureModelIds.put(key, obj.getString(key));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        
+        // 加载功能专用模型的具体模型名
+        String featureNamesJson = prefs.getString(KEY_FEATURE_MODEL_NAMES, null);
+        if (featureNamesJson != null) {
+            try {
+                JSONObject obj = new JSONObject(featureNamesJson);
+                JSONArray keys = obj.names();
+                if (keys != null) {
+                    for (int i = 0; i < keys.length(); i++) {
+                        String key = keys.getString(i);
+                        String name = obj.optString(key, null);
+                        if (name != null && !name.isEmpty()) {
+                            featureModelNames.put(key, name);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "Parse feature models failed: " + e.getMessage());
+            }
+        }
+        
+        // 向后兼容：迁移旧的 ocr_model_id 到新的 Map 结构
+        String legacyOcrId = prefs.getString("ocr_model_id", null);
+        if (legacyOcrId != null && !featureModelIds.containsKey(FEATURE_OCR)) {
+            featureModelIds.put(FEATURE_OCR, legacyOcrId);
+            prefs.edit().remove("ocr_model_id").apply(); // 清除旧 key
+            saveFeatureModels();
+        }
+        
         if (json != null) {
             try {
                 JSONArray arr = new JSONArray(json);
@@ -201,10 +261,53 @@ public class OnlineModelManager {
                 
                 arr.put(obj);
             }
+            
+            // 构建功能专用模型 JSON
+            JSONObject featureObj = new JSONObject();
+            for (Map.Entry<String, String> entry : featureModelIds.entrySet()) {
+                if (entry.getValue() != null) {
+                    featureObj.put(entry.getKey(), entry.getValue());
+                }
+            }
+            
+            // 构建功能专用模型名 JSON
+            JSONObject featureNamesObj = new JSONObject();
+            for (Map.Entry<String, String> entry : featureModelNames.entrySet()) {
+                if (entry.getValue() != null) {
+                    featureNamesObj.put(entry.getKey(), entry.getValue());
+                }
+            }
+            
             prefs.edit().putString(KEY_MODELS, arr.toString())
-                .putString(KEY_ACTIVE_ID, activeModelId).apply();
+                .putString(KEY_ACTIVE_ID, activeModelId)
+                .putString(KEY_FEATURE_MODELS, featureObj.toString())
+                .putString(KEY_FEATURE_MODEL_NAMES, featureNamesObj.toString()).apply();
         } catch (Exception e) {
             AILogger.e(TAG, "save在线模型配置fail", e);
+        }
+    }
+    
+    /**
+     * 单独保存功能专用模型（不触发模型列表变更通知）
+     */
+    private void saveFeatureModels() {
+        try {
+            JSONObject featureObj = new JSONObject();
+            for (Map.Entry<String, String> entry : featureModelIds.entrySet()) {
+                if (entry.getValue() != null) {
+                    featureObj.put(entry.getKey(), entry.getValue());
+                }
+            }
+            JSONObject featureNamesObj = new JSONObject();
+            for (Map.Entry<String, String> entry : featureModelNames.entrySet()) {
+                if (entry.getValue() != null) {
+                    featureNamesObj.put(entry.getKey(), entry.getValue());
+                }
+            }
+            prefs.edit().putString(KEY_FEATURE_MODELS, featureObj.toString())
+                .putString(KEY_FEATURE_MODEL_NAMES, featureNamesObj.toString()).apply();
+        } catch (Exception e) {
+            AILogger.e(TAG, "saveFeatureModels fail: " + e.getMessage());
         }
     }
 
@@ -228,6 +331,13 @@ public class OnlineModelManager {
         boolean wasActive = modelId.equals(activeModelId);
         modelList.removeIf(c -> c.id.equals(modelId));
         if (wasActive) { activeModelId = null; notifyActiveChanged(); }
+        
+        // 清除功能专用模型中对该模型的引用
+        boolean featureChanged = featureModelIds.values().removeIf(v -> modelId.equals(v));
+        if (featureChanged) {
+            saveFeatureModels();
+        }
+        
         saveToPrefs();
         notifyListChanged();
     }
@@ -248,6 +358,242 @@ public class OnlineModelManager {
 
     public OnlineModelConfig getActiveModel() {
         return activeModelId != null ? getModel(activeModelId) : null;
+    }
+
+    // ========== 功能专用模型通用框架 ==========
+    
+    /**
+     * 设置功能专用模型
+     * @param feature 功能标识（如 FEATURE_OCR, FEATURE_TRANSLATION 等）
+     * @param modelId 模型 ID，传 null 表示清除专用模型配置
+     */
+    public void setFeatureModel(String feature, String modelId) {
+        setFeatureModel(feature, modelId, null);
+    }
+    
+    /**
+     * 设置功能专用模型（含具体模型名）
+     * 同一个 API Key 下可能有多个模型，此方法允许为功能指定具体的模型名
+     * @param feature 功能标识
+     * @param modelId API 端点配置 ID
+     * @param modelName 具体模型名（null 表示使用该端点配置的默认模型）
+     */
+    public void setFeatureModel(String feature, String modelId, String modelName) {
+        if (feature == null) return;
+        if (modelId == null) {
+            featureModelIds.remove(feature);
+            featureModelNames.remove(feature);
+        } else {
+            featureModelIds.put(feature, modelId);
+            if (modelName != null && !modelName.isEmpty()) {
+                featureModelNames.put(feature, modelName);
+            } else {
+                featureModelNames.remove(feature);
+            }
+        }
+        saveFeatureModels();
+    }
+    
+    /**
+     * 获取功能专用模型的具体模型名
+     * @param feature 功能标识
+     * @return 具体模型名，未设置则返回 null（调用方应使用端点配置的默认模型）
+     */
+    public String getFeatureModelName(String feature) {
+        return featureModelNames.get(feature);
+    }
+    
+    /**
+     * 获取功能专用模型配置
+     * @param feature 功能标识
+     * @return 模型配置，如果未设置或模型已禁用则返回 null
+     */
+    public OnlineModelConfig getFeatureModel(String feature) {
+        String modelId = featureModelIds.get(feature);
+        if (modelId != null) {
+            OnlineModelConfig config = getModel(modelId);
+            if (config != null && config.enabled) return config;
+        }
+        return null;
+    }
+    
+    /**
+     * 获取功能专用模型 ID
+     * @param feature 功能标识
+     * @return 模型 ID，如果未设置则返回 null
+     */
+    public String getFeatureModelId(String feature) {
+        return featureModelIds.get(feature);
+    }
+    
+    /**
+     * 检查是否已配置功能专用模型
+     */
+    public boolean hasFeatureModel(String feature) {
+        return getFeatureModel(feature) != null;
+    }
+    
+    /**
+     * 获取所有已配置的功能专用模型
+     * @return feature -> modelId 的不可变 Map
+     */
+    public Map<String, String> getAllFeatureModels() {
+        return java.util.Collections.unmodifiableMap(new java.util.HashMap<>(featureModelIds));
+    }
+    
+    // ========== OCR 专用模型（便捷方法） ==========
+    
+    /**
+     * 设置 OCR 专用模型
+     * OCR 模型独立于聊天模型，允许用户为 OCR 任务选择专门的视觉模型
+     */
+    public void setOCRModel(String modelId) {
+        setFeatureModel(FEATURE_OCR, modelId);
+    }
+    
+    /**
+     * 设置 OCR 专用模型（含具体模型名）
+     * 同一个 API Key 下有多个模型时，可为 OCR 单独指定某个视觉模型
+     */
+    public void setOCRModel(String modelId, String modelName) {
+        setFeatureModel(FEATURE_OCR, modelId, modelName);
+    }
+    
+    /**
+     * 获取 OCR 专用模型的具体模型名（可能为 null，表示用端点默认模型）
+     */
+    public String getOCRModelName() {
+        return getFeatureModelName(FEATURE_OCR);
+    }
+    
+    /**
+     * 获取 OCR 专用模型配置
+     * @return OCR 模型配置，如果未设置则返回 null
+     */
+    public OnlineModelConfig getOCRModel() {
+        return getFeatureModel(FEATURE_OCR);
+    }
+    
+    /**
+     * 获取 OCR 模型 ID
+     */
+    public String getOCRModelId() {
+        return getFeatureModelId(FEATURE_OCR);
+    }
+    
+    /**
+     * 检查是否已配置 OCR 专用模型
+     */
+    public boolean hasOCRModel() {
+        return hasFeatureModel(FEATURE_OCR);
+    }
+
+    // ========== 语音识别（ASR）专用模型（便捷方法） ==========
+
+    /**
+     * 设置语音识别专用模型（端点配置）
+     */
+    public void setASRModel(String modelId) {
+        setFeatureModel(FEATURE_ASR, modelId);
+    }
+
+    /**
+     * 设置语音识别专用模型（含具体模型名，如 whisper-1 / paraformer-v2）
+     */
+    public void setASRModel(String modelId, String modelName) {
+        setFeatureModel(FEATURE_ASR, modelId, modelName);
+    }
+
+    /**
+     * 获取语音识别专用模型的具体模型名（可能为 null）
+     */
+    public String getASRModelName() {
+        return getFeatureModelName(FEATURE_ASR);
+    }
+
+    /**
+     * 获取语音识别专用模型配置，未设置返回 null
+     */
+    public OnlineModelConfig getASRModel() {
+        return getFeatureModel(FEATURE_ASR);
+    }
+
+    /**
+     * 获取语音识别模型 ID
+     */
+    public String getASRModelId() {
+        return getFeatureModelId(FEATURE_ASR);
+    }
+
+    /**
+     * 检查是否已配置语音识别专用模型
+     */
+    public boolean hasASRModel() {
+        return hasFeatureModel(FEATURE_ASR);
+    }
+
+    // ========== 语音合成（TTS）专用模型（便捷方法） ==========
+
+    /**
+     * 设置语音合成专用模型（端点配置）
+     */
+    public void setTTSModel(String modelId) {
+        setFeatureModel(FEATURE_TTS, modelId);
+    }
+
+    /**
+     * 设置语音合成专用模型（含具体模型名，如 tts-1 / cosyvoice-v2）
+     */
+    public void setTTSModel(String modelId, String modelName) {
+        setFeatureModel(FEATURE_TTS, modelId, modelName);
+    }
+
+    /**
+     * 获取语音合成专用模型的具体模型名（可能为 null）
+     */
+    public String getTTSModelName() {
+        return getFeatureModelName(FEATURE_TTS);
+    }
+
+    /**
+     * 获取语音合成专用模型配置，未设置返回 null
+     */
+    public OnlineModelConfig getTTSModel() {
+        return getFeatureModel(FEATURE_TTS);
+    }
+
+    /**
+     * 获取语音合成模型 ID
+     */
+    public String getTTSModelId() {
+        return getFeatureModelId(FEATURE_TTS);
+    }
+
+    /**
+     * 检查是否已配置语音合成专用模型
+     */
+    public boolean hasTTSModel() {
+        return hasFeatureModel(FEATURE_TTS);
+    }
+
+    // ========== TTS 音色配置 ==========
+
+    /**
+     * 保存 TTS 音色（传 null 清除，恢复默认音色）
+     */
+    public void setTtsVoice(String voice) {
+        if (voice == null || voice.isEmpty()) {
+            prefs.edit().remove(KEY_TTS_VOICE).apply();
+        } else {
+            prefs.edit().putString(KEY_TTS_VOICE, voice).apply();
+        }
+    }
+
+    /**
+     * 获取已保存的 TTS 音色，未设置返回 null
+     */
+    public String getTtsVoice() {
+        return prefs.getString(KEY_TTS_VOICE, null);
     }
 
     public OnlineModelConfig getModel(String modelId) {

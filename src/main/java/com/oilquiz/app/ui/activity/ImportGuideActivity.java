@@ -13,7 +13,6 @@ import com.oilquiz.app.ui.base.BaseActivity;
 import androidx.cardview.widget.CardView;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ui.export.TemplateSelectionActivity;
 
 public class ImportGuideActivity extends BaseActivity {
 
@@ -22,10 +21,12 @@ public class ImportGuideActivity extends BaseActivity {
     private static final int REQUEST_CODE_AI_IMPORT = 1003;
 
     private CardView cardAIImport;
+    private CardView cardSourceImport;
     private CardView cardDirectImport;
     private CardView cardTemplateImport;
     private CardView cardHistory;
     private MaterialButton btnAIImport;
+    private MaterialButton btnSourceImport;
     private MaterialButton btnDirectImport;
     private MaterialButton btnTemplateImport;
     private MaterialButton btnViewHistory;
@@ -47,10 +48,12 @@ public class ImportGuideActivity extends BaseActivity {
         setupToolbar("题目导入");
 
         cardAIImport = findViewById(R.id.cardAIImport);
+        cardSourceImport = findViewById(R.id.cardSourceImport);
         cardDirectImport = findViewById(R.id.cardDirectImport);
         cardTemplateImport = findViewById(R.id.cardTemplateImport);
         cardHistory = findViewById(R.id.cardHistory);
         btnAIImport = findViewById(R.id.btnAIImport);
+        btnSourceImport = findViewById(R.id.btnSourceImport);
         btnDirectImport = findViewById(R.id.btnDirectImport);
         btnTemplateImport = findViewById(R.id.btnTemplateImport);
         btnViewHistory = findViewById(R.id.btnViewHistory);
@@ -70,6 +73,10 @@ public class ImportGuideActivity extends BaseActivity {
         // AI 导入
         btnAIImport.setOnClickListener(v -> startAIImport());
         cardAIImport.setOnClickListener(v -> startAIImport());
+
+        // source 目录一键批量导入
+        btnSourceImport.setOnClickListener(v -> startSourceDirImport());
+        cardSourceImport.setOnClickListener(v -> startSourceDirImport());
 
         // 直接导入
         btnDirectImport.setOnClickListener(v -> startDirectImport());
@@ -115,9 +122,17 @@ public class ImportGuideActivity extends BaseActivity {
         startActivityForResult(intent, REQUEST_CODE_IMPORT);
     }
 
+    /** 一键导入：携带批量模式参数启动导入页，扫描公共 source 目录全部题库文件 */
+    private void startSourceDirImport() {
+        Intent intent = new Intent(this, ImportActivity.class);
+        intent.putExtra(ImportActivity.EXTRA_SOURCE_DIR_MODE, true);
+        startActivityForResult(intent, REQUEST_CODE_IMPORT);
+    }
+
+    /** 模板导入：进入新模板导入页（下载标准模板 → 填写 → 直接导入入库） */
     private void startTemplateImport() {
-        Intent intent = new Intent(this, TemplateSelectionActivity.class);
-        startActivityForResult(intent, REQUEST_CODE_TEMPLATE);
+        Intent intent = new Intent(this, TemplateImportActivity.class);
+        startActivity(intent);
     }
 
     private void viewImportHistory() {

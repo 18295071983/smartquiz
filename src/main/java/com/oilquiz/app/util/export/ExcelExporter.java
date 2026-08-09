@@ -55,7 +55,7 @@ public class ExcelExporter implements Exporter {
             // 按id重新排序题目
             questions.sort((q1, q2) -> Long.compare(q1.getId(), q2.getId()));
             
-            // 收集所有非空字段
+            // 收集非空字段（保持选中顺序，过滤全空列）
             java.util.Set<String> nonEmptyFieldsSet = collectNonEmptyFields(task, questions);
             List<String> nonEmptyFields = new java.util.ArrayList<>(nonEmptyFieldsSet);
             
@@ -131,10 +131,11 @@ public class ExcelExporter implements Exporter {
                 Question question = questions.get(i);
                 if (question != null) {
                     Row dataRow = sheet.createRow(rowIndex++);
+                    dataRow.setHeightInPoints(30);
 
                     for (int j = 0; j < nonEmptyFields.size(); j++) {
                         String fieldName = nonEmptyFields.get(j);
-                        Object value = ExportUtils.getFieldValue(question, fieldName);
+                        Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         org.apache.poi.ss.usermodel.Cell cell = dataRow.createCell(j);
                         cell.setCellStyle(dataStyle);
                         
@@ -166,16 +167,9 @@ public class ExcelExporter implements Exporter {
                 }
             }
             
-            // 自动调整列宽
-            if (task.getConfig().isAutoSizeColumns() && !nonEmptyFields.isEmpty()) {
-                int columnCount = sheet.getRow(0).getLastCellNum();
-                for (int i = 0; i < columnCount; i++) {
-                    sheet.autoSizeColumn(i);
-                    // 确保列宽足够大
-                    if (sheet.getColumnWidth(i) < 10 * 256) {
-                        sheet.setColumnWidth(i, 15 * 256);
-                    }
-                }
+            // 设置固定列宽（禁用 POI autoSizeColumn：其依赖 java.awt 字体渲染，Android 上会抛 NoClassDefFoundError）
+            if (!nonEmptyFields.isEmpty()) {
+                applyFixedColumnWidths(sheet, nonEmptyFields);
             }
             
             // 写入文件
@@ -188,27 +182,33 @@ public class ExcelExporter implements Exporter {
     }
 
     /**
-     * 收集所有非空字段
+     * 收集非空字段：保持 selectedFields 的选中顺序，仅保留至少一题有值的字段
      */
     private java.util.Set<String> collectNonEmptyFields(ExportManager.ExportTask task, List<Question> questions) {
-        java.util.Set<String> nonEmptyFields = new java.util.HashSet<>();
+        java.util.LinkedHashSet<String> nonEmptyFields = new java.util.LinkedHashSet<>();
         List<String> selectedFields = task.getConfig().getSelectedFields();
         if (selectedFields == null || selectedFields.isEmpty()) {
             selectedFields = ExportUtils.getQuestionFields();
         }
 
-        // 检查每个题目，收集非空字段，排除收藏字段
-        for (Question question : questions) {
-            for (String fieldName : selectedFields) {
-                // 跳过收藏字段
-                if (fieldName.equals("favorite")) {
-                    continue;
-                }
-                
-                Object value = ExportUtils.getFieldValue(question, fieldName);
+        // 按选中顺序检查每个字段，跳过收藏字段，仅保留有值的字段
+        for (String fieldName : selectedFields) {
+            // 跳过收藏字段
+            if (fieldName.equals("favorite")) {
+                continue;
+            }
+
+            boolean hasValue = false;
+            for (Question question : questions) {
+                if (question == null) continue;
+                Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                 if (value != null && !value.toString().isEmpty()) {
-                    nonEmptyFields.add(fieldName);
+                    hasValue = true;
+                    break;
                 }
+            }
+            if (hasValue) {
+                nonEmptyFields.add(fieldName);
             }
         }
 
@@ -218,6 +218,33 @@ public class ExcelExporter implements Exporter {
         }
 
         return nonEmptyFields;
+    }
+
+    /**
+     * 按字段类型设置差异化固定列宽（禁用 autoSizeColumn）
+     */
+    private void applyFixedColumnWidths(org.apache.poi.ss.usermodel.Sheet sheet, List<String> fields) {
+        for (int i = 0; i < fields.size(); i++) {
+            String field = fields.get(i);
+            int width;
+            if ("questionText".equals(field) || "explanation".equals(field) || "analysis".equals(field)) {
+                // 长文本列：题目/解析
+                width = 45 * 256;
+            } else if (field != null && field.startsWith("option")) {
+                // 选项列
+                width = 30 * 256;
+            } else if ("knowledgePoint".equals(field) || "relatedQuestion".equals(field) || "tags".equals(field) || "category".equals(field) || "subCategory".equals(field)) {
+                width = 18 * 256;
+            } else if ("id".equals(field) || "difficulty".equals(field) || "favorite".equals(field)
+                    || (field != null && (field.startsWith("correct") || field.startsWith("answer")
+                    || field.startsWith("usage") || field.startsWith("correctCount") || field.startsWith("incorrect")))) {
+                // 短内容列：序号/答案/统计
+                width = 12 * 256;
+            } else {
+                width = 25 * 256;
+            }
+            sheet.setColumnWidth(i, width);
+        }
     }
 
     @Override

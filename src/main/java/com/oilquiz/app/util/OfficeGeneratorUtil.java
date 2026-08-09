@@ -147,10 +147,10 @@ public class OfficeGeneratorUtil {
                 }
             }
 
-            // 自动调整列宽
+            // 设置固定列宽（禁用 POI autoSizeColumn：其依赖 java.awt 字体渲染，Android 上会抛 NoClassDefFoundError）
             if (headers != null) {
                 for (int i = 0; i < headers.length; i++) {
-                    sheet.autoSizeColumn(i);
+                    sheet.setColumnWidth(i, 25 * 256);
                 }
             }
 
@@ -222,10 +222,10 @@ public class OfficeGeneratorUtil {
                 }
             }
 
-            // 自动调整列宽
+            // 设置固定列宽（禁用 POI autoSizeColumn：其依赖 java.awt 字体渲染，Android 上会抛 NoClassDefFoundError）
             if (headers != null) {
                 for (int i = 0; i < headers.length; i++) {
-                    sheet.autoSizeColumn(i);
+                    sheet.setColumnWidth(i, 25 * 256);
                 }
             }
 

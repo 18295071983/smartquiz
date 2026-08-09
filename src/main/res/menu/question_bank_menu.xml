@@ -7,6 +7,15 @@
         android:icon="@android:drawable/ic_input_add"
         app:showAsAction="ifRoom"/>
     <item
+        android:id="@+id/action_start_quiz"
+        android:title="开始测验"
+        android:icon="@android:drawable/ic_media_play"
+        app:showAsAction="ifRoom"/>
+    <item
+        android:id="@+id/action_toggle_answer"
+        android:title="显示答案"
+        app:showAsAction="never"/>
+    <item
         android:id="@+id/action_import_questions"
         android:title="导入题目"
         app:showAsAction="never"/>

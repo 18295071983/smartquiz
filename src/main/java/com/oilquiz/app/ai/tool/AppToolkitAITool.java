@@ -250,61 +250,24 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
-            if (bitmap == null) {
-                return new AIToolResult("无法解码图片文件", parameters);
-            }
+            // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+            com.oilquiz.app.manager.OCRManager ocrManager = toolkit.getOcrManager();
+            String resultText = ocrManager.recognizeFileOnlineFirst(imagePath, language)
+                    .get(60, java.util.concurrent.TimeUnit.SECONDS);
             
-            // 设置语言（可选）
-            if (language != null && !language.isEmpty()) {
-                toolkit.setOcrLanguage(language);
-            }
-            
-            // 同步执行OCR
-            final String[] result = new String[1];
-            final String[] error = new String[1];
-            final Object lock = new Object();
-            
-            synchronized (lock) {
-                toolkit.recognizeText(bitmap, new OCRManager.OCRCallback() {
-                    @Override
-                    public void onSuccess(String text) {
-                        synchronized (lock) {
-                            result[0] = text;
-                            lock.notify();
-                        }
-                    }
-                    
-                    @Override
-                    public void onFailure(String err) {
-                        synchronized (lock) {
-                            error[0] = err;
-                            lock.notify();
-                        }
-                    }
-                });
-                
-                try {
-                    lock.wait(30000); // 30秒超时
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            
-            if (error[0] != null) {
-                return new AIToolResult("OCR识别失败: " + error[0], parameters);
-            }
-            
-            if (result[0] == null || result[0].isEmpty()) {
+            if (resultText == null || resultText.isEmpty()) {
                 return new AIToolResult("未识别到文字", parameters);
             }
             
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");
-            resultMap.put("text", result[0]);
-            resultMap.put("language", toolkit.getCurrentOcrLanguage());
+            resultMap.put("text", resultText);
+            resultMap.put("engine", "online_vision"); // 标记使用的引擎
+            resultMap.put("language", language != null ? language : "auto");
             
             return new AIToolResult(resultMap, parameters);
+        } catch (java.util.concurrent.TimeoutException e) {
+            return new AIToolResult("OCR识别超时，请稍后重试", parameters);
         } catch (Exception e) {
             return new AIToolResult("OCR识别失败: " + e.getMessage(), parameters);
         }

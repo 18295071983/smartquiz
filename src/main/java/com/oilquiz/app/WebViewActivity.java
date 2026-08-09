@@ -515,7 +515,7 @@ public class WebViewActivity extends BaseActivity {
      */
     private void openFileChooser() {
         // 创建文件选择Intent
-        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
         // 设置MIME类型为所有可渲染的文件格式
         intent.setType("*/*");
         intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);

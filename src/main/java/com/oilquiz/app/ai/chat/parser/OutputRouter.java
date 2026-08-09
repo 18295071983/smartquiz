@@ -223,16 +223,9 @@ public class OutputRouter {
      * 流式完成
      */
     public void complete() {
-        // 兜底处理：如果思考未正常结束且主回复为空，说明所有内容都被当作思考内容了
-        // 将思考内容移动到主回复，避免主回复为空
-        if (isInThinking && textBuffer.length() == 0 && thinkingBuffer.length() > 0) {
-            textBuffer.append(thinkingBuffer);
-            thinkingBuffer.setLength(0);
-            // 先清空 UI 中的思考内容，避免 onThinkingEnd 将旧内容设置回去
-            handler.onThinkingContent("");
-        }
-
-        // 若思考未正常结束（如 native 层未发送 [THINK_END]），在此兜底关闭
+        // 若思考未正常结束（如 native 层未发送 [THINK_END]），在此兜底关闭。
+        // 思考内容保留在思考布局（thinkingBuffer 已通过 onThinkingContent 实时送达 UI），
+        // 不再移入主回复，避免思考内容泄漏到主消息导致重复/内容错乱。
         if (isInThinking) {
             isInThinking = false;
             handler.onThinkingEnd();

@@ -132,6 +132,19 @@
             android:foreground="?attr/selectableItemBackground" />
 
         <TextView
+            android:id="@+id/btn_speak"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔊 朗读"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:padding="3dp"
+            android:layout_marginEnd="10dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
             android:id="@+id/btn_share"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

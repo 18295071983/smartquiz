@@ -1,0 +1,634 @@
+# -*- coding: utf-8 -*-
+"""
+离线题库批量导入 —— Python 文件预处理层。
+
+分层权限隔离：本模块仅负责 SQL/Excel/JSON/CSV 题库源文件解析与标准化 CSV 中转，
+仅操作公共存储目录（/storage/emulated/0/OilQuiz/），无数据库访问权限。
+海量题库文本不进入模型上下文。
+
+对外接口（供 Java ImportPythonBridge 调用）：
+- sample_file(path, max_rows)          采样：表头 + 前 N 行
+- parse_file(path, mapping_json, out_dir, resume_row, chunk_rows, breakpoint_path, spec_json)
+                                         全量解析 + 分片 CSV + 断点进度
+- apply_fills(chunk_path, fills_json)  回写 AI 填充结果至 CSV 分片
+
+动态字段注入：标准列/填充字段/选项字段均由 Java 侧根据 question 表实际结构
+（PRAGMA table_info）通过 spec_json 参数下发，本文件常量仅作为解析失败时的兜底默认值。
+"""
+
+import csv
+import io
+import json
+import os
+import re
+import sqlite3
+import time
+
+# 标准化 CSV 固定列（仅兜底默认值：正常由 Java 侧 spec_json 动态下发）
+STD_COLUMNS = ["questionText", "optionA", "optionB", "optionC", "optionD",
+               "correctAnswer", "category", "difficulty", "explanation",
+               "questionType", "source"]
+
+# 可补充字段（仅兜底默认值：缺失时收集交给 AI 填充）
+FILL_FIELDS = ("category", "difficulty", "explanation")
+
+# 选项字段（仅兜底默认值：收集 missing 时附带）
+OPTION_FIELDS = {"A": "optionA", "B": "optionB", "C": "optionC", "D": "optionD"}
+
+# missing 列表上限，防止超大题库撑爆返回 JSON
+MAX_MISSING = 500
+
+# 表头行定位关键词（命中越多越可能是真表头行，兼容标题行/说明行在前）
+_HEADER_KEYWORDS = {
+    "题干", "题目", "问题", "题目内容", "答案", "正确答案", "选项", "可选项",
+    "题型", "难度", "分数", "解析", "答案解析", "说明", "序号", "分类",
+    "类别", "知识点", "关键字", "questiontext", "question", "answer",
+    "correctanswer", "options", "difficulty", "type", "score",
+}
+
+# 合并选项列分隔符（分号/竖线/顿号）
+_OPT_SPLIT_RE = re.compile(r"[;；|｜、]")
+
+
+def _detect_header(rows):
+    """在前 12 行内定位真实表头行，兼容标题行/说明行置顶与选项字母双子行模板。
+
+    返回 (header_list, data_start_row)；无法识别时兜底第 0 行。
+    """
+    n = len(rows)
+    limit = min(n, 12)
+    best_i, best_hits = 0, 0
+    for i in range(limit):
+        hits = 0
+        for c in rows[i]:
+            if c and str(c).strip().lower() in _HEADER_KEYWORDS:
+                hits += 1
+        if hits > best_hits:
+            best_i, best_hits = i, hits
+    if best_hits == 0:
+        return rows[0] if n else [], 1 if n else 0
+    header = list(rows[best_i])
+    data_start = best_i + 1
+    # 双子行模板：表头下一行是连续选项字母 A/B/C... → 合并为 选项A/选项B...
+    if data_start < n:
+        nxt = rows[data_start]
+        letters = []
+        for c in nxt:
+            s = str(c).strip().upper() if c is not None else ""
+            if s == "":
+                letters.append("")
+            elif len(s) == 1 and "A" <= s <= "L":
+                letters.append(s)
+            else:
+                letters = []
+                break
+        if len([x for x in letters if x]) >= 3:
+            for j in range(min(len(header), len(letters))):
+                if letters[j]:
+                    prefix = str(header[j]).strip() if j < len(header) and header[j] else "选项"
+                    header[j] = prefix + letters[j]
+            data_start += 1
+    return header, data_start
+
+
+def _iter_xls(path):
+    """旧版 .xls（xlrd）：遍历全部工作表，逐表定位表头后合并行"""
+    try:
+        import xlrd
+    except ImportError:
+        raise RuntimeError("xlrd 不可用，无法解析 xls")
+    wb = xlrd.open_workbook(path)
+    headers = []
+    rows = []
+    for sh in wb.sheets():
+        all_rows = [[_norm_cell(sh.cell_value(r, c)) for c in range(sh.ncols)]
+                    for r in range(sh.nrows)]
+        all_rows = [r for r in all_rows if any(x != "" for x in r)]
+        if not all_rows:
+            continue
+        h, start = _detect_header(all_rows)
+        if not h:
+            continue
+        if not headers:
+            headers = h
+        rows.extend(all_rows[start:])
+    return headers, rows
+
+
+def _resolve_spec(spec_json):
+    """解析 Java 下发的动态字段规格；解析失败/缺失时用内置默认值兜底。
+
+    spec_json 格式：{"std_columns":[...], "fill_fields":[...], "option_fields":{"A":"optionA",...}}
+    """
+    std = STD_COLUMNS
+    fill = list(FILL_FIELDS)
+    opts = dict(OPTION_FIELDS)
+    if spec_json:
+        try:
+            spec = json.loads(spec_json)
+            sc = spec.get("std_columns")
+            if isinstance(sc, list) and "questionText" in sc:
+                std = [str(c) for c in sc]
+            ff = spec.get("fill_fields")
+            if isinstance(ff, list) and ff:
+                fill = [str(f) for f in ff]
+            of = spec.get("option_fields")
+            if isinstance(of, dict) and of:
+                opts = {str(k): str(v) for k, v in of.items()}
+        except Exception:
+            pass  # 解析失败 → 全部用兜底默认值，流程不中断
+    return std, fill, opts
+
+
+def _kind_of(path):
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".xlsx":
+        return "xlsx"
+    if ext in (".csv", ".txt"):
+        return "csv"
+    if ext == ".json":
+        return "json"
+    if ext == ".sql":
+        return "sql"
+    if ext in (".db", ".sqlite", ".sqlite3", ".db3"):
+        return "db"
+    if ext == ".xls":
+        return "xls"
+    return "unknown"
+
+
+def _read_text(path):
+    for enc in ("utf-8", "gbk", "latin-1"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return f.read()
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
+
+
+def _norm_cell(v):
+    if v is None:
+        return ""
+    s = str(v).strip()
+    # 单元格内换行归一为空格：避免 CSV 出现跨行引号字段，
+    # 下游按行读取的组件（Java ingest/扫描）不会把一行切碎
+    if "\n" in s or "\r" in s:
+        s = re.sub(r"[\r\n]+", " ", s).strip()
+    return s
+
+
+# ==================== 各格式行迭代器 ====================
+
+def _iter_xlsx(path):
+    try:
+        import openpyxl
+    except ImportError:
+        raise RuntimeError("openpyxl 不可用，无法解析 xlsx")
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    headers = []
+    rows = []
+    try:
+        # 遍历全部工作表（多选/判断/填空等分 sheet 题库模板），逐表定位表头后合并行
+        for ws in wb.worksheets:
+            sheet_rows = []
+            for row in ws.iter_rows(values_only=True):
+                sheet_rows.append([_norm_cell(c) for c in row])
+            sheet_rows = [r for r in sheet_rows if any(x != "" for x in r)]
+            if not sheet_rows:
+                continue
+            h, start = _detect_header(sheet_rows)
+            if not h:
+                continue
+            if not headers:
+                headers = h
+            rows.extend(sheet_rows[start:])
+    finally:
+        wb.close()
+    if not rows:
+        return [], []
+    return headers, rows
+
+
+def _iter_csv(path):
+    text = _read_text(path)
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    rows = []
+    with io.StringIO(text) as f:
+        for row in csv.reader(f, dialect):
+            rows.append([_norm_cell(c) for c in row])
+    # 分隔符嗅探失败时按竖线/制表符兜底
+    if rows and len(rows[0]) == 1 and ("|" in rows[0][0] or "\t" in rows[0][0]):
+        sep = "|" if "|" in rows[0][0] else "\t"
+        rows = [r[0].split(sep) for r in rows if r and r[0]]
+    if not rows:
+        return [], []
+    return rows[0], rows[1:]
+
+
+def _iter_json(path):
+    text = _read_text(path)
+    data = json.loads(text)
+    if isinstance(data, dict):
+        for key in ("questions", "data", "rows", "list", "items"):
+            if key in data and isinstance(data[key], list):
+                data = data[key]
+                break
+    if not isinstance(data, list) or not data:
+        return [], []
+    headers = []
+    for item in data[:20]:
+        if isinstance(item, dict):
+            for k in item.keys():
+                if k not in headers:
+                    headers.append(str(k))
+    if not headers:
+        return [], []
+    rows = []
+    for item in data:
+        if isinstance(item, dict):
+            rows.append([_norm_cell(item.get(h, "")) for h in headers])
+    return headers, rows
+
+
+_SQL_INSERT_RE = re.compile(
+    r"INSERT\s+INTO\s+[`\"]?(\w+)[`\"]?\s*\(([^)]*)\)\s*VALUES\s*",
+    re.IGNORECASE)
+
+
+def _split_sql_values(segment):
+    """解析 VALUES 后的一组或多组元组，返回元组列表"""
+    tuples = []
+    i = 0
+    n = len(segment)
+    while i < n:
+        if segment[i] == '(':
+            i += 1
+            cells = []
+            cur = []
+            in_str = False
+            quote = "'"
+            while i < n:
+                ch = segment[i]
+                if in_str:
+                    if ch == quote:
+                        if i + 1 < n and segment[i + 1] == quote:
+                            cur.append(quote)
+                            i += 2
+                            continue
+                        in_str = False
+                    else:
+                        cur.append(ch)
+                else:
+                    if ch in ("'", '"'):
+                        in_str = True
+                        quote = ch
+                    elif ch == ',':
+                        cells.append("".join(cur).strip())
+                        cur = []
+                    elif ch == ')':
+                        cells.append("".join(cur).strip())
+                        break
+                    else:
+                        cur.append(ch)
+                i += 1
+            tuples.append([_norm_cell(c) if c.upper() != "NULL" else "" for c in cells])
+        i += 1
+    return tuples
+
+
+def _iter_sql(path):
+    text = _read_text(path)
+    headers = []
+    rows = []
+    for m in _SQL_INSERT_RE.finditer(text):
+        cols = [c.strip().strip('`"[]') for c in m.group(2).split(",")]
+        end = text.find(";", m.end())
+        segment = text[m.end():end if end > 0 else len(text)]
+        tuples = _split_sql_values(segment)
+        if not headers:
+            headers = cols
+        if cols == headers:
+            rows.extend(tuples)
+    return headers, rows
+
+
+def _pick_db_table(db_path):
+    """挑选含题干+答案类列且行数最多的表"""
+    conn = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+    try:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'")]
+        best = None
+        best_score = -1
+        for t in tables:
+            try:
+                cols = [r[1] for r in conn.execute('PRAGMA table_info("%s")' % t)]
+                cnt = conn.execute('SELECT COUNT(*) FROM "%s"' % t).fetchone()[0]
+            except sqlite3.Error:
+                continue
+            low = ",".join(c.lower() for c in cols)
+            score = 0
+            if re.search(r"question|题干|题目|stem", low):
+                score += 2
+            if re.search(r"answer|答案", low):
+                score += 2
+            score += min(cnt, 100000) / 100000.0
+            if score > best_score and ("question" in low or "answer" in low):
+                best_score = score
+                best = (t, cols)
+        if not best:
+            return conn, None, []
+        t, cols = best
+        rows = []
+        cur = conn.execute('SELECT * FROM "%s"' % t)
+        for r in cur:
+            rows.append([_norm_cell(c) for c in r])
+        return conn, cols, rows
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+
+
+# ==================== 对外接口 ====================
+
+def sample_file(path, max_rows=15):
+    """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）"""
+    try:
+        kind = _kind_of(path)
+        if kind == "xlsx":
+            headers, rows = _iter_xlsx(path)
+        elif kind == "csv":
+            headers, rows = _iter_csv(path)
+        elif kind == "json":
+            headers, rows = _iter_json(path)
+        elif kind == "sql":
+            headers, rows = _iter_sql(path)
+        elif kind == "db":
+            conn, headers, rows = _pick_db_table(path)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            if headers is None:
+                return json.dumps({"error": "未找到合适的题库表"}, ensure_ascii=False)
+        elif kind == "xls":
+            headers, rows = _iter_xls(path)
+        else:
+            return json.dumps({"error": "不支持的文件类型: %s" % kind},
+                              ensure_ascii=False)
+        max_rows = int(max_rows) if max_rows else 15
+        return json.dumps({
+            "source_kind": kind,
+            "headers": headers,
+            "rows": rows[:max_rows],
+        }, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+def _update_breakpoint(bp_path, processed):
+    if not bp_path:
+        return
+    try:
+        state = {}
+        if os.path.exists(bp_path):
+            try:
+                with open(bp_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception:
+                state = {}
+        state["parseRowIndex"] = int(processed)
+        state["updatedAt"] = int(time.time() * 1000)
+        tmp = bp_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+        os.replace(tmp, bp_path)
+    except Exception:
+        pass
+
+
+def _map_row(headers, row, mapping, source_name, std_columns, option_fields):
+    """按映射规则把源行转换为标准字段字典"""
+    out = {c: "" for c in std_columns}
+    col_index = {h.strip(): i for i, h in enumerate(headers)} if headers else {}
+    for std, src in mapping.items():
+        if not src:
+            continue
+        # 虚拟字段：合并选项列（分号/竖线/顿号分隔）拆分到 optionA~L
+        if std == "optionsCombined":
+            if src in col_index and col_index[src] < len(row):
+                parts = [p.strip() for p in
+                         _OPT_SPLIT_RE.split(str(row[col_index[src]])) if p.strip()]
+                if len(parts) <= 1:
+                    parts = [p.strip() for p in
+                             str(row[col_index[src]]).splitlines() if p.strip()]
+                letters = list(option_fields.keys()) or list("ABCDEFGHIJKL")
+                for k, letter in enumerate(letters):
+                    if k >= len(parts):
+                        break
+                    col = option_fields.get(letter, "option" + letter)
+                    if col in out and not out[col]:
+                        out[col] = parts[k]
+            continue
+        if std not in out:
+            continue
+        if src in col_index:
+            idx = col_index[src]
+            if idx < len(row):
+                out[std] = _norm_cell(row[idx])
+    if "source" in out and not out.get("source"):
+        out["source"] = source_name
+    return out
+
+
+def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
+               breakpoint_path=None, spec_json=None):
+    """全量解析：分片写标准化 CSV，实时写断点，收集缺失字段题目。
+
+    spec_json：Java 侧根据 question 表实际结构动态下发的字段规格
+    （std_columns/fill_fields/option_fields），为空时用内置默认值兜底。
+    """
+    conn = None
+    try:
+        std_columns, fill_fields, option_fields = _resolve_spec(spec_json)
+        mapping = json.loads(mapping_json) if mapping_json else {}
+        resume_row = int(resume_row or 0)
+        chunk_rows = int(chunk_rows or 3000)
+        os.makedirs(out_dir, exist_ok=True)
+
+        kind = _kind_of(path)
+        if kind == "xlsx":
+            headers, rows = _iter_xlsx(path)
+        elif kind in ("csv",):
+            headers, rows = _iter_csv(path)
+        elif kind == "json":
+            headers, rows = _iter_json(path)
+        elif kind == "sql":
+            headers, rows = _iter_sql(path)
+        elif kind == "db":
+            conn, headers, rows = _pick_db_table(path)
+            if headers is None:
+                return json.dumps({"success": False,
+                                   "error": "未找到合适的题库表"}, ensure_ascii=False)
+        elif kind == "xls":
+            headers, rows = _iter_xls(path)
+        else:
+            return json.dumps({"success": False,
+                               "error": "不支持的文件类型: %s" % kind},
+                              ensure_ascii=False)
+
+        source_name = os.path.basename(path)
+        total = len(rows)
+
+        # 已有分片（续导时保留）+ 新分片计数器
+        existing = sorted(f for f in os.listdir(out_dir)
+                          if f.startswith("import_part_") and f.endswith(".csv"))
+        part_index = len(existing) + 1
+        chunks = [os.path.join(out_dir, f) for f in existing]
+
+        missing = []
+        written = 0          # 本次新写行数
+        processed = resume_row
+        cur_file = None
+        cur_writer = None
+        cur_rows_in_file = 0
+        seen = set()
+
+        def open_new_part():
+            nonlocal part_index, cur_file, cur_writer, cur_rows_in_file
+            if cur_writer:
+                cur_writer[0].close()
+            name = "import_part_%04d.csv" % part_index
+            part_index += 1
+            cur_file = os.path.join(out_dir, name)
+            fh = open(cur_file, "w", encoding="utf-8", newline="")
+            w = csv.writer(fh)
+            w.writerow(std_columns)
+            cur_writer = (fh, w)
+            cur_rows_in_file = 0
+            chunks.append(cur_file)
+
+        bp_counter = 0
+        for idx, row in enumerate(rows):
+            if idx < resume_row:
+                continue
+            processed = idx + 1
+
+            rec = _map_row(headers, row, mapping, source_name, std_columns, option_fields)
+            key = re.sub(r"\s+", "", rec.get("questionText", ""))
+            # 题干为空或批内重复 → 丢弃
+            if not key or key in seen:
+                _update_breakpoint(breakpoint_path, processed) if (bp_counter % 500 == 0) else None
+                bp_counter += 1
+                continue
+            seen.add(key)
+
+            if cur_writer is None or cur_rows_in_file >= chunk_rows:
+                open_new_part()
+
+            cur_writer[1].writerow([rec.get(c, "") for c in std_columns])
+            row_in_chunk = cur_rows_in_file
+            cur_rows_in_file += 1
+            written += 1
+
+            # 收集缺失可补充字段的题目（填充字段与选项字段均由 Java 动态指定）
+            if len(missing) < MAX_MISSING:
+                need = any(not rec.get(f) for f in fill_fields)
+                if need:
+                    missing.append({
+                        "chunk": cur_file,
+                        "row": row_in_chunk,
+                        "questionText": rec.get("questionText", "")[:120],
+                        "options": {
+                            k: rec.get(v, "")[:40] for k, v in option_fields.items()
+                        },
+                        "has": {f: bool(rec.get(f)) for f in fill_fields},
+                    })
+
+            # 实时写断点（每 500 行一次，降低 IO）
+            bp_counter += 1
+            if bp_counter % 500 == 0:
+                _update_breakpoint(breakpoint_path, processed)
+
+        if cur_writer:
+            cur_writer[0].close()
+
+        _update_breakpoint(breakpoint_path, processed)
+
+        return json.dumps({
+            "success": True,
+            "chunks": chunks,
+            "total_rows": total,
+            "processed_rows": processed,
+            "written_rows": written,
+            "missing": missing,
+        }, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def apply_fills(chunk_path, fills_json, fill_fields_json=None):
+    """把 AI 填充结果按行索引回写到 CSV 分片。
+
+    fill_fields_json：Java 动态下发的可填充字段列表 JSON（如 ["category","difficulty"]），
+    为空时用内置默认值兜底。
+    """
+    try:
+        fill_fields = list(FILL_FIELDS)
+        if fill_fields_json:
+            try:
+                ff = json.loads(fill_fields_json)
+                if isinstance(ff, list) and ff:
+                    fill_fields = [str(f) for f in ff]
+            except Exception:
+                pass
+        fills = json.loads(fills_json) if fills_json else {}
+        with open(chunk_path, "r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            all_rows = list(reader)
+        if not all_rows:
+            return json.dumps({"updated": 0}, ensure_ascii=False)
+        header = all_rows[0]
+        col_idx = {c: i for i, c in enumerate(header)}
+        updated = 0
+        for row_key, fill in fills.items():
+            try:
+                r = int(row_key)
+            except (ValueError, TypeError):
+                continue
+            line = r + 1  # 表头偏移
+            if line < 0 or line >= len(all_rows) or not isinstance(fill, dict):
+                continue
+            row = all_rows[line]
+            for field in fill_fields:
+                if field in fill and field in col_idx:
+                    # 不覆盖源文件已有内容：仅当单元格为空时才写入填充值
+                    old = row[col_idx[field]].strip()
+                    if old:
+                        continue
+                    v = fill[field]
+                    if isinstance(v, bool):
+                        continue
+                    row[col_idx[field]] = str(v)
+            updated += 1
+        with open(chunk_path, "w", encoding="utf-8", newline="") as f:
+            csv.writer(f).writerows(all_rows)
+        return json.dumps({"updated": updated}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)

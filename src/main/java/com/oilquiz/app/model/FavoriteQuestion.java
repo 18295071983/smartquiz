@@ -1,9 +1,10 @@
 package com.oilquiz.app.model;
 
 import androidx.room.Entity;
+import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
-@Entity(tableName = "favorite_question")
+@Entity(tableName = "favorite_question", indices = {@Index("userId")})
 public class FavoriteQuestion {
     @PrimaryKey(autoGenerate = true)
     private long id;
