@@ -517,31 +517,7 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
-        // 在线模型激活时，使用 AgentRouter → OnlineAgentEngine（原生 function calling）
-        if (engine.getCurrentEngineType() == AgentRouter.EngineType.ONLINE) {
-            AILogger.i(TAG, "Online model active, routing to OnlineAgentEngine");
-            engine.execute(message, maxTokens, enableThinking);
-            return;
-        }
-
-        // 本地模型：使用 AgentSoftwareLayer 处理消息
-        if (softwareLayer != null) {
-            softwareLayer.processMessage(message);
-            return;
-        }
-
-        // 降级到旧的处理方式
-        SmartIntentRecognizer.IntentResult intent = intentRecognizer.recognize(message);
-        AILogger.i(TAG, "Intent: " + intent.intent.id + " conf=" + intent.confidence + " source=" + intent.source);
-
-        ChatMessage.AgentStepInfo planStep = new ChatMessage.AgentStepInfo(
-            ChatMessage.AgentStepInfo.AgentStepType.PLANNING, 1, 5);
-        planStep.thought = "意图识别: " + intent.intent.displayName
-            + " (" + String.format("%.0f%%", intent.confidence * 100) + ")"
-            + " → " + currentInferenceMode.name() + "模式";
-        planStep.isCompleted = true;
-        if (callback != null) callback.onAgentStep(planStep);
-
+        // 路由分支：在线模型 → OnlineAgentEngine，本地模型 → UnifiedAgentEngine
         engine.execute(message, maxTokens, enableThinking);
     }
 

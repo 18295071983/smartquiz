@@ -55,10 +55,6 @@ import com.oilquiz.app.ai.util.AttachmentManager;
 import com.oilquiz.app.ai.bridge.ChatCommand;
 import com.oilquiz.app.ai.bridge.ModelExecutionBridge;
 import com.oilquiz.app.ai.bridge.BridgeCallback;
-import com.oilquiz.app.ai.agent.AgentExecutionEngine;
-import com.oilquiz.app.ai.agent.AgentExecutionState;
-import com.oilquiz.app.ai.agent.ExecutionEvent;
-import com.oilquiz.app.ai.agent.ExecutionEventListener;
 import com.oilquiz.app.ai.agent.ToolGuideFlow;
 import com.oilquiz.app.ai.agent.ToolContextProvider;
 import com.oilquiz.app.ai.agent.CompositeGuideFlow;
@@ -76,6 +72,7 @@ import com.oilquiz.app.ai.skill.SkillManager;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.CacheManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.model.MultiModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.callback.StreamCallback;
@@ -210,7 +207,6 @@ public class AIChatActivity extends BaseActivity {
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
     private ModelExecutionBridge modelBridge;
-    private AgentExecutionEngine agentEngine;
     private SkillManager skillManager;
     private AIConfig aiConfig;
     private CacheManager cacheManager;
@@ -511,9 +507,6 @@ public class AIChatActivity extends BaseActivity {
 
             // 创建模型执行桥接器 - UI与模型之间的唯一通道
             modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
-
-            // 创建Agent执行引擎 - agent模式专用，后台执行独立于UI
-            agentEngine = new AgentExecutionEngine(this, aiService, agentService, aiConfig);
 
             if (aiService == null) {
                 showToast("AI服务初始化失败");
@@ -3561,8 +3554,9 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
-            // 多模态路径：如果有图片附件且本地多模态已加载，直接走视觉理解
-            if (LlamaHelper.isMultimodalLoaded()) {
+            // 多模态路径：如果有图片附件且当前模型支持多模态，直接走视觉理解
+            boolean multimodalSupported = MultiModelManager.getInstance(this).isMultimodalSupported();
+            if (multimodalSupported) {
                 ChatMessage.Attachment imageAtt = null;
                 String imagePath = null;
                 for (ChatMessage.Attachment att : filtered) {
@@ -3583,7 +3577,9 @@ public class AIChatActivity extends BaseActivity {
                     runOnUiThread(() -> processMultimodalWithImage(originalMessage, finalImagePath, finalImageName));
                     return;
                 }
+                // 模型支持多模态但没找到图片，走普通附件解析
             }
+            // 非多模态模型或无图片附件：走 OCR 附件预解析路径
             runOnUiThread(() -> {
                 // 1. 展示上传状态
                 StringBuilder displayMsg = new StringBuilder();
@@ -3744,7 +3740,17 @@ public class AIChatActivity extends BaseActivity {
         float topP = 0.9f;
         int topK = 40;
 
-        LlamaHelper.generateWithImage(prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking,
+        // 传入历史消息（排除最后一条当前用户消息和当前生成的AI消息）
+        List<ChatMessage> historyForMultimodal = new ArrayList<>();
+        for (int i = 0; i < chatHistory.size(); i++) {
+            ChatMessage msg = chatHistory.get(i);
+            // 排除当前正在生成的AI消息
+            if (i != currentStreamingMessageIndex) {
+                historyForMultimodal.add(msg);
+            }
+        }
+        
+        LlamaHelper.generateWithImage(historyForMultimodal, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking,
             new LlamaHelper.TokenCallback() {
                 @Override
                 public void onToken(String token) {
@@ -4060,19 +4066,21 @@ public class AIChatActivity extends BaseActivity {
             // 根据当前模式决定处理方式
             ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
 
-            // Agent 模式优先：在线AGENT走ReAct（含友好引导），本地AGENT进入本地Agent流程
+            // Agent 模式优先：统一使用在线引擎，本地模型通过回退机制支持
             if (currentMode == ChatModeManager.ChatMode.AGENT) {
-                if (shouldUseOnlineModel()) {
-                    // 在线路径不需要强制本地标志，防止残留影响后续消息
-                    forceLocalAgentOnce = false;
-                    // 在线agent：先显示友好引导，再走ReAct
-                    showOnlineAgentFriendlyGuide(message);
-                    processChatMessageWithAgent(message);
-                    return;
-                }
-                // 本地agent已禁用：引导用户切换到在线模型
+                // 不需要强制本地标志，防止残留影响后续消息
                 forceLocalAgentOnce = false;
-                addSystemMessage("🚫 本地 Agent 已禁用\n\n本地模型的工具调用能力有限，请使用在线模型体验完整的 Agent 功能。\n\n切换方式：菜单 → 模型设置 → 选择在线模型", ChatMessage.SystemMessageType.WARNING);
+                
+                if (shouldUseOnlineModel()) {
+                    // 在线模型：先显示友好引导，再走ReAct
+                    showOnlineAgentFriendlyGuide(message);
+                } else {
+                    // 本地模型：显示回退提示
+                    addSystemMessage("🔄 当前使用本地模型，Agent功能将通过本地推理提供支持\n\n提示：在线模型支持更丰富的工具调用和推理能力，建议切换到在线模型获得最佳体验。", ChatMessage.SystemMessageType.INFO);
+                }
+                
+                // 统一走 Agent 路由（在线引擎会自动处理本地回退）
+                processChatMessageWithAgent(message);
                 return;
             }
 
@@ -4153,28 +4161,11 @@ public class AIChatActivity extends BaseActivity {
             }
             isInThinking = enableThinking;
 
-            // Agent模式走AgentExecutionEngine，支持步骤更新和工具调用
-            // 其他模式走Bridge，普通对话生成
-            boolean isAgentMode = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.AGENT;
-
-            if (isAgentMode && agentEngine != null && aiConfig.isAgentEnabled()) {
-                AppLogger.ai(TAG, "Agent mode: using AgentExecutionEngine");
-                // 启动agent执行面板
-                if (chatAdapter != null) {
-                    chatAdapter.startAgentExecution(streamingId);
-                }
-                // 委托给agent引擎执行，通过事件回调更新UI
-                agentEngine.execute(streamingId, prompt, new ExecutionEventListener() {
-                    @Override
-                    public void onExecutionEvent(ExecutionEvent event) {
-                        runOnUiThread(() -> handleAgentEvent(event, streamingIndex, streamingId));
-                    }
-                });
-            } else {
-                AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
-                modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
-                    createBridgeCallback(streamingIndex, streamingId));
-            }
+            // Agent模式已由processChatMessageWithAgent()处理（见4064-4078行），
+            // 这里只处理普通对话模式
+            AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+            modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
+                createBridgeCallback(streamingIndex, streamingId));
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessage: " + e.getMessage());
             endGeneration();
@@ -4846,86 +4837,6 @@ public class AIChatActivity extends BaseActivity {
             public void onThinkingUpdate(String messageId, int stepNumber, String stepType,
                                           String title, String content, int progress) {}
         };
-    }
-
-    /**
-     * 处理AgentExecutionEngine的事件，路由到ChatAdapter更新UI
-     */
-    private void handleAgentEvent(ExecutionEvent event, int streamingIndex, String streamingId) {
-        if (chatAdapter == null) return;
-
-        switch (event.type) {
-            case EXECUTION_STARTED:
-                updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null);
-                break;
-
-            case TOKEN_GENERATED:
-                if (event.text != null) {
-                    handleStreamToken(event.text);
-                }
-                break;
-
-            case THINKING_TOKEN:
-                if (event.text != null) {
-                    // 思考 token 直接路由到思考布局，不能走 outputRouter：
-                    // Agent 模式 thinkingEnabled=false，processToken 会把思考内容当正文写入主消息
-                    appendAgentThinkingToken(event.text);
-                }
-                break;
-
-            case STEP_STARTED:
-                chatAdapter.updateAgentExecutionStep(streamingId, event.stepNumber,
-                    event.stepType, event.stepTitle, event.stepContent);
-                break;
-
-            case TOOL_CALL_STARTED:
-                chatAdapter.updateAgentToolCall(streamingId, event.toolName, event.toolArgs);
-                break;
-
-            case TOOL_CALL_COMPLETED:
-                chatAdapter.updateAgentToolResult(streamingId, event.toolName,
-                    event.success, event.toolResult);
-                break;
-
-            case INFERENCE_PROGRESS:
-                chatAdapter.updateAgentInferenceProgress(streamingId,
-                    event.tokenCount, event.tokensPerSecond);
-                updateInferenceProgress(streamingIndex, event.tokenCount, event.tokensPerSecond);
-                break;
-
-            case EXECUTION_COMPLETED:
-                completeGeneration(event.text, 0, System.currentTimeMillis());
-                chatAdapter.completeAgentExecution(streamingId, event.text);
-                break;
-
-            case EXECUTION_FAILED:
-                endGeneration();
-                chatAdapter.failAgentExecution(streamingId, event.errorMessage);
-                if (currentStreamingContent != null && currentStreamingContent.length() > 0
-                    && streamingIndex >= 0 && streamingIndex < chatHistory.size()) {
-                    ChatMessage msg = chatHistory.get(streamingIndex);
-                    msg.content = currentStreamingContent.toString();
-                    msg.status = ChatMessage.MessageStatus.COMPLETED;
-                    chatAdapter.notifyItemChanged(streamingIndex);
-                }
-                saveHistoryAsync();
-                currentStreamingContent = null;
-                currentStreamingMessageIndex = -1;
-                currentStreamingMessageId = null;
-                addErrorMessage("Agent执行出错", event.errorMessage, true);
-                break;
-
-            case EXECUTION_CANCELLED:
-                endGeneration();
-                chatAdapter.failAgentExecution(streamingId, "已取消");
-                currentStreamingContent = null;
-                currentStreamingMessageIndex = -1;
-                currentStreamingMessageId = null;
-                break;
-
-            default:
-                break;
-        }
     }
 
     /**

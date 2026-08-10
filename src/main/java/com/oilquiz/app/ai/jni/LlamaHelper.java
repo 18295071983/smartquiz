@@ -4,6 +4,7 @@ import android.util.Log;
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
+import com.oilquiz.app.ai.chat.ChatMessage;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -773,7 +774,8 @@ public class LlamaHelper {
 
     /**
      * 带图像的生成长文本（流式）
-     * @param prompt 用户文本
+     * @param history 历史消息列表（用于上下文）
+     * @param prompt 当前用户文本
      * @param imagePath 图像文件路径
      * @param maxTokens 最大生成 token 数
      * @param temperature 温度
@@ -782,7 +784,7 @@ public class LlamaHelper {
      * @param enableThinking 是否启用思考
      * @param callback 流式回调
      */
-    public static void generateWithImage(String prompt, String imagePath, int maxTokens,
+    public static void generateWithImage(List<ChatMessage> history, String prompt, String imagePath, int maxTokens,
                                           float temperature, float topP, int topK,
                                           boolean enableThinking, TokenCallback callback) {
         if (!libraryLoaded) {
@@ -793,7 +795,8 @@ public class LlamaHelper {
             return;
         }
         try {
-            nativeGenerateWithImage(prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking, callback);
+            ChatMessage[] historyArray = history != null ? history.toArray(new ChatMessage[0]) : null;
+            nativeGenerateWithImage(historyArray, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking, callback);
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error generating with image: " + e.getMessage(), e);
             if (callback != null) {
@@ -805,7 +808,7 @@ public class LlamaHelper {
     private static native boolean nativeLoadMultimodal(String mmprojPath);
     private static native void nativeReleaseMultimodal();
     private static native boolean nativeIsMultimodalLoaded();
-    private static native void nativeGenerateWithImage(String prompt, String imagePath, int maxTokens,
+    private static native void nativeGenerateWithImage(ChatMessage[] history, String prompt, String imagePath, int maxTokens,
                                                         float temperature, float topP, int topK,
                                                         boolean enableThinking, TokenCallback callback);
 
@@ -1272,6 +1275,17 @@ public class LlamaHelper {
         void onToken(String token);
         void onComplete(String fullText);
         void onError(String error);
+        /**
+         * C++ 层 common_chat_parse 解析出的工具调用（OpenAI 格式）。
+         * 在 onComplete 之前调用，包含解析后的 tool_calls 列表。
+         * 本地模型和在线模型使用相同的 ToolCallInfo 结构，工具调用互通。
+         */
+        default void onToolCalls(java.util.List<com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo> toolCalls) {}
+        /**
+         * C++ 层 common_chat_parse 解析出的推理/思考内容。
+         * 在 onComplete 之前调用，包含模型输出的 reasoning_content。
+         */
+        default void onReasoning(String reasoning) {}
     }
     
     // 基于 llama_tokenize 的精确 Token 计数

@@ -37,6 +37,19 @@ public abstract class StreamCallback {
     public void onTokenStats(int promptTokens, int completionTokens) {}
     
     /**
+     * 接收到思考/推理 token（enableThinking 模式下）
+     * 本地模型思考过程实时流式展示
+     * @param token 思考过程的文本片段
+     */
+    public void onThinkingToken(String token) {}
+
+    /**
+     * 思考/推理过程结束（enableThinking 模式下）
+     * 模型完成思考，开始输出正式回答
+     */
+    public void onThinkingEnd() {}
+
+    /**
      * 进度回调
      * @param progress 进度百分比 0-100
      */

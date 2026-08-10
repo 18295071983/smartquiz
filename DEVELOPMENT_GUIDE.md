@@ -28,7 +28,15 @@ smartquiz/
 │   ├── AndroidManifest.xml       # 应用清单
 │   │
 │   ├── java/com/oilquiz/app/
-│   │   ├── ai/                   # ★ AI 核心模块（Agent、推理、工具、模型）
+│   │   ├── ai/                   # ★ AI 核心模块
+│   │   │   ├── agent/            # Agent 引擎（本地+在线+软件层）
+│   │   │   ├── speech/           # 语音服务（TTS/ASR 多引擎）
+│   │   │   ├── chat/             # AI 聊天系统
+│   │   │   ├── engine/           # 推理引擎
+│   │   │   ├── service/          # AI 服务层
+│   │   │   ├── model/            # 模型管理
+│   │   │   ├── gpu/              # GPU 加速管理
+│   │   │   └── tool/             # AI 工具集
 │   │   ├── database/             # Room 数据库层（DAO + Database）
 │   │   ├── manager/              # 业务管理器（备份、OCR、语音、主题）
 │   │   ├── model/                # 数据模型（Question, Note, Score 等）
@@ -36,6 +44,7 @@ smartquiz/
 │   │   ├── ui/                   # UI 层（Activity、Adapter、Widget）
 │   │   ├── util/                 # 工具类（导出、解析、预览、渲染）
 │   │   ├── viewmodel/            # MVVM ViewModel 层
+│   │   ├── weather/              # 天气模块
 │   │   ├── webview/              # WebView 管理（JS 桥接、安全）
 │   │   ├── resource/             # 资源管理器
 │   │   ├── infra/                # 基础设施（日志、网络、安全）
@@ -80,9 +89,12 @@ smartquiz/
 | [App.java](src/main/java/com/oilquiz/app/App.java) | Application 入口 |
 | [MainActivity.java](src/main/java/com/oilquiz/app/MainActivity.java) | 主界面 |
 | [WebViewActivity.java](src/main/java/com/oilquiz/app/WebViewActivity.java) | WebView 容器 |
-| [AIAgentEngine.java](src/main/java/com/oilquiz/app/ai/agent/AIAgentEngine.java) | AI Agent 主引擎 |
-| [AIAgentService.java](src/main/java/com/oilquiz/app/ai/service/AIAgentService.java) | AI Agent 后台服务 |
+| [UnifiedAgentEngine.java](src/main/java/com/oilquiz/app/ai/agent/UnifiedAgentEngine.java) | 统一 Agent 引擎 |
+| [AgentRouter.java](src/main/java/com/oilquiz/app/ai/agent/AgentRouter.java) | Agent 路由（本地/在线） |
+| [AgentSoftwareLayer.java](src/main/java/com/oilquiz/app/ai/agent/software/AgentSoftwareLayer.java) | Agent 软件层（思考链） |
 | [AIService.java](src/main/java/com/oilquiz/app/ai/service/AIService.java) | AI 服务接口 |
+| [SpeechManager.java](src/main/java/com/oilquiz/app/ai/speech/SpeechManager.java) | 语音服务管理器 |
+| [AIWeatherManager.java](src/main/java/com/oilquiz/app/ai/tool/AIWeatherManager.java) | 天气工具管理器 |
 | [AIToolManager.java](src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java) | AI 工具管理器 |
 
 ---
@@ -105,11 +117,22 @@ smartquiz/
 ### AI 子系统架构
 
 ```
-用户输入 → IntentRecognizer → AgentEngine → InferenceCore → llama.cpp (JNI)
-                ↓                    ↓
-           SkillManager        ToolManager (27 tools)
-                ↓                    ↓
-          DynamicSkill         File/Network/DB/Search/Weather...
+用户输入 → AgentRouter → ┌─ 本地 Agent → UnifiedAgentEngine → llama.cpp (JNI)
+                         │                ↓
+                         │           ToolManager (本地工具)
+                         │
+                         └─ 在线 Agent → OpenAI 兼容 API → 在线工具
+                                ↓
+                          AgentSoftwareLayer（软件层）
+                         ┌───────────────────────────┐
+                         │ 意图识别 → 复杂度分析      │
+                         │     ↓                     │
+                         │ 任务分解 → 执行引擎        │
+                         │     ↓                     │
+                         │ 思考链 → 结果整合          │
+                         └───────────────────────────┘
+                                ↓
+                          SpeechManager (TTS/ASR)
 ```
 
 ### 数据库核心表
@@ -311,7 +334,7 @@ public class MyNewTool extends BaseAITool {
 ```groovy
 defaultConfig {
     versionCode 3          // 每次发布 +1
-    versionName "2.1"      // 语义化版本
+    versionName "2.1.0"    // 语义化版本
 }
 ```
 

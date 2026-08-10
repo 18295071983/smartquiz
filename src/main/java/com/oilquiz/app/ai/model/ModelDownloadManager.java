@@ -806,6 +806,18 @@ public class ModelDownloadManager {
             return totalBytes > 0 ? (int) ((downloadedBytes * 100) / totalBytes) : 0;
         }
 
+        public long getDownloadedBytes() {
+            return downloadedBytes;
+        }
+
+        public long getTotalBytes() {
+            return totalBytes;
+        }
+
+        public long getSpeedBps() {
+            return speedBps;
+        }
+
         public long getEstimatedTimeRemainingSeconds() {
             return speedBps > 0 ? (totalBytes - downloadedBytes) / speedBps : -1;
         }
@@ -897,7 +909,7 @@ public class ModelDownloadManager {
         null, null, null, null, null, null, null, null, null,
         "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
         null,  // 20: Granite-4.0-Micro
-        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf"  // 21: Qwen2.5-VL-3B
+        "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf"  // 21: Qwen2.5-VL-3B
     };
 
     public List<ModelPresetInfo> getPresetDomesticModels() {
@@ -926,7 +938,7 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("gemma-3-4b", "Gemma-3-4B", "谷歌多语言推理模型", PRESET_DOMESTIC_MODEL_URLS[19], 2300, "Q4_K_M", 32768, 4096, 8));
         list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
         // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
-        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21]));
+        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21], 300));
         return list;
     }
 
@@ -940,19 +952,28 @@ public class ModelDownloadManager {
         public final int contextLength;
         public final long minRamMB;
         public final int recommendedGpuLayers;
-        public final String mmprojUrl;  // 多模态投影文件 URL，null 表示非多模态模型
+        public final String mmprojUrl;          // 多模态投影文件 URL，null 表示非多模态模型
+        public final long mmprojSizeMB;         // mmproj 预估文件大小(MB)
         public final boolean multimodal;
 
         public ModelPresetInfo(String id, String name, String description, String downloadUrl,
                                long sizeMB, String quantization, int contextLength,
                                long minRamMB, int recommendedGpuLayers) {
             this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
-                 minRamMB, recommendedGpuLayers, null);
+                 minRamMB, recommendedGpuLayers, null, 0);
         }
 
         public ModelPresetInfo(String id, String name, String description, String downloadUrl,
                                long sizeMB, String quantization, int contextLength,
                                long minRamMB, int recommendedGpuLayers, String mmprojUrl) {
+            this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
+                 minRamMB, recommendedGpuLayers, mmprojUrl, 0);
+        }
+
+        public ModelPresetInfo(String id, String name, String description, String downloadUrl,
+                               long sizeMB, String quantization, int contextLength,
+                               long minRamMB, int recommendedGpuLayers, String mmprojUrl,
+                               long mmprojSizeMB) {
             this.id = id;
             this.name = name;
             this.description = description;
@@ -963,6 +984,7 @@ public class ModelDownloadManager {
             this.minRamMB = minRamMB;
             this.recommendedGpuLayers = recommendedGpuLayers;
             this.mmprojUrl = mmprojUrl;
+            this.mmprojSizeMB = mmprojSizeMB;
             this.multimodal = mmprojUrl != null && !mmprojUrl.isEmpty();
         }
     }
