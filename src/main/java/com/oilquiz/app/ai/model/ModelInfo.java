@@ -31,4 +31,10 @@ public class ModelInfo {
     public String downloadUrl;
     public int recommendedGpuLayers;
     public long minRamMB;
+    
+    // 多模态支持
+    public String mmprojUrl;            // mmproj 下载 URL
+    public String mmprojPath;           // mmproj 投影文件路径
+    public long mmprojSizeMB;           // mmproj 文件大小(MB)
+    public boolean supportsVision;      // 是否支持视觉理解
 }

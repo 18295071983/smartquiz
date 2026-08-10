@@ -5,12 +5,21 @@
 ```
 docs/
 ├── AGENT_ARCHITECTURE.md                  # Agent 智能代理架构设计
+├── AGENT_LOCAL_MODEL_ONLINE_ROUTING.md    # Agent 本地/在线路由设计
+├── AGENT_ROUTING_QUICK_GUIDE.md           # Agent 路由快速指南
+├── ONLINE_AGENT_LOCAL_FALLBACK.md         # 在线 Agent 本地降级方案
+├── ONLINE_AGENT_LOCAL_FALLBACK_SUMMARY.md # 在线 Agent 降级总结
+├── ONLINE_AGENT_LOCAL_FALLBACK_TEST.md    # 在线 Agent 降级测试
 ├── ai_rules.md                            # AI 开发规则与规范
+├── QWeather_SDK_Guide.md                  # 和风天气 SDK 集成指南
 ├── database/
 │   └── database_structure.md              # 数据库结构设计 (v20)
 ├── development/
 │   ├── ai_feature_design.md               # AI 功能总体设计
 │   ├── ai_ui_interaction_design.md        # AI-UI 交互设计
+│   ├── ai_assisted_thinking_design.md     # AI 辅助思考设计
+│   ├── AI_CHAT_V2.0_DESIGN.md             # AI Chat v2.0 设计
+│   ├── AI_SUMMARY_OPTIMIZATION_PLAN.md    # AI 总结优化计划
 │   ├── android_adaptation.md              # Android 原生适配开发标准化
 │   ├── comprehensive_analysis_report.md   # 综合分析报告
 │   ├── development_standards.md           # 开发标准规范
@@ -23,14 +32,17 @@ docs/
 │   ├── ui_resources_design.md             # UI 资源设计
 │   ├── ui_ux_redesign.md                  # UI/UX 重设计文档
 │   ├── user_stories.md                    # 用户故事
-│   ├── AGENT_OPTIMIZATION_REPORT.md       # Agent 优化报告
-│   ├── RESOURCE_REFACTORING_GUIDE.md      # 资源重构指南
-│   ├── TBS_SDK_INTEGRATION_GUIDE.md       # TBS SDK 集成指南
-│   ├── AI_CHAT_V2.0_DESIGN.md             # AI Chat v2.0 设计
-│   ├── CHANGELOG_V2.0.md                  # v2.0 更新日志
-│   ├── OPENAI_TOOL_CALLING_DESIGN.md      # OpenAI 工具调用设计
 │   ├── AGENT_CHAIN_DESIGN.md              # Agent 链式调用设计
 │   ├── AGENT_HARDWARE_SOFTWARE_DESIGN.md  # Agent 软硬件设计
+│   ├── AGENT_OPTIMIZATION_REPORT.md       # Agent 优化报告
+│   ├── AGENT_PERMISSION_MECHANISM_EXPLAINED.md  # Agent 权限机制说明
+│   ├── CHANGELOG_V2.0.md                  # v2.0 更新日志
+│   ├── FUNCTIONALITY_DETECTION_REPORT.md  # 功能检测报告
+│   ├── FIX_RECORD_AUDIO_PERMISSION.md     # 录音权限修复记录
+│   ├── OPENAI_TOOL_CALLING_DESIGN.md      # OpenAI 工具调用设计
+│   ├── RESOURCE_REFACTORING_GUIDE.md      # 资源重构指南
+│   ├── TBS_SDK_INTEGRATION_GUIDE.md       # TBS SDK 集成指南
+│   ├── local_library_inference_engine_design.md  # 本地库推理引擎设计
 │   ├── 应用重构设计文档.md                # 应用重构设计
 │   └── ai_modules/
 │       ├── ai_service_design.md           # AI 服务层设计
@@ -65,9 +77,17 @@ docs/
 
 1. **AI 总体设计** → [ai_feature_design.md](development/ai_feature_design.md)
 2. **Agent 架构** → [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md)
-3. **LLM 服务** → [llm_service_design.md](development/ai_modules/llm_service_design.md)
-4. **AI-UI 交互** → [ai_ui_interaction_design.md](development/ai_ui_interaction_design.md)
-5. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
+3. **Agent 路由** → [AGENT_ROUTING_QUICK_GUIDE.md](AGENT_ROUTING_QUICK_GUIDE.md)
+4. **在线 Agent** → [ONLINE_AGENT_LOCAL_FALLBACK.md](ONLINE_AGENT_LOCAL_FALLBACK.md)
+5. **Agent 软硬件** → [AGENT_HARDWARE_SOFTWARE_DESIGN.md](development/AGENT_HARDWARE_SOFTWARE_DESIGN.md)
+6. **LLM 服务** → [llm_service_design.md](development/ai_modules/llm_service_design.md)
+7. **AI-UI 交互** → [ai_ui_interaction_design.md](development/ai_ui_interaction_design.md)
+8. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
+
+### 语音与天气
+
+1. **天气 SDK** → [QWeather_SDK_Guide.md](QWeather_SDK_Guide.md)
+2. **录音权限** → [FIX_RECORD_AUDIO_PERMISSION.md](development/FIX_RECORD_AUDIO_PERMISSION.md)
 
 ### 部署与运维
 
@@ -80,4 +100,4 @@ docs/
 - 文档随代码同步更新，确保准确性
 - 所有文档纳入版本控制管理
 - 重大功能变更时同步更新相关文档
-- 更新日期统一为：2026-07-18
+- 更新日期统一为：2026-08-10

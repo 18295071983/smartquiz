@@ -71,7 +71,7 @@ git clone https://github.com/18295071983/smartquiz.git
 
 1. 菜单栏 → **Build** → **Build Bundle(s) / APK(s)** → **Build APK(s)**
 2. 等待构建完成，点击通知栏的 **locate** 查看 APK
-3. 输出路径：`app/build/outputs/apk/debug/答题宝-debug-2.0.apk`
+3. 输出路径：`app/build/outputs/apk/debug/答题宝-debug-2.1.0.apk`
 
 ### 方法二：命令行
 
@@ -113,7 +113,7 @@ bash build_android.sh
 3. 点击 **Run** 或使用命令行：
 
 ```bash
-adb install app/build/outputs/apk/debug/答题宝-debug-2.0.apk
+adb install app/build/outputs/apk/debug/答题宝-debug-2.1.0.apk
 ```
 
 ## 七、构建本地库（可选）
@@ -146,7 +146,9 @@ bash build_llama_jni_msys2.sh
 
 - 题库管理（导入/导出题目）
 - 答题模式（挑战/考试/练习/背诵）
-- AI 对话（需下载模型或配置 API）
+- AI 对话（本地模型 + 在线模型 + Agent）
+- 语音功能（TTS 语音合成 + ASR 语音识别）
+- 天气查询（实时天气 + 空气质量 + 预警）
 - 文件预览（Word/Excel/PDF）
 - OCR 文字识别
 

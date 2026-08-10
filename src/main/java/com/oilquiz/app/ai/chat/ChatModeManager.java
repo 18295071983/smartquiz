@@ -206,7 +206,7 @@ public class ChatModeManager {
             case AGENT:
                 return "你现在进入Agent模式。你可以调用各种工具来完成用户的任务。\n" +
                        "请根据用户需求：\n1. 分析任务并分解步骤\n2. 选择合适的工具执行\n3. 整合结果并给出反馈\n" +
-                       "当需要使用工具时，严格按照 TOOLS_CALL/TOOLS_END 格式输出。\n" +
+                       "当需要使用工具时，严格按照原生 function calling 格式直接输出工具调用。\n" +
                        "可用工具包括：文件操作、网络搜索、数据库查询、位置服务、天气查询、翻译等。";
             case THINKING_ASSIST:
                 return "你现在进入思考辅助模式。你的角色不是直接回答问题，而是作为思考引导者：\n" +

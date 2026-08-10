@@ -48,6 +48,10 @@ public class OnlineModelManager {
         public String apiUrl;
         public String modelName;
         public String apiKey;
+        /** 讯飞 APISecret / 百度 SecretKey / 火山引擎 Token（按端点类型使用） */
+        public String apiSecret;
+        /** 讯飞 AppID / 火山引擎 AppID / 百度 AppID（按端点类型使用） */
+        public String appId;
         public boolean enabled;
         public long createdAt;
         
@@ -200,6 +204,8 @@ public class OnlineModelManager {
                     
                     // 加载增强字段
                     config.selectedModel = obj.optString("selectedModel", null);
+                    config.apiSecret = obj.optString("apiSecret", null);
+                    config.appId = obj.optString("appId", null);
                     config.lastFetchTime = obj.optLong("lastFetchTime", 0);
                     config.cachedModelsJson = obj.optString("cachedModelsJson", null);
                     config.autoFetchModels = obj.optBoolean("autoFetchModels", true);
@@ -237,6 +243,8 @@ public class OnlineModelManager {
                 obj.put("apiUrl", config.apiUrl);
                 obj.put("modelName", config.modelName);
                 obj.put("apiKey", config.apiKey);
+                obj.put("apiSecret", config.apiSecret != null ? config.apiSecret : "");
+                obj.put("appId", config.appId != null ? config.appId : "");
                 obj.put("enabled", config.enabled);
                 obj.put("createdAt", config.createdAt);
                 obj.put("selectedModel", config.selectedModel != null ? config.selectedModel : "");

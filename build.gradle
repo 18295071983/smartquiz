@@ -264,6 +264,10 @@ dependencies {
     implementation "org.apache.poi:poi-scratchpad:5.2.3"
     implementation "com.itextpdf:itext7-core:7.2.3"
     implementation "com.google.code.gson:gson:2.10.1"
+
+    // 阿里云百炼（DashScope）官方 Java SDK：在线 TTS/ASR 改用官方 SDK（2.22.28 已含 Qwen-TTS / CosyVoice / Qwen3-ASR）
+    // 项目已含 okhttp:4.12.0 与 gson:2.10.1，冲突风险低；debug/release 均未开 minify，无需 proguard keep 规则
+    implementation 'com.alibaba:dashscope-sdk-java:2.22.28'
     implementation "com.karumi:dexter:6.2.3"
     implementation "org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r"
     implementation "com.github.bumptech.glide:glide:4.16.0"

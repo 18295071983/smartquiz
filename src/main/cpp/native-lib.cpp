@@ -2092,10 +2092,17 @@ public:
      * @param callback token 回调
      * @return 生成是否成功
      */
+    // common_chat_parse 解析结果结构体
+    struct ChatParseResult {
+        std::vector<common_chat_tool_call> tool_calls;
+        std::string reasoning_content;
+    };
+
     bool generateWithTools(const std::vector<std::pair<std::string, std::string>>& messages,
                            const std::string& toolsJson,
                            int maxTokens, float temperature, float topP, int topK,
-                           bool enableThinking, TokenCallback callback) {
+                           bool enableThinking, TokenCallback callback,
+                           ChatParseResult* outParseResult = nullptr) {
         LOGI("=== GENERATE WITH TOOLS START ===");
         LOGI("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
              messages.size(), toolsJson.size(), maxTokens, (int)enableThinking);
@@ -2167,8 +2174,60 @@ public:
             return false;
         }
 
-        // 复用 generateStream 的核心生成逻辑
-        return generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
+        // 不再传 enableThinking=true 给 generateStream。
+        // 模型想输出什么就输出什么：如果模型自己决定思考，chat template 会处理；
+        // 如果模型直接回答，generateStream 正常输出 token。
+        // 生成完成后用 common_chat_parse 解析模型输出，提取 tool_calls 和 reasoning_content。
+        // 解析结果通过结构体传给 JNI 层，JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调，
+        // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通。
+
+        // 用包装回调收集 fullText，拦截 onComplete 以便在 common_chat_parse 解析后再发送
+        std::string collectedText;
+        auto wrappedCallback = [&callback, &collectedText](const std::string& text, bool isComplete, const std::string& error) {
+            if (!isComplete && !error.empty()) {
+                callback(text, isComplete, error);
+                return;
+            }
+            if (isComplete && !text.empty()) {
+                collectedText = text;
+                // 不立即触发 onComplete，等 common_chat_parse 解析完后再触发
+                return;
+            }
+            if (!isComplete) {
+                callback(text, isComplete, error);
+            }
+        };
+
+        bool genOk = generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, false, wrappedCallback);
+
+        // 生成完成后，用 common_chat_parse 解析模型输出
+        // 解析结果存到 outParseResult，由 JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调
+        // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通，无需中间层
+        if (genOk && !collectedText.empty()) {
+            try {
+                common_chat_parser_params parser_params(chat_params);
+                parser_params.parse_tool_calls = true;
+                common_chat_msg parsed = common_chat_parse(collectedText, false, parser_params);
+
+                if (outParseResult != nullptr) {
+                    outParseResult->tool_calls = std::move(parsed.tool_calls);
+                    outParseResult->reasoning_content = std::move(parsed.reasoning_content);
+                    if (!outParseResult->tool_calls.empty()) {
+                        LOGI("Parsed %zu tool calls via common_chat_parse", outParseResult->tool_calls.size());
+                    }
+                    if (!outParseResult->reasoning_content.empty()) {
+                        LOGI("Parsed reasoning content (%zu chars) via common_chat_parse", outParseResult->reasoning_content.size());
+                    }
+                }
+            } catch (const std::exception& e) {
+                LOGW("common_chat_parse failed: %s", e.what());
+            }
+        }
+
+        // 触发 onComplete
+        callback(collectedText, true, "");
+
+        return genOk;
     }
     
     // 并行批处理生成
@@ -2448,8 +2507,9 @@ public:
     }
 
     /**
-     * 带图像的生成长文本（流式）
-     * @param userText 用户文本
+     * 带图像的生成长文本（流式）- 支持历史上下文
+     * @param history 历史消息列表 (role, content)
+     * @param userText 当前用户文本
      * @param imagePath 图像文件路径
      * @param maxTokens 最大生成 token 数
      * @param temperature 温度
@@ -2458,10 +2518,12 @@ public:
      * @param enableThinking 是否启用思考
      * @param callback 流式回调
      */
-    bool generateStreamWithImage(const std::string& userText,
-                                  const std::string& imagePath,
-                                  int maxTokens, float temperature, float topP, int topK,
-                                  bool enableThinking, TokenCallback callback) {
+    bool generateStreamWithImage(
+        const std::vector<std::pair<std::string, std::string>>& history,
+        const std::string& userText,
+        const std::string& imagePath,
+        int maxTokens, float temperature, float topP, int topK,
+        bool enableThinking, TokenCallback callback) {
         if (!isMultimodalLoaded()) {
             LOGE("generateStreamWithImage: multimodal not loaded");
             callback("", true, "Multimodal not loaded");
@@ -2469,24 +2531,65 @@ public:
         }
 
         LOGI("=== STREAM GENERATE WITH IMAGE START ===");
-        LOGI("Text length: %zu, Image: %s, maxTokens: %d", userText.size(), imagePath.c_str(), maxTokens);
+        LOGI("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
+             history.size(), userText.size(), imagePath.c_str(), maxTokens);
 
-        // 构建带图像标记的提示词
+        // 1. 构建当前用户消息（带图像标记）
         const char* marker = mtmd_default_marker();
-        std::string formattedPrompt = std::string(marker) + "\n" + userText;
+        std::string currentUserMsg = std::string(marker) + "\n" + userText;
 
-        // 应用聊天模板
-        std::vector<std::pair<std::string, std::string>> messages;
-        messages.push_back({"user", formattedPrompt});
-        std::string prompt = applyChatTemplateForMessages(messages, true);
+        // 2. 添加当前消息到历史
+        std::vector<std::pair<std::string, std::string>> allMessages = history;
+        allMessages.push_back({"user", currentUserMsg});
 
-        if (prompt.empty()) {
+        // 3. 格式化完整消息（含历史）
+        std::string fullPrompt = applyChatTemplateForMessages(allMessages, true);
+        if (fullPrompt.empty()) {
             LOGE("Failed to apply chat template");
             callback("", true, "Failed to format prompt");
             return false;
         }
+        LOGI("Full prompt (history + image) length: %zu", fullPrompt.size());
 
-        // 加载图像
+        // 4. 评估历史部分（不带图像）- 先评估历史 text，写入 KV cache
+        if (!history.empty()) {
+            // 构建不含图像的历史提示词
+            std::vector<std::pair<std::string, std::string>> historyWithoutImage = history;
+            if (!history.empty() && history.back().first == "user") {
+                // 最后一条用户消息不含图像标记
+                std::string textOnly = history.back().second;
+                size_t markerPos = textOnly.find(marker);
+                if (markerPos != std::string::npos) {
+                    // 移除图像标记部分
+                    textOnly = textOnly.substr(0, markerPos);
+                }
+                historyWithoutImage.back() = {"user", textOnly};
+            } else {
+                historyWithoutImage.push_back({"user", userText});
+            }
+            
+            std::string historyPrompt = applyChatTemplateForMessages(historyWithoutImage, false);
+            if (!historyPrompt.empty()) {
+                // Tokenize 历史
+                std::vector<llama_token> historyTokens;
+                int nHistoryTokens = -llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), NULL, 0, true, true);
+                if (nHistoryTokens > 0) {
+                    historyTokens.resize(nHistoryTokens);
+                    if (llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), historyTokens.data(), historyTokens.size(), true, true) >= 0) {
+                        // 评估历史 token 到 KV cache
+                        llama_batch historyBatch = llama_batch_get_one(historyTokens.data(), historyTokens.size());
+                        int ret = llama_decode(ctx, historyBatch);
+                        if (ret == 0) {
+                            LOGI("History evaluated: %zu tokens into KV cache", historyTokens.size());
+                        } else {
+                            LOGW("Failed to evaluate history into KV cache: %d", ret);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. 加载图像
         mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false);
         if (bitmapWrapper.bitmap == nullptr) {
             LOGE("Failed to load image: %s", imagePath.c_str());
@@ -2494,16 +2597,16 @@ public:
             return false;
         }
 
-        // 构建输入
+        // 6. 构建输入
         mtmd_input_text inputText;
-        inputText.text = prompt.c_str();
-        inputText.text_len = prompt.size();
+        inputText.text = fullPrompt.c_str();
+        inputText.text_len = fullPrompt.size();
         inputText.add_special = true;
         inputText.parse_special = true;
 
         const mtmd_bitmap* bitmaps[1] = { bitmapWrapper.bitmap };
 
-        // 分词
+        // 7. 分词（图像 + 当前消息）
         mtmd_input_chunks* chunks = mtmd_input_chunks_init();
         int32_t tokenizeRes = mtmd_tokenize(s_mtmdCtx, chunks, &inputText, bitmaps, 1);
         if (tokenizeRes != 0) {
@@ -2514,19 +2617,29 @@ public:
             return false;
         }
 
-        // 计算总 token 数
-        size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
-        LOGI("Total tokens (text + image): %zu", totalTokens);
-
+        // 8. 评估图像 token
+        // 如果历史已评估，从历史结束位置开始评估图像
+        // 否则从 0 开始
+        llama_pos n_past = 0;
+        if (!history.empty()) {
+            // 历史评估后，n_past 就是历史 token 数量
+            // 使用 mtmd_helper_get_n_tokens 估算历史大小
+            // 由于我们没有单独保存历史的 chunks，使用 llama_batch 评估后无法直接获取 n_past
+            // 改为保守估计：假设历史评估后 KV cache 已就位
+            n_past = 0;  // mtmd 会从当前位置继续
+        }
+        
         // 检查上下文容量
+        size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
+        LOGI("Image+prompt tokens: %zu, n_past: %d, total: %zu", totalTokens, (int)n_past, totalTokens + n_past);
+        
         int n_ctx = llama_n_ctx(ctx);
-        if ((int)totalTokens > n_ctx - maxTokens) {
+        if ((int)(totalTokens + n_past) > n_ctx - maxTokens) {
             LOGW("Tokens exceed context, clearing KV cache");
             clearContextForInference();
+            n_past = 0;
         }
 
-        // 评估所有分块
-        llama_pos n_past = 0;
         llama_pos new_n_past = 0;
         int32_t evalRes = mtmd_helper_eval_chunks(s_mtmdCtx, ctx, chunks, n_past, 0, 256, true, &new_n_past);
         mtmd_input_chunks_free(chunks);
@@ -2538,7 +2651,7 @@ public:
             return false;
         }
 
-        LOGI("Image and prompt evaluated, starting generation");
+        LOGI("Image and prompt evaluated, starting generation from pos %d", (int)new_n_past);
 
         // 采样和生成循环（复用现有逻辑）
         // 这里需要实现采样循环，类似 generateStream 的后半部分
@@ -4405,6 +4518,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
     JNIEnv* env,
     jclass /* clazz */,
+    jobjectArray historyArray,  // 历史消息数组: [{"role":"user","content":"..."}, ...]
     jstring prompt,
     jstring imagePath,
     jint maxTokens,
@@ -4438,6 +4552,48 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
         env->DeleteLocalRef(callbackClass);
         return;
     }
+
+    // 解析历史消息数组
+    std::vector<std::pair<std::string, std::string>> history;
+    if (historyArray != nullptr) {
+        jsize historyLen = env->GetArrayLength(historyArray);
+        jclass msgClass = env->FindClass("com/oilquiz/app/ai/chat/ChatMessage");
+        jfieldID typeField = env->GetFieldID(msgClass, "type", "Lcom/oilquiz/app/ai/chat/ChatMessage$MessageType;");
+        jfieldID contentField = env->GetFieldID(msgClass, "content", "Ljava/lang/String;");
+        
+        // 获取 MessageType 枚举的 name 方法
+        jclass msgTypeClass = env->FindClass("com/oilquiz/app/ai/chat/ChatMessage$MessageType");
+        jmethodID nameMethod = env->GetMethodID(msgTypeClass, "name", "()Ljava/lang/String;");
+        
+        for (int i = 0; i < historyLen; i++) {
+            jobject msgObj = env->GetObjectArrayElement(historyArray, i);
+            jobject typeObj = env->GetObjectField(msgObj, typeField);
+            jstring contentStr = (jstring)env->GetObjectField(msgObj, contentField);
+            
+            if (typeObj && contentStr) {
+                jstring typeStr = (jstring)env->CallObjectMethod(typeObj, nameMethod);
+                if (typeStr) {
+                    const char* type = env->GetStringUTFChars(typeStr, nullptr);
+                    const char* content = env->GetStringUTFChars(contentStr, nullptr);
+                    if (type && content) {
+                        // 转换为小写 role 字符串
+                        std::string roleLower = std::string(type);
+                        for (auto& c : roleLower) c = std::tolower(c);
+                        history.push_back({roleLower, std::string(content)});
+                    }
+                    if (type) env->ReleaseStringUTFChars(typeStr, type);
+                    if (content) env->ReleaseStringUTFChars(contentStr, content);
+                }
+            }
+            env->DeleteLocalRef(typeObj);
+            env->DeleteLocalRef(contentStr);
+            env->DeleteLocalRef(msgObj);
+        }
+        env->DeleteLocalRef(msgTypeClass);
+        env->DeleteLocalRef(msgClass);
+    }
+    
+    LOGI("Received %zu history messages for multimodal generation", history.size());
 
     const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
     const char* imagePathStr = env->GetStringUTFChars(imagePath, nullptr);
@@ -4535,9 +4691,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
         }
     };
 
-    // 执行多模态生成
+    // 执行多模态生成（传入历史消息）
     SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
-        s_helperContext->generateStreamWithImage(promptContent, imagePathContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+        s_helperContext->generateStreamWithImage(history, promptContent, imagePathContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
     );
 }
 
@@ -5379,6 +5535,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
     jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
     jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    // onToolCalls 和 onReasoning 是 default 方法，需要用接口类查找
+    jclass toolCallInfoClass = env->FindClass("com/oilquiz/app/ai/service/OnlineInferenceService$ToolCallInfo");
+    jclass listClass = env->FindClass("java/util/ArrayList");
     jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
     env->DeleteLocalRef(callbackClass);
 
@@ -5458,9 +5617,91 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
         }
     };
 
+    // 调用 generateWithTools，获取 common_chat_parse 解析结果
+    llama_jni::InferenceContext::ChatParseResult parseResult;
     SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
-        s_helperContext->generateWithTools(messages, toolsJson, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+        s_helperContext->generateWithTools(messages, toolsJson, maxTokens, temperature, topP, topK, enableThinking, tokenCallback, &parseResult)
     );
+
+    // 将 common_chat_parse 解析结果通过 Java 回调传递
+    // onToolCalls: 创建 ToolCallInfo 列表并调用 onToolCalls 回调
+    // onReasoning: 调用 onReasoning 回调
+    // 这与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通，无需中间层
+    try {
+        if (!parseResult.tool_calls.empty() && toolCallInfoClass != nullptr && listClass != nullptr) {
+            // 创建 ArrayList<ToolCallInfo>
+            jmethodID listConstructor = env->GetMethodID(listClass, "<init>", "()V");
+            jmethodID listAdd = env->GetMethodID(listClass, "add", "(Ljava/lang/Object;)Z");
+            jmethodID tcConstructor = env->GetMethodID(toolCallInfoClass, "<init>", "()V");
+
+            if (listConstructor != nullptr && listAdd != nullptr && tcConstructor != nullptr) {
+                jobject listObj = env->NewObject(listClass, listConstructor);
+
+                // ToolCallInfo 的字段: id (String), name (String), arguments (String)
+                jfieldID idField = env->GetFieldID(toolCallInfoClass, "id", "Ljava/lang/String;");
+                jfieldID nameField = env->GetFieldID(toolCallInfoClass, "name", "Ljava/lang/String;");
+                jfieldID argsField = env->GetFieldID(toolCallInfoClass, "arguments", "Ljava/lang/String;");
+
+                if (idField != nullptr && nameField != nullptr && argsField != nullptr) {
+                    for (const auto& tc : parseResult.tool_calls) {
+                        jobject tcObj = env->NewObject(toolCallInfoClass, tcConstructor);
+                        if (!tc.id.empty()) {
+                            jstring idStr = utf8StringToJstring(env, tc.id);
+                            env->SetObjectField(tcObj, idField, idStr);
+                            env->DeleteLocalRef(idStr);
+                        }
+                        if (!tc.name.empty()) {
+                            jstring nameStr = utf8StringToJstring(env, tc.name);
+                            env->SetObjectField(tcObj, nameField, nameStr);
+                            env->DeleteLocalRef(nameStr);
+                        }
+                        if (!tc.arguments.empty()) {
+                            jstring argsStr = utf8StringToJstring(env, tc.arguments);
+                            env->SetObjectField(tcObj, argsField, argsStr);
+                            env->DeleteLocalRef(argsStr);
+                        }
+                        env->CallBooleanMethod(listObj, listAdd, tcObj);
+                        env->DeleteLocalRef(tcObj);
+                    }
+                }
+
+                // 调用 onToolCalls 回调
+                // 使用接口类查找 default 方法
+                jclass tokenCallbackClass = env->FindClass("com/oilquiz/app/ai/jni/LlamaHelper$TokenCallback");
+                if (tokenCallbackClass != nullptr) {
+                    jmethodID onToolCallsMethod = env->GetMethodID(tokenCallbackClass, "onToolCalls", "(Ljava/util/List;)V");
+                    if (onToolCallsMethod != nullptr) {
+                        env->CallVoidMethod(globalCallback, onToolCallsMethod, listObj);
+                        LOGI("Called Java onToolCalls with %zu tool calls", parseResult.tool_calls.size());
+                    }
+                    env->DeleteLocalRef(tokenCallbackClass);
+                }
+
+                env->DeleteLocalRef(listObj);
+            }
+        }
+
+        // onReasoning 回调
+        if (!parseResult.reasoning_content.empty()) {
+            jclass tokenCallbackClass = env->FindClass("com/oilquiz/app/ai/jni/LlamaHelper$TokenCallback");
+            if (tokenCallbackClass != nullptr) {
+                jmethodID onReasoningMethod = env->GetMethodID(tokenCallbackClass, "onReasoning", "(Ljava/lang/String;)V");
+                if (onReasoningMethod != nullptr) {
+                    jstring reasoningStr = utf8StringToJstring(env, parseResult.reasoning_content);
+                    env->CallVoidMethod(globalCallback, onReasoningMethod, reasoningStr);
+                    env->DeleteLocalRef(reasoningStr);
+                    LOGI("Called Java onReasoning with %zu chars", parseResult.reasoning_content.size());
+                }
+                env->DeleteLocalRef(tokenCallbackClass);
+            }
+        }
+    } catch (...) {
+        LOGE("Exception in JNI onToolCalls/onReasoning callback");
+    }
+
+    // 清理局部引用
+    if (toolCallInfoClass != nullptr) env->DeleteLocalRef(toolCallInfoClass);
+    if (listClass != nullptr) env->DeleteLocalRef(listClass);
 }
 
 JNIEXPORT jobjectArray JNICALL

@@ -982,9 +982,6 @@ public class AIService implements ComponentCallbacks2 {
 
                 UnifiedContextManager.getInstance().setModelContextReady(true);
 
-                // 多模态支持：模型加载成功后，自动搜索并加载 mmproj 投影文件
-                tryAutoLoadMmproj(modelFile);
-                
                 long totalLoadTimeMs = System.currentTimeMillis() - totalStartTime;
                 AILogger.i(TAG, "AI service initialized successfully with model: " + modelName);
                 AILogger.i(TAG, "[PERF] ========== MODEL LOADING COMPLETE ==========");
@@ -2178,62 +2175,6 @@ public class AIService implements ComponentCallbacks2 {
      * OpenCL库由系统提供（/vendor/lib64/libOpenCL.so）
      * llama-jni的JNI_OnLoad会自动尝试从系统路径加载
      */
-
-    /**
-     * 模型加载成功后，自动搜索并加载同目录下的 mmproj 投影文件
-     * 搜索规则：
-     * 1. 精确匹配：<modelFileName去掉.gguf>.mmproj.gguf
-     * 2. 通配匹配：目录下任意 *.mmproj.gguf 文件
-     */
-    private void tryAutoLoadMmproj(File modelFile) {
-        if (modelFile == null || !modelFile.exists()) return;
-
-        File modelDir = modelFile.getParentFile();
-        if (modelDir == null || !modelDir.exists()) return;
-
-        String modelFileName = modelFile.getName();
-        // 规则1：精确匹配 <basename>.mmproj.gguf
-        String baseName = modelFileName;
-        if (baseName.toLowerCase().endsWith(".gguf")) {
-            baseName = baseName.substring(0, baseName.length() - 5);
-        }
-        String exactMmproj = baseName + ".mmproj.gguf";
-        File exactFile = new File(modelDir, exactMmproj);
-
-        if (exactFile.exists()) {
-            AILogger.i(TAG, "Found exact mmproj match: " + exactFile.getAbsolutePath());
-            loadMmprojSafe(exactFile.getAbsolutePath());
-            return;
-        }
-
-        // 规则2：搜索目录下所有 *.mmproj.gguf
-        File[] mmprojFiles = modelDir.listFiles((dir, name) ->
-                name.toLowerCase().endsWith(".mmproj.gguf"));
-        if (mmprojFiles != null && mmprojFiles.length > 0) {
-            AILogger.i(TAG, "Found mmproj file: " + mmprojFiles[0].getAbsolutePath());
-            loadMmprojSafe(mmprojFiles[0].getAbsolutePath());
-            return;
-        }
-
-        AILogger.i(TAG, "No mmproj file found for model: " + modelFileName + " (multimodal not available)");
-    }
-
-    /**
-     * 安全加载 mmproj，失败不影响主模型运行
-     */
-    private void loadMmprojSafe(String mmprojPath) {
-        try {
-            AILogger.i(TAG, "Loading mmproj: " + mmprojPath);
-            boolean success = LlamaHelper.loadMultimodal(mmprojPath);
-            if (success) {
-                AILogger.i(TAG, "Multimodal projection loaded successfully");
-            } else {
-                AILogger.w(TAG, "Failed to load mmproj (model still works in text-only mode)");
-            }
-        } catch (Exception e) {
-            AILogger.e(TAG, "Error loading mmproj: " + e.getMessage(), e);
-        }
-    }
 
     private void preloadOpenClIfNeeded() {
         if (openClPreloaded) {

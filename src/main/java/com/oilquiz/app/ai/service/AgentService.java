@@ -473,22 +473,11 @@ public class AgentService {
     public String buildToolSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("[工具使用说明]\n\n");
-        sb.append("当需要使用工具时，按以下 JSON 格式输出：\n\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例1 - 查天气：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\", \"action\": \"current\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例2 - 计算器：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"python_calculate\", \"arguments\": {\"expression\": \"3+5\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例3 - 搜索：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"network_search\", \"arguments\": {\"query\": \"人工智能\"}}]}\n");
-        sb.append("```\n\n");
+        sb.append("当需要使用工具时，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n\n");
+        sb.append("常用工具示例（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n");
+        sb.append("  • 查天气：使用 ai_weather 工具，参数 city=北京、action=current\n");
+        sb.append("  • 计算器：使用 python_calculate 工具，参数 expression=3+5\n");
+        sb.append("  • 搜索：使用 network_search 工具，参数 query=人工智能\n\n");
         sb.append("可用工具列表：\n\n");
         Map<String, ToolSchema> uniqueTools = deduplicateTools();
         for (ToolSchema tool : uniqueTools.values()) {
@@ -496,7 +485,7 @@ public class AgentService {
             sb.append("  ").append(tool.paramDesc).append("\n\n");
         }
         sb.append("重要规则：\n");
-        sb.append("1. 工具调用使用上述 JSON 格式输出（{\"tool_calls\":[{\"name\":\"...\",\"arguments\":{...}}]}\n");
+        sb.append("1. 需要工具时，直接以原生 function calling 格式输出工具调用\n");
         sb.append("2. 每次只调用一个工具\n");
         sb.append("3. 不需要工具时，直接回答用户问题\n");
         sb.append("4. 工具返回结果后，基于结果回答用户\n");
@@ -1470,8 +1459,7 @@ public class AgentService {
         try {
             List<ToolSchema> selectedTools = selectToolsByIntent(userMessage);
             StringBuilder sb = new StringBuilder();
-            sb.append("你可以使用以下工具来帮助回答问题。当需要使用工具时，请按以下JSON格式输出：\n");
-            sb.append("```json\n{\"tool_calls\": [{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n```\n\n");
+            sb.append("你可以使用以下工具来帮助回答问题。当需要使用工具时，请以原生 function calling 直接输出工具调用（无需 JSON 封装或文本标记）。\n");
             sb.append("可用工具列表（按优先级排序）：\n\n");
             for (ToolSchema tool : selectedTools) {
                 if (tool != null && tool.name != null && tool.description != null) {
