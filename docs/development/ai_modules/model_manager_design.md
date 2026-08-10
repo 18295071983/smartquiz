@@ -73,6 +73,63 @@
    - 删除模型
    - 获取模型信息
 
+### 3.2.1 多模态模型管理（新增 v2.3）
+
+**模型信息增强**：
+```java
+public class ModelInfo {
+    public String id;
+    public String name;
+    public String description;
+    public long sizeMB;
+    
+    // 多模态支持字段
+    public String mmprojUrl;            // mmproj 下载 URL
+    public String mmprojPath;           // mmproj 投影文件路径
+    public long mmprojSizeMB;           // mmproj 文件大小(MB)
+    public boolean supportsVision;      // 是否支持视觉理解
+}
+```
+
+**MultiModelManager 核心功能**：
+```java
+public class MultiModelManager {
+    // 模型注册
+    public void addModel(ModelInfo modelInfo);      // 自动检测 mmprojUrl 并计算 mmprojPath
+    
+    // 模型切换（自动管理 mmproj）
+    public boolean switchModel(String modelId);     // 切换模型时加载对应 mmproj
+    
+    // 多模态管理
+    public void unloadModel(String modelId);        // 卸载模型时释放 mmproj
+    public boolean isMultimodalSupported();         // 检查当前模型是否支持视觉
+    public String getActiveMmprojPath();            // 获取当前 mmproj 路径
+    
+    // 多模态状态回调
+    public void setOnMultimodalLoadListener(OnMultimodalLoadListener listener);
+    
+    public interface OnMultimodalLoadListener {
+        void onMultimodalLoaded(boolean success, String mmprojPath);
+        void onMultimodalReleased();
+    }
+}
+```
+
+**mmproj 生命周期**：
+```
+下载 → 注册 → 加载 → 使用 → 释放
+  ↓      ↓      ↓     ↓      ↓
+预设URL 自动路径 切换 状态通知 卸载/切换
+```
+
+**模型下载**：
+| 模型名称 | 类型 | gguf 大小 | mmproj 大小 | 下载方式 |
+|---------|------|----------|------------|---------|
+| Qwen2.5-VL-3B | 多模态 | ~1.8GB | ~300MB | 同时下载 gguf + mmproj |
+| Qwen2.5-1.5B | 文本 | ~290MB | - | 仅下载 gguf |
+
+---
+
 ## 4. 核心实现
 
 ### 4.1 类结构
