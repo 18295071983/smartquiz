@@ -159,6 +159,45 @@
 3. **模型释放**：释放模型资源
 4. **后端清理**：清理llama后端
 
+#### 4.2.4 多模态推理流程（新增 v2.3）
+
+**适用模型**：Qwen2.5-VL 系列等多模态大语言模型
+
+```
+用户发送消息 + 图片
+  │
+  ├── 模型支持多模态（supportsVision == true）
+  │    └── 步骤1: 构建历史消息列表（含当前用户消息）
+  │    └── 步骤2: 调用 LlamaHelper.generateWithImage(history, prompt, imagePath)
+  │         ├── 4.1 评估历史文本 → 写入 KV cache
+  │         ├── 4.2 加载图片 → mtmd 转换为 token
+  │         ├── 4.3 评估图像 token → 追加到 KV cache
+  │         └── 4.4 流式生成 → 模型结合图文生成回答
+  │
+  └── 模型不支持多模态（supportsVision == false）
+       └── 走 OCR 附件解析路径
+            └── AttachmentPreParser.parseImage() → 在线/本地 OCR → 文字描述注入 prompt
+```
+
+**多模态组件**：
+| 组件 | 路径 | 职责 |
+|------|------|------|
+| mtmd 库 | `llama.cpp/tools/mtmd/` | 图像编码（clip 模型 + 特征提取） |
+| JNI 接口 | `native-lib.cpp` | `nativeLoadMultimodal` / `nativeGenerateWithImage` |
+| Java API | `LlamaHelper.java` | `loadMultimodal()` / `generateWithImage()` |
+| 模型管理 | `MultiModelManager.java` | mmproj 生命周期管理、多模态状态跟踪 |
+| 模型信息 | `ModelInfo.java` | `supportsVision` / `mmprojPath` / `mmprojSizeMB` |
+
+**KV cache 流程**：
+```
+1. 评估历史消息（文本）→ llama_decode() → 历史 token 写入 KV cache
+2. n_past = llama_get_kv_cache_count()  → 获取当前序列位置
+3. 评估图像 token → mtmd_helper_eval_chunks() → 从 n_past 继续
+4. 生成 → 从完整上下文（历史 + 图像）解码
+```
+
+---
+
 ## 5. 性能优化
 
 ### 5.1 模型优化
