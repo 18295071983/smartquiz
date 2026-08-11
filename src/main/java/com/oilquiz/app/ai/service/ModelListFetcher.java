@@ -72,6 +72,17 @@ public class ModelListFetcher {
      * @return 可用的模型列表
      */
     public CompletableFuture<List<ApiModel>> fetchModels(String apiUrl, String apiKey) {
+        return fetchModels(apiUrl, apiKey, null);
+    }
+
+    /**
+     * 获取模型列表，可按能力过滤（TTS/ASR）
+     * @param apiUrl API 地址
+     * @param apiKey API 密钥
+     * @param capability 能力过滤：null=不过滤, "TTS", "ASR"
+     * @return 可用的模型列表
+     */
+    public CompletableFuture<List<ApiModel>> fetchModels(String apiUrl, String apiKey, String capability) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (apiUrl == null || apiUrl.isEmpty()) {
@@ -83,21 +94,71 @@ public class ModelListFetcher {
 
                 // 判断 API 类型
                 String lowerUrl = apiUrl.toLowerCase();
+                List<ApiModel> models;
                 if (lowerUrl.contains("anthropic")) {
-                    return fetchAnthropicModels(apiUrl, apiKey);
+                    models = fetchAnthropicModels(apiUrl, apiKey);
                 } else if (lowerUrl.contains("openai") || lowerUrl.contains("azure")) {
-                    return fetchOpenAIModels(apiUrl, apiKey);
+                    models = fetchOpenAIModels(apiUrl, apiKey);
                 } else if (lowerUrl.contains("google") || lowerUrl.contains("generativelanguage")) {
-                    return fetchGoogleModels(apiUrl, apiKey);
+                    models = fetchGoogleModels(apiUrl, apiKey);
                 } else {
                     // 尝试 OpenAI 格式作为默认
-                    return fetchOpenAIModels(apiUrl, apiKey);
+                    models = fetchOpenAIModels(apiUrl, apiKey);
                 }
+
+                // 按能力过滤
+                if (capability != null && !capability.isEmpty()) {
+                    models = filterByCapability(models, capability);
+                }
+
+                return models;
             } catch (Exception e) {
                 AILogger.e(TAG, "Fetch models failed: " + e.getMessage(), e);
                 throw new RuntimeException(e);
             }
         }, executor);
+    }
+
+    /**
+     * 按能力过滤模型列表
+     */
+    private List<ApiModel> filterByCapability(List<ApiModel> models, String capability) {
+        List<ApiModel> filtered = new ArrayList<>();
+        String lower = capability.toLowerCase();
+        for (ApiModel m : models) {
+            if (matchesCapability(m, lower)) {
+                filtered.add(m);
+            }
+        }
+        return filtered;
+    }
+
+    /**
+     * 判断模型是否匹配指定能力
+     * 优先使用 capabilities 字段，回退到启发式模型名匹配
+     */
+    private boolean matchesCapability(ApiModel model, String capability) {
+        // 优先检查 capabilities 字段
+        if (model.capabilities != null) {
+            for (String cap : model.capabilities) {
+                if (cap.equalsIgnoreCase(capability)
+                        || (capability.equals("tts") && (cap.equals("TTS") || cap.equals("Realtime-Text-to-Speech")))
+                        || (capability.equals("asr") && (cap.equals("ASR") || cap.equals("Realtime-ASR")))) {
+                    return true;
+                }
+            }
+        }
+
+        // 回退到启发式匹配
+        String ml = model.id.toLowerCase();
+        if (capability.equals("tts")) {
+            return ml.contains("tts") || ml.contains("speech") || ml.contains("voice")
+                    || ml.contains("cosy") || ml.contains("qwen-tts");
+        } else if (capability.equals("asr")) {
+            return ml.contains("asr") || ml.contains("whisper") || ml.contains("paraformer")
+                    || ml.contains("sensevoice") || ml.contains("stt");
+        }
+        return false;
     }
 
     /**

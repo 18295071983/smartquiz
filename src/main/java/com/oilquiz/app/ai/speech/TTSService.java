@@ -251,10 +251,17 @@ public class TTSService {
     /** 按端点类型选择在线合成引擎 */
     private com.oilquiz.app.ai.speech.tts.TtsEngine pickEngine(
             OnlineModelManager.OnlineModelConfig config) {
-        if (SpeechModelSelector.isDashScopeEndpoint(config.apiUrl)) return dashScopeEngine;
-        if (SpeechModelSelector.isXfyunEndpoint(config.apiUrl)) return iflytekEngine;
-        if (SpeechModelSelector.isVolcanoEndpoint(config.apiUrl)) return volcanoEngine;
-        if (SpeechModelSelector.isBaiduEndpoint(config.apiUrl)) return baiduEngine;
+        String apiUrl = config != null ? config.apiUrl : null;
+        // 百炼端点统一走官方 SDK（DashScopeTtsEngine），不管是不是 compatible-mode：
+        // 百炼的 compatible-mode 端点（/compatible-mode/v1）不提供 /audio/speech，
+        // 只提供 OpenAI 兼容的 /api/v1 接口，但 TTS 不走 /audio/speech，而是走
+        // /api/v1/services/audio/tts（DashScopeTtsEngine 的 SpeechSynthesizer）。
+        // 旧逻辑把 compatible-mode 路由到 openAiEngine（走 /audio/speech），
+        // 百炼平台直接 404。修复：所有百炼端点走 DashScopeTtsEngine。
+        if (SpeechModelSelector.isDashScopeEndpoint(apiUrl)) return dashScopeEngine;
+        if (SpeechModelSelector.isXfyunEndpoint(apiUrl)) return iflytekEngine;
+        if (SpeechModelSelector.isVolcanoEndpoint(apiUrl)) return volcanoEngine;
+        if (SpeechModelSelector.isBaiduEndpoint(apiUrl)) return baiduEngine;
         return openAiEngine;
     }
 

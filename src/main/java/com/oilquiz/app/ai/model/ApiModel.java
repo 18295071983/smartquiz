@@ -41,6 +41,11 @@ public class ApiModel implements Serializable {
      * 模型来源：openai, anthropic, custom
      */
     public String source;
+
+    /**
+     * 模型能力列表（TTS, ASR, Realtime-Text-to-Speech 等）
+     */
+    public java.util.List<String> capabilities;
     
     public ApiModel() {}
     

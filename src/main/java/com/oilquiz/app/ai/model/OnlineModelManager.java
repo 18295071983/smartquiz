@@ -231,6 +231,33 @@ public class OnlineModelManager {
                 AILogger.e(TAG, "load在线模型配置fail", e);
             }
         }
+        
+        // 统一刷新所有模型的 supportsAudio 标记
+        refreshAllSupportsAudio();
+    }
+    
+    /**
+     * 刷新所有模型的 supportsAudio 标记
+     * 根据端点 URL 和模型名重新判断是否支持音频
+     */
+    private void refreshAllSupportsAudio() {
+        com.oilquiz.app.ai.speech.core.SpeechModelSelector selector = 
+            com.oilquiz.app.ai.speech.core.SpeechModelSelector.class != null ? null : null;
+        for (OnlineModelConfig config : modelList) {
+            config.supportsAudio = isAudioModel(config);
+        }
+    }
+    
+    /**
+     * 判断配置是否为音频模型
+     * 根据端点 URL 和模型名判断
+     */
+    private boolean isAudioModel(OnlineModelConfig config) {
+        if (config.apiUrl == null) return false;
+        return com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(config.apiUrl)
+                || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isXfyunEndpoint(config.apiUrl)
+                || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isVolcanoEndpoint(config.apiUrl)
+                || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isBaiduEndpoint(config.apiUrl);
     }
 
     private void saveToPrefs() {
@@ -322,9 +349,27 @@ public class OnlineModelManager {
     public OnlineModelConfig addModel(String name, String apiUrl, String modelName, String apiKey) {
         OnlineModelConfig config = new OnlineModelConfig(
             UUID.randomUUID().toString(), name, apiUrl, modelName, apiKey, true, System.currentTimeMillis());
+        
+        // 自动检测是否为语音服务商（通过端点 URL 判断）
+        if (apiUrl != null) {
+            config.supportsAudio = com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(apiUrl)
+                    || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isXfyunEndpoint(apiUrl)
+                    || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isVolcanoEndpoint(apiUrl)
+                    || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isBaiduEndpoint(apiUrl)
+                    || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(apiUrl)
+                    || modelName != null && (modelName.contains("tts") || modelName.contains("asr")
+                    || modelName.contains("cosyvoice") || modelName.contains("whisper"));
+        }
+        
         modelList.add(config);
         saveToPrefs();
         notifyListChanged();
+        
+        // 同步到 APIKeyManager
+        try {
+            syncSingleAPIConfigFromOnlineModel(config);
+        } catch (Exception ignored) {}
+        
         return config;
     }
 
@@ -736,6 +781,11 @@ public class OnlineModelManager {
         config.enabled = enabled;
         saveToPrefs();
         notifyListChanged();
+        
+        // 同步到 APIKeyManager
+        try {
+            syncSingleAPIConfigFromOnlineModel(config);
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -1185,6 +1235,36 @@ public class OnlineModelManager {
         return removed;
     }
 
+    /**
+     * 将 OnlineModelConfig 同步到 APIKeyManager（反向同步）
+     */
+    public boolean syncSingleAPIConfigFromOnlineModel(OnlineModelConfig config) {
+        if (config == null || config.id == null || config.id.isEmpty()) {
+            return false;
+        }
+        try {
+            APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+            
+            // 构建 APIConfig
+            APIConfig apiConfig = new APIConfig();
+            apiConfig.setId(config.id);
+            apiConfig.setName(config.name);
+            apiConfig.setApiHost(config.apiUrl);
+            apiConfig.setApiKey(config.apiKey);
+            apiConfig.setModelName(config.modelName != null ? config.modelName : config.selectedModel);
+            apiConfig.setCategory(APIConfig.Category.AI);
+            apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
+            apiConfig.setActive(config.enabled);
+            apiConfig.setStatus(APIConfig.Status.UNKNOWN);
+            
+            apiKeyManager.saveAPIConfig(apiConfig);
+            return true;
+        } catch (Exception e) {
+            AILogger.w("OnlineModelManager", "同步到 APIKeyManager 失败: " + e.getMessage());
+            return false;
+        }
+    }
+
     private String buildDisplayName(APIConfig apiConfig) {
         // 优先使用用户在 API 配置中起的名称，这是用户识别配置的依据
         String userName = apiConfig.getName();
@@ -1229,6 +1309,75 @@ public class OnlineModelManager {
         for (OnlineModelConfig config : modelList) {
             if (config.enabled && config.apiUrl != null && !config.apiUrl.isEmpty() &&
                 config.apiKey != null && !config.apiKey.isEmpty()) {
+                return config;
+            }
+        }
+        return null;
+    }
+
+    // ========== DashScope TTS 便捷配置 ==========
+
+    /**
+     * 添加或更新 DashScope（百炼）TTS 模型配置
+     * 适用于只需要语音合成功能的用户，无需手动在 UI 上配置
+     *
+     * @param context 上下文（用于读取 SharedPreferences）
+     * @param apiKey  DashScope API Key
+     * @return 配置对象，如果已存在则返回更新后的配置
+     */
+    public OnlineModelConfig addOrUpdateDashScopeTtsConfig(Context context, String apiKey) {
+        if (apiKey == null || apiKey.isEmpty()) {
+            throw new IllegalArgumentException("API Key 不能为空");
+        }
+        
+        String apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+        String configName = "百炼 DashScope TTS";
+        
+        // 查找是否已存在 DashScope 配置
+        for (OnlineModelConfig existing : modelList) {
+            if (existing.apiUrl != null && existing.apiUrl.contains("dashscope")) {
+                // 更新已有配置
+                existing.name = configName;
+                existing.apiUrl = apiUrl;
+                existing.apiKey = apiKey;
+                existing.enabled = true;
+                saveToPrefs();
+                notifyListChanged();
+                AILogger.i(TAG, "更新 DashScope TTS 配置成功: " + existing.id);
+                return existing;
+            }
+        }
+        
+        // 不存在则新建，模型名称留空，让用户在 TTS 设置中指定
+        OnlineModelConfig config = addModel(configName, apiUrl, "", apiKey);
+        config.supportsAudio = true;
+        AILogger.i(TAG, "新建 DashScope TTS 配置成功: " + config.id);
+        return config;
+    }
+    
+    /**
+     * 设置 TTS 专用模型为指定模型名
+     * 配合 addOrUpdateDashScopeTtsConfig() 使用
+     *
+     * @param context   上下文
+     * @param modelName DashScope TTS 模型名（如 qwen3-tts-flash），留空表示使用默认
+     */
+    public void setTtsDashScopeModel(Context context, String modelName) {
+        OnlineModelConfig ttsConfig = getTtsDashScopeConfig();
+        if (ttsConfig != null) {
+            setFeatureModel(FEATURE_TTS, ttsConfig.id, modelName);
+            AILogger.i(TAG, "设置 TTS 专用模型: " + modelName);
+        } else {
+            AILogger.w(TAG, "未找到 DashScope TTS 配置，请先调用 addOrUpdateDashScopeTtsConfig()");
+        }
+    }
+    
+    /**
+     * 获取 DashScope TTS 配置
+     */
+    public OnlineModelConfig getTtsDashScopeConfig() {
+        for (OnlineModelConfig config : modelList) {
+            if (config.apiUrl != null && config.apiUrl.contains("dashscope") && config.enabled) {
                 return config;
             }
         }

@@ -189,8 +189,12 @@ public class SpeechModelSelectorDialog {
         for (OnlineModelConfig config : enabledModels) {
             List<String> modelNames = parseCachedModels(config.cachedModelsJson);
             if (modelNames != null && !modelNames.isEmpty()) {
-                for (String name : modelNames) {
-                    items.add(new ModelItem(config.id, config.name, name, false));
+                // 按能力类型过滤缓存的模型
+                modelNames = filterModelNames(modelNames, mode);
+                if (!modelNames.isEmpty()) {
+                    for (String name : modelNames) {
+                        items.add(new ModelItem(config.id, config.name, name, false));
+                    }
                 }
             } else {
                 // 无缓存：显示加载占位项，并异步拉取
@@ -204,20 +208,30 @@ public class SpeechModelSelectorDialog {
     }
 
     /**
-     * 异步拉取端点下的模型列表
+     * 异步拉取端点下的模型列表（按能力过滤）
      */
     private void fetchModelsAsync(OnlineModelConfig config) {
         try {
+            // 获取要过滤的能力类型
+            String capability = null;
+            switch (mode) {
+                case TTS: capability = "TTS"; break;
+                case ASR: capability = "ASR"; break;
+            }
             ModelListFetcher.getInstance(context)
-                    .fetchModels(config.apiUrl, config.apiKey)
+                    .fetchModels(config.apiUrl, config.apiKey, capability)
                     .whenComplete((models, error) -> mainHandler.post(() -> {
                         if (dialog == null || !dialog.isShowing()) return;
                         if (error != null || models == null || models.isEmpty()) return;
 
+                        // 按能力类型过滤模型
+                        List<ApiModel> filteredModels = filterModelsByCapability(models, mode);
+                        if (filteredModels.isEmpty()) return;
+
                         // 保存缓存（JSON 数组格式）
                         try {
                             JSONArray arr = new JSONArray();
-                            for (ApiModel m : models) {
+                            for (ApiModel m : filteredModels) {
                                 JSONObject obj = new JSONObject();
                                 obj.put("id", m.id);
                                 if (m.displayName != null) obj.put("name", m.displayName);
@@ -226,9 +240,79 @@ public class SpeechModelSelectorDialog {
                             modelManager.saveCachedModels(config.id, arr.toString());
                         } catch (Exception ignored) {}
 
-                        rebuildItemsWithFetchedModels(config, models);
+                        rebuildItemsWithFetchedModels(config, filteredModels);
                     }));
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * 按能力类型过滤模型名（字符串版本）
+     */
+    private static List<String> filterModelNames(List<String> modelNames, Mode mode) {
+        List<String> filtered = new ArrayList<>();
+        String[] keywordPattern = null;
+
+        if (mode == Mode.TTS) {
+            // TTS 模型白名单关键词
+            keywordPattern = new String[]{
+                "tts", "cosyvoice", "speech-02", "speech-01", "speech-2.5",
+                "qwen-tts", "qwen3-tts", "qwen3.5-tts", "qwen-audio-tts",
+                "x4_", "minimax-tts"
+            };
+        } else {
+            // ASR 模型白名单关键词
+            keywordPattern = new String[]{
+                "asr", "paraformer", "sensevoice", "gummy", "whisper",
+                "16k_zh", "volcengine_streaming"
+            };
+        }
+
+        for (String name : modelNames) {
+            String nl = name.toLowerCase();
+            for (String keyword : keywordPattern) {
+                if (nl.contains(keyword)) {
+                    filtered.add(name);
+                    break;
+                }
+            }
+        }
+
+        return filtered;
+    }
+
+    /**
+     * 按能力类型过滤模型
+     */
+    private static List<ApiModel> filterModelsByCapability(List<ApiModel> models, Mode mode) {
+        List<ApiModel> filtered = new ArrayList<>();
+        String[] keywordPattern = null;
+
+        if (mode == Mode.TTS) {
+            // TTS 模型白名单关键词
+            keywordPattern = new String[]{
+                "tts", "cosyvoice", "speech-02", "speech-01", "speech-2.5",
+                "qwen-tts", "qwen3-tts", "qwen3.5-tts", "qwen-audio-tts",
+                "x4_", "minimax-tts"
+            };
+        } else {
+            // ASR 模型白名单关键词
+            keywordPattern = new String[]{
+                "asr", "paraformer", "sensevoice", "gummy", "whisper",
+                "16k_zh", "volcengine_streaming"
+            };
+        }
+
+        for (ApiModel model : models) {
+            String id = model.id.toLowerCase();
+            for (String keyword : keywordPattern) {
+                if (id.contains(keyword)) {
+                    filtered.add(model);
+                    break;
+                }
+            }
+        }
+
+        return filtered;
     }
 
     /**

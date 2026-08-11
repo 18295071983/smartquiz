@@ -1,0 +1,76 @@
+Configuration on demand is an incubating feature.
+> Task :preBuild UP-TO-DATE
+> Task :preDebugBuild UP-TO-DATE
+> Task :mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :dataBindingMergeDependencyArtifactsDebug UP-TO-DATE
+> Task :generateDebugResValues UP-TO-DATE
+> Task :generateDebugResources UP-TO-DATE
+> Task :mergeDebugResources UP-TO-DATE
+> Task :packageDebugResources UP-TO-DATE
+> Task :parseDebugLocalResources UP-TO-DATE
+> Task :dataBindingGenBaseClassesDebug UP-TO-DATE
+> Task :extractDebugPythonBuildPackages UP-TO-DATE
+> Task :generateDebugPythonRequirements UP-TO-DATE
+> Task :mergeDebugPythonSources UP-TO-DATE
+> Task :generateDebugPythonProxies UP-TO-DATE
+> Task :javaPreCompileDebug UP-TO-DATE
+> Task :checkDebugAarMetadata UP-TO-DATE
+> Task :mapDebugSourceSetPaths UP-TO-DATE
+> Task :createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :extractDeepLinksDebug UP-TO-DATE
+> Task :processDebugMainManifest UP-TO-DATE
+> Task :processDebugManifest UP-TO-DATE
+> Task :processDebugManifestForPackage UP-TO-DATE
+> Task :processDebugResources UP-TO-DATE
+
+> Task :compileDebugJavaWithJavac
+The following annotation processors are not incremental: prism4j-bundler-2.0.0.jar (io.noties:prism4j-bundler:2.0.0).
+Make sure all annotation processors are incremental to improve your build speed.
+
+> Task :mergeDebugShaders UP-TO-DATE
+> Task :compileDebugShaders NO-SOURCE
+> Task :generateDebugAssets UP-TO-DATE
+> Task :generateDebugPythonMiscAssets UP-TO-DATE
+> Task :generateDebugPythonRequirementsAssets UP-TO-DATE
+> Task :generateDebugPythonSourceAssets UP-TO-DATE
+> Task :generateDebugPythonBuildAssets UP-TO-DATE
+> Task :mergeDebugAssets UP-TO-DATE
+> Task :compressDebugAssets UP-TO-DATE
+> Task :desugarDebugFileDependencies UP-TO-DATE
+> Task :hiltAggregateDepsDebug UP-TO-DATE
+> Task :hiltJavaCompileDebug UP-TO-DATE
+> Task :processDebugJavaRes UP-TO-DATE
+> Task :mergeDebugJavaResource UP-TO-DATE
+> Task :checkDebugDuplicateClasses UP-TO-DATE
+> Task :mergeDebugStartupProfile UP-TO-DATE
+> Task :mergeExtDexDebug UP-TO-DATE
+> Task :mergeLibDexDebug UP-TO-DATE
+> Task :configureCMakeDebug[arm64-v8a]
+> Task :buildCMakeDebug[arm64-v8a]
+> Task :configureCMakeDebug[x86_64]
+> Task :buildCMakeDebug[x86_64]
+> Task :generateDebugPythonJniLibs UP-TO-DATE
+> Task :mergeDebugJniLibFolders UP-TO-DATE
+> Task :mergeDebugNativeLibs UP-TO-DATE
+> Task :stripDebugDebugSymbols UP-TO-DATE
+> Task :validateSigningDebug UP-TO-DATE
+> Task :writeDebugAppMetadata UP-TO-DATE
+> Task :writeDebugSigningConfigVersions UP-TO-DATE
+> Task :transformDebugClassesWithAsm
+> Task :dexBuilderDebug
+> Task :mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :mergeProjectDexDebug
+> Task :packageDebug
+> Task :createDebugApkListingFileRedirect UP-TO-DATE
+> Task :assembleDebug
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 42s
+54 actionable tasks: 9 executed, 45 up-to-date
