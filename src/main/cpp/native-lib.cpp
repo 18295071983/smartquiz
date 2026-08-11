@@ -1431,9 +1431,10 @@ public:
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu", n_ctx, prompt_tokens.size());
-        if ((int)prompt_tokens.size() > n_ctx) {
-            LOGE("Prompt too long: %zu tokens > n_ctx %d", prompt_tokens.size(), n_ctx);
+        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, prompt_tokens.size(), maxTokens);
+        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
+        if ((int)prompt_tokens.size() + maxTokens > n_ctx) {
+            LOGE("Prompt too long: %zu tokens + maxTokens %d > n_ctx %d", prompt_tokens.size(), maxTokens, n_ctx);
             setLastError("Prompt too long for context window");
             return false;
         }
@@ -1456,10 +1457,17 @@ public:
         LOGI("Starting generation loop, maxTokens=%d", maxTokens);
         
         int n_remain = maxTokens;
+        // 当前 KV cache 位置：prompt 已全部写入，后续每生成一个 token 位置 +1
+        int n_past = (int)prompt_tokens.size();
         
         while (n_remain > 0 && !shouldStop) {
             if (shouldStop) {
                 LOGI("Stop requested");
+                break;
+            }
+            // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
+            if (n_past >= n_ctx - 4) {
+                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
                 break;
             }
             
@@ -1504,6 +1512,7 @@ public:
                 LOGE("llama_decode failed for generation with code: %d", ret);
                 break;
             }
+            n_past++;
             
             n_remain--;
             n_decode++;
@@ -1845,9 +1854,11 @@ public:
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu", n_ctx, tokens_list.size());
-        if ((int)tokens_list.size() > n_ctx) {
-            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens > n_ctx " + std::to_string(n_ctx);
+        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
+        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
+        if ((int)tokens_list.size() + maxTokens > n_ctx) {
+            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens + maxTokens "
+                + std::to_string(maxTokens) + " > n_ctx " + std::to_string(n_ctx);
             LOGE("%s", error.c_str());
             setLastError(error);
             callback("", true, error);
@@ -1886,6 +1897,8 @@ public:
         
         int n_remain = maxTokens;
         int n_decode = 0;
+        // 当前 KV cache 位置：prompt 已全部写入，后续每生成一个 token 位置 +1
+        int n_past = (int)tokens_list.size();
         const int TIMEOUT_SECONDS = 120;
         // 思考 token 上限：防止非思考模型（如 qwen2.5-instruct）被强行引导后
         // 永不输出 </think>，耗尽全部 maxTokens 导致主回复为空
@@ -1902,6 +1915,12 @@ public:
         auto start = std::chrono::steady_clock::now();
         
         while (n_remain > 0 && !shouldStop) {
+            // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
+            if (n_past >= n_ctx - 4) {
+                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                stopReason = "ctx_full";
+                break;
+            }
             // Check for timeout
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
@@ -1992,6 +2011,7 @@ public:
             
             llama_batch batch = llama_batch_get_one(&new_token_id, 1);
             ret = llama_decode(ctx, batch);
+            n_past++;
             
             if (ret != 0) {
                 LOGE("llama_decode failed with code: %d", ret);

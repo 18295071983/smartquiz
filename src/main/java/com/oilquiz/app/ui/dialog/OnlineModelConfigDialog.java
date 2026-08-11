@@ -7,6 +7,8 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.Window;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -20,13 +22,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.model.UsageInfo;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.service.UsageTracker;
-import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ui.adapter.ModelListAdapter;
 
 import java.util.ArrayList;
@@ -48,6 +48,7 @@ public class OnlineModelConfigDialog {
     private EditText keyInput;
     private EditText apiSecretInput;
     private EditText appIdInput;
+    private AutoCompleteTextView serviceTypeSpinner;
     private View apiSecretLayout;
     private View appIdLayout;
     private TextView endpointHint;
@@ -72,7 +73,6 @@ public class OnlineModelConfigDialog {
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
     private OnlineModelManager modelManager;
-    private APIKeyManager apiKeyManager;
     
     private String selectedModelId;
     private List<ApiModel> fetchedModels = new ArrayList<>();
@@ -93,7 +93,6 @@ public class OnlineModelConfigDialog {
         this.modelListFetcher = ModelListFetcher.getInstance(context);
         this.usageTracker = UsageTracker.getInstance(context);
         this.modelManager = OnlineModelManager.getInstance(context);
-        this.apiKeyManager = APIKeyManager.getInstance(context);
     }
 
     public OnlineModelConfigDialog setExistingConfig(OnlineModelManager.OnlineModelConfig config) {
@@ -131,6 +130,7 @@ public class OnlineModelConfigDialog {
 
         initViews();
         setupListeners();
+        setupServiceTypeSpinner();
         
         if (existingConfig != null) {
             nameInput.setText(existingConfig.name);
@@ -167,6 +167,7 @@ public class OnlineModelConfigDialog {
         nameInput = dialog.findViewById(R.id.input_model_name);
         urlInput = dialog.findViewById(R.id.input_api_url);
         keyInput = dialog.findViewById(R.id.input_api_key);
+        serviceTypeSpinner = dialog.findViewById(R.id.spinner_service_type);
         apiSecretInput = dialog.findViewById(R.id.input_api_secret);
         appIdInput = dialog.findViewById(R.id.input_app_id);
         apiSecretLayout = dialog.findViewById(R.id.layout_api_secret);
@@ -218,6 +219,46 @@ public class OnlineModelConfigDialog {
             @Override public void afterTextChanged(android.text.Editable s) {
                 updateEndpointFields(s.toString().trim());
             }
+        });
+    }
+
+    /**
+     * 初始化服务类型下拉框
+     */
+    private void setupServiceTypeSpinner() {
+        String[] types = context.getResources().getStringArray(
+            com.oilquiz.app.R.array.service_types_default);
+        
+        // 默认值和端点 URL 映射
+        final String[][] mappings = {
+            {"OpenAI 兼容", "https://api.openai.com/v1"},
+            {"百炼 DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+            {"讯飞", "https://api.xfyun.cn"},
+            {"火山引擎", "https://openspeech.bytedance.com"},
+            {"百度", "https://aip.baidubce.com"}
+        };
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+            context, android.R.layout.simple_dropdown_item_1line, types);
+        serviceTypeSpinner.setAdapter(adapter);
+
+        // 选择后自动填充 URL 和 API Key 占位符
+        serviceTypeSpinner.setOnItemClickListener((parent, view, position, id) -> {
+            String selectedType = parent.getItemAtPosition(position).toString();
+            for (String[] mapping : mappings) {
+                if (mapping[0].equals(selectedType)) {
+                    if (!urlInput.hasFocus()) {
+                        urlInput.setText(mapping[1]);
+                    }
+                    // 设置 API Key 占位符
+                    if (keyInput.getText().toString().trim().isEmpty()) {
+                        keyInput.setHint(mapping[0] + " API Key（sk-...）");
+                    }
+                    break;
+                }
+            }
+            // 自动检测端点字段
+            updateEndpointFields(urlInput.getText().toString().trim());
         });
     }
 
@@ -456,23 +497,6 @@ public class OnlineModelConfigDialog {
         }
         // 持久化扩展字段
         modelManager.updateModelConfig(config);
-
-        // 反向同步到 APIKeyManager，确保数据源互通
-        try {
-            APIConfig apiConfig = new APIConfig();
-            apiConfig.setId(config.id);
-            apiConfig.setName(name);
-            apiConfig.setApiKey(key);
-            apiConfig.setApiHost(url);
-            apiConfig.setModelName(selectedModel);
-            apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
-            apiConfig.setCategory(APIConfig.Category.AI);
-            apiConfig.setActive(true);
-            apiConfig.setStatus(APIConfig.Status.UNKNOWN);
-            apiKeyManager.saveAPIConfig(apiConfig);
-        } catch (Exception ignored) {
-            // 反向同步失败不影响 OnlineModelManager 的保存
-        }
 
         if (saveListener != null) {
             saveListener.onConfigSaved(config);

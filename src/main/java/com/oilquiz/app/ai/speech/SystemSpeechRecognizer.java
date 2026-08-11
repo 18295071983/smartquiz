@@ -12,7 +12,6 @@ import android.speech.SpeechRecognizer;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
-import java.util.Locale;
 
 /**
  * 系统语音识别器（离线/本地兜底 ASR）
@@ -82,16 +81,11 @@ public class SystemSpeechRecognizer {
     public void startListening(RecognitionCallback callback) {
         currentCallback = callback;
         retryCount = 0;
-        mainHandler.post(() -> doStartListening(true));
+        mainHandler.post(this::doStartListening);
     }
 
-    /**
-     * 实际启动识别
-     *
-     * @param withLanguageHint 是否指定中文语言参数；部分引擎不支持指定语言会报
-     *                         ERROR_CLIENT(5)，重试时传 false 用最简参数
-     */
-    private void doStartListening(boolean withLanguageHint) {
+    /** 实际启动识别 */
+    private void doStartListening() {
         try {
             destroyInternal();
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -128,14 +122,20 @@ public class SystemSpeechRecognizer {
                 @Override
                 public void onError(int error) {
                     listening = false;
-                    AILogger.w(TAG, "系统语音识别错误: " + error + " (retry=" + retryCount + ")");
-                    // ERROR_CLIENT(5) 常见于语言参数不被引擎支持或识别服务未就绪，自动降级重试一次
+                    AILogger.w(TAG, "系统语音识别错误: " + error);
+                    // ERROR_CLIENT/ERROR_SERVER 常见于引擎不支持当前参数，重试一次
                     if ((error == SpeechRecognizer.ERROR_CLIENT
                             || error == SpeechRecognizer.ERROR_SERVER)
-                            && retryCount < 1 && withLanguageHint) {
+                            && retryCount == 0) {
                         retryCount++;
-                        AILogger.i(TAG, "使用宽松参数重试系统语音识别");
-                        mainHandler.postDelayed(() -> doStartListening(false), 300);
+                        AILogger.i(TAG, "重试系统语音识别");
+                        final int retryDelay = 300;
+                        mainHandler.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                doStartListening();
+                            }
+                        }, retryDelay);
                         return;
                     }
                     if (currentCallback != null) {
@@ -172,14 +172,10 @@ public class SystemSpeechRecognizer {
             });
 
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            if (withLanguageHint) {
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE.toLanguageTag());
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.CHINESE.toLanguageTag());
-            }
+            // 不指定 LANGUAGE_MODEL，让系统使用默认识别引擎（兼容小爱、讯飞、Google 等）
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+            AILogger.d(TAG, "启动系统语音识别，调用包: " + context.getPackageName());
             recognizer.startListening(intent);
         } catch (Exception e) {
             listening = false;
@@ -239,7 +235,9 @@ public class SystemSpeechRecognizer {
             case SpeechRecognizer.ERROR_AUDIO:
                 return "录音出错，请重试";
             case SpeechRecognizer.ERROR_CLIENT:
-                return "系统识别引擎不可用（可能未启用或无中文语言包），建议：系统设置→语言/语音助手→启用语音识别引擎，或在模型管理页配置在线语音识别模型";
+                return "系统语音识别不可用（可能是小爱/语音引擎不支持当前参数）。" +
+                        "建议：1) 在「模型管理」中配置在线语音识别模型（如 qwen3-asr-flash）；" +
+                        "2) 或检查「系统设置→应用管理→小爱语音」是否已启用";
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
                 return "缺少录音权限";
             case SpeechRecognizer.ERROR_NO_MATCH:

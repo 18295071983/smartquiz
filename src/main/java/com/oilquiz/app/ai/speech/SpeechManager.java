@@ -84,7 +84,7 @@ public class SpeechManager {
 
     /** 设备是否有可用的系统语音识别服务（离线兜底） */
     public boolean isOfflineAsrAvailable() {
-        return SystemSpeechRecognizer.isAvailable(context);
+        return false; // 已禁用系统语音识别兜底
     }
 
     /**
@@ -92,14 +92,11 @@ public class SpeechManager {
      * 用于在线 ASR 不可用或调用失败时的兜底；需用户重新说话
      */
     public void startOfflineRecognition(SystemSpeechRecognizer.RecognitionCallback callback) {
-        if (offlineRecognizer == null) {
-            synchronized (this) {
-                if (offlineRecognizer == null) {
-                    offlineRecognizer = new SystemSpeechRecognizer(context);
-                }
-            }
+        // 已禁用系统语音识别兜底
+        if (callback != null) {
+            callback.onError("系统语音识别已禁用，请配置在线语音识别模型（如 qwen3-asr-flash）");
+            callback.onEnd();
         }
-        offlineRecognizer.startListening(callback);
     }
 
     /** 停止离线识别（触发最终结果回调） */

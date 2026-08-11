@@ -8,8 +8,11 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 
+import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.speech.SpeechManager;
+import com.oilquiz.app.ai.speech.SpeechModelRegistry;
 import com.oilquiz.app.ai.speech.TTSService;
+import com.oilquiz.app.ai.speech.core.SpeechModelSelector;
 
 import java.util.List;
 
@@ -18,7 +21,7 @@ import java.util.List;
  *
  * 流程：
  * 1. 自动从当前 TTS 在线端点拉取可用音色列表（GET /audio/speech/voices），
- *    拉取失败/超时则回退内置常用音色预设
+ *    拉取失败/超时则使用当前模型对应的内置音色（只显示当前服务商音色）
  * 2. 单选列表展示，支持"试听"按钮播放所选音色效果
  * 3. "确定"保存为默认音色（持久化），后续朗读/合成都使用该音色
  */
@@ -55,6 +58,30 @@ public class TTSVoiceSelectorDialog {
             }
 
             List<TTSService.Voice> voiceList = result;
+
+            // 如果 API 拉取失败且结果是全量预设音色（>100），改用当前模型对应的音色
+            if ((voiceList == null || voiceList.size() > 100) && context != null) {
+                try {
+                    OnlineModelManager.OnlineModelConfig config =
+                            SpeechModelSelector.select(context, SpeechModelSelector.Capability.TTS);
+                    String modelName = null;
+                    if (config != null) {
+                        modelName = SpeechModelSelector.resolveModelName(config,
+                                OnlineModelManager.getInstance(context).getFeatureModelName(
+                                        OnlineModelManager.FEATURE_TTS),
+                                SpeechModelSelector.Capability.TTS);
+                    }
+                    List<TTSService.Voice> scopedVoices = SpeechModelRegistry.getVoicesForModel(modelName);
+                    if (!scopedVoices.isEmpty()) {
+                        voiceList = scopedVoices;
+                        Toast.makeText(context, "已切换为当前模型音色（" + voiceList.size() + " 个）",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
+            // 最终兜底：全量预设
             if (voiceList == null || voiceList.isEmpty()) {
                 voiceList = TTSService.getPresetVoices();
                 Toast.makeText(context, "使用内置音色列表", Toast.LENGTH_SHORT).show();

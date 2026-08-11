@@ -2,6 +2,7 @@ package com.oilquiz.app.ai.service;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.util.Base64;
 import android.util.Log;
 
@@ -461,27 +462,42 @@ public class OnlineOCRService {
     }
 
     /**
-     * 将文件编码为 base64（自动检测格式）
+     * 将文件编码为 base64（发送大小合适的图片：采样缩放 + 压缩，控制视觉模型 tokens 消耗）
      */
     private String encodeFileToBase64(File file) {
         try {
-            // 先尝试解码为 Bitmap 以进行压缩
-            Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
-            if (bitmap != null) {
-                return encodeBitmapToBase64(bitmap);
+            // 先读取图片尺寸（仅边界信息，不加载像素），避免大图解码 OOM
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                // 非图片文件：直接读取原始字节（限制大小）
+                if (file.length() > 10 * 1024 * 1024) {
+                    AILogger.w(TAG, "File too large for direct base64: " + file.length());
+                    return null;
+                }
+                byte[] raw = new byte[(int) file.length()];
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    fis.read(raw);
+                }
+                return Base64.encodeToString(raw, Base64.NO_WRAP);
             }
 
-            // 非图片文件，直接读取原始字节（限制大小）
-            if (file.length() > 10 * 1024 * 1024) {
-                AILogger.w(TAG, "File too large for direct base64: " + file.length());
-                return null;
+            // 按目标最大边长计算采样率，避免大图 OOM
+            int maxSide = Math.max(bounds.outWidth, bounds.outHeight);
+            int sampleSize = 1;
+            if (maxSide > MAX_IMAGE_DIMENSION * 2) {
+                sampleSize = maxSide / MAX_IMAGE_DIMENSION;
             }
 
-            byte[] bytes = new byte[(int) file.length()];
-            try (FileInputStream fis = new FileInputStream(file)) {
-                fis.read(bytes);
-            }
-            return Base64.encodeToString(bytes, Base64.NO_WRAP);
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sampleSize;
+            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+            if (bitmap == null) return null;
+
+            // 缩放至合适尺寸并压缩（encodeBitmapToBase64 内执行），控制 tokens 消耗
+            return encodeBitmapToBase64(bitmap);
         } catch (Exception e) {
             AILogger.e(TAG, "encodeFileToBase64 failed: " + e.getMessage(), e);
             return null;

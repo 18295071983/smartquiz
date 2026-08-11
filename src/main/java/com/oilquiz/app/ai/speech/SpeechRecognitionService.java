@@ -109,7 +109,25 @@ public class SpeechRecognitionService {
 
     /** 是否有可用的在线 ASR 模型配置 */
     public boolean isAvailable() {
-        return SpeechModelSelector.select(context, SpeechModelSelector.Capability.ASR) != null;
+        // 快速路径：检查是否有语音服务商的端点配置
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager mm = com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context);
+            for (com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config : mm.getModelList()) {
+                if (!config.enabled) continue;
+                if (config.apiUrl != null && (
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(config.apiUrl) ||
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isXfyunEndpoint(config.apiUrl) ||
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isVolcanoEndpoint(config.apiUrl) ||
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isBaiduEndpoint(config.apiUrl))) {
+                    AILogger.d(TAG, "isAvailable: true (endpoint=" + config.name + ")");
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "isAvailable check failed: " + e.getMessage(), e);
+        }
+        AILogger.d(TAG, "isAvailable: false (no voice provider endpoint found)");
+        return false;
     }
 
     /**

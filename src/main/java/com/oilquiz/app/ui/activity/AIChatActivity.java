@@ -72,7 +72,6 @@ import com.oilquiz.app.ai.skill.SkillManager;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.CacheManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
-import com.oilquiz.app.ai.model.MultiModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.callback.StreamCallback;
@@ -3156,18 +3155,27 @@ public class AIChatActivity extends BaseActivity {
     private void sendMessage() {
         if (isGenerating) { showToast("AI正在生成中，请稍候"); return; }
         String message = inputMessage.getText().toString().trim();
-        if (message.isEmpty()) { showToast("请输入消息"); return; }
 
-        if (!ensureModelLoaded(message)) {
+        List<ChatMessage.Attachment> savedAttachments = new ArrayList<>(currentAttachments);
+
+        // 图片附件走 OCR 工具 + 在线模型分析，不依赖本地模型加载状态
+        boolean hasImageAttachment = false;
+        for (ChatMessage.Attachment att : savedAttachments) {
+            if ("image".equals(att.type)) { hasImageAttachment = true; break; }
+        }
+
+        // 允许"无文字直接发送图片"（拍照后直接点发送）
+        if (message.isEmpty() && savedAttachments.isEmpty()) { showToast("请输入消息"); return; }
+
+        if (!hasImageAttachment && !ensureModelLoaded(message)) {
             addUserMessage(message);
             inputMessage.setText("");
             return;
         }
 
-        List<ChatMessage.Attachment> savedAttachments = new ArrayList<>(currentAttachments);
-
         if (!savedAttachments.isEmpty()) {
-            ChatMessage userMessage = ChatMessage.createUserMessage(message, savedAttachments);
+            String userContent = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
+            ChatMessage userMessage = ChatMessage.createUserMessage(userContent, savedAttachments);
             chatHistory.add(userMessage);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
             scrollToBottom(true);
@@ -3180,24 +3188,26 @@ public class AIChatActivity extends BaseActivity {
 
         inputMessage.setText("");
 
-        if (message.equalsIgnoreCase("帮助") || message.equalsIgnoreCase("help")) {
-            if (dialogHelper != null) dialogHelper.showGuideDialog(); return;
-        }
-
-        for (String[] pattern : COMMAND_PATTERNS) {
-            if (message.startsWith(pattern[0])) {
-                handlePrefixedCommand(message, pattern[0], pattern[1]);
-                return;
+        if (!message.isEmpty()) {
+            if (message.equalsIgnoreCase("帮助") || message.equalsIgnoreCase("help")) {
+                if (dialogHelper != null) dialogHelper.showGuideDialog(); return;
+            }
+            for (String[] pattern : COMMAND_PATTERNS) {
+                if (message.startsWith(pattern[0])) {
+                    handlePrefixedCommand(message, pattern[0], pattern[1]);
+                    return;
+                }
             }
         }
 
         if (!savedAttachments.isEmpty()) {
-            if (shouldUseOnlineModel()) {
-                processMessageWithAttachmentsViaAgent(message, savedAttachments);
+            String agentMessage = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
+            if (hasImageAttachment || shouldUseOnlineModel()) {
+                processMessageWithAttachmentsViaAgent(agentMessage, savedAttachments);
             } else if (fileContentExtractor != null) {
-                processMessageWithAttachments(message, savedAttachments);
+                processMessageWithAttachments(agentMessage, savedAttachments);
             } else {
-                processChatMessage(message);
+                processChatMessage(agentMessage);
             }
         } else {
             processChatMessage(message);
@@ -3295,6 +3305,27 @@ public class AIChatActivity extends BaseActivity {
                                     originalMessage, filtered, localFileMap, skippedFiles, resultMap);
                             AppLogger.ai(TAG, "Agent augmented message with " + localFileMap.size()
                                     + " local files, " + results.size() + " parse results");
+                            // 附件分析需要可用的 AI 模型（图片走 OCR + 在线模型分析）
+                            if (inferenceRouter == null || !inferenceRouter.isCurrentModelAvailable()) {
+                                // OCR 识别结果不依赖 AI 模型，先展示给用户；模型不可用时仅提示配置，不阻断
+                                StringBuilder ocrMsg = new StringBuilder();
+                                ocrMsg.append(buildParseSummaryMsg(filtered, results));
+                                ocrMsg.append("\n\n📄 OCR 识别内容预览：\n");
+                                for (com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r : results) {
+                                    if (r.isUsable() && r.content != null) {
+                                        String snippet = r.content.trim();
+                                        if (snippet.length() > 200) snippet = snippet.substring(0, 200) + "...";
+                                        ocrMsg.append("• ").append(getAttachmentNameById(filtered, r.attachmentId))
+                                                .append("：").append(snippet).append("\n");
+                                    }
+                                }
+                                ocrMsg.append("\n⚠️ 图片已通过 OCR 识别完成。如需 AI 智能分析，请先在模型设置中启用在线模型，或先加载本地模型。");
+                                sysMsg.content = ocrMsg.toString();
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                                scrollToBottom();
+                                saveHistoryAsync();
+                                return;
+                            }
                             // 附件处理必须走 Agent 引擎（含工具调用），不能因聊天模式不同而退化为纯文本推理
                             processChatMessageWithAgent(augmentedMessage);
                         });
@@ -3554,32 +3585,7 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
-            // 多模态路径：如果有图片附件且当前模型支持多模态，直接走视觉理解
-            boolean multimodalSupported = MultiModelManager.getInstance(this).isMultimodalSupported();
-            if (multimodalSupported) {
-                ChatMessage.Attachment imageAtt = null;
-                String imagePath = null;
-                for (ChatMessage.Attachment att : filtered) {
-                    if (isImageFileName(att.name)) {
-                        Uri attUri = Uri.parse(att.url);
-                        String localPath = localFileMap.get(attUri);
-                        if (localPath != null) {
-                            imageAtt = att;
-                            imagePath = localPath;
-                            break;
-                        }
-                    }
-                }
-                if (imageAtt != null && imagePath != null) {
-                    final String finalImagePath = imagePath;
-                    final String finalImageName = imageAtt.name;
-                    AppLogger.ai(TAG, "Multimodal path: using image " + finalImageName + " -> " + finalImagePath);
-                    runOnUiThread(() -> processMultimodalWithImage(originalMessage, finalImagePath, finalImageName));
-                    return;
-                }
-                // 模型支持多模态但没找到图片，走普通附件解析
-            }
-            // 非多模态模型或无图片附件：走 OCR 附件预解析路径
+            // 图片等附件统一走 OCR 附件预解析路径（不交给本地模型多模态推理）
             runOnUiThread(() -> {
                 // 1. 展示上传状态
                 StringBuilder displayMsg = new StringBuilder();
@@ -3668,131 +3674,6 @@ public class AIChatActivity extends BaseActivity {
                 });
             });
         });
-    }
-
-    /**
-     * 判断文件名是否为图片
-     */
-    private boolean isImageFileName(String fileName) {
-        if (fileName == null) return false;
-        String lower = fileName.toLowerCase();
-        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
-                || lower.endsWith(".bmp") || lower.endsWith(".webp");
-    }
-
-    /**
-     * 多模态视觉推理：使用本地多模态模型直接理解图片
-     */
-    private void processMultimodalWithImage(String userText, String imagePath, String imageName) {
-        if (aiService == null) { addSystemMessage("AI服务未初始化"); return; }
-
-        synchronized (streamingLock) {
-            if (isGenerating) {
-                showToast("AI正在生成中，请稍候");
-                return;
-            }
-        }
-
-        // 构建提示词（包含用户文字和图片引用）
-        String prompt = (userText != null && !userText.trim().isEmpty())
-                ? userText.trim()
-                : "请描述这张图片的内容";
-
-        AppLogger.ai(TAG, "Multimodal inference: prompt='" + prompt + "', image=" + imageName);
-
-        // 初始化流式状态
-        synchronized (streamingLock) {
-            agentToolLoopCount = 0;
-            thinkingRoundEnded = false;
-            thinkingRoundCount = 1;
-            currentThinkingMessageIndex = -1;
-            currentStreamingContent = new StringBuilder();
-            currentThinkingContent = new StringBuilder();
-            currentStreamingMessageId = java.util.UUID.randomUUID().toString();
-            resetStreamingTts();
-            resetStreamingState();
-
-            ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
-            initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
-            initialMessage.status = ChatMessage.MessageStatus.GENERATING;
-            chatHistory.add(initialMessage);
-            currentStreamingMessageIndex = chatHistory.size() - 1;
-            if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
-            scrollToBottom();
-        }
-
-        beginGeneration();
-
-        final int streamingIndex = currentStreamingMessageIndex;
-        final String streamingId = currentStreamingMessageId;
-
-        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
-
-        boolean enableThinking = ChatModeManager.getInstance(this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
-        if (outputRouter != null) {
-            outputRouter.reset();
-            outputRouter.setThinkingEnabled(enableThinking);
-        }
-        isInThinking = enableThinking;
-
-        int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 2048;
-        float temperature = 0.7f;
-        float topP = 0.9f;
-        int topK = 40;
-
-        // 传入历史消息（排除最后一条当前用户消息和当前生成的AI消息）
-        List<ChatMessage> historyForMultimodal = new ArrayList<>();
-        for (int i = 0; i < chatHistory.size(); i++) {
-            ChatMessage msg = chatHistory.get(i);
-            // 排除当前正在生成的AI消息
-            if (i != currentStreamingMessageIndex) {
-                historyForMultimodal.add(msg);
-            }
-        }
-        
-        LlamaHelper.generateWithImage(historyForMultimodal, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking,
-            new LlamaHelper.TokenCallback() {
-                @Override
-                public void onToken(String token) {
-                    runOnUiThread(() -> {
-                        if (currentStreamingContent != null) {
-                            currentStreamingContent.append(token);
-                            if (chatAdapter != null && currentStreamingMessageIndex < chatHistory.size()) {
-                                ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
-                                msg.content = currentStreamingContent.toString();
-                                chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
-                            }
-                            scrollToBottom();
-                        }
-                    });
-                }
-
-                @Override
-                public void onComplete(String fullText) {
-                    runOnUiThread(() -> {
-                        String finalText = (fullText != null && !fullText.isEmpty()) ? fullText :
-                                (currentStreamingContent != null ? currentStreamingContent.toString() : "");
-                        if (chatAdapter != null && currentStreamingMessageIndex < chatHistory.size()) {
-                            ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
-                            msg.content = finalText;
-                            msg.status = ChatMessage.MessageStatus.COMPLETED;
-                            chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
-                        }
-                        endGeneration();
-                        saveHistoryAsync();
-                        scrollToBottom();
-                    });
-                }
-
-                @Override
-                public void onError(String error) {
-                    runOnUiThread(() -> {
-                        addSystemMessage("多模态推理失败: " + error, ChatMessage.SystemMessageType.ERROR);
-                        endGeneration();
-                    });
-                }
-            }
-        );
     }
 
     /**
@@ -7012,9 +6893,12 @@ public class AIChatActivity extends BaseActivity {
     private void startSpeechInputFlow() {
         com.oilquiz.app.ai.speech.SpeechManager speech =
                 com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
-        if (speech.isAsrAvailable()) {
+        boolean asrAvail = speech.isAsrAvailable();
+        boolean offlineAvail = speech.isOfflineAsrAvailable();
+        AppLogger.aiD(TAG, "startSpeechInputFlow: asrAvailable=" + asrAvail + ", offlineAvailable=" + offlineAvail);
+        if (asrAvail) {
             startSpeechRecording();
-        } else if (speech.isOfflineAsrAvailable()) {
+        } else if (offlineAvail) {
             showToast("使用系统语音识别");
             startOfflineSpeechRecognition(false);
         } else {
@@ -7339,31 +7223,29 @@ public class AIChatActivity extends BaseActivity {
     /** 处理相机拍摄的照片 */
     private void handleCameraPhoto(Uri photoUri) {
         try {
-            // 获取文件大小
-            long fileSize = 0;
-            try {
-                java.io.InputStream inputStream = getContentResolver().openInputStream(photoUri);
-                if (inputStream != null) {
-                    fileSize = inputStream.available();
-                    inputStream.close();
-                }
-            } catch (Exception e) {
-                AppLogger.aiW(TAG, "Failed to get file size: " + e.getMessage());
+            // 复制照片到应用缓存目录，得到真实文件路径（FileProvider 的 content:// URI 直接使用会失效）
+            String localPath = copyUriToCacheFile(photoUri);
+            if (localPath == null) {
+                showToast("照片保存失败");
+                return;
             }
-            
-            // 创建附件
+            java.io.File localFile = new java.io.File(localPath);
+            long fileSize = localFile.exists() ? localFile.length() : 0;
+
+            // 创建附件：url 使用 file:// URI 保证路径正确传递，thumbnailPath 用于缩略图显示
             ChatMessage.Attachment attachment = new ChatMessage.Attachment(
                 "image",
-                photoUri.toString(),
+                Uri.fromFile(localFile).toString(),
                 "photo_" + System.currentTimeMillis() + ".jpg",
                 fileSize
             );
-            attachment.localFilePath = photoUri.getPath();
-            
+            attachment.localFilePath = localPath;
+            attachment.thumbnailPath = localPath;
+
             currentAttachments.add(attachment);
             resetAttachmentAdapter();
             showToast("照片已添加");
-            
+
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error handling camera photo: " + e.getMessage());
             showToast("处理照片失败: " + e.getMessage());
@@ -7854,9 +7736,16 @@ public class AIChatActivity extends BaseActivity {
      */
     private void sendMessageWithAttachments() {
         if (inputManager == null || !inputManager.hasAttachments()) return;
-        if (!isAIReady()) { showToast("AI服务未就绪，请稍后重试"); return; }
 
         List<ChatMessage.Attachment> savedAttachments = inputManager.getCurrentAttachments();
+
+        // 图片附件走 OCR 工具 + 在线模型分析，不依赖本地模型加载状态
+        boolean hasImageAttachment = false;
+        for (ChatMessage.Attachment att : savedAttachments) {
+            if ("image".equals(att.type)) { hasImageAttachment = true; break; }
+        }
+        if (!hasImageAttachment && !isAIReady()) { showToast("AI服务未就绪，请稍后重试"); return; }
+
         inputManager.clearAttachments();
 
         String defaultMessage = DEFAULT_ATTACHMENT_MESSAGE;
@@ -7866,8 +7755,8 @@ public class AIChatActivity extends BaseActivity {
         scrollToBottom();
         saveHistoryAsync();
 
-        // 与 sendMessage() 保持一致的路由：在线模型走 Agent，附件信息会传递给 AI
-        if (shouldUseOnlineModel()) {
+        // 图片附件统一走 OCR + Agent 路径（在线模型优先）
+        if (hasImageAttachment || shouldUseOnlineModel()) {
             processMessageWithAttachmentsViaAgent(defaultMessage, savedAttachments);
         } else if (fileContentExtractor != null) {
             processMessageWithAttachments(defaultMessage, savedAttachments);
