@@ -775,7 +775,7 @@ public class ApiConfigActivity extends BaseActivity {
             return;
         }
 
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("application/json");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(Intent.createChooser(intent, "选择JSON文件"), REQUEST_CODE_IMPORT_FILE);
@@ -817,7 +817,7 @@ public class ApiConfigActivity extends BaseActivity {
             return;
         }
 
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(Intent.createChooser(intent, "选择配置文件"), REQUEST_CODE_IMPORT_CONFIG_FILE);

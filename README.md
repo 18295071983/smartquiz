@@ -2,7 +2,7 @@
 
 > 集成本地大语言模型推理与 Agent 智能代理的 Android 综合学习平台
 
-[![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen)](CHANGELOG.md)
 [![Android](https://img.shields.io/badge/Android-12%2B-brightgreen)](https://developer.android.com)
 [![Java](https://img.shields.io/badge/Java-17-orange)](https://openjdk.org/projects/jdk/17/)
 [![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
@@ -14,11 +14,13 @@
 ### 核心亮点
 
 - **完全离线 AI 推理** - 基于 llama.cpp 的 C++ JNI 推理引擎，无需网络即可运行本地 LLM
-- **Agent 智能代理** - 完整的状态机、三层记忆架构、任务分解与工具调用系统
+- **双轨 Agent 系统** - 本地 Agent + 在线 Agent 双架构，支持软件层思考链与工具调用
 - **多模式推理** - 支持直接回答、思维链（Chain-of-Thought）、ReAct、计划执行等多种推理模式
+- **全栈语音能力** - 集成 TTS 语音合成与 ASR 语音识别，支持百度/讯飞/阿里云/火山引擎等多服务商
 - **多格式文件支持** - 支持 Excel、Word、PDF、CSV、JSON、Markdown 等格式的导入导出与预览
+- **Vulkan GPU 加速** - 移动端 Vulkan 后端推理，速度提升 40 倍
 
-### 性能指标 (v2.0.0+)
+### 性能指标 (v2.1.0+)
 
 | 指标 | 优化前 | 优化后 | 提升 |
 |------|--------|--------|------|
@@ -46,13 +48,24 @@
 | 功能 | 描述 |
 |------|------|
 | 本地 LLM 推理 | 基于 llama.cpp，支持 Qwen2-0.5B 等模型，完整中文支持 |
-| Agent 系统 | 状态机驱动的智能代理，支持 9 种执行状态 |
+| 本地 Agent 系统 | 状态机驱动的智能代理，支持 9 种执行状态 |
+| 在线 Agent 系统 | 支持 OpenAI 兼容 API 的在线 Agent，工具调用更强大 |
+| Agent 软件层 | 意图识别 → 复杂度分析 → 任务分解 → 执行引擎 → 思考链 → 结果整合 |
 | AI 对话 | 自然语言交互，智能问答，支持流式输出 |
 | 题目生成 | AI 根据知识点自动生成题目 |
 | 题目分析 | 智能分析题目考点与解题思路 |
 | 学习助手 | 个性化学习建议与辅导 |
 | 翻译服务 | 多语言翻译支持 |
 | 在线模型 | 支持配置 OpenAI 兼容 API 的在线模型 |
+| 创意写作 | AI 辅助创意写作引擎 |
+
+### 语音功能
+| 功能 | 描述 |
+|------|------|
+| TTS 语音合成 | 支持系统/百度/讯飞/阿里云/火山引擎/OpenAI 多引擎 |
+| ASR 语音识别 | 支持系统/百度/讯飞/阿里云/火山引擎/OpenAI 多引擎 |
+| 流式语音 | 支持流式 TTS 播放，边生成边播放 |
+| 语音模型管理 | 统一的语音模型注册与选择器 |
 
 ### 工具功能
 | 功能 | 描述 |
@@ -63,7 +76,10 @@
 | 数据备份 | 本地数据备份与恢复 |
 | 二维码扫描 | 集成 ZXing 扫码功能 |
 | 语音识别 | 语音输入支持 |
-| 天气查询 | 实时天气信息查询 |
+| 天气查询 | 实时天气信息查询（三级回退机制） |
+| 空气质量 | 空气质量指数查询 |
+| 天气预警 | 灾害天气预警信息 |
+| 生活指数 | 穿衣、紫外线、运动等生活指数 |
 
 ## 技术架构
 
@@ -72,7 +88,7 @@
 ```
 ┌─────────────────────────────────────────────┐
 │                   UI Layer                   │
-│  Material Design 3 / Emoji Icons            │
+│  Material Design 3 / Jetpack Compose        │
 ├─────────────────────────────────────────────┤
 │               ViewModel Layer               │
 │  MVVM Architecture / Hilt DI               │
@@ -83,8 +99,11 @@
 │                 Data Layer                   │
 │  Room DB / Retrofit / DataStore            │
 ├─────────────────────────────────────────────┤
+│              AI Service Layer               │
+│  Agent / LLM / Speech / OCR                │
+├─────────────────────────────────────────────┤
 │              Native Layer (C++ JNI)         │
-│  llama.cpp / UTF-8 编码处理 / GPU 加速      │
+│  llama.cpp / UTF-8 编码处理 / Vulkan GPU    │
 └─────────────────────────────────────────────┘
 ```
 
@@ -97,7 +116,10 @@
 | 数据库 | Room | 本地数据持久化 |
 | 网络 | Retrofit, OkHttp | HTTP 网络请求 |
 | AI/ML | llama.cpp (JNI), TensorFlow Lite, ML Kit | 本地 AI 推理与 OCR |
+| 语音 | 阿里云百炼 SDK, 百度/讯飞 SDK | TTS/ASR 语音服务 |
+| Python | Chaquopy | 嵌入式 Python 运行环境 |
 | 文件处理 | Apache POI, iText7, Pdfium | 多格式文件读写 |
+| 天气 | 和风天气 SDK v5.2 | 天气数据服务 |
 | 文档预览 | TBS SDK, Markwon | 文档渲染与预览 |
 
 ### 项目结构
@@ -107,14 +129,25 @@ app/
 ├── src/main/
 │   ├── java/com/oilquiz/app/
 │   │   ├── ai/           # AI 引擎与 Agent 系统
+│   │   │   ├── agent/    # Agent 引擎（本地+在线+软件层）
+│   │   │   ├── speech/   # 语音服务（TTS/ASR）
+│   │   │   ├── chat/     # AI 聊天系统
+│   │   │   ├── engine/   # 推理引擎
+│   │   │   ├── service/  # AI 服务层
+│   │   │   ├── model/    # 模型管理
+│   │   │   ├── gpu/      # GPU 加速管理
+│   │   │   └── tool/     # AI 工具集
 │   │   ├── database/     # 数据库层
 │   │   ├── infra/        # 基础设施层
 │   │   ├── manager/      # 业务管理器
 │   │   ├── repository/   # 数据仓库
 │   │   ├── ui/           # UI 层
 │   │   ├── util/         # 工具类
-│   │   └── viewmodel/    # ViewModel 层
+│   │   ├── viewmodel/    # ViewModel 层
+│   │   ├── weather/      # 天气模块
+│   │   └── webview/      # WebView 相关
 │   ├── cpp/              # C++ JNI 本地代码
+│   ├── python/           # Python 脚本（Chaquopy）
 │   ├── res/              # Android 资源文件
 │   ├── assets/           # 应用资源（WebView页面、模型等）
 │   └── jniLibs/          # 预编译本地库
@@ -128,6 +161,13 @@ app/
 
 ## 最近更新
 
+### v2.1.0 (2026-07-29)
+- **Agent 软件层架构升级**：新增意图识别、复杂度分析、任务分解、执行引擎、思考链、结果整合六模块
+- **天气系统全面重构**：三级回退机制（SDK → HTTP API → APISpace），支持空气质量、分钟降水、预警
+- **天气 Banner 组件**：新增可定制的天气横幅组件
+- **AI 聊天界面升级**：支持思考链可视化、工具调用消息渲染、流式内容展示
+- **语音系统完善**：TTS/ASR 多引擎支持（百度/讯飞/阿里云/火山引擎/OpenAI）
+
 ### v2.0.1 (2026-05-26)
 - **JNI 中文编码修复**：解决中文显示乱码问题，实现标准 UTF-8 编解码
 - **主界面优化**：按钮功能调整，图标统一为 Emoji 风格
@@ -135,8 +175,9 @@ app/
 
 ### v2.0.0 (2026-05-20)
 - **模型加载性能优化**：加载时间从 30 秒降至 5 秒
-- **GPU 加速**：推理速度提升 40 倍
+- **GPU 加速**：推理速度提升 40 倍（Vulkan 后端）
 - **热启动保持**：模型在内存中保持加载状态
+- **Batch Size 动态计算**：根据设备内存自动调整
 
 **详细变更请参阅** [CHANGELOG.md](CHANGELOG.md)
 
@@ -193,6 +234,7 @@ bash build_llama_jni_msys2.sh
 - [开发标准规范](docs/development/development_standards.md)
 - [技术栈文档](docs/development/tech_stack.md)
 - [测试策略](docs/development/testing_strategy.md)
+- [路线图](ROADMAP.md)
 
 ## 许可证
 

@@ -6,6 +6,13 @@ import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,6 +21,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -29,7 +37,12 @@ import java.util.regex.Pattern;
         @Action(name = "extract_text", description = "提取文本内容"),
         @Action(name = "search_text", description = "搜索文本"),
         @Action(name = "extract_entities", description = "提取实体信息"),
-        @Action(name = "preview", description = "预览文件")
+        @Action(name = "preview", description = "预览文件"),
+        @Action(name = "parse_structured", description = "解析结构化文件(Excel/CSV/JSON/XML)，自动识别格式"),
+        @Action(name = "parse_excel", description = "解析Excel文件，返回表格数据"),
+        @Action(name = "parse_csv", description = "解析CSV文件"),
+        @Action(name = "parse_json", description = "解析JSON文件"),
+        @Action(name = "parse_xml", description = "解析XML文件，提取标签内容")
     },
     params = {
         @Param(name = "file_path", type = "string", description = "文件路径", required = true),
@@ -82,6 +95,16 @@ public class FileReaderTool implements AITool {
                     return extractEntities(parameters);
                 case "preview":
                     return previewFile(parameters);
+                case "parse_structured":
+                    return parseStructuredAuto(parameters);
+                case "parse_excel":
+                    return parseExcel(parameters);
+                case "parse_csv":
+                    return parseCsv(parameters);
+                case "parse_json":
+                    return parseJson(parameters);
+                case "parse_xml":
+                    return parseXml(parameters);
                 default:
                     return readFile(parameters);
             }
@@ -402,6 +425,310 @@ public class FileReaderTool implements AITool {
             matches.add(matcher.group());
         }
         return matches;
+    }
+
+    // ==================== 结构化文件解析 ====================
+
+    /** 自动识别文件格式并解析 */
+    private AIToolResult parseStructuredAuto(Map<String, Object> parameters) {
+        String filePath = (String) parameters.get("file_path");
+        if (filePath == null) return new AIToolResult("缺少参数: file_path", parameters);
+
+        File file = resolveFile(filePath);
+        if (file == null || !file.exists()) return new AIToolResult("文件不存在: " + filePath, parameters);
+
+        String ext = getExtension(file.getName()).toLowerCase();
+        switch (ext) {
+            case "xlsx": case "xls":
+                return parseExcel(parameters);
+            case "csv": case "tsv":
+                return parseCsv(parameters);
+            case "json":
+                return parseJson(parameters);
+            case "xml":
+                return parseXml(parameters);
+            default:
+                // 尝试读取为文本
+                return readFile(parameters);
+        }
+    }
+
+    /** 解析 Excel 文件（使用 Apache POI） */
+    private AIToolResult parseExcel(Map<String, Object> parameters) {
+        String filePath = (String) parameters.get("file_path");
+        Integer sheetIndex = (Integer) parameters.get("sheet_index");
+        Integer maxRows = (Integer) parameters.get("max_rows");
+        if (sheetIndex == null) sheetIndex = 0;
+        if (maxRows == null) maxRows = 500;
+
+        File file = resolveFile(filePath);
+        if (file == null || !file.exists()) return new AIToolResult("文件不存在: " + filePath, parameters);
+
+        try (FileInputStream fis = new FileInputStream(file)) {
+            org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(fis);
+            if (sheetIndex >= workbook.getNumberOfSheets()) {
+                sheetIndex = 0;
+            }
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(sheetIndex);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("fileName", file.getName());
+            result.put("sheetName", sheet.getSheetName());
+            result.put("sheetCount", workbook.getNumberOfSheets());
+            result.put("totalRows", sheet.getPhysicalNumberOfRows());
+
+            // 提取表头
+            List<String> headers = new ArrayList<>();
+            org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(0);
+            int colCount = 0;
+            if (headerRow != null) {
+                colCount = headerRow.getLastCellNum();
+                for (int c = 0; c < colCount; c++) {
+                    headers.add(getCellValueAsString(headerRow.getCell(c)));
+                }
+            }
+            result.put("headers", headers);
+            result.put("columnCount", colCount);
+
+            // 提取数据行
+            List<Map<String, String>> rows = new ArrayList<>();
+            int startRow = 1; // 跳过表头
+            int endRow = Math.min(sheet.getPhysicalNumberOfRows(), maxRows + 1);
+            for (int r = startRow; r < endRow; r++) {
+                org.apache.poi.ss.usermodel.Row row = sheet.getRow(r);
+                if (row == null) continue;
+                Map<String, String> rowData = new LinkedHashMap<>();
+                for (int c = 0; c < colCount; c++) {
+                    String key = c < headers.size() ? headers.get(c) : ("col_" + c);
+                    rowData.put(key, getCellValueAsString(row.getCell(c)));
+                }
+                rows.add(rowData);
+            }
+            result.put("data", rows);
+            result.put("returnedRows", rows.size());
+            workbook.close();
+
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "Excel parse error: " + e.getMessage(), e);
+            return new AIToolResult("Excel解析失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    private String getCellValueAsString(org.apache.poi.ss.usermodel.Cell cell) {
+        if (cell == null) return "";
+        switch (cell.getCellType()) {
+            case STRING: return cell.getStringCellValue();
+            case NUMERIC:
+                if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                    return cell.getLocalDateTimeCellValue().toLocalDate().toString();
+                }
+                double num = cell.getNumericCellValue();
+                if (num == Math.floor(num) && !Double.isInfinite(num)) {
+                    return String.valueOf((long) num);
+                }
+                return String.valueOf(num);
+            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA: return cell.getCellFormula();
+            case BLANK: return "";
+            default: return "";
+        }
+    }
+
+    /** 解析 CSV 文件 */
+    private AIToolResult parseCsv(Map<String, Object> parameters) {
+        String filePath = (String) parameters.get("file_path");
+        String delimiter = (String) parameters.get("delimiter");
+        Integer maxRows = (Integer) parameters.get("max_rows");
+        if (delimiter == null || delimiter.isEmpty()) delimiter = ",";
+        if (maxRows == null) maxRows = 500;
+
+        File file = resolveFile(filePath);
+        if (file == null || !file.exists()) return new AIToolResult("文件不存在: " + filePath, parameters);
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            List<String> headers = new ArrayList<>();
+            List<Map<String, String>> rows = new ArrayList<>();
+            String line;
+            int lineNum = 0;
+
+            while ((line = reader.readLine()) != null && lineNum < maxRows + 1) {
+                String[] parts = line.split(Pattern.quote(delimiter), -1);
+                if (lineNum == 0) {
+                    for (String p : parts) headers.add(p.trim().replaceAll("^\"|\"$", ""));
+                } else {
+                    Map<String, String> rowData = new LinkedHashMap<>();
+                    for (int i = 0; i < headers.size(); i++) {
+                        String val = i < parts.length ? parts[i].trim().replaceAll("^\"|\"$", "") : "";
+                        rowData.put(headers.get(i), val);
+                    }
+                    rows.add(rowData);
+                }
+                lineNum++;
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("fileName", file.getName());
+            result.put("headers", headers);
+            result.put("columnCount", headers.size());
+            result.put("data", rows);
+            result.put("returnedRows", rows.size());
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("CSV解析失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /** 解析 JSON 文件 */
+    private AIToolResult parseJson(Map<String, Object> parameters) {
+        String filePath = (String) parameters.get("file_path");
+        String jsonPath = (String) parameters.get("json_path"); // 简单路径如 "data.items"
+
+        File file = resolveFile(filePath);
+        if (file == null || !file.exists()) return new AIToolResult("文件不存在: " + filePath, parameters);
+
+        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            JsonElement root = JsonParser.parseReader(reader);
+
+            // 如果指定了 json_path，导航到子节点
+            if (jsonPath != null && !jsonPath.isEmpty()) {
+                for (String segment : jsonPath.split("\\.")) {
+                    if (root.isJsonObject()) {
+                        root = root.getAsJsonObject().get(segment);
+                    } else if (root.isJsonArray()) {
+                        int idx = Integer.parseInt(segment);
+                        root = root.getAsJsonArray().get(idx);
+                    }
+                    if (root == null) break;
+                }
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("fileName", file.getName());
+
+            if (root == null) {
+                result.put("data", null);
+                result.put("type", "null");
+            } else if (root.isJsonArray()) {
+                JsonArray arr = root.getAsJsonArray();
+                List<Object> list = new ArrayList<>();
+                Gson gson = new Gson();
+                for (JsonElement el : arr) {
+                    list.add(gson.fromJson(el, Object.class));
+                }
+                result.put("data", list);
+                result.put("type", "array");
+                result.put("length", arr.size());
+            } else if (root.isJsonObject()) {
+                Gson gson = new Gson();
+                result.put("data", gson.fromJson(root, Object.class));
+                result.put("type", "object");
+                result.put("keys", new ArrayList<>(root.getAsJsonObject().keySet()));
+            } else {
+                result.put("data", root.getAsString());
+                result.put("type", "primitive");
+            }
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("JSON解析失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /** 解析 XML 文件（提取标签内容） */
+    private AIToolResult parseXml(Map<String, Object> parameters) {
+        String filePath = (String) parameters.get("file_path");
+        String targetTag = (String) parameters.get("target_tag"); // 可选：只提取特定标签
+        Integer maxItems = (Integer) parameters.get("max_items");
+        if (maxItems == null) maxItems = 200;
+
+        File file = resolveFile(filePath);
+        if (file == null || !file.exists()) return new AIToolResult("文件不存在: " + filePath, parameters);
+
+        try {
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            javax.xml.parsers.DocumentBuilder builder = factory.newDocumentBuilder();
+            org.w3c.dom.Document doc = builder.parse(file);
+            doc.getDocumentElement().normalize();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "success");
+            result.put("fileName", file.getName());
+            result.put("rootElement", doc.getDocumentElement().getTagName());
+
+            if (targetTag != null && !targetTag.isEmpty()) {
+                org.w3c.dom.NodeList nodes = doc.getElementsByTagName(targetTag);
+                List<Map<String, String>> items = new ArrayList<>();
+                for (int i = 0; i < Math.min(nodes.getLength(), maxItems); i++) {
+                    org.w3c.dom.Node node = nodes.item(i);
+                    Map<String, String> item = new LinkedHashMap<>();
+                    item.put("text", node.getTextContent().trim());
+                    if (node.getAttributes() != null) {
+                        for (int a = 0; a < node.getAttributes().getLength(); a++) {
+                            org.w3c.dom.Node attr = node.getAttributes().item(a);
+                            item.put("@" + attr.getNodeName(), attr.getNodeValue());
+                        }
+                    }
+                    items.add(item);
+                }
+                result.put("data", items);
+                result.put("matchedCount", nodes.getLength());
+                result.put("returnedCount", items.size());
+            } else {
+                // 返回顶层结构概览
+                org.w3c.dom.Element root = doc.getDocumentElement();
+                Map<String, Integer> tagSummary = new LinkedHashMap<>();
+                summarizeTags(root, tagSummary, 0, 2);
+                result.put("tagSummary", tagSummary);
+                result.put("totalChildElements", root.getChildNodes().getLength());
+                // 返回前 N 个子元素的文本
+                List<Map<String, String>> children = new ArrayList<>();
+                org.w3c.dom.NodeList children_nodes = root.getChildNodes();
+                for (int i = 0; i < Math.min(children_nodes.getLength(), maxItems); i++) {
+                    org.w3c.dom.Node child = children_nodes.item(i);
+                    if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                        Map<String, String> item = new LinkedHashMap<>();
+                        item.put("tag", child.getNodeName());
+                        item.put("text", child.getTextContent().trim());
+                        children.add(item);
+                    }
+                }
+                result.put("data", children);
+            }
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("XML解析失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    private void summarizeTags(org.w3c.dom.Element element, Map<String, Integer> summary, int depth, int maxDepth) {
+        if (depth > maxDepth) return;
+        String tag = element.getTagName();
+        summary.put(tag, summary.getOrDefault(tag, 0) + 1);
+        org.w3c.dom.NodeList children = element.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            org.w3c.dom.Node child = children.item(i);
+            if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                summarizeTags((org.w3c.dom.Element) child, summary, depth + 1, maxDepth);
+            }
+        }
+    }
+
+    private String getExtension(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        return (dot > 0 && dot < fileName.length() - 1) ? fileName.substring(dot + 1) : "";
+    }
+
+    private File resolveFile(String filePath) {
+        File file = new File(filePath);
+        if (file.exists()) return file;
+        File appFile = new File(context.getFilesDir(), filePath);
+        if (appFile.exists()) return appFile;
+        return null;
     }
     
     private Charset getCharset(String encoding) {

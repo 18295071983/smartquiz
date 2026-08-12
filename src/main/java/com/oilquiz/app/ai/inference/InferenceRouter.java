@@ -86,7 +86,7 @@ public class InferenceRouter {
     }
 
     /**
-     * 获取当前模型名称
+     * 获取当前模型名称（优先返回用户选择的实际模型名，而非 API 配置名）
      */
     public String getCurrentModelName() {
         ensureServicesInitialized();
@@ -94,6 +94,13 @@ public class InferenceRouter {
         // 检查是否有激活的在线模型
         OnlineModelManager.OnlineModelConfig activeOnline = onlineModelManager.getActiveModel();
         if (activeOnline != null) {
+            // 优先返回用户选择的实际模型名（如 gpt-4-turbo），而非 API 配置名
+            if (activeOnline.selectedModel != null && !activeOnline.selectedModel.isEmpty()) {
+                return activeOnline.selectedModel;
+            }
+            if (activeOnline.modelName != null && !activeOnline.modelName.isEmpty()) {
+                return activeOnline.modelName;
+            }
             return activeOnline.name;
         }
         

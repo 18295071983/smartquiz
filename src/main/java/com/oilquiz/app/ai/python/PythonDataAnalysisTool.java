@@ -12,6 +12,7 @@ import com.oilquiz.app.ai.tool.annotation.Tool;
 import org.json.JSONArray;
 import org.json.JSONException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,12 +54,38 @@ public class PythonDataAnalysisTool extends BaseAITool {
                 }
             }
             
-            @SuppressWarnings("unchecked")
-            List<Object> dataList = (List<Object>) parameters.get("data");
+            Object dataObj = parameters.get("data");
             String task = (String) parameters.get("task");
             
-            if (dataList == null || dataList.isEmpty()) {
-                return AIToolResult.fail("请提供 data 参数（数据数组）");
+            // 支持多种数据格式：List、JSON 字符串、单个值
+            List<Object> dataList;
+            if (dataObj instanceof List) {
+                dataList = (List<Object>) dataObj;
+            } else if (dataObj instanceof String) {
+                String dataStr = ((String) dataObj).trim();
+                dataList = parseJsonArray(dataStr);
+                if (dataList == null) {
+                    // 尝试作为单个值处理
+                    dataList = new ArrayList<>();
+                    try {
+                        dataList.add(Integer.parseInt(dataStr));
+                    } catch (NumberFormatException e1) {
+                        try {
+                            dataList.add(Double.parseDouble(dataStr));
+                        } catch (NumberFormatException e2) {
+                            dataList.add(dataStr);
+                        }
+                    }
+                }
+            } else if (dataObj instanceof Number) {
+                dataList = new ArrayList<>();
+                dataList.add(dataObj);
+            } else {
+                return AIToolResult.fail("data 参数格式不支持，请提供数组或 JSON 字符串");
+            }
+            
+            if (dataList.isEmpty()) {
+                return AIToolResult.fail("请提供 data 参数（数据数组），如 [1,2,3,4,5]");
             }
             
             Map<String, Object> contextData = new HashMap<>();
@@ -67,7 +94,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
             String taskDesc = task != null ? task : "数据分析";
             String code = buildAnalysisCode(dataList, taskDesc);
             
-            PythonToolManager.ExecutionResult result = toolManager.processTask(code, contextData);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, contextData);
             
             return formatResult(result, dataList.size());
             
@@ -89,40 +116,81 @@ public class PythonDataAnalysisTool extends BaseAITool {
             "task = %s\n" +
             "data = %s\n" +
             "\n" +
-            "print(f'任务: {task}')\n" +
-            "print(f'数据量: {len(data)}')\n" +
+            "print('任务: ' + str(task))\n" +
+            "print('数据量: ' + str(len(data)))\n" +
             "\n" +
             "result = {}\n" +
             "result['count'] = len(data)\n" +
             "\n" +
-            "if all(isinstance(x, (int, float)) for x in data):\n" +
-            "    nums = [float(x) for x in data]\n" +
-            "    result['mean'] = statistics.mean(nums)\n" +
-            "    result['median'] = statistics.median(nums)\n" +
-            "    result['max'] = max(nums)\n" +
-            "    result['min'] = min(nums)\n" +
-            "    result['sum'] = sum(nums)\n" +
-            "    if len(nums) > 1:\n" +
-            "        result['stdev'] = statistics.stdev(nums)\n" +
-            "        result['variance'] = statistics.variance(nums)\n" +
-            "    print('统计信息:')\n" +
-            "    print(f'  平均值: {result[\"mean\"]}')\n" +
-            "    print(f'  中位数: {result[\"median\"]}')\n" +
-            "    print(f'  最大值: {result[\"max\"]}')\n" +
-            "    print(f'  最小值: {result[\"min\"]}')\n" +
-            "    print(f'  总和: {result[\"sum\"]}')\n" +
-            "    if 'stdev' in result:\n" +
-            "        print(f'  标准差: {result[\"stdev\"]}')\n" +
+            "if len(data) > 0 and isinstance(data[0], dict):\n" +
+            "    # dict列表：提取数值字段分析\n" +
+            "    numeric_fields = {}\n" +
+            "    for key in data[0].keys():\n" +
+            "        vals = []\n" +
+            "        for row in data:\n" +
+            "            v = row.get(key)\n" +
+            "            if isinstance(v, (int, float)):\n" +
+            "                vals.append(float(v))\n" +
+            "        if len(vals) == len(data) and len(vals) > 0:\n" +
+            "            numeric_fields[key] = vals\n" +
+            "    if numeric_fields:\n" +
+            "        print('数值字段统计:')\n" +
+            "        for field, nums in numeric_fields.items():\n" +
+            "            info = {\n" +
+            "                'count': len(nums),\n" +
+            "                'mean': round(statistics.mean(nums), 2),\n" +
+            "                'median': statistics.median(nums),\n" +
+            "                'max': max(nums),\n" +
+            "                'min': min(nums),\n" +
+            "                'sum': sum(nums)\n" +
+            "            }\n" +
+            "            if len(nums) > 1:\n" +
+            "                info['stdev'] = round(statistics.stdev(nums), 2)\n" +
+            "            result[field] = info\n" +
+            "            print('  [' + field + ']')\n" +
+            "            print('    平均值=' + str(info['mean']) + ' 中位数=' + str(info['median']))\n" +
+            "            print('    最大=' + str(info['max']) + ' 最小=' + str(info['min']) + ' 总和=' + str(info['sum']))\n" +
+            "            if 'stdev' in info:\n" +
+            "                print('    标准差=' + str(info['stdev']))\n" +
+            "    # 非数值字段展示\n" +
+            "    str_fields = [k for k in data[0].keys() if k not in numeric_fields]\n" +
+            "    if str_fields:\n" +
+            "        print('文本字段:')\n" +
+            "        for field in str_fields:\n" +
+            "            vals = [str(row.get(field, '')) for row in data]\n" +
+            "            c = Counter(vals)\n" +
+            "            unique = len(c)\n" +
+            "            print('  [' + field + '] 唯一值: ' + str(unique))\n" +
+            "            for val, cnt in c.most_common(5):\n" +
+            "                print('    ' + str(val) + ': ' + str(cnt))\n" +
             "else:\n" +
-            "    counter = Counter(data)\n" +
-            "    result['unique_count'] = len(counter)\n" +
-            "    result['frequency'] = dict(counter.most_common(10))\n" +
-            "    print('频率统计:')\n" +
-            "    for item, count in counter.most_common(10):\n" +
-            "        print(f'  {item}: {count}')\n" +
+            "    if all(isinstance(x, (int, float)) for x in data):\n" +
+            "        nums = [float(x) for x in data]\n" +
+            "        result['mean'] = statistics.mean(nums)\n" +
+            "        result['median'] = statistics.median(nums)\n" +
+            "        result['max'] = max(nums)\n" +
+            "        result['min'] = min(nums)\n" +
+            "        result['sum'] = sum(nums)\n" +
+            "        if len(nums) > 1:\n" +
+            "            result['stdev'] = statistics.stdev(nums)\n" +
+            "            result['variance'] = statistics.variance(nums)\n" +
+            "        print('统计信息:')\n" +
+            "        print('  平均值: ' + str(round(result['mean'], 2)))\n" +
+            "        print('  中位数: ' + str(result['median']))\n" +
+            "        print('  最大值: ' + str(result['max']))\n" +
+            "        print('  最小值: ' + str(result['min']))\n" +
+            "        print('  总和: ' + str(result['sum']))\n" +
+            "        if 'stdev' in result:\n" +
+            "            print('  标准差: ' + str(round(result['stdev'], 2)))\n" +
+            "    else:\n" +
+            "        counter = Counter([str(x) for x in data])\n" +
+            "        result['unique_count'] = len(counter)\n" +
+            "        print('频率统计:')\n" +
+            "        for item, count in counter.most_common(10):\n" +
+            "            print('  ' + str(item) + ': ' + str(count))\n" +
             "\n" +
             "print()\n" +
-            "print(f'分析完成')",
+            "print('分析完成')",
             quoteString(task),
             jsonData
         );
@@ -134,6 +202,24 @@ public class PythonDataAnalysisTool extends BaseAITool {
             arr.put(item);
         }
         return arr.toString();
+    }
+    
+    /**
+     * 解析 JSON 数组字符串为 List
+     * @return 解析后的 List，如果解析失败返回 null
+     */
+    private List<Object> parseJsonArray(String jsonStr) {
+        if (!jsonStr.startsWith("[")) return null;
+        try {
+            JSONArray arr = new JSONArray(jsonStr);
+            List<Object> list = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                list.add(arr.get(i));
+            }
+            return list;
+        } catch (JSONException e) {
+            return null;
+        }
     }
     
     private String quoteString(String s) {

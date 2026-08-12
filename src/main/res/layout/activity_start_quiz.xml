@@ -201,45 +201,7 @@
             app:backgroundTint="@color/primary"
             android:textColor="@android:color/white"
             app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginBottom="12dp" />
-        
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonCancel"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:text="取消"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                app:backgroundTint="@color/surface_variant"
-                android:textColor="@color/on_surface"
-                app:cornerRadius="12dp"
-                app:strokeColor="@color/primary"
-                app:strokeWidth="1dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="8dp" />
-            
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonFrontendView"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:text="前端视图"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                app:backgroundTint="@color/secondary"
-                android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
-                android:textAllCaps="false"
-                android:layout_marginStart="8dp" />
-            
-        </LinearLayout>
+            android:textAllCaps="false" />
         
     </LinearLayout>
 

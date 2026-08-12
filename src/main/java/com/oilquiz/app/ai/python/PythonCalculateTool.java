@@ -57,7 +57,7 @@ public class PythonCalculateTool extends BaseAITool {
             }
             
             String code = buildCalculationCode(expression, task);
-            PythonToolManager.ExecutionResult result = toolManager.processTask(code, null);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null);
             
             return formatResult(result, expression);
             

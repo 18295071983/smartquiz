@@ -17,6 +17,14 @@ public class Template {
     private Map<String, String> fieldMappings;
     private boolean isDefault;
 
+    // ========== v2 场景化模板字段 ==========
+    /** 场景标签：standard(标准)/practice(刷题)/answer(答案解析)/teaching(讲义)/memory(记忆卡片)/data(数据分析) */
+    private String scene;
+    /** 适用格式列表（EXCEL/CSV/HTML/MARKDOWN/JSON/WORD/PDF/LONG_IMAGE），为空时用 format 字段匹配 */
+    private List<String> appliesTo;
+    /** 模板结构版本（用于默认模板迁移） */
+    private int version = 1;
+
     public Template() {
     }
 
@@ -89,6 +97,41 @@ public class Template {
 
     public void setDefault(boolean aDefault) {
         isDefault = aDefault;
+    }
+
+    public String getScene() {
+        return scene;
+    }
+
+    public void setScene(String scene) {
+        this.scene = scene;
+    }
+
+    public List<String> getAppliesTo() {
+        return appliesTo;
+    }
+
+    public void setAppliesTo(List<String> appliesTo) {
+        this.appliesTo = appliesTo;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public void setVersion(int version) {
+        this.version = version;
+    }
+
+    /**
+     * 判断模板是否支持指定格式
+     */
+    public boolean supportsFormat(String format) {
+        if (format == null) return false;
+        if (appliesTo != null && !appliesTo.isEmpty()) {
+            return appliesTo.contains(format);
+        }
+        return format.equals(this.format);
     }
 
     @Override

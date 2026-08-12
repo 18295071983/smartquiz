@@ -133,7 +133,25 @@
   - `IntentResult.java` — 意图识别结果
   - `ComplexityLevel` — 复杂度级别枚举
 
-#### 2. 天气系统全面重构
+#### 2. 在线 Agent 系统
+- **新增在线 Agent 架构**：支持 OpenAI 兼容 API 的在线 Agent
+- **工具调用系统**：支持 Metaso 搜索等多种在线工具
+- **服务路由**：智能路由本地/在线 Agent
+
+#### 3. 语音系统全面升级
+- **TTS 语音合成**：
+  - 支持系统 TTS、百度、讯飞、阿里云（DashScope）、火山引擎、OpenAI 多引擎
+  - 流式 TTS 播放，边生成边播放
+  - 统一的 TTS 引擎接口 `TtsEngine`
+- **ASR 语音识别**：
+  - 支持系统识别、百度、讯飞、阿里云、火山引擎、OpenAI 多引擎
+  - 统一的 ASR 引擎接口 `AsrEngine`
+- **语音模型管理**：
+  - `SpeechModelRegistry` — 语音模型注册中心
+  - `SpeechModelSelector` — 智能模型选择器
+  - `SpeechHttpClient` — 语音 HTTP 客户端
+
+#### 4. 天气系统全面重构
 - **AIWeatherManager 增强**：
   - 新增空气质量查询接口
   - 新增分钟级降水预报接口
@@ -151,7 +169,7 @@
   - 新增动态图表展示
   - 支持更多天气信息可视化
 
-#### 3. 天气 Banner 组件
+#### 5. 天气 Banner 组件
 - **新增 WeatherBannerView**：
   - 可自定义的天气横幅组件
   - MaterialCardView 容器，整体可点击
@@ -160,7 +178,7 @@
   - 管理天气横幅生命周期
   - 处理点击跳转逻辑
 
-#### 4. AI 聊天界面升级
+#### 6. AI 聊天界面升级
 - **ChatAdapter 增强**：
   - 支持思考链可视化展示
   - 支持工具调用消息渲染
@@ -169,6 +187,9 @@
   - 集成 Agent 软件层处理流程
   - 支持无限等待 AI 服务初始化
   - 实现 Agent 执行步骤 UI 展示
+
+#### 7. 创意写作引擎
+- **新增 CreativeWritingEngine**：AI 辅助创意写作
 
 ### 技术实现
 
@@ -219,6 +240,17 @@ private String formatWeatherData(JSONObject data) {
 }
 ```
 
+#### 语音引擎抽象
+```java
+// TtsEngine.java - 统一 TTS 接口
+public interface TtsEngine {
+    void synthesize(String text, TtsCallback callback);
+    void stop();
+    boolean isAvailable();
+    String getEngineName();
+}
+```
+
 ### UI 变更
 
 #### 天气详情页面
@@ -238,21 +270,22 @@ private String formatWeatherData(JSONObject data) {
 - Agent 软件层增加一次 LLM 调用（意图识别 + 复杂度分析）
 - 天气三级回退最坏情况延迟约 3-5 秒
 - 天气数据智能解析增加约 10-20ms 处理时间
+- 语音流式播放降低首字延迟约 50%
 
 ### 代码变更
-- **新增**：`AgentSoftwareLayer.java`, `IntentRecognizer.java`, `ComplexityAnalyzer.java`, `TaskDecomposer.java`, `ExecutionEngine.java`, `ThinkingChainEngine.java`, `ResultIntegrator.java`, `Task.java`, `WeatherBannerView.java`, `WeatherBannerController.java`, `QWeatherIconMapper.java`
-- **修改**：`AIWeatherManager.java`, `QWeatherSdkManager.java`, `WeatherService.java`, `WeatherDetailActivity.java`, `WeatherBannerManager.java`, `AIChatActivity.java`, `ChatAdapter.java`, `ChatOrchestrator.java`, `AgentModeHandler.java`, `MainActivity.java`
+- **新增**：`AgentSoftwareLayer.java`, `IntentRecognizer.java`, `ComplexityAnalyzer.java`, `TaskDecomposer.java`, `ExecutionEngine.java`, `ThinkingChainEngine.java`, `ResultIntegrator.java`, `Task.java`, `WeatherBannerView.java`, `WeatherBannerController.java`, `QWeatherIconMapper.java`, `SpeechManager.java`, `SpeechModelRegistry.java`, `TtsEngine.java`, `AsrEngine.java`, `DashScopeTtsEngine.java`, `DashScopeAsrEngine.java`, `CreativeWritingEngine.java` 等
+- **修改**：`AIWeatherManager.java`, `QWeatherSdkManager.java`, `WeatherService.java`, `WeatherDetailActivity.java`, `WeatherBannerManager.java`, `AIChatActivity.java`, `ChatAdapter.java`, `ChatOrchestrator.java`, `AgentModeHandler.java`, `MainActivity.java`, `AgentRouter.java`, `ServiceRouter.java`
 - **修改**：`activity_weather_detail.xml`, `widget_weather_banner.xml`, `activity_main.xml`, `item_ai_message.xml`
 
 ### 文件变更统计
-- 修改文件：45 个
-- 新增代码行：+7770
+- 修改文件：80+ 个
+- 新增代码行：+12000+
 - 删除代码行：-3313
-- 净增代码行：+4457
+- 净增代码行：+8700+
 
 ---
 
-## [Unreleased] - 2026-05-26
+## [2.0.1] - 2026-05-26
 
 ### 新增功能
 

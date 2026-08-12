@@ -15,6 +15,10 @@ public class WordExporter implements Exporter {
         validateParameters(task);
 
         List<Question> questions = task.getQuestions();
+        // 模板生效字段列表（场景模板/自定义字段），决定导出内容
+        List<String> fields = ExportUtils.getEffectiveFields(task.getConfig());
+        boolean includeAnswers = task.getConfig().isIncludeAnswers();
+        boolean includeExplanations = task.getConfig().isIncludeExplanations();
         
         // 按题型分组并排序
         java.util.Map<String, java.util.List<Question>> questionsByType = new java.util.HashMap<>();
@@ -86,80 +90,124 @@ public class WordExporter implements Exporter {
                 // 写入该题型的题目，每个题型从1开始编号
                 int typeQuestionNumber = 1;
                 for (Question question : typeQuestions) {
-                    // 问题标题
+                    // 问题标题（含难度/知识点等元信息）
                     if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
                         XWPFParagraph questionPara = document.createParagraph();
                         XWPFRun questionRun = questionPara.createRun();
-                        questionRun.setText("第" + typeQuestionNumber++ + "题: " + question.getQuestionText());
+                        StringBuilder questionTitle = new StringBuilder("第").append(typeQuestionNumber++).append("题: ").append(question.getQuestionText());
+                        questionRun.setText(questionTitle.toString());
                         questionRun.setFontSize(12);
                         questionRun.setFontFamily("宋体");
                     } else {
                         typeQuestionNumber++;
                     }
                     
-                    // 选项
+                    // 题目元信息行（题型/难度/分类/知识点/分值等，按模板字段）
+                    StringBuilder metaInfo = new StringBuilder();
+                    if (ExportUtils.hasField(fields, "questionType") && question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
+                        metaInfo.append("题型: ").append(question.getQuestionType()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "difficulty")) {
+                        metaInfo.append("难度: ").append(question.getDifficultyText()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "category") && question.getCategory() != null && !question.getCategory().isEmpty()) {
+                        metaInfo.append("分类: ").append(question.getCategory()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "knowledgePoint") && question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
+                        metaInfo.append("知识点: ").append(question.getKnowledgePoint()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "points")) {
+                        metaInfo.append("分值: ").append(question.getPoints()).append(" | ");
+                    }
+                    if (metaInfo.length() > 0) {
+                        XWPFParagraph metaPara = document.createParagraph();
+                        XWPFRun metaRun = metaPara.createRun();
+                        metaRun.setText(metaInfo.substring(0, metaInfo.length() - 3));
+                        metaRun.setFontSize(10);
+                        metaRun.setFontFamily("宋体");
+                        metaRun.setColor("888888");
+                    }
+                    
+                    // 选项（A~L 动态渲染，只输出模板选中且非空的选项）
                     if (question.hasOptions()) {
-                        XWPFParagraph optionsPara = document.createParagraph();
-                        XWPFRun optionsRun = optionsPara.createRun();
-                        optionsRun.setText("选项:");
-                        optionsRun.setFontSize(12);
-                        optionsRun.setFontFamily("宋体");
-                        
-                        if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                            XWPFParagraph optionAPara = document.createParagraph();
-                            optionAPara.setIndentationFirstLine(300);
-                            XWPFRun optionARun = optionAPara.createRun();
-                            optionARun.setText("A. " + question.getOptionA());
-                            optionARun.setFontSize(12);
-                            optionARun.setFontFamily("宋体");
-                        }
-                        
-                        if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                            XWPFParagraph optionBPara = document.createParagraph();
-                            optionBPara.setIndentationFirstLine(300);
-                            XWPFRun optionBRun = optionBPara.createRun();
-                            optionBRun.setText("B. " + question.getOptionB());
-                            optionBRun.setFontSize(12);
-                            optionBRun.setFontFamily("宋体");
-                        }
-                        
-                        if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                            XWPFParagraph optionCPara = document.createParagraph();
-                            optionCPara.setIndentationFirstLine(300);
-                            XWPFRun optionCRun = optionCPara.createRun();
-                            optionCRun.setText("C. " + question.getOptionC());
-                            optionCRun.setFontSize(12);
-                            optionCRun.setFontFamily("宋体");
-                        }
-                        
-                        if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                            XWPFParagraph optionDPara = document.createParagraph();
-                            optionDPara.setIndentationFirstLine(300);
-                            XWPFRun optionDRun = optionDPara.createRun();
-                            optionDRun.setText("D. " + question.getOptionD());
-                            optionDRun.setFontSize(12);
-                            optionDRun.setFontFamily("宋体");
+                        for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                            if (!ExportUtils.hasField(fields, ExportUtils.OPTION_FIELDS[o])) continue;
+                            Object optionValue = ExportUtils.getOptionValue(question, o);
+                            if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                            XWPFParagraph optionPara = document.createParagraph();
+                            optionPara.setIndentationFirstLine(300);
+                            XWPFRun optionRun = optionPara.createRun();
+                            optionRun.setText(ExportUtils.OPTION_LABELS[o] + ". " + optionValue);
+                            optionRun.setFontSize(12);
+                            optionRun.setFontFamily("宋体");
                         }
                     }
                     
-                    // 根据配置决定是否包含答案
-                    if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                        XWPFParagraph answerPara = document.createParagraph();
-                        XWPFRun answerRun = answerPara.createRun();
-                        answerRun.setText("正确答案: " + question.getCorrectAnswer());
-                        answerRun.setFontSize(12);
-                        answerRun.setFontFamily("宋体");
-                        answerRun.setColor("009900");
+                    // 根据配置决定是否包含答案（正确答案 + 答案文本）
+                    if (includeAnswers) {
+                        if (ExportUtils.hasField(fields, "correctAnswer") && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                            XWPFParagraph answerPara = document.createParagraph();
+                            XWPFRun answerRun = answerPara.createRun();
+                            answerRun.setText("正确答案: " + question.getCorrectAnswer());
+                            answerRun.setFontSize(12);
+                            answerRun.setFontFamily("宋体");
+                            answerRun.setColor("009900");
+                        }
+                        if (ExportUtils.hasField(fields, "answerText") && question.getAnswerText() != null && !question.getAnswerText().isEmpty()) {
+                            XWPFParagraph answerTextPara = document.createParagraph();
+                            XWPFRun answerTextRun = answerTextPara.createRun();
+                            answerTextRun.setText("答案文本: " + question.getAnswerText());
+                            answerTextRun.setFontSize(12);
+                            answerTextRun.setFontFamily("宋体");
+                            answerTextRun.setColor("009900");
+                        }
                     }
                     
-                    // 根据配置决定是否包含解析
-                    if (task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
+                    // 根据配置决定是否包含解析（解析 + 详细解析）
+                    if (includeExplanations && ExportUtils.hasField(fields, "explanation") && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
                         XWPFParagraph explanationPara = document.createParagraph();
                         XWPFRun explanationRun = explanationPara.createRun();
                         explanationRun.setText("解析: " + question.getExplanation());
                         explanationRun.setFontSize(12);
                         explanationRun.setFontFamily("宋体");
                         explanationRun.setColor("336699");
+                    }
+                    if (includeExplanations && ExportUtils.hasField(fields, "analysis") && question.getAnalysis() != null && !question.getAnalysis().isEmpty()) {
+                        XWPFParagraph analysisPara = document.createParagraph();
+                        XWPFRun analysisRun = analysisPara.createRun();
+                        analysisRun.setText("详细解析: " + question.getAnalysis());
+                        analysisRun.setFontSize(12);
+                        analysisRun.setFontFamily("宋体");
+                        analysisRun.setColor("336699");
+                    }
+                    
+                    // 其他元信息（标签/提示/来源/作者/备注/相关题目）
+                    StringBuilder extraInfo = new StringBuilder();
+                    if (ExportUtils.hasField(fields, "tags") && question.getTags() != null && !question.getTags().isEmpty()) {
+                        extraInfo.append("标签: ").append(question.getTags()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "hint") && question.getHint() != null && !question.getHint().isEmpty()) {
+                        extraInfo.append("提示: ").append(question.getHint()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "source") && question.getSource() != null && !question.getSource().isEmpty()) {
+                        extraInfo.append("来源: ").append(question.getSource()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "author") && question.getAuthor() != null && !question.getAuthor().isEmpty()) {
+                        extraInfo.append("作者: ").append(question.getAuthor()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "comment") && question.getComment() != null && !question.getComment().isEmpty()) {
+                        extraInfo.append("备注: ").append(question.getComment()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "relatedQuestion") && question.getRelatedQuestion() != null && !question.getRelatedQuestion().isEmpty()) {
+                        extraInfo.append("相关题目: ").append(question.getRelatedQuestion()).append("  ");
+                    }
+                    if (extraInfo.length() > 0) {
+                        XWPFParagraph extraPara = document.createParagraph();
+                        XWPFRun extraRun = extraPara.createRun();
+                        extraRun.setText(extraInfo.toString().trim());
+                        extraRun.setFontSize(10);
+                        extraRun.setFontFamily("宋体");
+                        extraRun.setColor("666666");
                     }
                     
                     // 更新进度

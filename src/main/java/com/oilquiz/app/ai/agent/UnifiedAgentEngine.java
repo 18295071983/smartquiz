@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent;
 
 import android.app.Activity;
+import com.oilquiz.app.ai.agent.online.OnlineToolManager;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
@@ -9,6 +10,7 @@ import com.oilquiz.app.ai.python.PythonToolManager;
 import com.oilquiz.app.ai.refactor.UnifiedContextManager;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIToolUsageGuide;
@@ -100,6 +102,26 @@ public class UnifiedAgentEngine {
     private static final int TOOL_EXECUTION_MAX_RETRIES = 2;    // 工具执行最大重试次数
     private static final int EXECUTOR_THREAD_COUNT = 2;         // 线程池大小
     private static final long SESSION_EXPIRY_MS = 30 * 60 * 1000; // Session 过期时间：30分钟
+
+    // ========== 工具结果置信度配置 ==========
+    /** 结果足够判定阈值：置信度 >= 该值认为结果满足需求 */
+    private static final double SUFFICIENT_CONFIDENCE_THRESHOLD = 0.6;
+    /** 各证据维度的置信度扣分权重 */
+    private static final double CONFIDENCE_PENALTY_ERROR = 0.6;        // 结果含错误标记
+    private static final double CONFIDENCE_PENALTY_EMPTY = 0.5;        // 空白 JSON 空壳
+    private static final double CONFIDENCE_PENALTY_MISSING_FIELD = 0.4; // 缺少关键字段
+    private static final double CONFIDENCE_PENALTY_IRRELEVANT = 0.3;    // 与用户问题相关性低
+    /** 结果相关性低判定的阈值（0.0~1.0） */
+    private static final double RELEVANCE_LOW_THRESHOLD = 0.3;
+    /** 关键词提取停用词：语气词、虚词、常见问句成分 */
+    private static final Set<String> STOP_WORDS = new HashSet<>(java.util.Arrays.asList(
+            "帮我", "请", "一下", "的", "了", "吗", "呢", "啊", "吧", "哦",
+            "我", "你", "他", "她", "它", "我们", "你们", "他们",
+            "什么", "怎么", "哪个", "哪些", "一个", "这个", "那个", "多少",
+            "是", "有", "在", "和", "与", "或", "也", "都", "很", "更",
+            "请问", "你好", "谢谢", "麻烦", "想要", "需要", "知道",
+            "the", "and", "what", "how", "which", "with", "for", "please"
+    ));
 
     private final AtomicBoolean contextInitialized = new AtomicBoolean(false);
 
@@ -547,10 +569,35 @@ public class UnifiedAgentEngine {
                 }
                 // =====================================
 
-                // 离线Agent模式：使用原生 generateWithTools 接口（llama.cpp chat template + tool calling）
-                notifyStep("Agent启动", "原生工具调用模式");
-                AILogger.i(TAG, "Execute via native agent loop: " + message);
-                executeNativeAgentLoop(message, maxTokens);
+                // 离线Agent模式：意图识别 → 模式选择 → 分派对应推理循环
+                notifyStep("Agent启动", "正在识别任务意图...");
+                SmartIntentRecognizer.IntentResult intent = intentRecognizer.recognize(message);
+                SmartIntentRecognizer.MultiIntentResult multiIntent = intentRecognizer.recognizeMultiIntent(message);
+                ReasoningMode mode = selectBestMode(intent, multiIntent);
+                AILogger.i(TAG, "Local agent intent=" + (intent != null ? intent.intent.displayName : "null")
+                        + " mode=" + mode.displayName);
+                notifyStep("意图识别", "任务类型: " + (intent != null ? intent.intent.displayName : "未知")
+                        + " → " + mode.displayName);
+
+                switch (mode) {
+                    case PLAN_EXECUTE:
+                        notifyStep("模式选择", "计划执行（多任务）");
+                        executePlanLoop(message, maxTokens, enableThinking, intent, multiIntent);
+                        break;
+                    case CHAIN_OF_THOUGHT:
+                        notifyStep("模式选择", "链式思维");
+                        executeCoTLoop(message, maxTokens, enableThinking);
+                        break;
+                    case DIRECT:
+                        notifyStep("模式选择", "直接回答");
+                        executeDirect(message, maxTokens, enableThinking);
+                        break;
+                    case REACT:
+                    default:
+                        notifyStep("模式选择", "ReAct 推理");
+                        executeReActLoop(message, maxTokens, enableThinking);
+                        break;
+                }
             } catch (Throwable t) {
                 AILogger.e(TAG, "Error in execute: " + t.getMessage(), t);
                 finishGeneration();
@@ -764,9 +811,21 @@ public class UnifiedAgentEngine {
         StringBuilder sb = new StringBuilder();
 
         if (isFirstRound) {
-            // 极简：只给用户问题。3B模型会复述提示词内容，所以不加任何工具说明。
-            // 解析器已支持多种工具格式（Qwen原生/TOOLS_CALL/通用块），模型自发输出即可识别。
-            sb.append(userMessage);
+            // 首轮：注入意图识别结果（任务类型、关键信息、推荐工具），
+            // 以硬编码提示帮助小模型确定任务方向，提高工具调用触发率。
+            // 注意：本地模式 LLM 意图识别已禁用，这里走规则匹配，不会破坏 chat context 的 KV cache。
+            SmartIntentRecognizer.IntentResult intent = intentRecognizer.recognize(userMessage);
+            SmartIntentRecognizer.MultiIntentResult multiIntent = intentRecognizer.recognizeMultiIntent(userMessage);
+            String intentHint = buildIntentHint(intent, multiIntent, userMessage);
+            if (intentHint != null && !intentHint.isEmpty()) {
+                sb.append(intentHint);
+                sb.append("\n\n");
+            }
+            // 工具调用：使用原生 function calling 直接输出工具调用，
+            // 不教任何 JSON 封装/文本标记格式，避免模型模仿输出导致解析失败。
+            sb.append("=== 工具调用 ===\n");
+            sb.append("如需调用工具，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n\n");
+            sb.append("用户问题: ").append(userMessage);
             sb.append("\n回答：");
             return sb.toString();
         } else {
@@ -795,12 +854,18 @@ public class UnifiedAgentEngine {
     /**
      * 原生 FC Agent 循环：使用 llama.cpp chat template + generateWithTools，
      * 模型按原生格式（Qwen2.5 / Hermes / Llama3 等）输出 tool_call，无需文本格式提示词。
+     *
+     * 注意：此路径已不作为 execute() 主入口（主入口为意图识别 → ReAct/CoT/Plan 循环），
+     * 保留仅供原生 FC 与文本 ReAct 的对比测试。
      */
     private void executeNativeAgentLoop(String userMessage, int maxTokens) {
-        AIToolManager toolManager = AIToolManager.getInstance(activity);
-        String toolsJson = buildNativeToolsJson(toolManager);
+        // 复用在线模型 Agent 的工具系统：工具定义、工具执行都走 OnlineToolManager
+        // C++ 层通过 common_chat_parse 解析模型原生 FC 输出，通过 JNI 回调直接传递 ToolCallInfo
+        // 模型想输出什么就输出什么，不强制思考、不强制工具调用格式
+        OnlineToolManager onlineToolMgr = new OnlineToolManager(activity);
+        String toolsJson = onlineToolMgr.getToolDefinitions();
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
-        AILogger.i(TAG, "Native FC: tools=" + toolManager.getToolsMap().size() + ", schemaLen=" + toolsJson.length());
+        AILogger.i(TAG, "Native FC: toolsJson len=" + toolsJson.length());
 
         // 构建对话历史
         List<NativeChatMsg> history = new ArrayList<>();
@@ -811,27 +876,48 @@ public class UnifiedAgentEngine {
             if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
 
             notifyStep("原生推理", "第 " + iteration + " 轮");
-            AILogger.i(TAG, "Native FC iteration " + iteration);
+            AILogger.i(TAG, "=== Native FC Agent Iteration " + iteration + " ===");
+            AILogger.i(TAG, "  History size: " + history.size());
+            AILogger.i(TAG, "  User message: " + userMessage);
 
-            // 同步调用 generateWithTools
-            String response = nativeGenerateSync(history, toolsJsonBytes, 500, 0.7f);
+            // 同步调用 generateWithTools，获取 ToolCallInfo（与在线 Agent 相同格式）
+            NativeGenerateResult genResult = nativeGenerateSyncWithThinking(
+                    history, toolsJsonBytes, maxTokens, 0.6f, true);
 
-            if (response == null || response.trim().isEmpty()) {
-                AILogger.w(TAG, "Native FC: empty response at iteration " + iteration);
-                break;
+            if (genResult == null || genResult.content == null || genResult.content.trim().isEmpty()) {
+                AILogger.w(TAG, "Native FC: EMPTY/NULL response at iteration " + iteration + ", skipping. thinkingLen=" + (genResult != null && genResult.thinking != null ? genResult.thinking.length() : 0));
+                iterationCount.incrementAndGet();
+                continue;
             }
 
-            AILogger.i(TAG, "Native FC response len=" + response.length() + ": " + response.substring(0, Math.min(200, response.length())));
+            AILogger.i(TAG, "  [Thought] len=" + (genResult.thinking != null ? genResult.thinking.length() : 0));
+            if (genResult.thinking != null && genResult.thinking.length() > 0) {
+                AILogger.i(TAG, "  [Thought] " + genResult.thinking.substring(0, Math.min(500, genResult.thinking.length())));
+            }
+            AILogger.i(TAG, "  [Content] len=" + genResult.content.length());
+            AILogger.i(TAG, "  [Content] " + genResult.content.substring(0, Math.min(500, genResult.content.length())));
+            AILogger.i(TAG, "  [ToolCalls] count=" + (genResult.toolCalls != null ? genResult.toolCalls.size() : 0));
 
-            // 解析工具调用
-            List<NativeToolCall> toolCalls = parseNativeToolCalls(response);
+            String response = genResult.content;
+            AILogger.i(TAG, "Native FC response len=" + response.length()
+                    + " toolCalls=" + (genResult.toolCalls != null ? genResult.toolCalls.size() : 0)
+                    + ", thinkingLen=" + (genResult.thinking != null ? genResult.thinking.length() : 0)
+                    + ": " + response.substring(0, Math.min(200, response.length())));
+
+            // 优先使用 C++ 层 common_chat_parse 解析的工具调用，如果没有则回退到文本解析
+            List<NativeToolCall> toolCalls = genResult.toolCalls;
+            if (toolCalls == null || toolCalls.isEmpty()) {
+                toolCalls = parseNativeToolCalls(response);
+            }
 
             if (toolCalls.isEmpty()) {
                 // 无工具调用 = 最终答案
+                AILogger.i(TAG, "Native FC: No tool calls in iteration " + iteration + ", treating as final answer");
                 String cleanAnswer = cleanNativeResponse(response);
                 if (cleanAnswer.isEmpty()) cleanAnswer = response;
                 contextSummary.add("助手: " + truncateForContext(cleanAnswer));
                 streamNativeAnswer(cleanAnswer);
+                AILogger.i(TAG, "Native FC: Final answer len=" + cleanAnswer.length());
                 notifyComplete(cleanAnswer);
                 finishGeneration();
                 cleanupAfterCompletion();
@@ -841,7 +927,7 @@ public class UnifiedAgentEngine {
             // 将模型回复追加到历史
             history.add(new NativeChatMsg("assistant", response));
 
-            // 执行所有工具
+            // 执行所有工具（复用 OnlineToolManager）
             boolean anySuccess = false;
             for (NativeToolCall tc : toolCalls) {
                 toolLoopCount.incrementAndGet();
@@ -850,27 +936,21 @@ public class UnifiedAgentEngine {
                 notifyToolCallStart(tc.name, tc.argsStr);
                 notifyStep("工具调用", tc.name);
 
-                // 构建参数 Map
-                Map<String, Object> params = jsonToMap(tc.argsJson);
-                if (params == null) params = new HashMap<>();
-
-                // 执行工具
-                AgentService.ToolCall agentCall = new AgentService.ToolCall(tc.name, tc.argsStr);
-                agentCall.resolvedArgs = params;
-                AgentService.ToolResult result = executeToolWithTimeout(agentCall);
+                // 使用 OnlineToolManager 执行工具
+                OnlineToolResult result = onlineToolMgr.executeTool(tc.id != null ? tc.id : "", tc.name, tc.argsStr);
 
                 String resultStr;
                 if (result == null) {
                     resultStr = "工具执行失败: 返回空";
                     AILogger.w(TAG, "Native FC tool " + tc.name + " returned null");
                 } else {
-                    resultStr = result.result != null ? result.result : "工具执行失败: " + result.errorMessage;
+                    resultStr = result.result != null ? result.result : "工具执行失败: " + result.error;
                     if (resultStr.length() > NATIVE_MAX_TOOL_RESULT_LEN) {
                         resultStr = resultStr.substring(0, NATIVE_MAX_TOOL_RESULT_LEN) + "…(截断)";
                     }
                 }
 
-                AILogger.i(TAG, "Native FC tool " + tc.name + " result: " + resultStr.substring(0, Math.min(200, resultStr.length())));
+                AILogger.i(TAG, "Native FC tool " + tc.name + " result: " + resultStr.substring(0, Math.min(500, resultStr.length())));
                 contextSummary.add("工具结果[" + tc.name + "]: " + truncateForContext(resultStr, 500));
 
                 // 通知 UI
@@ -891,7 +971,13 @@ public class UnifiedAgentEngine {
         }
 
         // 达到最大迭代：强制总结
-        AILogger.w(TAG, "Native FC: reached max iterations, forcing final");
+        AILogger.i(TAG, "=== Native FC Agent Reached Max Iterations ===");
+        AILogger.i(TAG, "  Max iterations: " + NATIVE_MAX_ITERATIONS);
+        AILogger.i(TAG, "  History size: " + history.size());
+        AILogger.i(TAG, "  Total iterations (with tool calls): " + iterationCount.get());
+        for (int i = 0; i < history.size(); i++) {
+            AILogger.i(TAG, "  History[" + i + "]: role=" + history.get(i).role + " content=" + truncateForContext(history.get(i).content, 200));
+        }
         String fallback = buildNativeFallback(userMessage, history);
         streamNativeAnswer(fallback);
         notifyComplete(fallback);
@@ -902,11 +988,22 @@ public class UnifiedAgentEngine {
     /**
      * 同步包装 generateWithTools：使用 CountDownLatch 等待异步回调
      */
-    private String nativeGenerateSync(List<NativeChatMsg> history, byte[] toolsJsonBytes,
-                                      int maxTokens, float temperature) {
+    /**
+     * 同步包装 generateWithTools（启用思考模式）：
+     * 分离思考内容和回答内容，思考过程实时流式展示给 UI。
+     * C++ 层通过 JNI 回调直接传递 onToolCalls/onReasoning，
+     * 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通。
+     */
+    private NativeGenerateResult nativeGenerateSyncWithThinking(
+            List<NativeChatMsg> history, byte[] toolsJsonBytes,
+            int maxTokens, float temperature, boolean enableThinking) {
+
         CountDownLatch latch = new CountDownLatch(1);
-        StringBuilder result = new StringBuilder();
+        StringBuilder fullResult = new StringBuilder();
         final String[] errorHolder = {null};
+        // C++ 层 common_chat_parse 解析结果，通过 JNI 回调直接传递
+        final List<OnlineInferenceService.ToolCallInfo> toolCallsHolder = new ArrayList<>();
+        final String[] reasoningHolder = {""};
 
         int size = history.size();
         String[] roles = new String[size];
@@ -918,23 +1015,43 @@ public class UnifiedAgentEngine {
 
         try {
             LlamaHelper.generateWithTools(roles, contents, toolsJsonBytes, maxTokens, temperature,
-                    0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                    0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
                         @Override
                         public void onToken(String token) {
-                            if (token != null && !token.isEmpty()) {
-                                result.append(token);
+                            if (token == null || token.isEmpty()) return;
+                            fullResult.append(token);
+                            activity.runOnUiThread(() -> {
+                                if (callback != null) callback.onToken(token);
+                            });
+                        }
+
+                        @Override
+                        public void onToolCalls(List<OnlineInferenceService.ToolCallInfo> toolCalls) {
+                            if (toolCalls != null && !toolCalls.isEmpty()) {
+                                toolCallsHolder.addAll(toolCalls);
+                                AILogger.i(TAG, "Received " + toolCalls.size() + " tool calls from C++ layer");
                             }
                         }
+
+                        @Override
+                        public void onReasoning(String reasoning) {
+                            if (reasoning != null && !reasoning.isEmpty()) {
+                                reasoningHolder[0] = reasoning;
+                                AILogger.i(TAG, "Received reasoning (" + reasoning.length() + " chars) from C++ layer");
+                            }
+                        }
+
                         @Override
                         public void onComplete(String fullText) {
                             if (fullText != null && !fullText.isEmpty()) {
-                                synchronized (result) {
-                                    result.setLength(0);
-                                    result.append(fullText);
+                                synchronized (fullResult) {
+                                    fullResult.setLength(0);
+                                    fullResult.append(fullText);
                                 }
                             }
                             latch.countDown();
                         }
+
                         @Override
                         public void onError(String error) {
                             errorHolder[0] = error;
@@ -944,19 +1061,81 @@ public class UnifiedAgentEngine {
 
             boolean done = latch.await(NATIVE_SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!done) {
-                AILogger.e(TAG, "nativeGenerateSync timeout");
+                AILogger.e(TAG, "nativeGenerateSyncWithThinking timeout");
                 return null;
             }
         } catch (Exception e) {
-            AILogger.e(TAG, "nativeGenerateSync error: " + e.getMessage());
+            AILogger.e(TAG, "nativeGenerateSyncWithThinking error: " + e.getMessage());
             return null;
         }
 
         if (errorHolder[0] != null) {
-            AILogger.e(TAG, "nativeGenerateSync callback error: " + errorHolder[0]);
+            AILogger.e(TAG, "nativeGenerateSyncWithThinking callback error: " + errorHolder[0]);
             return null;
         }
-        return result.toString();
+
+        // 从完整文本中分离思考和正文
+        String fullText = fullResult.toString().trim();
+        String thinking = reasoningHolder[0];
+        String content = fullText;
+
+        // 如果 C++ 层没有解析到推理内容，检查模型是否自己输出了 <think>...</think> 标签
+        if (thinking.isEmpty()) {
+            String[] split = splitThinkingAndContent(content);
+            content = split[0];
+            thinking = split[1];
+        } else {
+            String[] split = splitThinkingAndContent(content);
+            content = split[0];
+        }
+
+        // 将 ToolCallInfo 转换为 NativeToolCall（保持内部接口兼容）
+        List<NativeToolCall> nativeToolCalls = new ArrayList<>();
+        if (!toolCallsHolder.isEmpty()) {
+            for (OnlineInferenceService.ToolCallInfo tc : toolCallsHolder) {
+                String argsStr = tc.arguments != null ? tc.arguments : "{}";
+                JSONObject argsJson;
+                try {
+                    argsJson = new JSONObject(argsStr);
+                } catch (Exception e) {
+                    argsJson = new JSONObject();
+                    argsStr = "{}";
+                }
+                nativeToolCalls.add(new NativeToolCall(tc.id, tc.name, argsStr, argsJson));
+            }
+        }
+
+        AILogger.i(TAG, "nativeGenerateSyncWithThinking result: contentLen=" + content.length()
+                + " thinkingLen=" + thinking.length()
+                + " toolCalls=" + nativeToolCalls.size());
+
+        return new NativeGenerateResult(content, thinking, nativeToolCalls);
+    }
+
+    /**
+     * 从完整文本中分离思考内容（\u003Cthink\u003E...\u003C/think\u003E）和回答内容。
+     * llama.cpp 的 enableThinking 模式下，思考内容被 \u003Cthink\u003E 标签包裹。
+     */
+    private String[] splitThinkingAndContent(String fullText) {
+        String thinking = "";
+        String content = fullText;
+
+        String thinkStartTag = "\u003Cthink\u003E";
+        String thinkEndTag = "\u003C/think\u003E";
+        int thinkStart = fullText.indexOf(thinkStartTag);
+        int thinkEnd = fullText.indexOf(thinkEndTag);
+
+        if (thinkStart >= 0 && thinkEnd > thinkStart) {
+            thinking = fullText.substring(thinkStart + thinkStartTag.length(), thinkEnd).trim();
+            content = fullText.substring(0, thinkStart) + fullText.substring(thinkEnd + thinkEndTag.length());
+            content = content.trim();
+        } else if (thinkStart >= 0 && thinkEnd < 0) {
+            // 思考未闭合，取 \u003Cthink\u003E 之后的内容作为思考
+            thinking = fullText.substring(thinkStart + thinkStartTag.length()).trim();
+            content = fullText.substring(0, thinkStart).trim();
+        }
+
+        return new String[]{content, thinking};
     }
 
     /**
@@ -974,7 +1153,29 @@ public class UnifiedAgentEngine {
         for (String block : jsonBlocks) {
             try {
                 JSONObject json = new JSONObject(block);
-                // 提取工具名：支持多种格式
+
+                // 支持 OpenAI envelope 格式：{"tool_calls": [{"function": {"name":..., "arguments":{...}}}]}
+                JSONArray toolCallsArr = json.optJSONArray("tool_calls");
+                if (toolCallsArr != null) {
+                    for (int i = 0; i < toolCallsArr.length(); i++) {
+                        JSONObject tc = toolCallsArr.optJSONObject(i);
+                        if (tc == null) continue;
+                        JSONObject fn = tc.optJSONObject("function");
+                        String fnName = fn != null ? fn.optString("name", "") : tc.optString("name", "");
+                        if (fnName.isEmpty()) continue;
+                        JSONObject argsJson = new JSONObject();
+                        if (fn != null) {
+                            String fnArgs = fn.optString("arguments", "{}");
+                            if (!fnArgs.trim().isEmpty()) {
+                                try { argsJson = new JSONObject(fnArgs); } catch (Exception ignored) {}
+                            }
+                        }
+                        addNativeToolCallDedup(calls, new NativeToolCall(tc.optString("id", null), fnName, argsJson.toString(), argsJson));
+                    }
+                    continue;
+                }
+
+                // 原有格式：顶层 name / function
                 String name = json.optString("name", "");
                 if (name.isEmpty()) {
                     JSONObject fn = json.optJSONObject("function");
@@ -996,13 +1197,29 @@ public class UnifiedAgentEngine {
                 }
                 argsStr = argsJson.toString();
 
-                calls.add(new NativeToolCall(name, argsStr, argsJson));
+                addNativeToolCallDedup(calls, new NativeToolCall(name, argsStr, argsJson));
                 AILogger.i(TAG, "Parsed native tool call: " + name);
             } catch (Exception e) {
                 AILogger.w(TAG, "Parse native tool call failed: " + block.substring(0, Math.min(100, block.length())));
             }
         }
         return calls;
+    }
+
+    /**
+     * 去重添加工具调用：相同工具名 + 相同参数的重复调用只保留一个，
+     * 避免小模型重复输出同一 tool_calls 导致工具被重复执行。
+     */
+    private void addNativeToolCallDedup(List<NativeToolCall> calls, NativeToolCall call) {
+        if (call == null || call.name == null) return;
+        for (NativeToolCall existing : calls) {
+            if (call.name.equals(existing.name)
+                    && call.argsStr != null && call.argsStr.equals(existing.argsStr)) {
+                AILogger.i(TAG, "Dedup native tool call: " + call.name);
+                return;
+            }
+        }
+        calls.add(call);
     }
 
     /**
@@ -1117,6 +1334,9 @@ public class UnifiedAgentEngine {
                 .trim();
         // 去掉模型可能重复输出的对话角色前缀
         cleaned = cleaned.replaceAll("(?i)^(user|assistant|system|用户|助手)\\s*[:：]\\s*", "");
+        // 去掉残留的 tool_calls JSON 封装（原生 function calling envelope），
+        // 避免原始 JSON 泄漏到最终回答；多个封装连续出现时逐个剥离。
+        cleaned = cleaned.replaceAll("\\{\\s*\"tool_calls\"\\s*:\\s*\\[[\\s\\S]*?\\]\\s*\\}", "");
         return cleaned.trim();
     }
 
@@ -1169,19 +1389,10 @@ public class UnifiedAgentEngine {
         executor.execute(() -> {
             if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
 
-            Map<String, Object> params = validateAndPrepareToolCall(call);
+            Map<String, Object> params = validateAndPrepareToolCall(call, maxTokens);
             if (params == null) {
-                AILogger.w(TAG, "用户取消了工具调用: " + call.name);
-                activity.runOnUiThread(() -> {
-                    if (callback != null && isValid()) {
-                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
-                    }
-                });
-                if (isCancelled.get()) { finishGeneration(); cleanupAfterCompletion(); return; }
-                contextSummary.add("工具结果: 用户取消");
-                String nextPrompt = "[继续] 用户取消了工具调用，请尝试其他方式完成。";
-                resetBuffers();
-                executeDirect(nextPrompt, maxTokens, false);
+                // null = 参数缺失，已转入"模型自主调用补充工具"的 ReAct 循环（内部已启动）
+                AILogger.i(TAG, "工具 " + call.name + " 参数待补充，已转入自主获取流程");
                 return;
             }
 
@@ -1296,16 +1507,14 @@ public class UnifiedAgentEngine {
         }
         sb.append("\n\n");
 
-        sb.append("=== 正确格式 ===\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n\n");
+        sb.append("=== 正确做法 ===\n");
+        sb.append("使用原生 function calling 直接输出工具调用，不要构造 JSON 封装、不要用任何文本标记包裹。\n\n");
 
         sb.append("=== 重要提醒 ===\n");
-        sb.append("1. TOOLS_CALL 和 TOOLS_END 必须独占一行\n");
-        sb.append("2. 中间必须是有效的JSON格式\n");
-        sb.append("3. JSON必须包含 name 和 arguments 两个字段\n");
-        sb.append("4. arguments 必须是一个JSON对象\n\n");
+        sb.append("1. 工具调用应使用模型自身的原生 function calling 格式直接输出\n");
+        sb.append("2. 不要在回复中添加解释文字或伪代码描述\n");
+        sb.append("3. 工具名与参数名严格匹配下方工具定义\n");
+        sb.append("4. 参数值放在 JSON 对象中\n\n");
 
         // 自动检测模型想调用的工具，注入该工具的详细参数定义
         String detectedTool = extractToolNameFromResponse(incorrectResponse);
@@ -1344,20 +1553,10 @@ public class UnifiedAgentEngine {
                     if (isCancelled.get()) { finishGeneration(); return; }
 
                     // ========== 参数检查 ==========
-                    Map<String, Object> params = validateAndPrepareToolCall(call);
+                    Map<String, Object> params = validateAndPrepareToolCall(call, maxTokens);
                     if (params == null) {
-                        // 用户取消，记录结果并继续
-                        AILogger.w(TAG, "用户取消了工具调用: " + call.name);
-                        activity.runOnUiThread(() -> {
-                            if (callback != null) {
-                                callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
-                            }
-                        });
-                        if (isCancelled.get()) { finishGeneration(); return; }
-                        contextSummary.add("工具结果: 用户取消");
-                        String nextPrompt = "[继续] 用户取消了工具调用，请尝试其他方式完成。";
-                        resetBuffers();
-                        executeDirect(nextPrompt, maxTokens, false);
+                        // null = 参数缺失，已转入"模型自主调用补充工具"的 ReAct 循环（内部已启动）
+                        AILogger.i(TAG, "工具 " + call.name + " 参数待补充，已转入自主获取流程");
                         return;
                     }
 
@@ -1441,10 +1640,7 @@ public class UnifiedAgentEngine {
             sb.append("3. 逐步推理，展示思考过程\n");
             sb.append("4. 基于推理结果，决定是否需要使用工具\n\n");
             sb.append("=== 工具调用 ===\n");
-            sb.append("如需工具，按以下格式调用（TOOLS_CALL和TOOLS_END必须独占一行）：\n\n");
-            sb.append("TOOLS_CALL\n");
-            sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-            sb.append("TOOLS_END\n\n");
+            sb.append("如需调用工具，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n\n");
             sb.append("如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]，系统将返回该工具的完整说明。\n");
             sb.append("如需查看完整工具调用指南（含示例和规则），输出 [TOOL_GUIDE]。\n");
             sb.append("工具可以组合使用，如查天气可先用 location 定位再用 ai_weather 查询。\n\n");
@@ -1457,7 +1653,7 @@ public class UnifiedAgentEngine {
             // 后续轮：工具结果/指令 + 工具名速查（极小）
             sb.append(userMessage);
             sb.append("\n\n[工具速查] ").append(buildToolNamesOnly());
-            sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
+            sb.append("\n如需调用工具，使用原生 function calling 直接输出工具调用。");
         }
         return sb.toString();
     }
@@ -1502,18 +1698,10 @@ public class UnifiedAgentEngine {
             if (isCancelled.get()) { finishGeneration(); return; }
 
             // ========== 参数检查 ==========
-            Map<String, Object> params = validateAndPrepareToolCall(call);
+            Map<String, Object> params = validateAndPrepareToolCall(call, maxTokens);
             if (params == null) {
-                AILogger.w(TAG, "用户取消了工具调用: " + call.name);
-                activity.runOnUiThread(() -> {
-                    if (callback != null) {
-                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
-                    }
-                });
-                contextSummary.add("工具结果: 用户取消");
-                String nextPrompt = "[继续] 用户取消了工具调用，请基于已有信息继续推理并给出最终答案。";
-                resetBuffers();
-                executeCoTLoop(nextPrompt, maxTokens, false);
+                // null = 参数缺失，已转入"模型自主调用补充工具"的 ReAct 循环（内部已启动）
+                AILogger.i(TAG, "工具 " + call.name + " 参数待补充，已转入自主获取流程");
                 return;
             }
 
@@ -1636,11 +1824,8 @@ public class UnifiedAgentEngine {
 
         sb.append("=== 可用工具 ===\n");
         sb.append(buildToolListBrief());
-        sb.append("\n=== 工具调用格式 ===\n");
-        sb.append("执行步骤时如需调用工具，使用以下格式：\n");
-        sb.append("TOOLS_CALL\n");
-        sb.append("{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("TOOLS_END\n");
+        sb.append("\n=== 工具调用 ===\n");
+        sb.append("执行步骤时如需调用工具，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n");
         sb.append("\n=== 原始任务 ===\n");
         sb.append(userMessage);
         sb.append("\n\n请先制定执行计划：");
@@ -1735,17 +1920,10 @@ public class UnifiedAgentEngine {
             if (isCancelled.get()) { finishGeneration(); return; }
 
             // ========== 参数检查 ==========
-            Map<String, Object> params = validateAndPrepareToolCall(call);
+            Map<String, Object> params = validateAndPrepareToolCall(call, maxTokens);
             if (params == null) {
-                AILogger.w(TAG, "用户取消了工具调用: " + call.name);
-                activity.runOnUiThread(() -> {
-                    if (callback != null) {
-                        callback.onToolCallComplete(call.name, OnlineToolResult.failure(null, call.name, "用户取消", 0));
-                    }
-                });
-                // 继续下一步
-                resetBuffers();
-                executePlanStep(plan, index + 1, maxTokens, originalMessage, intent, multiIntent);
+                // null = 参数缺失，已转入"模型自主调用补充工具"的 ReAct 循环（内部已启动）
+                AILogger.i(TAG, "工具 " + call.name + " 参数待补充，已转入自主获取流程");
                 return;
             }
 
@@ -2112,7 +2290,7 @@ public class UnifiedAgentEngine {
      * @param call 工具调用信息
      * @return 验证通过后的参数，如果用户取消则返回 null
      */
-    private Map<String, Object> validateAndPrepareToolCall(AgentService.ToolCall call) {
+    private Map<String, Object> validateAndPrepareToolCall(AgentService.ToolCall call, int maxTokens) {
         // 解析参数
         Map<String, Object> params = call.resolvedArgs != null
             ? call.resolvedArgs
@@ -2122,35 +2300,34 @@ public class UnifiedAgentEngine {
         List<String> missingParams = checkMissingParams(call.name, params);
 
         if (!missingParams.isEmpty()) {
-            AILogger.i(TAG, "工具 " + call.name + " 缺失参数: " + String.join(", ", missingParams));
+            AILogger.i(TAG, "工具 " + call.name + " 缺失参数: " + String.join(", ", missingParams)
+                    + "，引导模型通过其他工具自主获取");
 
-            // 暂停执行并请求用户补充参数
-            pauseExecution(
-                "参数缺失: " + String.join(", ", missingParams),
-                "执行工具 " + call.name,
-                params,
-                call.name
-            );
-
-            // 等待用户输入
-            waitForUserInput();
-
-            // 如果用户取消，返回 null
-            if (executionState.get() == ExecutionState.CANCELLED) {
-                AILogger.i(TAG, "用户取消了工具调用: " + call.name);
-                return null;
-            }
-
-            // 使用用户补充的参数
-            Map<String, Object> resultParams = suspendedParams.get();
-            if (resultParams == null) {
-                AILogger.w(TAG, "用户补充的参数为空，使用原参数");
-                return params;
-            }
-            return resultParams;
+            // 不打断用户：把"参数缺失"作为观察结果反馈给模型，
+            // 让它继续调用补充工具（如 location 获取当前位置）或从用户消息提取参数后重试。
+            contextSummary.add("工具结果[" + call.name + "]: 缺少参数 " + String.join(", ", missingParams));
+            String missingPrompt = buildMissingParamsPrompt(call.name, missingParams);
+            resetBuffers();
+            executeReActLoop(missingPrompt, maxTokens, false);
+            return null; // 已转入新的 ReAct 循环，调用方应停止本轮工具处理
         }
 
         return params;
+    }
+
+    /**
+     * 构建参数缺失提示：反馈给模型，引导其通过其他工具自主获取所需参数。
+     */
+    private String buildMissingParamsPrompt(String toolName, List<String> missingParams) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[参数缺失]\n");
+        sb.append("工具 ").append(toolName).append(" 需要参数: ").append(String.join(", ", missingParams)).append("\n");
+        sb.append("当前参数不足，无法执行该工具。\n");
+        sb.append("请选择以下方式继续：\n");
+        sb.append("1. 先调用其他工具获取所需信息（例如调用 location 工具获取当前位置，再调用天气工具）\n");
+        sb.append("2. 从用户消息中提取所需参数后重新调用工具\n");
+        sb.append("3. 如果确实无法获取，再向用户说明并请求补充。\n");
+        return sb.toString();
     }
 
     /**
@@ -2521,7 +2698,7 @@ public class UnifiedAgentEngine {
         }
         sb.append("\n请判断以上工具是否适合完成当前任务。如适合请调用，不适合可直接回答用户。\n\n");
         sb.append("[工具速查] ").append(buildToolNamesOnly());
-        sb.append("\n如需调用工具，使用 TOOLS_CALL/TOOLS_END 格式。");
+        sb.append("\n如需调用工具，使用原生 function calling 直接输出工具调用。");
         sb.append("\n如需了解某工具的详细参数，输出 [TOOL_INFO: 工具名]。");
         sb.append("\n如需查看完整工具调用指南，输出 [TOOL_GUIDE]。");
         return sb.toString();
@@ -2635,7 +2812,7 @@ public class UnifiedAgentEngine {
         } else {
             sb.append("[工具详情]\n").append(detail).append("\n");
         }
-        sb.append("\n请根据以上信息，决定是否调用该工具。如需调用，使用 TOOLS_CALL/TOOLS_END 格式。");
+        sb.append("\n请根据以上信息，决定是否调用该工具。如需调用，使用原生 function calling 直接输出工具调用。");
         return sb.toString();
     }
 
@@ -2678,25 +2855,209 @@ public class UnifiedAgentEngine {
             return analysis;
         }
 
-        // 检查结果是否太短（可能是无效结果）
-        if (toolResult.length() < 10 && !toolName.contains("calculator")) {
-            analysis.sufficient = false;
-            analysis.reason = "工具返回结果过短，可能不是有效结果";
-            analysis.suggestion = "请检查参数或尝试更详细的查询";
-            return analysis;
+        // ========== 多维度置信度判定（不依赖文本长度） ==========
+        // 依据：错误标记 / 空白 JSON 空壳 / 关键字段完整性 / 与用户问题相关性
+        double confidence = 0.9; // 起始置信度，逐维扣分
+        StringBuilder doubts = new StringBuilder();
+
+        // 1. 结果内容含错误标记
+        if (containsErrorMarker(toolResult)) {
+            confidence -= CONFIDENCE_PENALTY_ERROR;
+            doubts.append("结果含错误标记; ");
         }
 
-        // 默认认为结果可用，让AI判断是否需要继续
-        analysis.sufficient = true;
-        analysis.reason = "工具执行成功，结果已获取";
+        // 2. 结果实质为空（空白 JSON 空壳 / 空数组）
+        if (isEffectivelyEmptyResult(toolResult)) {
+            confidence -= CONFIDENCE_PENALTY_EMPTY;
+            doubts.append("结果为空壳; ");
+        }
+
+        // 3. 按工具名硬编码检查关键字段
+        String missingField = findMissingKeyField(toolName, toolResult);
+        if (missingField != null) {
+            confidence -= CONFIDENCE_PENALTY_MISSING_FIELD;
+            doubts.append("缺少关键字段 ").append(missingField).append("; ");
+        }
+
+        // 4. 结果与用户问题的相关性
+        double relevance = computeRelevance(userMessage, toolResult);
+        if (relevance < RELEVANCE_LOW_THRESHOLD) {
+            confidence -= CONFIDENCE_PENALTY_IRRELEVANT;
+            doubts.append("与用户问题相关性低(").append(String.format("%.0f%%", relevance * 100)).append("); ");
+        }
+
+        confidence = Math.max(0.05, Math.min(1.0, confidence));
+
+        analysis.confidence = confidence;
+        analysis.sufficient = confidence >= SUFFICIENT_CONFIDENCE_THRESHOLD;
+        if (analysis.sufficient) {
+            analysis.reason = "工具执行成功，结果已获取（置信度 "
+                    + String.format("%.0f%%", confidence * 100) + "）";
+        } else {
+            analysis.reason = "工具结果不充分（置信度 "
+                    + String.format("%.0f%%", confidence * 100) + "）: " + doubts;
+            analysis.suggestion = "请调整查询条件重试，或尝试其他工具";
+        }
         analysis.summarizedResult = toolResult;
         return analysis;
+    }
+
+    /**
+     * 检测工具结果文本中的错误标记（内容本身表达失败，而非执行异常）。
+     */
+    private boolean containsErrorMarker(String toolResult) {
+        if (toolResult == null) return false;
+        String lower = toolResult.toLowerCase();
+        String[] markers = {
+            "\"status\":\"error\"", "\"status\": \"error\"", "\"error\":", "\"error_message\":",
+            "查询失败", "获取失败", "执行失败", "调用失败", "请求失败",
+            "失败：", "失败:", "异常", "错误码", "无效",
+            "not found", "unavailable", "no result"
+        };
+        for (String m : markers) {
+            if (lower.contains(m)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 检测结果是否实质为空：空白文本、{}、[]、或只含 code/status/msg 等元信息而无数据字段。
+     */
+    private boolean isEffectivelyEmptyResult(String toolResult) {
+        if (toolResult == null || toolResult.trim().isEmpty()) return true;
+        String trimmed = toolResult.trim();
+        try {
+            if (trimmed.startsWith("{")) {
+                JSONObject obj = new JSONObject(trimmed);
+                if (obj.length() == 0) return true;
+                // 仅含元信息字段（code/status/msg/message/success），无实际数据 → 空壳
+                int dataFieldCount = 0;
+                java.util.Iterator<String> keys = obj.keys();
+                while (keys.hasNext()) {
+                    String k = keys.next().toLowerCase();
+                    if (!k.equals("code") && !k.equals("status") && !k.equals("msg")
+                            && !k.equals("message") && !k.equals("success")) {
+                        dataFieldCount++;
+                    }
+                }
+                return dataFieldCount == 0;
+            }
+            if (trimmed.startsWith("[")) {
+                JSONArray arr = new JSONArray(trimmed);
+                return arr.length() == 0;
+            }
+        } catch (Exception e) {
+            // 非 JSON 文本，不按空壳处理
+        }
+        return false;
+    }
+
+    /**
+     * 计算工具结果与用户问题的相关性（0.0~1.0）。
+     * 词袋命中率：从用户消息提取关键词（英文单词 + 中文 bigram），统计命中结果的比例。
+     */
+    private double computeRelevance(String userMessage, String toolResult) {
+        if (userMessage == null || userMessage.isEmpty()) return 0.5; // 无参考，给中性分
+        if (toolResult == null || toolResult.isEmpty()) return 0.0;
+        Set<String> keywords = extractKeywords(userMessage);
+        if (keywords.isEmpty()) return 0.5;
+        String res = toolResult.toLowerCase();
+        int hit = 0;
+        for (String kw : keywords) {
+            if (res.contains(kw)) hit++;
+        }
+        return (double) hit / keywords.size();
+    }
+
+    /**
+     * 从用户消息提取关键词：英文单词（>=2 字符）+ 中文 bigram（去掉停用词）。
+     */
+    private Set<String> extractKeywords(String text) {
+        Set<String> keywords = new HashSet<>();
+        if (text == null) return keywords;
+        String lower = text.toLowerCase();
+        // 英文单词
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[a-z]{2,}").matcher(lower);
+        while (m.find()) {
+            String w = m.group();
+            if (!STOP_WORDS.contains(w)) keywords.add(w);
+        }
+        // 中文 bigram
+        char[] chars = lower.toCharArray();
+        for (int i = 0; i < chars.length - 1; i++) {
+            if (Character.UnicodeScript.of(chars[i]) == Character.UnicodeScript.HAN
+                    && Character.UnicodeScript.of(chars[i + 1]) == Character.UnicodeScript.HAN) {
+                String bigram = new String(chars, i, 2);
+                if (!STOP_WORDS.contains(bigram)) keywords.add(bigram);
+            }
+        }
+        return keywords;
+    }
+
+    /**
+     * 按工具名硬编码检查结果关键字段。
+     * @return 缺失的字段描述；结果看起来完整时返回 null
+     */
+    private String findMissingKeyField(String toolName, String toolResult) {
+        if (toolResult == null) return null;
+        String tn = toolName == null ? "" : toolName;
+
+        if (tn.contains("weather")) {
+            // 天气：需含城市/天气/温度/formatted_result 任一
+            if (!(toolResult.contains("\"temperature\"") || toolResult.contains("\"temp\"")
+                    || toolResult.contains("\"weather\"") || toolResult.contains("\"city\"")
+                    || toolResult.contains("formatted_result") || toolResult.contains("°"))) {
+                return "天气数据(temperature/weather/city)";
+            }
+            return null;
+        }
+
+        if (tn.contains("search")) {
+            // 搜索：需含 results/items/data/title 任一
+            if (!(toolResult.contains("\"results\"") || toolResult.contains("\"items\"")
+                    || toolResult.contains("\"data\"") || toolResult.contains("\"title\"")
+                    || toolResult.contains("搜索结果"))) {
+                return "搜索结果(results/title)";
+            }
+            return null;
+        }
+
+        if (tn.contains("calculate") || tn.contains("calculator")) {
+            // 计算：需含 result/value 键，或直接包含数值
+            if (!(toolResult.contains("\"result\"") || toolResult.contains("\"value\"")
+                    || toolResult.matches(".*[-+]?\\d+(?:\\.\\d+)?"))) {
+                return "计算结果(result/value)";
+            }
+            return null;
+        }
+
+        if (tn.contains("translation") || tn.contains("translate")) {
+            // 翻译：需含译文
+            if (!(toolResult.contains("\"translation\"") || toolResult.contains("\"translated\"")
+                    || toolResult.contains("译文"))) {
+                return "译文(translation)";
+            }
+            return null;
+        }
+
+        if (tn.contains("location") || tn.contains("loc")) {
+            // 位置：需含坐标或地址
+            if (!(toolResult.contains("\"latitude\"") || toolResult.contains("\"longitude\"")
+                    || toolResult.contains("\"address\"") || toolResult.contains("纬度"))) {
+                return "位置信息(latitude/longitude/address)";
+            }
+            return null;
+        }
+
+        return null; // 未知工具默认足够，交给 LLM 判断
     }
 
     /**
      * 工具结果分析类
      */
     private static class ToolResultAnalysis {
+        /** 结果置信度 0.0~1.0，由错误标记/空壳/关键字段/相关性多维扣分得出 */
+        double confidence = 0.9;
         boolean sufficient = true;
         String reason = "";
         String suggestion = "";
@@ -2715,13 +3076,42 @@ public class UnifiedAgentEngine {
     }
 
     private static class NativeToolCall {
+        final String id;
         final String name;
         final String argsStr;
         final JSONObject argsJson;
         NativeToolCall(String name, String argsStr, JSONObject argsJson) {
+            this.id = null;
             this.name = name;
             this.argsStr = argsStr;
             this.argsJson = argsJson;
+        }
+        NativeToolCall(String id, String name, String argsStr, JSONObject argsJson) {
+            this.id = id;
+            this.name = name;
+            this.argsStr = argsStr;
+            this.argsJson = argsJson;
+        }
+    }
+
+    /**
+     * 原生推理结果：分离思考内容和回答内容
+     */
+    private static class NativeGenerateResult {
+        String content;
+        String thinking;
+        List<NativeToolCall> toolCalls;
+
+        NativeGenerateResult(String content, String thinking) {
+            this.content = content;
+            this.thinking = thinking;
+            this.toolCalls = null;
+        }
+
+        NativeGenerateResult(String content, String thinking, List<NativeToolCall> toolCalls) {
+            this.content = content;
+            this.thinking = thinking;
+            this.toolCalls = toolCalls;
         }
     }
 
@@ -2732,7 +3122,9 @@ public class UnifiedAgentEngine {
         StringBuilder sb = new StringBuilder();
         sb.append("关于「").append(truncateForContext(userMessage, 100)).append("」\n");
         boolean hasToolResult = false;
+        AILogger.i(TAG, "buildNativeFallback: history size=" + history.size());
         for (NativeChatMsg m : history) {
+            AILogger.i(TAG, "  history[" + m.role + "]: " + truncateForContext(m.content, 100));
             if ("tool".equals(m.role)) {
                 hasToolResult = true;
                 break;
@@ -2747,6 +3139,7 @@ public class UnifiedAgentEngine {
                 }
             }
         } else {
+            AILogger.e(TAG, "buildNativeFallback: NO tool results found, returning generic message");
             sb.append("我暂时无法提供详细回答。");
         }
         return sb.toString();
@@ -2829,6 +3222,11 @@ public class UnifiedAgentEngine {
         onlineModelConversationHistory.clear();
         cleanupAfterCompletion();
         AILogger.i(TAG, "Context and online model history cleared");
+    }
+
+    /** 清空对话历史（别名，供 AgentRouter 统一调用） */
+    public void clearHistory() {
+        clearContext();
     }
 
     public List<String> getContextSummaryList() {

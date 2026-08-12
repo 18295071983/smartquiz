@@ -131,39 +131,17 @@ public class LongImageExporter implements Exporter {
                 y += questionTextLayout.getHeight() + padding / 2;
             }
 
-            // 绘制选项
+            // 绘制选项（A~L 动态渲染）
             if (question.hasOptions()) {
-                if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                    StaticLayout optionALayout = new StaticLayout("A. " + question.getOptionA(), textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+                for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                    Object optionValue = ExportUtils.getOptionValue(question, o);
+                    if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                    StaticLayout optionLayout = new StaticLayout(ExportUtils.OPTION_LABELS[o] + ". " + optionValue, textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
                     canvas.save();
                     canvas.translate(padding + 20, y);
-                    optionALayout.draw(canvas);
+                    optionLayout.draw(canvas);
                     canvas.restore();
-                    y += optionALayout.getHeight() + padding / 4;
-                }
-                if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                    StaticLayout optionBLayout = new StaticLayout("B. " + question.getOptionB(), textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
-                    canvas.save();
-                    canvas.translate(padding + 20, y);
-                    optionBLayout.draw(canvas);
-                    canvas.restore();
-                    y += optionBLayout.getHeight() + padding / 4;
-                }
-                if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                    StaticLayout optionCLayout = new StaticLayout("C. " + question.getOptionC(), textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
-                    canvas.save();
-                    canvas.translate(padding + 20, y);
-                    optionCLayout.draw(canvas);
-                    canvas.restore();
-                    y += optionCLayout.getHeight() + padding / 4;
-                }
-                if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                    StaticLayout optionDLayout = new StaticLayout("D. " + question.getOptionD(), textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
-                    canvas.save();
-                    canvas.translate(padding + 20, y);
-                    optionDLayout.draw(canvas);
-                    canvas.restore();
-                    y += optionDLayout.getHeight() + padding / 4;
+                    y += optionLayout.getHeight() + padding / 4;
                 }
             }
 
@@ -241,22 +219,12 @@ public class LongImageExporter implements Exporter {
                 height += lines * textSize * 1.5;
             }
 
-            // 选项高度
+            // 选项高度（A~L 动态计算）
             if (question.hasOptions()) {
-                if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                    int lines = (int) Math.ceil((float) (question.getOptionA().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
-                    height += lines * textSize * 1.2;
-                }
-                if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                    int lines = (int) Math.ceil((float) (question.getOptionB().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
-                    height += lines * textSize * 1.2;
-                }
-                if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                    int lines = (int) Math.ceil((float) (question.getOptionC().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
-                    height += lines * textSize * 1.2;
-                }
-                if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                    int lines = (int) Math.ceil((float) (question.getOptionD().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
+                for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                    Object optionValue = ExportUtils.getOptionValue(question, o);
+                    if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                    int lines = (int) Math.ceil((float) (optionValue.toString().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
                     height += lines * textSize * 1.2;
                 }
             }

@@ -436,6 +436,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.statusIcon.setImageResource(R.drawable.ic_error);
             holder.statusIcon.setColorFilter(holder.itemView.getContext().getColor(R.color.error));
         }
+
+        // 渲染用户消息中的附件（图片等）
+        bindUserAttachments(holder, message);
     }
 
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr) {
@@ -465,6 +468,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             });
 
+            if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(v -> {
+                if (actionClickListener != null) {
+                    actionClickListener.onAction(ChatMessage.Action.speak(message.id, message.content));
+                }
+            });
+
             if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
                 shareText(v.getContext(), message.content);
             });
@@ -484,6 +493,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.GONE);
             // 清除按钮点击事件，避免 ViewHolder 复用时旧消息的监听器残留
             if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(null);
+            if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(null);
             if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
             if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
             if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
@@ -513,8 +523,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return;
             }
 
-            // 设置思考内容，保持换行格式
-            holder.thinkingContent.setText(cleanedContent);
+            // 设置思考内容：使用与正文一致的 Markdown 渲染，支持列表/代码块等格式
+            holder.thinkingContent.setText(formatMessageContent(cleanedContent));
+            holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
             // 根据 message.thinkingExpanded 决定展开/折叠
             // 流式中也允许折叠（遵循用户默认折叠的需求）
@@ -1039,6 +1050,30 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }, iconIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             iconIndex = message.content.indexOf("帮助图标", endIndex);
+        }
+        
+        // 查找并设置可点击的"🚀 强行使用本地Agent"文本（本地Agent拦截引导消息）
+        final String forceAgentKey = "🚀 强行使用本地Agent";
+        int forceIndex = message.content.indexOf(forceAgentKey);
+        if (forceIndex >= 0) {
+            int endIndex = forceIndex + forceAgentKey.length();
+            final String payload = message.actionPayload;
+            spannable.setSpan(new android.text.style.ClickableSpan() {
+                @Override
+                public void onClick(View widget) {
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.forceLocalAgent(payload));
+                    }
+                }
+
+                @Override
+                public void updateDrawState(android.text.TextPaint ds) {
+                    super.updateDrawState(ds);
+                    ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
+                    ds.setUnderlineText(true);
+                    ds.setFakeBoldText(true);
+                }
+            }, forceIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         
         holder.messageText.setText(spannable);
@@ -1655,6 +1690,54 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.attachmentClickListener = listener;
     }
 
+    /**
+     * 绑定用户消息中的附件（图片预览等）
+     */
+    private void bindUserAttachments(UserMessageViewHolder holder, ChatMessage message) {
+        if (holder.attachmentsRecycler == null) return;
+
+        if (message.attachments != null && !message.attachments.isEmpty()) {
+            holder.attachmentsRecycler.setVisibility(View.VISIBLE);
+
+            boolean hasMultipleImages = message.attachments.stream().allMatch(a -> a.isImage()) && message.attachments.size() > 1;
+            boolean needGridLayout = hasMultipleImages;
+            boolean isCurrentGrid = holder.attachmentsRecycler.getLayoutManager()
+                    instanceof androidx.recyclerview.widget.GridLayoutManager;
+
+            if (needGridLayout && !isCurrentGrid) {
+                androidx.recyclerview.widget.GridLayoutManager gridLayout =
+                    new androidx.recyclerview.widget.GridLayoutManager(
+                        holder.itemView.getContext(),
+                        message.attachments.size() > 4 ? 2 : Math.min(2, message.attachments.size()));
+                holder.attachmentsRecycler.setLayoutManager(gridLayout);
+            } else if (!needGridLayout && isCurrentGrid) {
+                androidx.recyclerview.widget.LinearLayoutManager linearLayout =
+                    new androidx.recyclerview.widget.LinearLayoutManager(holder.itemView.getContext());
+                holder.attachmentsRecycler.setLayoutManager(linearLayout);
+            } else if (holder.attachmentsRecycler.getLayoutManager() == null) {
+                androidx.recyclerview.widget.LinearLayoutManager linearLayout =
+                    new androidx.recyclerview.widget.LinearLayoutManager(holder.itemView.getContext());
+                holder.attachmentsRecycler.setLayoutManager(linearLayout);
+            }
+
+            MessageAttachmentAdapter attachmentAdapter = null;
+            if (holder.attachmentsRecycler.getAdapter() instanceof MessageAttachmentAdapter) {
+                attachmentAdapter = (MessageAttachmentAdapter) holder.attachmentsRecycler.getAdapter();
+            } else {
+                attachmentAdapter = new MessageAttachmentAdapter();
+                attachmentAdapter.setOnAttachmentClickListener(attachmentClickListener);
+                holder.attachmentsRecycler.setAdapter(attachmentAdapter);
+            }
+
+            attachmentAdapter.setAttachments(message.attachments);
+        } else {
+            holder.attachmentsRecycler.setVisibility(View.GONE);
+            if (holder.attachmentsRecycler.getAdapter() != null) {
+                holder.attachmentsRecycler.setAdapter(null);
+            }
+        }
+    }
+
     private void bindAttachments(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.attachmentsRecycler == null) return;
 
@@ -1843,6 +1926,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView timestampText;
         ImageView statusIcon;
         TextView statusText;
+        androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
 
         UserMessageViewHolder(View itemView) {
             super(itemView);
@@ -1851,6 +1935,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             timestampText = itemView.findViewById(R.id.timestamp_text);
             statusIcon = itemView.findViewById(R.id.status_icon);
             statusText = itemView.findViewById(R.id.status_text);
+            attachmentsRecycler = itemView.findViewById(R.id.attachments_recycler);
         }
     }
 
@@ -1861,6 +1946,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView thinkingContent;
         View actionButtons;
         TextView btnCopy;
+        TextView btnSpeak;
         TextView btnShare;
         TextView btnRegenerate;
         TextView btnNewChat;
@@ -1887,6 +1973,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             thinkingContent = itemView.findViewById(R.id.thinking_content);
             actionButtons = itemView.findViewById(R.id.action_buttons);
             btnCopy = itemView.findViewById(R.id.btn_copy);
+            btnSpeak = itemView.findViewById(R.id.btn_speak);
             btnShare = itemView.findViewById(R.id.btn_share);
             btnRegenerate = itemView.findViewById(R.id.btn_regenerate);
             btnNewChat = itemView.findViewById(R.id.btn_new_chat);

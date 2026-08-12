@@ -24,11 +24,17 @@ import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.model.ImportHistory;
 import com.oilquiz.app.repository.ImportHistoryRepository;
 import com.oilquiz.app.database.DatabaseManager;
+import com.oilquiz.app.ai.importing.SqlFileImporter;
+import com.oilquiz.app.ai.importing.v2.ImportDirs;
+import com.oilquiz.app.ai.importing.v2.ImportMain;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -52,6 +58,19 @@ public class ImportActivity extends BaseActivity {
     private MaterialButton selectFileButton;
     private MaterialButton buttonCancel;
     private MaterialButton buttonAIParse;
+
+    // 流式日志与结果摘要组件
+    private TextView importLogText;
+    private android.widget.ScrollView logScrollView;
+    private CardView summaryCard;
+    private TextView summaryText;
+    /** 导入已结束（完成/出错）：页面停留展示摘要，底部按钮变为“关闭”，由用户手动退出 */
+    private volatile boolean v2Finished;
+    private int logLineCount;
+    /** 进度日志节流：相同百分比不重复刷日志，避免海量进度回调淹没关键信息 */
+    private String lastLoggedProgress = "";
+    private static final int MAX_LOG_LINES = 400;
+    private final SimpleDateFormat logTimeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
     
     // 统计信息
     private int totalQuestions = 0;
@@ -94,6 +113,10 @@ public class ImportActivity extends BaseActivity {
         progressText = findViewById(R.id.importProgressText);
         buttonCancel = findViewById(R.id.btnCancel);
         buttonAIParse = findViewById(R.id.buttonAIParse);
+        importLogText = findViewById(R.id.importLogText);
+        logScrollView = findViewById(R.id.logScrollView);
+        summaryCard = findViewById(R.id.summaryCard);
+        summaryText = findViewById(R.id.summaryText);
         
         // 初始化进度显示
         resetProgressDisplay();
@@ -112,15 +135,204 @@ public class ImportActivity extends BaseActivity {
         buttonCancel.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // 取消导入操作
+                // 导入已结束后按钮语义为“关闭”：页面停留展示摘要，用户手动退出
+                if (v2Finished) {
+                    finish();
+                    return;
+                }
+                // 取消导入操作（传统流程 + v2 批量管线均支持中途取消）
                 ExcelUtil.cancelImport();
+                if (v2ImportMain != null) {
+                    v2ImportMain.cancel();
+                }
+                appendLog("用户取消导入");
                 Toast.makeText(ImportActivity.this, "导入已取消", Toast.LENGTH_SHORT).show();
                 finish();
             }
         });
 
+        // source 目录一键批量导入模式（由导入引导页携带 EXTRA 启动）
+        if (getIntent().getBooleanExtra(EXTRA_SOURCE_DIR_MODE, false)) {
+            // 立即消费 EXTRA：Activity 因配置变化重建时 onCreate 会携带同一 Intent 重走，
+            // 移除后避免同一次启动请求被重复执行两遍批量导入
+            getIntent().removeExtra(EXTRA_SOURCE_DIR_MODE);
+            startSourceDirImport();
+            return;
+        }
+
         // 直接开始导入
         importQuestions();
+    }
+
+    /** 启动参数：true 时跳过文件选择器，直接批量导入公共 source 目录全部题库文件 */
+    public static final String EXTRA_SOURCE_DIR_MODE = "extra_source_dir_mode";
+
+    /** 批量模式汇总统计 */
+    private long batchImported;
+    private long batchDuplicated;
+    private long batchFailed;
+    private int batchFilesDone;
+    private int batchFileErrors;
+    /** 缺字段引导文案（导入层生成，汇总弹窗展示） */
+    private String batchIssuesMessage;
+
+    /**
+     * source 目录一键导入：扫描 /storage/emulated/0/OilQuiz/source/ 下全部题库文件
+     * 依次走 v2 管线，实时展示进度，结束后弹窗汇总；单文件失败不中断整批。
+     */
+    private void startSourceDirImport() {
+        batchImported = 0;
+        batchDuplicated = 0;
+        batchFailed = 0;
+        batchFilesDone = 0;
+        batchFileErrors = 0;
+        batchIssuesMessage = null;
+
+        resetImportLogState();
+        updateProgressDisplay("扫描 source 目录: " + ImportDirs.sourceDir().getAbsolutePath(), 0, 0);
+        appendLog("开始扫描 source 目录: " + ImportDirs.sourceDir().getAbsolutePath());
+        v2ImportMain = new ImportMain(this);
+        v2ImportMain.runAllFromSourceDir(new ImportMain.ImportListener() {
+            @Override
+            public void onStage(String stage, String message) {
+                if ("all-done".equals(stage)) {
+                    // 结束后不再弹框退出：页内展示结果摘要，用户手动关闭页面
+                    showBatchResultSummary();
+                } else {
+                    if ("issues".equals(stage)) {
+                        // 缺字段引导：记录并在结果摘要展示，引导用户修复后重导
+                        batchIssuesMessage = message;
+                    }
+                    appendLog(message);
+                    updateProgressDisplay(message, 0, 0);
+                }
+            }
+
+            @Override
+            public void onLog(String message) {
+                appendLog(message);
+                updateProgressDisplay(message, 0, 0);
+            }
+
+            @Override
+            public void onProgress(long current, long total, String detail) {
+                int c = (int) Math.min(current, Integer.MAX_VALUE);
+                int t = total > Integer.MAX_VALUE ? 0 : (int) Math.max(total, 1);
+                appendProgressLog(detail, current, total);
+                updateProgressDisplay(detail + " " + current + "/" + total, c, t);
+            }
+
+            @Override
+            public void onComplete(ImportMain.ImportSummary summary) {
+                // 单文件完成：累计汇总并记日志（等 all-done 统一展示摘要）
+                batchFilesDone++;
+                batchImported += summary.imported;
+                batchDuplicated += summary.duplicated;
+                batchFailed += summary.failed;
+                appendLog("✔ 文件完成: 新增 " + summary.imported + " / 重复 " + summary.duplicated
+                        + " / 失败 " + summary.failed + " (耗时 " + (summary.elapsedMs / 1000) + "s)");
+                updateStatsDisplay((int) Math.min(batchImported, Integer.MAX_VALUE),
+                        (int) Math.min(batchFailed, Integer.MAX_VALUE),
+                        (int) Math.min(batchImported + batchFailed + batchDuplicated, Integer.MAX_VALUE));
+                updateProgressDisplay("已完成 " + batchFilesDone + " 个文件（新增 "
+                        + batchImported + " 题）", 0, 0);
+            }
+
+            @Override
+            public void onError(String message) {
+                // 批量模式单文件错误不致命：记录并继续，等 all-done 汇总
+                batchFileErrors++;
+                appendLog("⚠ " + message);
+                updateProgressDisplay("⚠ " + message, 0, 0);
+                android.util.Log.w(TAG, "批量导入错误(" + batchFileErrors + "): " + message);
+            }
+        });
+    }
+
+    /**
+     * 批量导入结束：页内停留展示结果摘要（不再弹框后自动退出），
+     * 底部按钮切换为“关闭”，由用户确认后手动关闭页面。
+     */
+    private void showBatchResultSummary() {
+        String msg = "共处理 " + batchFilesDone + " 个文件\n"
+                + "✅ 新增 " + batchImported + " 题\n"
+                + "重复跳过 " + batchDuplicated + " 题\n"
+                + "失败 " + batchFailed + " 题"
+                + (batchFileErrors > 0 ? "\n⚠ 另有 " + batchFileErrors + " 个文件/阶段出错" : "")
+                + (batchIssuesMessage != null ? "\n\n" + batchIssuesMessage : "");
+        appendLog("══ 批量导入结束 ══");
+        showImportResultSummary("✅ source 目录批量导入完成", msg);
+    }
+
+    /**
+     * 页内展示导入结果摘要并切换到“已结束”状态：
+     * 进度条满格、显示摘要卡片、底部按钮变“关闭”，页面停留等待用户手动退出。
+     */
+    private void showImportResultSummary(String title, String msg) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            v2Finished = true;
+            statusText.setText(title);
+            progressText.setText("导入结束，请查看结果摘要");
+            progressBarHorizontal.setProgress(100);
+            if (summaryText != null) summaryText.setText(msg);
+            if (summaryCard != null) summaryCard.setVisibility(View.VISIBLE);
+            buttonCancel.setText("关闭");
+            // “开始导入”按钮在该页未绑定逻辑，结束后隐藏避免误解
+            MaterialButton startBtn = findViewById(R.id.btnStartImport);
+            if (startBtn != null) startBtn.setVisibility(View.GONE);
+        });
+    }
+
+    /** 新导入启动前重置流式日志/摘要/按钮状态，避免上一次导入的残留展示 */
+    private void resetImportLogState() {
+        v2Finished = false;
+        logLineCount = 0;
+        lastLoggedProgress = "";
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (importLogText != null) importLogText.setText("等待导入开始...");
+            if (summaryCard != null) summaryCard.setVisibility(View.GONE);
+            buttonCancel.setText("取消");
+            MaterialButton startBtn = findViewById(R.id.btnStartImport);
+            if (startBtn != null) startBtn.setVisibility(View.VISIBLE);
+        });
+    }
+
+    /**
+     * 流式日志追加：带时间戳写入日志控制台并自动滚动到底部。
+     * 超过 MAX_LOG_LINES 时裁剪最早行，防止长时间批量导入内存/渲染压力。
+     */
+    private void appendLog(String message) {
+        if (message == null || message.isEmpty()) return;
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || importLogText == null) return;
+            CharSequence cur = importLogText.getText();
+            String base = (cur == null || "等待导入开始...".contentEquals(cur)) ? "" : cur + "\n";
+            String line = "[" + logTimeFmt.format(new Date()) + "] " + message;
+            logLineCount++;
+            String next = base + line;
+            if (logLineCount > MAX_LOG_LINES) {
+                int idx = next.indexOf('\n');
+                if (idx > 0 && idx < next.length() - 1) {
+                    next = next.substring(idx + 1);
+                    logLineCount--;
+                }
+            }
+            importLogText.setText(next);
+            if (logScrollView != null) {
+                logScrollView.post(() -> logScrollView.fullScroll(View.FOCUS_DOWN));
+            }
+        });
+    }
+
+    /** 进度回调节流写日志：同一百分比只记录一次，保留关键节点不刷屏 */
+    private void appendProgressLog(String detail, long current, long total) {
+        int pct = total > 0 ? (int) (current * 100 / total) : -1;
+        String key = detail + "#" + pct;
+        if (key.equals(lastLoggedProgress)) return;
+        lastLoggedProgress = key;
+        appendLog(detail + " " + current + "/" + total + (pct >= 0 ? " (" + pct + "%)" : ""));
     }
     
     private void resetProgressDisplay() {
@@ -236,10 +448,24 @@ public class ImportActivity extends BaseActivity {
     }
 
     private void importQuestions() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
+        // SAF 规范：优先 ACTION_OPEN_DOCUMENT；部分厂商（如小米文件管理器 Provider）
+        // 可能拒绝或崩溃，捕获后降级为 ACTION_GET_CONTENT，禁止硬编码第三方 Provider URI
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "ACTION_OPEN_DOCUMENT 启动失败，降级为 ACTION_GET_CONTENT: " + e.getMessage());
+            try {
+                Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+                fallback.addCategory(Intent.CATEGORY_OPENABLE);
+                fallback.setType("*/*");
+                startActivityForResult(fallback, REQUEST_CODE_PICK_FILE);
+            } catch (Exception ex) {
+                Toast.makeText(this, "无法打开文件选择器: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        }
     }
     
     private void showProgressCard(String status) {
@@ -288,15 +514,20 @@ public class ImportActivity extends BaseActivity {
         String fileName = null;
         String scheme = uri.getScheme();
         if ("content".equals(scheme)) {
-            ContentResolver contentResolver = getContentResolver();
-            String[] projection = {android.provider.MediaStore.MediaColumns.DISPLAY_NAME};
-            android.database.Cursor cursor = contentResolver.query(uri, projection, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                int columnIndex = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DISPLAY_NAME);
-                if (columnIndex != -1) {
-                    fileName = cursor.getString(columnIndex);
+            // 兜底 try-catch SecurityException：部分厂商 Provider 可能拒绝查询
+            try {
+                ContentResolver contentResolver = getContentResolver();
+                String[] projection = {android.provider.MediaStore.MediaColumns.DISPLAY_NAME};
+                android.database.Cursor cursor = contentResolver.query(uri, projection, null, null, null);
+                if (cursor != null && cursor.moveToFirst()) {
+                    int columnIndex = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DISPLAY_NAME);
+                    if (columnIndex != -1) {
+                        fileName = cursor.getString(columnIndex);
+                    }
+                    cursor.close();
                 }
-                cursor.close();
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "查询文件名失败，改用路径推断: " + e.getMessage());
             }
         } else if ("file".equals(scheme)) {
             fileName = new File(uri.getPath()).getName();
@@ -313,21 +544,34 @@ public class ImportActivity extends BaseActivity {
     }
     
     private void showErrorDialog(String title, String message) {
+        appendLog("⚠ " + title + ": " + message);
         new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage("❌ " + message)
-            .setPositiveButton("确定", (dialog, which) -> finish())
+            .setPositiveButton("继续查看", null)
+            .setNegativeButton("关闭页面", (dialog, which) -> finish())
             .setCancelable(false)
             .show();
     }
     
     private void proceedWithTraditionalImport(File file) {
+        // 专用离线导入管线路由：位于公共 source 目录的题库文件走 v2 管线
+        // （独立轻量化推理引擎 + Python 预处理 + 断点续导）
+        if (tryV2PipelineImport(file)) {
+            return;
+        }
         // 更新UI显示
         updateProgressDisplay("正在检测文件格式...", 0, 0);
         
         // 在后台线程中执行文件处理
         ExcelUtil.executorService.execute(() -> {
             try {
+                // SQL 文件（.sql 脚本 / SQLite .db）走专用导入通道（含字段映射防错校验）
+                if (SqlFileImporter.isSqlFile(file)) {
+                    performSqlImport(file);
+                    return;
+                }
+
                 // 检测文件格式
                 ExcelUtil.FileFormat format = ExcelUtil.detectFileFormat(file);
                 
@@ -387,10 +631,80 @@ public class ImportActivity extends BaseActivity {
     
     private static final int REQUEST_CODE_FILE_PREVIEW = 1004;
     private static final int REQUEST_CODE_SMART_MAPPING = 1005;
+
+    /** v2 专用离线导入管线实例 */
+    private ImportMain v2ImportMain;
+
+    /**
+     * 尝试使用 v2 专用离线导入管线：仅接管公共 source 目录
+     * （/storage/emulated/0/OilQuiz/source/）内的题库文件，其余文件维持传统流程。
+     */
+    private boolean tryV2PipelineImport(File file) {
+        try {
+            String srcRoot = ImportDirs.sourceDir().getCanonicalPath();
+            String filePath = file.getCanonicalPath();
+            if (!filePath.startsWith(srcRoot)) {
+                return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+
+        resetImportLogState();
+        updateProgressDisplay("专用离线导入管线启动...", 0, 0);
+        appendLog("专用离线导入管线启动: " + file.getName());
+        v2ImportMain = new ImportMain(this);
+        v2ImportMain.run(file, new ImportMain.ImportListener() {
+            @Override
+            public void onStage(String stage, String message) {
+                appendLog(message);
+                updateProgressDisplay(message, 0, 0);
+            }
+
+            @Override
+            public void onLog(String message) {
+                appendLog(message);
+                updateProgressDisplay(message, 0, 0);
+            }
+
+            @Override
+            public void onProgress(long current, long total, String detail) {
+                int c = (int) Math.min(current, Integer.MAX_VALUE);
+                int t = total > Integer.MAX_VALUE ? 0 : (int) Math.max(total, 1);
+                appendProgressLog(detail, current, total);
+                updateProgressDisplay(detail + " " + current + "/" + total, c, t);
+            }
+
+            @Override
+            public void onComplete(ImportMain.ImportSummary summary) {
+                // 完成后页内停留展示结果摘要，不再弹框后自动退出，用户手动关闭页面
+                String msg = "✅ 新增 " + summary.imported + " 题\n"
+                        + "重复跳过 " + summary.duplicated + " 题\n"
+                        + "失败 " + summary.failed + " 题\n"
+                        + "映射来源: " + summary.mappingSource
+                        + (summary.resumed ? "（断点续导）" : "") + "\n"
+                        + "耗时 " + (summary.elapsedMs / 1000) + " 秒"
+                        + (summary.issuesMessage != null ? "\n\n" + summary.issuesMessage : "");
+                appendLog("══ 导入完成：新增 " + summary.imported + " / 重复 " + summary.duplicated
+                        + " / 失败 " + summary.failed + " ══");
+                showImportResultSummary("✅ 导入完成", msg);
+            }
+
+            @Override
+            public void onError(String message) {
+                showErrorDialog("导入失败", message);
+            }
+        });
+        return true;
+    }
     
     private Map<String, String> difficultyMapping;
     private Map<String, String> categoryMapping;
     private Map<String, Integer> fieldMapping;
+    /** 选项分隔符（用于"选项(拆分)"拆分模式） */
+    private String optionsDelimiter;
+    /** 拆分部分自定义映射：拆分部分索引(0-based) → 选项字段名（如"选项A"） */
+    private Map<Integer, String> splitPartMapping;
     
     private void showSheetSelectionDialog(File file, List<ExcelUtil.SheetInfo> sheets) {
         runOnUiThread(new Runnable() {
@@ -598,6 +912,13 @@ public class ImportActivity extends BaseActivity {
             Uri uri = data.getData();
             if (uri != null) {
                 try {
+                    // 尝试获取持久化读取权限（失败不影响本次导入，仅影响下次重新选择）
+                    try {
+                        getContentResolver().takePersistableUriPermission(uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (Exception permEx) {
+                        android.util.Log.w(TAG, "takePersistableUriPermission 失败（忽略）: " + permEx.getMessage());
+                    }
                     // 检查URI类型
                     String scheme = uri.getScheme();
                     if ("file".equals(scheme)) {
@@ -686,6 +1007,32 @@ public class ImportActivity extends BaseActivity {
                 if (defaultQuestion != null) settings.defaultQuestion = defaultQuestion;
                 if (defaultOption != null) settings.defaultOption = defaultOption;
                 if (defaultAnswer != null) settings.defaultAnswer = defaultAnswer;
+                // 选项分隔符（用于"选项(拆分)"拆分模式）
+                String optionsDelimiter = data.getStringExtra("options_delimiter");
+                if (optionsDelimiter != null) {
+                    settings.optionsDelimiter = optionsDelimiter;
+                    this.optionsDelimiter = optionsDelimiter;
+                }
+                // 拆分部分自定义映射（用户在拆分预览中重新映射的结果）
+                @SuppressWarnings("unchecked")
+                Map<Integer, String> partMapping = (Map<Integer, String>) data.getSerializableExtra("split_part_mapping");
+                if (partMapping != null && !partMapping.isEmpty()) {
+                    settings.splitPartMapping = partMapping;
+                    this.splitPartMapping = partMapping;
+                }
+                
+                // 拆分模式：恢复"选项(拆分)"映射，移除虚拟列（拆分部分映射通过 splitPartMapping 传递给导入逻辑）
+                int splitColIdx = data.getIntExtra("options_split_col", -1);
+                if (splitColIdx >= 0 && optionsDelimiter != null) {
+                    this.fieldMapping.put("选项(拆分)", splitColIdx);
+                    java.util.Iterator<Map.Entry<String, Integer>> it = this.fieldMapping.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Map.Entry<String, Integer> e = it.next();
+                        if (e.getValue() >= 1000) it.remove();
+                    }
+                    Log.d(TAG, "拆分模式已还原: 列" + (splitColIdx + 1) + ", 分隔符=" + optionsDelimiter
+                            + ", 自定义部分映射=" + (partMapping != null ? partMapping.size() : 0) + "项");
+                }
                 
                 // 跳转到智能映射界面
                 startSmartMapping(currentFile, currentSheetIndex, this.fieldMapping, settings);
@@ -769,6 +1116,42 @@ public class ImportActivity extends BaseActivity {
         });
     }
     
+    /**
+     * SQL 文件导入（后台线程执行）：
+     * 解析 .sql 脚本 INSERT 语句或 SQLite .db 文件，
+     * 自动做列名→标准字段映射，并通过防错校验后才入库。
+     */
+    private void performSqlImport(File file) {
+        updateProgressDisplay("检测到SQL文件，正在解析并做字段映射校验...", 0, 0);
+        SqlFileImporter.SqlImportResult sqlResult = SqlFileImporter.importFromFile(file);
+
+        ExcelUtil.ImportResult result = new ExcelUtil.ImportResult();
+        result.totalQuestions = sqlResult.totalRows;
+        result.validQuestions = sqlResult.validQuestions.size();
+        result.invalidQuestions = sqlResult.skippedRows;
+        result.skippedQuestions = sqlResult.dedupedRows;
+        result.importTime = sqlResult.importTimeMs;
+        result.errorMessages.addAll(sqlResult.messages);
+        result.summary = "SQL导入(表:" + sqlResult.tableUsed + ")";
+
+        if (!sqlResult.validQuestions.isEmpty()) {
+            updateProgressDisplay("字段映射: " + sqlResult.mappingDesc, 0, 0);
+            updateStatsDisplay(result.validQuestions, result.invalidQuestions, result.totalQuestions);
+            saveQuestionsToDatabase(sqlResult.validQuestions, result);
+        } else {
+            final StringBuilder msg = new StringBuilder("未提取到有效题目。\n");
+            for (String m : sqlResult.messages) {
+                msg.append("\n").append(m);
+            }
+            runOnUiThread(() -> new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                    .setTitle("SQL导入失败")
+                    .setMessage("❌ " + msg.toString())
+                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setCancelable(false)
+                    .show());
+        }
+    }
+
     private void performImport(File file, int sheetIndex, Map<String, Integer> fieldMapping) {
         // 更新UI显示
         updateProgressDisplay("正在导入文件...", 0, 0);
@@ -776,8 +1159,16 @@ public class ImportActivity extends BaseActivity {
         ExcelUtil.ImportSettings settings = new ExcelUtil.ImportSettings();
         settings.enableBatchProcessing = true;
         settings.enableParallelProcessing = true;
+        // 传递选项分隔符（用于"选项(拆分)"拆分模式）
+        if (this.optionsDelimiter != null) {
+            settings.optionsDelimiter = this.optionsDelimiter;
+        }
+        // 传递拆分部分自定义映射
+        if (this.splitPartMapping != null) {
+            settings.splitPartMapping = this.splitPartMapping;
+        }
         
-        ExcelUtil.importExcel(file, sheetIndex, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, new ExcelUtil.ImportCallback() {
+        ExcelUtil.importExcel(file, sheetIndex, fieldMapping, settings, questionTypeMapping, difficultyMapping, categoryMapping, currentIssueReport, new ExcelUtil.ImportCallback() {
             @Override
             public void onProgress(int current, int total) {
                 // 更新进度显示
@@ -802,15 +1193,7 @@ public class ImportActivity extends BaseActivity {
 
             @Override
             public void onComplete(List<Question> questions, ExcelUtil.ImportResult result) {
-                // 如果有数据问题报告，应用用户修复的数据
-                if (currentIssueReport != null && questions != null) {
-                    for (int i = 0; i < questions.size(); i++) {
-                        Question question = questions.get(i);
-                        // 行号从1开始，加上表头行
-                        int rowNumber = i + 2;
-                        ExcelUtil.applyCorrectionsToQuestion(question, currentIssueReport, rowNumber);
-                    }
-                }
+                // 数据修正已在 importExcel 内部循环中应用，无需此处再处理
                 
                 // 更新统计信息
                 updateStatsDisplay(result.validQuestions, result.invalidQuestions, result.totalQuestions);
@@ -887,8 +1270,8 @@ public class ImportActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (databaseManager != null) {
-            databaseManager.shutdown();
-        }
+        // 注意：DatabaseManager 是全局单例，不能在此关闭线程池，
+        // 否则会导致 AI 工具（get_question_count 等）报 RejectedExecutionException。
+        // DatabaseManager 内部已支持 shutdown 后自动重建，但最佳实践是不主动关闭。
     }
 }

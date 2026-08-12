@@ -261,13 +261,13 @@ public class AgentService {
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
         registerToolSchema("calculator", "执行数学计算", "expression(数学表达式,必填)");
-        registerToolSchema("database", "数据库操作工具，用于执行题目查询、用户管理、分数记录等操作", "action(操作类型: execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
+        registerToolSchema("database", "数据库操作工具，支持任意SQL、表结构查看、题目查询与管理、用户管理、分数记录等", "action(操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), sql(SQL语句,execute_sql用), table_name(表名,get_table_schema用), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
         registerToolSchema("translation", "翻译工具，翻译文本", "text(待翻译文本,必填), target_lang(目标语言:zh/en/ja/ko,默认zh,可选), source_lang(源语言,可选)");
         registerToolSchema("translate", "翻译文本", "text(待翻译文本,必填), target_lang(目标语言,可选)");
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
         registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能", "action(操作类型: research/quick_search/deep_read/summarize_topic,默认research), topic(研究主题,research用), query(搜索关键词,quick_search用), url(网页URL,deep_read用), depth(研究深度,默认1), maxResults(最大结果数,默认5), includeDetails(是否包含详情,默认false)");
-        registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/get_app_info,默认open_app), app_name(应用名称,可选), url(URL地址,可选), phone_number(电话号码,可选), message(短信内容,可选), params(附加参数JSON,可选)");
+        registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text,默认open_app), app(应用名称或包名,支持模糊匹配), url(URL地址), phone(电话号码), message(短信内容), command(Shell命令), setting_type(设置类型:system/secure/global), setting_key(设置键名), setting_value(设置值), control_action(应用控制:force_stop/clear_data/detailed_info), setting(设置页:wifi/bluetooth/location等)。提示:不确定应用名时先用list_apps查看已安装应用列表");
         registerToolSchema("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面", "action(操作类型: navigate/list_pages/go_home/go_back,默认navigate), page(页面名称:user/question/quiz/study_plan/wrong_question/note/ocr/ai等,可选)");
         registerToolSchema("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件", "action(操作类型: get_file_info/read_file/list_files,必填), file_path(文件路径,可选), directory_path(目录路径,可选)");
         registerToolSchema("file_reader", "读取文件内容", "file_path(文件路径,必填)");
@@ -473,22 +473,11 @@ public class AgentService {
     public String buildToolSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("[工具使用说明]\n\n");
-        sb.append("当需要使用工具时，按以下 JSON 格式输出：\n\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"工具名称\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例1 - 查天气：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"ai_weather\", \"arguments\": {\"city\": \"北京\", \"action\": \"current\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例2 - 计算器：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"python_calculate\", \"arguments\": {\"expression\": \"3+5\"}}]}\n");
-        sb.append("```\n\n");
-        sb.append("示例3 - 搜索：\n");
-        sb.append("```json\n");
-        sb.append("{\"tool_calls\": [{\"name\": \"network_search\", \"arguments\": {\"query\": \"人工智能\"}}]}\n");
-        sb.append("```\n\n");
+        sb.append("当需要使用工具时，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n\n");
+        sb.append("常用工具示例（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n");
+        sb.append("  • 查天气：使用 ai_weather 工具，参数 city=北京、action=current\n");
+        sb.append("  • 计算器：使用 python_calculate 工具，参数 expression=3+5\n");
+        sb.append("  • 搜索：使用 network_search 工具，参数 query=人工智能\n\n");
         sb.append("可用工具列表：\n\n");
         Map<String, ToolSchema> uniqueTools = deduplicateTools();
         for (ToolSchema tool : uniqueTools.values()) {
@@ -496,7 +485,7 @@ public class AgentService {
             sb.append("  ").append(tool.paramDesc).append("\n\n");
         }
         sb.append("重要规则：\n");
-        sb.append("1. 工具调用使用上述 JSON 格式输出（{\"tool_calls\":[{\"name\":\"...\",\"arguments\":{...}}]}\n");
+        sb.append("1. 需要工具时，直接以原生 function calling 格式输出工具调用\n");
         sb.append("2. 每次只调用一个工具\n");
         sb.append("3. 不需要工具时，直接回答用户问题\n");
         sb.append("4. 工具返回结果后，基于结果回答用户\n");
@@ -928,39 +917,8 @@ public class AgentService {
      * 数据库结果格式化 - 保留表头和前几行
      */
     private String formatDatabaseResult(String result) {
-        String[] lines = result.split("\n");
-        StringBuilder sb = new StringBuilder();
-        int lineCount = 0;
-
-        for (String line : lines) {
-            if (sb.length() > 0) sb.append("\n");
-            sb.append(line);
-            lineCount++;
-
-            // 最多保留10行
-            if (lineCount >= 10) {
-                sb.append("\n...[共").append(lines.length).append("行，已截断]");
-                break;
-            }
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * 智能截断 - 保留开头和结尾的关键信息
-     */
-    private String smartTruncate(String result, int maxLength) {
-        if (result.length() <= maxLength) return result;
-
-        int keepLength = maxLength - 50; // 留空间给省略号
-        int headLength = keepLength * 2 / 3; // 开头保留2/3
-        int tailLength = keepLength / 3; // 结尾保留1/3
-
-        String head = result.substring(0, headLength);
-        String tail = result.substring(result.length() - tailLength);
-
-        return head + "\n...[中间省略" + (result.length() - headLength - tailLength) + "字]...\n" + tail;
+        // 不再截断数据库结果，全量返回
+        return result;
     }
 
     /**
@@ -983,14 +941,19 @@ public class AgentService {
             // JSON解析失败
         }
 
-        // 非JSON格式，截取关键部分
-        if (result.length() > 500) {
-            return result.substring(0, 500) + "...";
-        }
+        // 非JSON格式，全量返回
         return result;
     }
 
-    private static final int TOOL_RESULT_MAX_LENGTH = 3000;
+    /**
+     * 智能截断 - 不再截断，全量返回
+     */
+    private String smartTruncate(String result, int maxLength) {
+        return result;
+    }
+    
+    // 不再截断工具返回结果，保证数据完整性
+    private static final int TOOL_RESULT_MAX_LENGTH = Integer.MAX_VALUE;
     private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
     private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
 
@@ -1496,8 +1459,7 @@ public class AgentService {
         try {
             List<ToolSchema> selectedTools = selectToolsByIntent(userMessage);
             StringBuilder sb = new StringBuilder();
-            sb.append("你可以使用以下工具来帮助回答问题。当需要使用工具时，请按以下JSON格式输出：\n");
-            sb.append("```json\n{\"tool_calls\": [{\"name\": \"工具名\", \"arguments\": {\"参数名\": \"参数值\"}}]}\n```\n\n");
+            sb.append("你可以使用以下工具来帮助回答问题。当需要使用工具时，请以原生 function calling 直接输出工具调用（无需 JSON 封装或文本标记）。\n");
             sb.append("可用工具列表（按优先级排序）：\n\n");
             for (ToolSchema tool : selectedTools) {
                 if (tool != null && tool.name != null && tool.description != null) {

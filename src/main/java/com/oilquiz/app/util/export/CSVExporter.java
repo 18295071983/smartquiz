@@ -38,21 +38,24 @@ public class CSVExporter implements Exporter {
 
         File file = new File(exportDir, fileName + ".csv");
 
-        // 写入CSV数据
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+        // 写入CSV数据（UTF-8 + BOM，保证 Excel/WPS 打开中文不乱码）
+        try (java.io.OutputStreamWriter writer = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(file),
+                java.nio.charset.StandardCharsets.UTF_8)) {
+            writer.write('\uFEFF'); // UTF-8 BOM
+
             List<Question> questions = task.getQuestions();
             
-            // 收集所有非空字段
-            java.util.Set<String> nonEmptyFieldsSet = collectNonEmptyFields(task, questions);
-            List<String> nonEmptyFields = new java.util.ArrayList<>(nonEmptyFieldsSet);
+            // 收集非空字段（保持选中顺序，过滤全空列）
+            List<String> nonEmptyFields = collectNonEmptyFields(task, questions);
             
-            // 写入表头
-            writeCSVHeader(writer, task, questions);
+            // 写入表头（中文显示名）
+            writeCSVHeader(writer, nonEmptyFields);
 
             // 写入问题数据
             int total = questions.size();
             for (int i = 0; i < total; i++) {
-                writeCSVQuestion(writer, task, questions.get(i), nonEmptyFields);
+                writeCSVQuestion(writer, questions.get(i), nonEmptyFields, i);
                 
                 // 更新进度
                 if (task.getCallback() != null && i % 10 == 0) {
@@ -96,57 +99,66 @@ public class CSVExporter implements Exporter {
     }
 
     /**
-     * 写入CSV表头
+     * 写入CSV表头（中文显示名）
      */
-    private void writeCSVHeader(BufferedWriter writer, ExportManager.ExportTask task, List<Question> questions) throws IOException {
-        // 收集所有非空字段
-        java.util.Set<String> nonEmptyFields = collectNonEmptyFields(task, questions);
-        
-        // 写入表头
+    private void writeCSVHeader(java.io.OutputStreamWriter writer, List<String> nonEmptyFields) throws IOException {
         int i = 0;
         for (String fieldName : nonEmptyFields) {
             if (i > 0) {
                 writer.write(",");
             }
-            writer.write(fieldName);
+            writer.write(ExportUtils.getFieldDisplayName(fieldName));
             i++;
         }
-        writer.newLine();
+        writer.write("\r\n");
     }
 
     /**
-     * 写入CSV问题数据
+     * 写入CSV问题数据（id 列输出从 1 开始的序号，与 Excel 导出保持一致）
      */
-    private void writeCSVQuestion(BufferedWriter writer, ExportManager.ExportTask task, Question question, List<String> nonEmptyFields) throws IOException {
+    private void writeCSVQuestion(java.io.OutputStreamWriter writer, Question question, List<String> nonEmptyFields, int index) throws IOException {
         int i = 0;
         for (String fieldName : nonEmptyFields) {
             if (i > 0) {
                 writer.write(",");
             }
-            Object value = ExportUtils.getFieldValue(question, fieldName);
+            Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
+            if (fieldName.equals("id")) {
+                value = String.valueOf(index + 1);
+            }
             writer.write(escapeCsvValue(value != null ? value.toString() : ""));
             i++;
         }
-        writer.newLine();
+        writer.write("\r\n");
     }
 
     /**
-     * 收集所有非空字段
+     * 收集非空字段：保持 selectedFields 的选中顺序，仅保留至少一题有值的字段
      */
-    private java.util.Set<String> collectNonEmptyFields(ExportManager.ExportTask task, List<Question> questions) {
-        java.util.Set<String> nonEmptyFields = new java.util.HashSet<>();
+    private List<String> collectNonEmptyFields(ExportManager.ExportTask task, List<Question> questions) {
+        java.util.LinkedHashSet<String> nonEmptyFields = new java.util.LinkedHashSet<>();
         List<String> selectedFields = task.getConfig().getSelectedFields();
         if (selectedFields == null || selectedFields.isEmpty()) {
             selectedFields = ExportUtils.getQuestionFields();
         }
 
-        // 检查每个题目，收集非空字段
-        for (Question question : questions) {
-            for (String fieldName : selectedFields) {
-                Object value = ExportUtils.getFieldValue(question, fieldName);
+        // 按选中顺序检查每个字段，跳过收藏字段，仅保留有值的字段
+        for (String fieldName : selectedFields) {
+            if (fieldName.equals("favorite")) {
+                continue;
+            }
+
+            boolean hasValue = false;
+            for (Question question : questions) {
+                if (question == null) continue;
+                Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                 if (value != null && !value.toString().isEmpty()) {
-                    nonEmptyFields.add(fieldName);
+                    hasValue = true;
+                    break;
                 }
+            }
+            if (hasValue) {
+                nonEmptyFields.add(fieldName);
             }
         }
 
@@ -155,7 +167,7 @@ public class CSVExporter implements Exporter {
             nonEmptyFields.add("id");
         }
 
-        return nonEmptyFields;
+        return new java.util.ArrayList<>(nonEmptyFields);
     }
 
     /**

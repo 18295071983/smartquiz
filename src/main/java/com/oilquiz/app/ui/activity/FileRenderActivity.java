@@ -362,7 +362,7 @@ public class FileRenderActivity extends AppCompatActivity {
             .setTitle("导入文件")
             .setMessage("没有文件可供渲染，请选择一个文件导入")
             .setPositiveButton("选择文件", (dialog, which) -> {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("*/*");
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(intent, 1001);

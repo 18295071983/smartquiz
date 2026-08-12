@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.QuestionRepairActivity">
+
+    <!-- 顶部工具栏 -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="0dp">
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorSurface"
+            app:title="题库智能修复"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:elevation="0dp" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- 统计区 -->
+    <TextView
+        android:id="@+id/tvRepairStats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:textSize="13sp"
+        android:textColor="@color/text_secondary"
+        android:text="点击「扫描题库」检测乱码、缺失字段、答案异常与重复题" />
+
+    <!-- 状态与进度 -->
+    <TextView
+        android:id="@+id/tvRepairStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textSize="13sp"
+        android:textColor="?attr/colorPrimary"
+        android:visibility="gone" />
+
+    <ProgressBar
+        android:id="@+id/pbRepair"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:max="100"
+        android:progress="0"
+        android:visibility="gone" />
+
+    <!-- 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnScanRepair"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="扫描题库"
+            android:textSize="13sp"
+            app:cornerRadius="20dp"
+            android:textAllCaps="false"
+            android:layout_marginEnd="6dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRuleFix"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="规则修复"
+            android:textSize="13sp"
+            android:enabled="false"
+            app:cornerRadius="20dp"
+            android:textAllCaps="false"
+            android:layout_marginEnd="6dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAiFix"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="AI修复"
+            android:textSize="13sp"
+            android:enabled="false"
+            app:cornerRadius="20dp"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <!-- 问题列表 -->
+    <ListView
+        android:id="@+id/lvRepairIssues"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="4dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:clipToPadding="false" />
+</LinearLayout>

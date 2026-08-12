@@ -53,6 +53,16 @@ public class CacheManager {
         prefs.edit().clear().apply();
     }
 
+    /**
+     * 失效指定 prompt 的缓存（用于重新生成时跳过缓存）
+     */
+    public void invalidateCache(String prompt) {
+        if (prompt == null) return;
+        String key = String.valueOf(prompt.hashCode());
+        memoryCache.remove(key);
+        prefs.edit().remove(key).remove(key + "_timestamp").apply();
+    }
+
     private static class LRUCache<K, V> extends LinkedHashMap<K, V> {
         private final int maxSize;
         public int hits = 0;

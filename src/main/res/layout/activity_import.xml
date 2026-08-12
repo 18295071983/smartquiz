@@ -208,7 +208,93 @@
                 </LinearLayout>
                 
             </com.google.android.material.card.MaterialCardView>
-            
+
+            <!-- 导入结果摘要卡片：导入结束后页内停留展示，用户手动关闭页面 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/summaryCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✅ 导入结果摘要"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/success"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/summaryText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textColor="@color/on_surface"
+                        android:lineSpacingExtra="4dp" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 导入详细日志：流式实时展示导入进程各阶段详情 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/logCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="导入详细日志"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="8dp" />
+
+                    <ScrollView
+                        android:id="@+id/logScrollView"
+                        android:layout_width="match_parent"
+                        android:layout_height="200dp"
+                        android:background="@color/surface_variant"
+                        android:padding="8dp">
+
+                        <TextView
+                            android:id="@+id/importLogText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="等待导入开始..."
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textColor="@color/on_surface_variant"
+                            android:lineSpacingExtra="2dp" />
+
+                    </ScrollView>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 提示信息 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"

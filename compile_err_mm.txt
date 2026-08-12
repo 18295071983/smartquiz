@@ -1,0 +1,48 @@
+﻿.\gradlew.bat : Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+所在位置 行:1 字符: 49
++ ... ing=UTF-8'; .\gradlew.bat compileDebugJavaWithJavac -x lint --console ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Picked up JAVA_....encoding=UTF-8:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Configuration on demand is an incubating feature.
+> Task :preBuild UP-TO-DATE
+> Task :preDebugBuild UP-TO-DATE
+> Task :dataBindingMergeDependencyArtifactsDebug UP-TO-DATE
+> Task :generateDebugResValues UP-TO-DATE
+> Task :generateDebugResources UP-TO-DATE
+> Task :mergeDebugResources UP-TO-DATE
+> Task :packageDebugResources UP-TO-DATE
+> Task :parseDebugLocalResources UP-TO-DATE
+> Task :dataBindingGenBaseClassesDebug UP-TO-DATE
+> Task :extractDebugPythonBuildPackages UP-TO-DATE
+> Task :generateDebugPythonRequirements UP-TO-DATE
+> Task :mergeDebugPythonSources UP-TO-DATE
+> Task :generateDebugPythonProxies UP-TO-DATE
+> Task :javaPreCompileDebug UP-TO-DATE
+> Task :checkDebugAarMetadata UP-TO-DATE
+> Task :mapDebugSourceSetPaths UP-TO-DATE
+> Task :createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :extractDeepLinksDebug UP-TO-DATE
+> Task :processDebugMainManifest UP-TO-DATE
+> Task :processDebugManifest UP-TO-DATE
+> Task :processDebugManifestForPackage UP-TO-DATE
+> Task :processDebugResources UP-TO-DATE
+
+> Task :compileDebugJavaWithJavac
+The following annotation processors are not incremental: prism4j-bundler-2.0.0.jar (io.noties:prism4j-bundler:2.0.0).
+Make sure all annotation processors are incremental to improve your build speed.
+璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋嬪簭 'org.gradle.api.internal.tasks.compile.processing.TimeTrackingProcessor' 鐨勫彈鏀寔 source 鐗堟湰 'RELEASE_8
+' 浣庝簬 -source '17'
+1 涓鍛?
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 3s
+21 actionable tasks: 1 executed, 20 up-to-date

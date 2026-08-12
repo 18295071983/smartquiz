@@ -87,7 +87,7 @@ public class FieldMappingRegistry {
                         "optionD", "option_d", "optiond", "d选项", "d"},
                 false);
 
-        // —— 扩展选项 E~L（通过 setOptionByLetter 写入 extraOptions JSON）——
+        // —— 扩展选项 E~L（独立数据库列 optionE~optionL）——
         final String[] cnExtraOrdinal = new String[]{"戊","己","庚","辛","壬","癸","子","丑"};
         char letter;
         int idx;
@@ -200,9 +200,7 @@ public class FieldMappingRegistry {
                 new String[]{"备注", "说明", "注释", "comment", "remark", "note", "memo"},
                 false);
 
-        register("extraOptions", "额外选项",
-                new String[]{"额外选项", "扩展选项", "extraOptions", "extra_options", "extraoptions"},
-                false);
+        // extraOptions 已废弃（v22起 E~L 为独立列）
 
         register("source", "来源",
                 new String[]{"来源", "出处", "source", "origin"},
@@ -418,7 +416,7 @@ public class FieldMappingRegistry {
         q.setOptionB(getValue(row, mapping, "optionB"));
         q.setOptionC(getValue(row, mapping, "optionC"));
         q.setOptionD(getValue(row, mapping, "optionD"));
-        // E~L（通过 setOptionByLetter 写入实体字段 A~D 或 extraOptions JSON）
+        // E~L（直接写入独立列 optionE~optionL）
         for (char c = 'E'; c <= 'L'; c++) {
             String canon = "option" + c;
             String v = getValue(row, mapping, canon);
@@ -452,8 +450,6 @@ public class FieldMappingRegistry {
         q.setTags(getValue(row, mapping, "tags"));
         q.setAuthor(getValue(row, mapping, "author"));
         q.setComment(getValue(row, mapping, "comment"));
-        String eo = getValue(row, mapping, "extraOptions");
-        if (eo != null && !eo.trim().isEmpty()) q.setExtraOptions(eo);
         q.setSource(getValue(row, mapping, "source"));
 
         // 数值字段
@@ -475,7 +471,6 @@ public class FieldMappingRegistry {
         if (q.getTags() == null) q.setTags("");
         if (q.getAuthor() == null) q.setAuthor("");
         if (q.getComment() == null) q.setComment("");
-        if (q.getExtraOptions() == null) q.setExtraOptions("");
 
         return q;
     }
@@ -529,8 +524,6 @@ public class FieldMappingRegistry {
         q.setTags(optStringMulti(jo, "tags"));
         q.setAuthor(optStringMulti(jo, "author"));
         q.setComment(optStringMulti(jo, "comment"));
-        String eo = optStringMulti(jo, "extraOptions");
-        if (eo != null && !eo.trim().isEmpty()) q.setExtraOptions(eo);
         q.setSource(optStringMulti(jo, "source"));
 
         // 数值字段
@@ -552,7 +545,6 @@ public class FieldMappingRegistry {
         if (q.getTags() == null) q.setTags("");
         if (q.getAuthor() == null) q.setAuthor("");
         if (q.getComment() == null) q.setComment("");
-        if (q.getExtraOptions() == null) q.setExtraOptions("");
 
         return q;
     }

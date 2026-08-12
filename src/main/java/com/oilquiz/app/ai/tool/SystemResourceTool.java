@@ -1,17 +1,23 @@
 package com.oilquiz.app.ai.tool;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -19,7 +25,7 @@ import java.util.Map;
 
 @Tool(
     value = "system_resource",
-    description = "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话等系统级操作",
+    description = "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等系统级操作",
     category = "system",
     aliases = {"open_app", "send_sms", "make_call", "launch_app"},
     actions = {
@@ -28,15 +34,24 @@ import java.util.Map;
         @Action(name = "send_sms", description = "发送短信"),
         @Action(name = "make_call", description = "拨打电话"),
         @Action(name = "list_apps", description = "列出已安装应用"),
-        @Action(name = "get_app_info", description = "获取应用信息")
+        @Action(name = "get_app_info", description = "获取应用信息"),
+        @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
+        @Action(name = "shell_command", description = "执行Shell命令"),
+        @Action(name = "read_setting", description = "读取系统设置"),
+        @Action(name = "write_setting", description = "修改系统设置"),
+        @Action(name = "get_current_app", description = "获取当前前台应用信息")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
-        @Param(name = "app_name", type = "string", description = "应用名称(如微信、QQ、支付宝等)", required = false),
+        @Param(name = "app", type = "string", description = "应用名称或包名", required = false),
         @Param(name = "url", type = "string", description = "URL地址", required = false),
-        @Param(name = "phone_number", type = "string", description = "电话号码", required = false),
+        @Param(name = "phone", type = "string", description = "电话号码", required = false),
         @Param(name = "message", type = "string", description = "短信内容", required = false),
-        @Param(name = "params", type = "string", description = "附加参数JSON", required = false)
+        @Param(name = "command", type = "string", description = "Shell命令", required = false),
+        @Param(name = "setting_type", type = "string", description = "设置类型: system/secure/global", required = false),
+        @Param(name = "setting_key", type = "string", description = "设置键名", required = false),
+        @Param(name = "setting_value", type = "string", description = "设置值", required = false),
+        @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false)
     }
 )
 public class SystemResourceTool implements AITool {
@@ -143,7 +158,18 @@ public class SystemResourceTool implements AITool {
                 case "list_apps":
                     return listInstalledApps();
                 case "check_app":
+                case "get_app_info":
                     return checkAppInstalled(parameters);
+                case "app_control":
+                    return appControl(parameters);
+                case "shell_command":
+                    return executeShellCommand(parameters);
+                case "read_setting":
+                    return readSetting(parameters);
+                case "write_setting":
+                    return writeSetting(parameters);
+                case "get_current_app":
+                    return getCurrentApp(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action, parameters);
             }
@@ -161,14 +187,40 @@ public class SystemResourceTool implements AITool {
             return new AIToolResult("缺少参数: app或package", parameters);
         }
         
-        if (packageName == null) {
-            packageName = APP_PACKAGE_MAP.get(appName.toLowerCase());
+        // 1. 如果直接给了包名，尝试打开
+        if (packageName != null) {
+            return tryLaunchApp(packageName, appName, parameters);
         }
         
-        if (packageName == null) {
-            return new AIToolResult("未找到应用: " + appName, parameters);
+        // 2. 特殊处理：浏览器动态检测
+        String lower = appName.toLowerCase();
+        if ("浏览器".equals(appName) || "browser".equals(lower) || "chrome".equals(lower)) {
+            String browserPkg = findBrowserPackage();
+            if (browserPkg != null) {
+                return tryLaunchApp(browserPkg, appName, parameters);
+            }
         }
         
+        // 3. 从硬编码映射查找
+        String mappedPkg = APP_PACKAGE_MAP.get(lower);
+        if (mappedPkg != null) {
+            return tryLaunchApp(mappedPkg, appName, parameters);
+        }
+        
+        // 4. 从已安装应用列表模糊匹配
+        String matchedPkg = findAppByFuzzyName(appName);
+        if (matchedPkg != null) {
+            return tryLaunchApp(matchedPkg, appName, parameters);
+        }
+        
+        // 5. 回退：使用 Intent chooser 让系统选择
+        return openAppViaChooser(appName, parameters);
+    }
+    
+    /**
+     * 尝试启动指定包名的应用
+     */
+    private AIToolResult tryLaunchApp(String packageName, String appName, Map<String, Object> parameters) {
         try {
             Intent intent = context.getPackageManager().getLaunchIntentForPackage(packageName);
             if (intent != null) {
@@ -177,16 +229,141 @@ public class SystemResourceTool implements AITool {
                 
                 Map<String, Object> result = new HashMap<>();
                 result.put("status", "success");
-                result.put("message", "已打开应用: " + appName);
+                result.put("message", "已打开应用: " + (appName != null ? appName : packageName));
                 result.put("package", packageName);
                 return new AIToolResult(result, parameters);
             } else {
-                return new AIToolResult("应用未安装: " + packageName, parameters);
+                return new AIToolResult("应用未安装或无法启动: " + packageName, parameters);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "打开应用失败: " + e.getMessage());
             return new AIToolResult("打开应用失败: " + e.getMessage(), parameters);
         }
+    }
+    
+    /**
+     * 模糊匹配已安装应用名称（支持部分匹配、包含匹配）
+     */
+    private String findAppByFuzzyName(String appName) {
+        if (appName == null || appName.isEmpty()) return null;
+        String lowerName = appName.toLowerCase();
+        PackageManager pm = context.getPackageManager();
+        
+        // 获取所有有 launcher 的应用
+        Intent launchIntent = new Intent(Intent.ACTION_MAIN);
+        launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> launcherApps = pm.queryIntentActivities(launchIntent, 0);
+        
+        String bestMatch = null;
+        int bestScore = 0;
+        
+        for (ResolveInfo ri : launcherApps) {
+            if (ri.activityInfo == null || ri.activityInfo.applicationInfo == null) continue;
+            String label = pm.getApplicationLabel(ri.activityInfo.applicationInfo).toString();
+            String labelLower = label.toLowerCase();
+            String pkg = ri.activityInfo.packageName;
+            
+            int score = 0;
+            // 完全匹配
+            if (labelLower.equals(lowerName) || pkg.equals(lowerName)) {
+                score = 100;
+            }
+            // 以...开头
+            else if (labelLower.startsWith(lowerName) || lowerName.length() >= 2 && labelLower.contains(lowerName)) {
+                score = 80;
+            }
+            // 应用名包含输入或输入包含应用名
+            else if (labelLower.contains(lowerName) || lowerName.contains(labelLower)) {
+                score = 60;
+            }
+            // 逐字符匹配（中文按字匹配）
+            else {
+                int matchCount = 0;
+                for (int i = 0; i < lowerName.length(); i++) {
+                    if (labelLower.indexOf(lowerName.charAt(i)) >= 0) matchCount++;
+                }
+                if (lowerName.length() > 0 && matchCount >= lowerName.length() * 0.6) {
+                    score = 30;
+                }
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestMatch = pkg;
+            }
+        }
+        
+        // 至少需要30分才算匹配成功
+        return bestScore >= 30 ? bestMatch : null;
+    }
+    
+    /**
+     * 回退方案：使用 Intent chooser 让系统选择可处理的应用
+     */
+    private AIToolResult openAppViaChooser(String appName, Map<String, Object> parameters) {
+        try {
+            // 尝试用应用市场搜索
+            Intent marketIntent = new Intent(Intent.ACTION_VIEW, 
+                    Uri.parse("market://search?q=" + Uri.encode(appName)));
+            marketIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            
+            // 先尝试用应用名作为搜索关键词，让系统选择
+            // 如果没有任何应用可以处理，则提示用户
+            PackageManager pm = context.getPackageManager();
+            if (marketIntent.resolveActivity(pm) != null) {
+                context.startActivity(marketIntent);
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "fallback");
+                result.put("message", "未找到\"" + appName + "\"，已打开应用商店搜索");
+                result.put("suggestion", "请从搜索结果中安装或选择应用");
+                return new AIToolResult(result, parameters);
+            }
+            
+            // 最终回退：列出可能的匹配应用供用户参考
+            List<String> similarApps = findSimilarApps(appName, 5);
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "not_found");
+            result.put("message", "未找到应用: " + appName);
+            if (!similarApps.isEmpty()) {
+                result.put("similar_apps", similarApps);
+                result.put("suggestion", "您可能想打开以下应用之一，请指定包名重试");
+            } else {
+                result.put("suggestion", "设备上没有匹配的应用，请先安装");
+            }
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "回退打开应用失败: " + e.getMessage());
+            return new AIToolResult("未找到应用: " + appName + "，且回退方案失败", parameters);
+        }
+    }
+    
+    /**
+     * 查找名称相似的应用列表
+     */
+    private List<String> findSimilarApps(String appName, int maxResults) {
+        List<String> results = new ArrayList<>();
+        if (appName == null || appName.isEmpty()) return results;
+        String lowerName = appName.toLowerCase();
+        PackageManager pm = context.getPackageManager();
+        
+        Intent launchIntent = new Intent(Intent.ACTION_MAIN);
+        launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> launcherApps = pm.queryIntentActivities(launchIntent, 0);
+        
+        for (ResolveInfo ri : launcherApps) {
+            if (ri.activityInfo == null || ri.activityInfo.applicationInfo == null) continue;
+            String label = pm.getApplicationLabel(ri.activityInfo.applicationInfo).toString();
+            String labelLower = label.toLowerCase();
+            // 有任何字符匹配就加入候选
+            for (int i = 0; i < lowerName.length(); i++) {
+                if (labelLower.indexOf(lowerName.charAt(i)) >= 0) {
+                    results.add(label + " (" + ri.activityInfo.packageName + ")");
+                    break;
+                }
+            }
+            if (results.size() >= maxResults) break;
+        }
+        return results;
     }
     
     private AIToolResult openUrl(Map<String, Object> parameters) {
@@ -197,7 +374,9 @@ public class SystemResourceTool implements AITool {
         }
         
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            // 正确编码 URL 中的非 ASCII 字符，避免浏览器错误 Punycode 编码
+            String encodedUrl = encodeInternationalUrl(url);
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(encodedUrl));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
             
@@ -208,6 +387,75 @@ public class SystemResourceTool implements AITool {
         } catch (Exception e) {
             AILogger.e(TAG, "打开链接失败: " + e.getMessage());
             return new AIToolResult("打开链接失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 编码含非 ASCII 字符的 URL：域名用 IDN.toASCII，路径用百分号编码
+     */
+    private static String encodeInternationalUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        boolean hasNonAscii = false;
+        for (int i = 0; i < url.length(); i++) {
+            if (url.charAt(i) > 127) { hasNonAscii = true; break; }
+        }
+        if (!hasNonAscii) return url;
+        
+        try {
+            int schemeEnd = url.indexOf("://");
+            if (schemeEnd < 0) return url;
+            String scheme = url.substring(0, schemeEnd);
+            String rest = url.substring(schemeEnd + 3);
+            
+            int pathStart = rest.indexOf('/');
+            int queryStart = rest.indexOf('?');
+            int fragStart = rest.indexOf('#');
+            
+            int authorityEnd = rest.length();
+            if (pathStart >= 0) authorityEnd = pathStart;
+            else if (queryStart >= 0) authorityEnd = queryStart;
+            else if (fragStart >= 0) authorityEnd = fragStart;
+            
+            String authority = rest.substring(0, authorityEnd);
+            String remainder = rest.substring(authorityEnd);
+            
+            // 处理 host
+            String host = authority;
+            String port = "";
+            int colonIdx = authority.lastIndexOf(':');
+            if (colonIdx >= 0) {
+                String possiblePort = authority.substring(colonIdx + 1);
+                boolean isPort = true;
+                for (int i = 0; i < possiblePort.length(); i++) {
+                    if (!Character.isDigit(possiblePort.charAt(i))) { isPort = false; break; }
+                }
+                if (isPort && !possiblePort.isEmpty()) {
+                    host = authority.substring(0, colonIdx);
+                    port = ":" + possiblePort;
+                }
+            }
+            
+            String encodedHost;
+            try { encodedHost = java.net.IDN.toASCII(host); }
+            catch (Exception e) { encodedHost = host; }
+            
+            // 编码路径中的非 ASCII 字符
+            StringBuilder encodedRemainder = new StringBuilder(remainder.length());
+            for (int i = 0; i < remainder.length(); i++) {
+                char c = remainder.charAt(i);
+                if (c > 127) {
+                    byte[] bytes = String.valueOf(c).getBytes("UTF-8");
+                    for (byte b : bytes) encodedRemainder.append(String.format("%%%.2X", b & 0xFF));
+                } else if (c == ' ') {
+                    encodedRemainder.append("%20");
+                } else {
+                    encodedRemainder.append(c);
+                }
+            }
+            
+            return scheme + "://" + encodedHost + port + encodedRemainder;
+        } catch (Exception e) {
+            return url;
         }
     }
     
@@ -407,24 +655,65 @@ public class SystemResourceTool implements AITool {
     }
     
     private AIToolResult listInstalledApps() {
-        List<Map<String, Object>> apps = new ArrayList<>();
+        List<Map<String, Object>> userApps = new ArrayList<>();
+        List<Map<String, Object>> systemApps = new ArrayList<>();
         
         try {
-            List<ApplicationInfo> packages = context.getPackageManager().getInstalledApplications(0);
+            PackageManager pm = context.getPackageManager();
             
-            for (ApplicationInfo packageInfo : packages) {
-                if ((packageInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
-                    Map<String, Object> app = new HashMap<>();
-                    app.put("name", context.getPackageManager().getApplicationLabel(packageInfo).toString());
-                    app.put("package", packageInfo.packageName);
-                    apps.add(app);
+            // 获取所有有 launcher 图标的应用包名集合（用于标记可启动的应用）
+            Intent launchIntent = new Intent(Intent.ACTION_MAIN);
+            launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            List<ResolveInfo> launcherApps = pm.queryIntentActivities(launchIntent, 0);
+            java.util.Set<String> launcherPackages = new java.util.HashSet<>();
+            for (ResolveInfo ri : launcherApps) {
+                if (ri.activityInfo != null) {
+                    launcherPackages.add(ri.activityInfo.packageName);
                 }
             }
             
+            // 返回所有已安装应用
+            List<ApplicationInfo> packages = pm.getInstalledApplications(0);
+            for (ApplicationInfo packageInfo : packages) {
+                boolean isSystem = (packageInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                boolean hasLauncher = launcherPackages.contains(packageInfo.packageName);
+                boolean isUpdated = (packageInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+                
+                // 包含规则：
+                // 1. 非系统应用（第三方应用）→ 无条件包含
+                // 2. 有 launcher 图标的系统应用 → 包含
+                // 3. 用户更新过的系统应用 → 包含
+                // 4. 纯系统服务包（无 launcher、未更新）→ 跳过
+                if (isSystem && !hasLauncher && !isUpdated) {
+                    continue;
+                }
+                
+                Map<String, Object> app = new HashMap<>();
+                String label = pm.getApplicationLabel(packageInfo).toString();
+                app.put("name", label);
+                app.put("package", packageInfo.packageName);
+                if (!isSystem) {
+                    userApps.add(app);
+                } else {
+                    systemApps.add(app);
+                }
+            }
+            
+            // 按名称排序
+            java.util.Comparator<Map<String, Object>> byName = (a, b) -> 
+                    ((String) a.get("name")).compareTo((String) b.get("name"));
+            java.util.Collections.sort(userApps, byName);
+            java.util.Collections.sort(systemApps, byName);
+            
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
-            result.put("count", apps.size());
-            result.put("apps", apps);
+            result.put("user_app_count", userApps.size());
+            result.put("system_app_count", systemApps.size());
+            result.put("total_count", userApps.size() + systemApps.size());
+            // 用户应用全量返回
+            result.put("user_apps", userApps);
+            // 系统应用全量返回（不再截断）
+            result.put("system_apps", systemApps);
             return new AIToolResult(result, new HashMap<>());
             
         } catch (Exception e) {
@@ -441,31 +730,392 @@ public class SystemResourceTool implements AITool {
             return new AIToolResult("缺少参数: app或package", parameters);
         }
         
-        if (packageName == null) {
-            packageName = APP_PACKAGE_MAP.get(appName.toLowerCase());
+        // 特殊处理：浏览器动态检测
+        if (packageName == null && appName != null) {
+            String lower = appName.toLowerCase();
+            if ("浏览器".equals(appName) || "browser".equals(lower) || "chrome".equals(lower)) {
+                return checkBrowserInstalled(appName);
+            }
+            // 硬编码映射
+            packageName = APP_PACKAGE_MAP.get(lower);
         }
         
+        // 如果硬编码映射找到了，直接检查
+        if (packageName != null) {
+            try {
+                context.getPackageManager().getApplicationInfo(packageName, 0);
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "success");
+                result.put("installed", true);
+                result.put("app", appName);
+                result.put("package", packageName);
+                return new AIToolResult(result, parameters);
+            } catch (PackageManager.NameNotFoundException e) {
+                // 包名存在但没安装
+            }
+        }
+        
+        // 模糊匹配已安装应用
+        if (appName != null) {
+            String matchedPkg = findAppByFuzzyName(appName);
+            if (matchedPkg != null) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "success");
+                result.put("installed", true);
+                result.put("app", appName);
+                result.put("package", matchedPkg);
+                result.put("match_type", "fuzzy");
+                return new AIToolResult(result, parameters);
+            }
+        }
+        
+        // 未找到
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("installed", false);
+        result.put("app", appName);
+        result.put("package", packageName);
+        return new AIToolResult(result, parameters);
+    }
+
+    /**
+     * 动态检测已安装的浏览器应用（不依赖硬编码包名）
+     */
+    private AIToolResult checkBrowserInstalled(String appName) {
+        try {
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com"));
+            List<ResolveInfo> browsers = context.getPackageManager().queryIntentActivities(browserIntent, 0);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("installed", !browsers.isEmpty());
+            result.put("app", appName);
+            
+            if (!browsers.isEmpty()) {
+                List<String> browserNames = new ArrayList<>();
+                for (ResolveInfo ri : browsers) {
+                    String name = ri.loadLabel(context.getPackageManager()).toString();
+                    String pkg = ri.activityInfo.packageName;
+                    browserNames.add(name + " (" + pkg + ")");
+                }
+                result.put("browsers", browserNames);
+                result.put("count", browsers.size());
+                result.put("message", "已安装 " + browsers.size() + " 个浏览器");
+            } else {
+                result.put("message", "未检测到浏览器应用");
+            }
+            return new AIToolResult(result, null);
+        } catch (Exception e) {
+            return new AIToolResult("检测浏览器失败: " + e.getMessage(), null);
+        }
+    }
+
+    /**
+     * 查找已安装的浏览器包名
+     */
+    private String findBrowserPackage() {
+        try {
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com"));
+            List<ResolveInfo> browsers = context.getPackageManager().queryIntentActivities(browserIntent, 0);
+            if (!browsers.isEmpty()) {
+                // 优先返回第一个（通常是默认浏览器）
+                return browsers.get(0).activityInfo.packageName;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+    
+    // ==================== 新增：应用控制、Shell命令、系统设置 ====================
+    
+    /**
+     * 应用控制：强制停止、清除数据、获取详细信息
+     */
+    private AIToolResult appControl(Map<String, Object> parameters) {
+        String appName = (String) parameters.get("app");
+        String packageName = (String) parameters.get("package");
+        String controlAction = (String) parameters.get("control_action");
+        
+        if (controlAction == null || controlAction.isEmpty()) {
+            return new AIToolResult("缺少参数: control_action (force_stop/clear_data/detailed_info)", parameters);
+        }
+        if (appName == null && packageName == null) {
+            return new AIToolResult("缺少参数: app或package", parameters);
+        }
+        
+        // 解析包名
         if (packageName == null) {
-            return new AIToolResult("未知应用: " + appName, parameters);
+            packageName = APP_PACKAGE_MAP.get(appName.toLowerCase());
+            if (packageName == null) {
+                packageName = findAppByFuzzyName(appName);
+            }
+            if (packageName == null && appName != null && appName.contains(".")) {
+                packageName = appName;
+            }
+        }
+        if (packageName == null) {
+            return new AIToolResult("未找到应用: " + appName, parameters);
+        }
+        
+        PackageManager pm = context.getPackageManager();
+        
+        try {
+            switch (controlAction) {
+                case "force_stop": {
+                    // 使用 ActivityManager 强制停止应用
+                    ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                    am.killBackgroundProcesses(packageName);
+                    
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("status", "success");
+                    result.put("message", "已强制停止应用: " + packageName);
+                    result.put("package", packageName);
+                    return new AIToolResult(result, parameters);
+                }
+                case "clear_data": {
+                    // 使用 pm clear 命令清除应用数据
+                    String output = executeShell("pm clear " + packageName);
+                    Map<String, Object> result = new HashMap<>();
+                    if (output != null && output.contains("Success")) {
+                        result.put("status", "success");
+                        result.put("message", "已清除应用数据: " + packageName);
+                    } else {
+                        result.put("status", "failed");
+                        result.put("message", "清除应用数据失败: " + (output != null ? output : "未知错误"));
+                    }
+                    result.put("package", packageName);
+                    return new AIToolResult(result, parameters);
+                }
+                case "detailed_info": {
+                    PackageInfo pkgInfo = pm.getPackageInfo(packageName, 0);
+                    ApplicationInfo appInfo = pm.getApplicationInfo(packageName, 0);
+                    
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("status", "success");
+                    result.put("package", packageName);
+                    result.put("name", pm.getApplicationLabel(appInfo).toString());
+                    result.put("version_name", pkgInfo.versionName != null ? pkgInfo.versionName : "unknown");
+                    @SuppressWarnings("deprecation")
+                    long vCode = pkgInfo.versionCode;
+                    result.put("version_code", String.valueOf(vCode));
+                    result.put("target_sdk", String.valueOf(appInfo.targetSdkVersion));
+                    result.put("source_dir", appInfo.sourceDir);
+                    result.put("data_dir", appInfo.dataDir);
+                    result.put("is_system", (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
+                    result.put("enabled", appInfo.enabled);
+                    
+                    // 获取安装时间
+                    result.put("install_time", String.valueOf(pkgInfo.firstInstallTime));
+                    result.put("update_time", String.valueOf(pkgInfo.lastUpdateTime));
+                    
+                    return new AIToolResult(result, parameters);
+                }
+                default:
+                    return new AIToolResult("未知控制操作: " + controlAction + "，支持: force_stop/clear_data/detailed_info", parameters);
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            return new AIToolResult("应用未安装: " + packageName, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "应用控制失败: " + e.getMessage());
+            return new AIToolResult("应用控制失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 执行 Shell 命令
+     */
+    private AIToolResult executeShellCommand(Map<String, Object> parameters) {
+        String command = (String) parameters.get("command");
+        
+        if (command == null || command.isEmpty()) {
+            return new AIToolResult("缺少参数: command", parameters);
+        }
+        
+        // 安全检查：禁止危险命令
+        String lowerCmd = command.toLowerCase().trim();
+        if (lowerCmd.startsWith("rm ") || lowerCmd.startsWith("rm -") ||
+            lowerCmd.startsWith("format") || lowerCmd.startsWith("factory") ||
+            lowerCmd.contains("reboot") || lowerCmd.contains("shutdown") ||
+            lowerCmd.contains("su ") || lowerCmd.contains("&& rm")) {
+            return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
         }
         
         try {
-            context.getPackageManager().getApplicationInfo(packageName, 0);
+            String output = executeShell(command);
             
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
-            result.put("installed", true);
-            result.put("app", appName);
-            result.put("package", packageName);
+            result.put("command", command);
+            result.put("output", output != null ? output : "(无输出)");
             return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "执行命令失败: " + e.getMessage());
+            return new AIToolResult("执行命令失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 执行 Shell 命令并返回输出
+     */
+    private String executeShell(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command});
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            process.waitFor();
+            reader.close();
             
-        } catch (PackageManager.NameNotFoundException e) {
+            // 读取错误输出
+            BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+            StringBuilder errOutput = new StringBuilder();
+            while ((line = errReader.readLine()) != null) {
+                errOutput.append(line).append("\n");
+            }
+            errReader.close();
+            
+            String out = output.toString().trim();
+            String err = errOutput.toString().trim();
+            
+            if (out.isEmpty() && !err.isEmpty()) {
+                return "错误: " + err;
+            }
+            return out.isEmpty() ? "(无输出)" : out;
+        } catch (Exception e) {
+            return "执行失败: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * 读取系统设置
+     */
+    private AIToolResult readSetting(Map<String, Object> parameters) {
+        String settingType = (String) parameters.get("setting_type");
+        String settingKey = (String) parameters.get("setting_key");
+        
+        if (settingKey == null || settingKey.isEmpty()) {
+            return new AIToolResult("缺少参数: setting_key", parameters);
+        }
+        if (settingType == null || settingType.isEmpty()) {
+            settingType = "system";
+        }
+        
+        try {
+            String value;
+            switch (settingType.toLowerCase()) {
+                case "system":
+                    value = Settings.System.getString(context.getContentResolver(), settingKey);
+                    break;
+                case "secure":
+                    value = Settings.Secure.getString(context.getContentResolver(), settingKey);
+                    break;
+                case "global":
+                    value = Settings.Global.getString(context.getContentResolver(), settingKey);
+                    break;
+                default:
+                    return new AIToolResult("未知设置类型: " + settingType + "，支持: system/secure/global", parameters);
+            }
+            
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
-            result.put("installed", false);
-            result.put("app", appName);
-            result.put("package", packageName);
+            result.put("type", settingType);
+            result.put("key", settingKey);
+            result.put("value", value != null ? value : "(未设置)");
             return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("读取设置失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 修改系统设置
+     */
+    private AIToolResult writeSetting(Map<String, Object> parameters) {
+        String settingType = (String) parameters.get("setting_type");
+        String settingKey = (String) parameters.get("setting_key");
+        String settingValue = (String) parameters.get("setting_value");
+        
+        if (settingKey == null || settingKey.isEmpty()) {
+            return new AIToolResult("缺少参数: setting_key", parameters);
+        }
+        if (settingValue == null) {
+            return new AIToolResult("缺少参数: setting_value", parameters);
+        }
+        if (settingType == null || settingType.isEmpty()) {
+            settingType = "system";
+        }
+        
+        try {
+            boolean success;
+            switch (settingType.toLowerCase()) {
+                case "system":
+                    success = Settings.System.putString(context.getContentResolver(), settingKey, settingValue);
+                    break;
+                case "secure":
+                    success = Settings.Secure.putString(context.getContentResolver(), settingKey, settingValue);
+                    break;
+                case "global":
+                    success = Settings.Global.putString(context.getContentResolver(), settingKey, settingValue);
+                    break;
+                default:
+                    return new AIToolResult("未知设置类型: " + settingType + "，支持: system/secure/global", parameters);
+            }
+            
+            Map<String, Object> result = new HashMap<>();
+            if (success) {
+                result.put("status", "success");
+                result.put("message", "已修改设置: " + settingKey + " = " + settingValue);
+            } else {
+                result.put("status", "failed");
+                result.put("message", "修改设置失败，可能缺少 WRITE_SETTINGS 权限");
+            }
+            result.put("type", settingType);
+            result.put("key", settingKey);
+            result.put("value", settingValue);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("修改设置失败: " + e.getMessage(), parameters);
+        }
+    }
+    
+    /**
+     * 获取当前前台应用信息
+     */
+    private AIToolResult getCurrentApp(Map<String, Object> parameters) {
+        try {
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            List<ActivityManager.RunningAppProcessInfo> processes = am.getRunningAppProcesses();
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            
+            if (processes != null && !processes.isEmpty()) {
+                List<Map<String, Object>> foregroundApps = new ArrayList<>();
+                for (ActivityManager.RunningAppProcessInfo proc : processes) {
+                    if (proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) {
+                        Map<String, Object> appInfo = new HashMap<>();
+                        appInfo.put("package", proc.processName);
+                        appInfo.put("importance", "foreground");
+                        try {
+                            String label = context.getPackageManager().getApplicationLabel(
+                                context.getPackageManager().getApplicationInfo(proc.processName, 0)
+                            ).toString();
+                            appInfo.put("name", label);
+                        } catch (Exception ignored) {}
+                        foregroundApps.add(appInfo);
+                    }
+                }
+                result.put("foreground_apps", foregroundApps);
+                result.put("count", foregroundApps.size());
+            } else {
+                result.put("message", "无法获取前台应用列表");
+            }
+            
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            return new AIToolResult("获取前台应用失败: " + e.getMessage(), parameters);
         }
     }
     
@@ -483,20 +1133,25 @@ public class SystemResourceTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: open_app, open_url, send_sms, make_call, send_email, open_map, share_text, open_settings, list_apps, check_app");
-        descriptions.put("app", "应用名称（用于open_app和check_app操作，如：微信、QQ、支付宝）");
-        descriptions.put("package", "应用包名（用于open_app和check_app操作）");
-        descriptions.put("url", "网址链接（用于open_url操作）");
-        descriptions.put("phone", "电话号码（用于send_sms和make_call操作）");
-        descriptions.put("message", "短信内容（用于send_sms操作）");
-        descriptions.put("to", "收件人邮箱（用于send_email操作）");
-        descriptions.put("subject", "邮件主题（用于send_email操作）");
-        descriptions.put("body", "邮件正文（用于send_email操作）");
-        descriptions.put("location", "位置坐标（用于open_map操作）");
-        descriptions.put("address", "地址（用于open_map操作）");
-        descriptions.put("text", "分享内容（用于share_text操作）");
-        descriptions.put("title", "分享标题（用于share_text操作）");
-        descriptions.put("setting", "设置项（用于open_settings操作：wifi, bluetooth, location, display, sound, storage, app, battery）");
+        descriptions.put("action", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/share_text/open_settings/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app");
+        descriptions.put("app", "应用名称或包名（支持模糊匹配）");
+        descriptions.put("package", "应用包名");
+        descriptions.put("url", "网址链接");
+        descriptions.put("phone", "电话号码");
+        descriptions.put("message", "短信内容");
+        descriptions.put("command", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500）");
+        descriptions.put("setting_type", "设置类型: system/secure/global");
+        descriptions.put("setting_key", "设置键名（如: screen_brightness, wifi_on, airplane_mode_on）");
+        descriptions.put("setting_value", "设置值");
+        descriptions.put("control_action", "应用控制操作: force_stop(强制停止)/clear_data(清除数据)/detailed_info(详细信息)");
+        descriptions.put("to", "收件人邮箱");
+        descriptions.put("subject", "邮件主题");
+        descriptions.put("body", "邮件正文");
+        descriptions.put("location", "位置坐标");
+        descriptions.put("address", "地址");
+        descriptions.put("text", "分享内容");
+        descriptions.put("title", "分享标题");
+        descriptions.put("setting", "设置页: wifi/bluetooth/location/display/sound/storage/app/battery");
         return descriptions;
     }
 }

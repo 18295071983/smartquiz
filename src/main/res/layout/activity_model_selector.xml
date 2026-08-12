@@ -135,6 +135,18 @@
                         app:cornerRadius="8dp"
                         android:textAllCaps="false"
                         style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_api_config"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginStart="8dp"
+                        android:text="API配置"
+                        app:backgroundTint="@color/surface_variant"
+                        android:textColor="@color/primary"
+                        app:cornerRadius="8dp"
+                        android:textAllCaps="false"
+                        android:textSize="12sp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
                 </LinearLayout>
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/online_models_recycler"
@@ -155,6 +167,131 @@
                     android:textColor="@color/text_tertiary"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- 功能专用模型区域（语音识别/语音合成） -->
+            <LinearLayout
+                android:id="@+id/feature_models_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="16dp">
+                <LinearLayout
+                    android:id="@+id/row_feature_models_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingVertical="12dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:background="?attr/selectableItemBackground">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="功能专用模型"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="为语音等功能指定专用在线模型，不配置则自动选择"
+                    android:textSize="11sp"
+                    android:textColor="@color/text_tertiary"/>
+
+                <!-- 语音识别模型 -->
+                <LinearLayout
+                    android:id="@+id/row_asr_model"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="10dp"
+                    android:padding="14dp"
+                    android:background="?attr/selectableItemBackground">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🎙️ 语音识别模型"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"/>
+                    <TextView
+                        android:id="@+id/tv_asr_model_value"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:gravity="end"
+                        android:text="自动选择"
+                        android:textSize="13sp"
+                        android:textColor="@color/primary"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+                </LinearLayout>
+
+                <!-- 语音合成模型 -->
+                <LinearLayout
+                    android:id="@+id/row_tts_model"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp"
+                    android:padding="14dp"
+                    android:background="?attr/selectableItemBackground">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔊 语音合成模型"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"/>
+                    <TextView
+                        android:id="@+id/tv_tts_model_value"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:gravity="end"
+                        android:text="自动选择"
+                        android:textSize="13sp"
+                        android:textColor="@color/primary"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+                </LinearLayout>
+
+                <!-- TTS 音色 -->
+                <LinearLayout
+                    android:id="@+id/row_tts_voice"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp"
+                    android:padding="14dp"
+                    android:background="?attr/selectableItemBackground">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🎵 语音合成音色"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"/>
+                    <TextView
+                        android:id="@+id/tv_tts_voice_value"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:gravity="end"
+                        android:text="alloy（默认）"
+                        android:textSize="13sp"
+                        android:textColor="@color/primary"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- 本地模型区域 -->

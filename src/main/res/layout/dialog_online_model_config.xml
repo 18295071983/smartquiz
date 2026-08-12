@@ -51,13 +51,73 @@
         android:hint="API 密钥"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:endIconMode="password_toggle"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="12dp">
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_api_key"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textPassword"/>
     </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- 服务类型选择 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="服务类型（可选，用于自动填充）"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+        android:layout_marginBottom="12dp">
+        <AutoCompleteTextView
+            android:id="@+id/spinner_service_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"
+            android:enabled="true"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- API Secret（讯飞 APISecret / 百度 SecretKey） -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_api_secret"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="API Secret"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        app:endIconMode="password_toggle"
+        android:visibility="gone"
+        android:layout_marginBottom="12dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_api_secret"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textPassword"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- App ID（讯飞 AppID / 火山引擎 AppID） -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_app_id"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="App ID"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:visibility="gone"
+        android:layout_marginBottom="12dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_app_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- 端点类型提示 -->
+    <TextView
+        android:id="@+id/endpoint_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:visibility="gone"
+        android:layout_marginBottom="12dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"/>
 
     <!-- 操作按钮行 -->
     <LinearLayout

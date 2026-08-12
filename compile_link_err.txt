@@ -1,0 +1,300 @@
+﻿Initialized native services in: D:\Gradle\Home\native
+Initialized jansi services in: D:\Gradle\Home\native
+The client will now receive all logging from the daemon (pid: 31176). The daemon log file: D:\Gradle\Home\daemon\8.13\daemon-31176.out.log
+Starting 41st build in daemon [uptime: 2 hrs 52 mins 43.475 secs, performance: 100%, GC rate: 0.00/s, heap usage: 0% of 4 GiB, non-heap usage: 16% of 1 GiB]
+Using 12 worker leases.
+Configuration on demand is an incubating feature.
+Now considering [D:\qzq\smartquiz] as hierarchies to watch
+Watching the file system is configured to be enabled if available
+File system watching is active
+Starting Build
+Settings evaluated using settings file 'D:\qzq\smartquiz\settings.gradle'.
+Using local directory build cache for the root build (location = D:\Gradle\Home\caches\build-cache-1, remove unused entries = after 7 days).
+Projects loaded. Root project using build file 'D:\qzq\smartquiz\build.gradle'.
+Included projects: [root project 'smartquiz']
+
+> Configure project :
+Evaluating root project 'smartquiz' using build file 'D:\qzq\smartquiz\build.gradle'.
+Resolved plugin [id: 'com.android.application', version: '8.4.0']
+Resolved plugin [id: 'com.google.dagger.hilt.android', version: '2.48']
+Resolved plugin [id: 'com.chaquo.python', version: '16.1.0']
+Using default execution profile
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+C/C++: android.ndkVersion from module build.gradle is [26.1.10909125]
+C/C++: android.ndkPath from module build.gradle is not set
+C/C++: ndk.dir in local.properties is not set
+C/C++: Not considering ANDROID_NDK_HOME because support was removed after deprecation period.
+C/C++: sdkFolder is D:\Android\Sdk
+WARNING: API 'variant.getMergeAssets()' is obsolete and has been replaced with 'variant.getMergeAssetsProvider()'.
+It will be removed in version 9.0 of the Android Gradle plugin.
+For more information, see https://d.android.com/r/tools/task-configuration-avoidance.
+To determine what is calling variant.getMergeAssets(), use -Pandroid.debug.obsoleteApi=true on the command line to display more information.
+Task name matched 'compileDebugJavaWithJavac'
+Selected primary task 'compileDebugJavaWithJavac' from project :
+Starting process 'command 'py''. Working directory: D:\qzq\smartquiz Command: py -3.10 --version
+Successfully started process 'command 'py''
+Starting process 'command 'py''. Working directory: D:\qzq\smartquiz Command: py -3 --version
+Successfully started process 'command 'py''
+All projects evaluated.
+Tasks to be executed: [task ':preBuild', task ':preDebugBuild', task ':dataBindingMergeDependencyArtifactsDebug', task ':generateDebugResValues', task ':generateDebugResources', task ':mergeDebugResources', task ':packageDebugResources', task ':parseDebugLocalResources', task ':dataBindingGenBaseClassesDebug', task ':extractDebugPythonBuildPackages', task ':generateDebugPythonRequirements', task ':mergeDebugPythonSources', task ':generateDebugPythonProxies', task ':javaPreCompileDebug', task ':checkDebugAarMetadata', task ':mapDebugSourceSetPaths', task ':createDebugCompatibleScreenManifests', task ':extractDeepLinksDebug', task ':processDebugMainManifest', task ':processDebugManifest', task ':processDebugManifestForPackage', task ':processDebugResources', task ':compileDebugJavaWithJavac']
+Tasks that were excluded: []
+Resolve mutations for :preBuild (Thread[#5166,Execution worker,5,main]) started.
+:preBuild (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :preBuild UP-TO-DATE
+Skipping task ':preBuild' as it has no actions.
+Resolve mutations for :preDebugBuild (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:preDebugBuild (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :preDebugBuild UP-TO-DATE
+Skipping task ':preDebugBuild' as it has no actions.
+Resolve mutations for :dataBindingMergeDependencyArtifactsDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:dataBindingMergeDependencyArtifactsDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :dataBindingMergeDependencyArtifactsDebug UP-TO-DATE
+Caching disabled for task ':dataBindingMergeDependencyArtifactsDebug' because:
+  Caching has been disabled for the task
+Skipping task ':dataBindingMergeDependencyArtifactsDebug' as it is up-to-date.
+Resolve mutations for :generateDebugResValues (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:generateDebugResValues (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :generateDebugResValues UP-TO-DATE
+Build cache key for task ':generateDebugResValues' is 612fec177c37489753fd7c7816c1a802
+Skipping task ':generateDebugResValues' as it is up-to-date.
+Resolve mutations for :generateDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:generateDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :generateDebugResources UP-TO-DATE
+Build cache key for task ':generateDebugResources' is ca9d18e3da34c9abf54d14d7daf8c3de
+Skipping task ':generateDebugResources' as it is up-to-date.
+Resolve mutations for :mergeDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:mergeDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :mergeDebugResources UP-TO-DATE
+Build cache key for task ':mergeDebugResources' is 916f2fa2a6cc6636785e29465c221b59
+Skipping task ':mergeDebugResources' as it is up-to-date.
+Resolve mutations for :packageDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:packageDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :packageDebugResources UP-TO-DATE
+Build cache key for task ':packageDebugResources' is b593465ece1b81ad21ffd3414628c035
+Skipping task ':packageDebugResources' as it is up-to-date.
+Resolve mutations for :parseDebugLocalResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:parseDebugLocalResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :parseDebugLocalResources UP-TO-DATE
+Build cache key for task ':parseDebugLocalResources' is 0da21ff186f3f85438da57fac05d458a
+Skipping task ':parseDebugLocalResources' as it is up-to-date.
+Resolve mutations for :dataBindingGenBaseClassesDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:dataBindingGenBaseClassesDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :dataBindingGenBaseClassesDebug UP-TO-DATE
+Build cache key for task ':dataBindingGenBaseClassesDebug' is 5cad3c970f82242adcc51d1cf081454c
+Skipping task ':dataBindingGenBaseClassesDebug' as it is up-to-date.
+Resolve mutations for :extractDebugPythonBuildPackages (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:extractDebugPythonBuildPackages (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :extractDebugPythonBuildPackages UP-TO-DATE
+Custom actions are attached to task ':extractDebugPythonBuildPackages'.
+Caching disabled for task ':extractDebugPythonBuildPackages' because:
+  Caching has not been enabled for the task
+Skipping task ':extractDebugPythonBuildPackages' as it is up-to-date.
+Resolve mutations for :generateDebugPythonRequirements (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:generateDebugPythonRequirements (Thread[#5174,Execution worker Thread 9,5,main]) started.
+
+> Task :generateDebugPythonRequirements UP-TO-DATE
+Custom actions are attached to task ':generateDebugPythonRequirements'.
+Caching disabled for task ':generateDebugPythonRequirements' because:
+  Caching has not been enabled for the task
+Skipping task ':generateDebugPythonRequirements' as it is up-to-date.
+Resolve mutations for :mergeDebugPythonSources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:mergeDebugPythonSources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :mergeDebugPythonSources UP-TO-DATE
+Custom actions are attached to task ':mergeDebugPythonSources'.
+Caching disabled for task ':mergeDebugPythonSources' because:
+  Caching has not been enabled for the task
+Skipping task ':mergeDebugPythonSources' as it is up-to-date.
+Resolve mutations for :generateDebugPythonProxies (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:generateDebugPythonProxies (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :generateDebugPythonProxies UP-TO-DATE
+Custom actions are attached to task ':generateDebugPythonProxies'.
+Caching disabled for task ':generateDebugPythonProxies' because:
+  Caching has not been enabled for the task
+Skipping task ':generateDebugPythonProxies' as it is up-to-date.
+Resolve mutations for :javaPreCompileDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:javaPreCompileDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :javaPreCompileDebug UP-TO-DATE
+Build cache key for task ':javaPreCompileDebug' is 6d95d07248328b75b17e9dfeabf19590
+Skipping task ':javaPreCompileDebug' as it is up-to-date.
+Resolve mutations for :checkDebugAarMetadata (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:checkDebugAarMetadata (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :checkDebugAarMetadata UP-TO-DATE
+Caching disabled for task ':checkDebugAarMetadata' because:
+  Caching has been disabled for the task
+Skipping task ':checkDebugAarMetadata' as it is up-to-date.
+Resolve mutations for :mapDebugSourceSetPaths (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:mapDebugSourceSetPaths (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :mapDebugSourceSetPaths UP-TO-DATE
+Caching disabled for task ':mapDebugSourceSetPaths' because:
+  Caching has been disabled for the task
+Skipping task ':mapDebugSourceSetPaths' as it is up-to-date.
+Resolve mutations for :createDebugCompatibleScreenManifests (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:createDebugCompatibleScreenManifests (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :createDebugCompatibleScreenManifests UP-TO-DATE
+Caching disabled for task ':createDebugCompatibleScreenManifests' because:
+  Caching has been disabled for the task
+Skipping task ':createDebugCompatibleScreenManifests' as it is up-to-date.
+Resolve mutations for :extractDeepLinksDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:extractDeepLinksDebug (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :extractDeepLinksDebug UP-TO-DATE
+Build cache key for task ':extractDeepLinksDebug' is 98b64c39249433612bb02c6bfbce76e4
+Skipping task ':extractDeepLinksDebug' as it is up-to-date.
+Resolve mutations for :processDebugMainManifest (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:processDebugMainManifest (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :processDebugMainManifest UP-TO-DATE
+Build cache key for task ':processDebugMainManifest' is c6a53bc63724b237ab94e1e4ccb3883c
+Skipping task ':processDebugMainManifest' as it is up-to-date.
+Resolve mutations for :processDebugManifest (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:processDebugManifest (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :processDebugManifest UP-TO-DATE
+Build cache key for task ':processDebugManifest' is e68a3ae06800270aa8b3e723163f09d4
+Skipping task ':processDebugManifest' as it is up-to-date.
+Resolve mutations for :processDebugManifestForPackage (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:processDebugManifestForPackage (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :processDebugManifestForPackage UP-TO-DATE
+Custom actions are attached to task ':processDebugManifestForPackage'.
+Build cache key for task ':processDebugManifestForPackage' is 57f04e7b1d21b93277d44b696464f25c
+Skipping task ':processDebugManifestForPackage' as it is up-to-date.
+Resolve mutations for :processDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:processDebugResources (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :processDebugResources UP-TO-DATE
+Build cache key for task ':processDebugResources' is d72d260efe1d07fe48d63e4205180bef
+Skipping task ':processDebugResources' as it is up-to-date.
+Resolve mutations for :compileDebugJavaWithJavac (Thread[#5171,Execution worker Thread 6,5,main]) started.
+:compileDebugJavaWithJavac (Thread[#5171,Execution worker Thread 6,5,main]) started.
+
+> Task :compileDebugJavaWithJavac FAILED
+Custom actions are attached to task ':compileDebugJavaWithJavac'.
+Build cache key for task ':compileDebugJavaWithJavac' is 60ff7c6a970ad82880342a212dde2407
+Task ':compileDebugJavaWithJavac' is not up-to-date because:
+  Input property 'stableSources' file D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\chat\render\MarkdownRenderer.java has changed.
+  Input property 'stableSources' file D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\tool\FileGeneratorTool.java has changed.
+The following annotation processors are not incremental: prism4j-bundler-2.0.0.jar (io.noties:prism4j-bundler:2.0.0).
+Make sure all annotation processors are incremental to improve your build speed.
+Compilation mode: in-process compilation
+Created classpath snapshot for incremental compilation in 0.038 secs.
+file or directory 'D:\qzq\smartquiz\src\debug\java', not found
+Compiling with toolchain 'D:\jdk-21'.
+file or directory 'D:\qzq\smartquiz\src\debug\java', not found
+Compiling with JDK Java compiler API.
+.\gradlew.bat : 璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋嬪簭 'org.gradle.api.internal.tasks.compile.processing.TimeTrackingProcessor' 鐨勫彈鏀寔 sourc
+e 鐗堟湰 'RELEASE_8' 浣庝簬 -source '17'
+所在位置 行:1 字符: 22
++ ... \smartquiz; .\gradlew.bat compileDebugJavaWithJavac --info 2>&1 | Out ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋...庝簬 -source '17':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\chat\render\MarkdownRenderer.java:129: 閿欒: 鎵句笉鍒扮鍙?            } cat
+ch (ActivityNotFoundException e) {
+                     ^
+  绗﹀彿:   绫?ActivityNotFoundException
+  浣嶇疆: 绫?FileSafeUrlSpan
+娉? D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\tool\FileGeneratorTool.java浣跨敤浜嗘湭缁忔鏌ユ垨涓嶅畨鍏ㄧ殑鎿嶄綔銆?
+娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:unchecked 閲嶆柊缂栬瘧銆?
+1 涓敊璇?
+1 涓鍛?
+Incremental compilation of 32 classes completed in 0.923 secs.
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  璀﹀憡: 鏉ヨ嚜鎵规敞澶勭悊绋嬪簭 'org.gradle.api.internal.tasks.compile.processing.TimeTrackingProcessor' 鐨勫彈鏀寔 source 鐗堟湰 'RELEASE
+_8' 浣庝簬 -source '17'
+  D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\chat\render\MarkdownRenderer.java:129: 閿欒: 鎵句笉鍒扮鍙?              }
+ catch (ActivityNotFoundException e) {
+                       ^
+    绗﹀彿:   绫?ActivityNotFoundException
+    浣嶇疆: 绫?FileSafeUrlSpan
+  娉? D:\qzq\smartquiz\src\main\java\com\oilquiz\app\ai\tool\FileGeneratorTool.java浣跨敤浜嗘湭缁忔鏌ユ垨涓嶅畨鍏ㄧ殑鎿嶄綔銆?
+  娉? 鏈夊叧璇︾粏淇℃伅, 璇蜂娇鐢?-Xlint:unchecked 閲嶆柊缂栬瘧銆?
+  1 涓敊璇?
+  1 涓鍛?
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 2s
+21 actionable tasks: 1 executed, 20 up-to-date
+Watched directory hierarchies: [D:\qzq\smartquiz]

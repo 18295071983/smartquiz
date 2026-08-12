@@ -13,6 +13,7 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
@@ -168,6 +169,19 @@ public class ChatInputManager {
         attachmentAdapter = new AttachmentAdapter(activity, currentAttachments, new AttachmentAdapter.OnAttachmentClickListener() {
             @Override public void onImageClick(ChatMessage.Attachment a, int p) { openUri(a.url); }
             @Override public void onFileClick(ChatMessage.Attachment a, int p) { callback.onShowToast("文件: " + a.name); }
+            @Override public void onAudioClick(ChatMessage.Attachment a, int p) { 
+                // 播放音频
+                try {
+                    if (a.url != null) {
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setDataAndType(Uri.parse(a.url), "audio/*");
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        activity.startActivity(intent);
+                    }
+                } catch (Exception e) {
+                    callback.onShowToast("无法播放音频");
+                }
+            }
             @Override public void onAttachmentRemove(ChatMessage.Attachment a, int p) {
                 if (attachmentAdapter != null) {
                     attachmentAdapter.removeAttachment(p);
@@ -178,12 +192,148 @@ public class ChatInputManager {
             }
         });
         attachmentList.setAdapter(attachmentAdapter);
+        
+        // 启用拖拽排序
+        setupDragAndDrop();
+    }
+
+    /** 设置拖拽排序功能 */
+    private void setupDragAndDrop() {
+        if (attachmentAdapter == null || attachmentList == null) return;
+        
+        // 启用适配器的拖拽功能
+        attachmentAdapter.enableDrag();
+        
+        // 设置拖拽监听器
+        attachmentAdapter.setOnAttachmentDragListener(new AttachmentAdapter.OnAttachmentDragListener() {
+            @Override
+            public void onAttachmentMoved(int fromPosition, int toPosition) {
+                // 更新数据源顺序
+                if (fromPosition < currentAttachments.size() && toPosition < currentAttachments.size()) {
+                    ChatMessage.Attachment item = currentAttachments.remove(fromPosition);
+                    currentAttachments.add(toPosition, item);
+                }
+            }
+            
+            @Override
+            public void onAttachmentDragStart() {
+                callback.onShowToast("👆 拖动附件可调整顺序");
+            }
+            
+            @Override
+            public void onAttachmentDragEnd() {
+                // 拖拽结束，可以保存新顺序
+            }
+        });
+        
+        // 创建 ItemTouchHelper
+        ItemTouchHelper.Callback callback = new ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT, // 支持左右拖动
+            0 // 不支持滑动删除
+        ) {
+            @Override
+            public boolean isLongPressDragEnabled() {
+                return true; // 长按触发拖拽
+            }
+            
+            @Override
+            public boolean isItemViewSwipeEnabled() {
+                return false; // 禁用滑动删除
+            }
+            
+            @Override
+            public void onSelectedChanged(RecyclerView.ViewHolder viewHolder, int actionState) {
+                super.onSelectedChanged(viewHolder, actionState);
+                if (actionState == ItemTouchHelper.ACTION_STATE_IDLE) {
+                    // 拖拽结束
+                    if (attachmentAdapter != null) {
+                        attachmentAdapter.disableDrag();
+                    }
+                }
+            }
+            
+            @Override
+            public boolean onMove(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, 
+                                RecyclerView.ViewHolder target) {
+                int fromPos = viewHolder.getAdapterPosition();
+                int toPos = target.getAdapterPosition();
+                if (attachmentAdapter != null) {
+                    attachmentAdapter.moveAttachment(fromPos, toPos);
+                }
+                return true;
+            }
+            
+            @Override
+            public void onSwiped(RecyclerView.ViewHolder viewHolder, int direction) {
+                // 不处理滑动删除（因为禁用了）
+            }
+        };
+        
+        ItemTouchHelper touchHelper = new ItemTouchHelper(callback);
+        touchHelper.attachToRecyclerView(attachmentList);
     }
 
     private void sendMessage() {
         String text = getInputText();
         if (text.isEmpty() && !hasAttachments()) return;
         callback.onSendMessage(text);
+    }
+
+    /** 切换编辑模式 */
+    public void toggleEditMode() {
+        if (attachmentAdapter == null) return;
+        
+        if (attachmentAdapter.isEditMode()) {
+            // 退出编辑模式
+            attachmentAdapter.disableEditMode();
+            callback.onShowToast("✅ 已退出编辑模式");
+        } else {
+            // 进入编辑模式
+            attachmentAdapter.enableEditMode();
+            callback.onShowToast("✏️ 点击附件可选中，长按可拖拽排序");
+        }
+    }
+
+    /** 全选附件 */
+    public void selectAllAttachments() {
+        if (attachmentAdapter != null && attachmentAdapter.isEditMode()) {
+            attachmentAdapter.selectAll();
+            callback.onShowToast("已全选 " + attachmentAdapter.getSelectedCount() + " 个附件");
+        }
+    }
+
+    /** 取消选择 */
+    public void clearSelection() {
+        if (attachmentAdapter != null) {
+            attachmentAdapter.clearSelection();
+        }
+    }
+
+    /** 批量删除选中的附件 */
+    public void deleteSelectedAttachments() {
+        if (attachmentAdapter == null || !attachmentAdapter.isEditMode()) {
+            callback.onShowToast("请先开启编辑模式");
+            return;
+        }
+        
+        int count = attachmentAdapter.getSelectedCount();
+        if (count == 0) {
+            callback.onShowToast("请先选择要删除的附件");
+            return;
+        }
+        
+        // 显示确认对话框（这里简化为直接删除）
+        attachmentAdapter.deleteSelected();
+        
+        if (attachmentAdapter.isEmpty()) {
+            if (attachmentList != null) {
+                attachmentList.setVisibility(View.GONE);
+            }
+            // 退出编辑模式
+            attachmentAdapter.disableEditMode();
+        }
+        
+        callback.onShowToast("🗑️ 已删除 " + count + " 个附件");
     }
 
     private void openUri(String url) {

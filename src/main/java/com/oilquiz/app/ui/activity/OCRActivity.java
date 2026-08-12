@@ -60,6 +60,8 @@ public class OCRActivity extends AppCompatActivity {
     private MaterialButton shareTextButton;
     private MaterialButton selectPdfButton;
     private Spinner languageSpinner;
+    private TextView tvOcrModelName; // OCR 模型名称显示
+    private View btnOcrModel; // OCR 模型选择按钮
     private ProgressBar progressBar;
     private TextView progressText;
 
@@ -88,6 +90,9 @@ public class OCRActivity extends AppCompatActivity {
         // 设置语言选择器
         setupLanguageSpinner();
         
+        // 设置 OCR 模型选择器（底部弹窗）
+        setupOCRModelSelector();
+        
         // 设置按钮点击事件
         setupButtons();
     }
@@ -103,6 +108,8 @@ public class OCRActivity extends AppCompatActivity {
         shareTextButton = findViewById(R.id.btn_share_text);
         selectPdfButton = findViewById(R.id.btn_select_pdf);
         languageSpinner = findViewById(R.id.spinner_language);
+        tvOcrModelName = findViewById(R.id.tv_ocr_model_name); // OCR 模型名称
+        btnOcrModel = findViewById(R.id.btn_ocr_model); // OCR 模型选择按钮
         progressBar = findViewById(R.id.progress_bar);
         progressText = findViewById(R.id.progress_text);
     }
@@ -131,6 +138,50 @@ public class OCRActivity extends AppCompatActivity {
                 // 默认使用自动检测
             }
         });
+    }
+    
+    /**
+     * 设置 OCR 模型选择器（点击打开底部弹窗）
+     */
+    private void setupOCRModelSelector() {
+        // 显示当前已选的 OCR 模型
+        updateOCRModelDisplay();
+        
+        // 点击打开模型选择弹窗
+        btnOcrModel.setOnClickListener(v -> {
+            com.oilquiz.app.ui.dialog.OCRModelSelectorDialog dialog = 
+                new com.oilquiz.app.ui.dialog.OCRModelSelectorDialog(this);
+            dialog.setListener((modelId, modelName) -> {
+                // 模型已保存，更新显示
+                updateOCRModelDisplay();
+            });
+            dialog.show();
+        });
+    }
+    
+    /**
+     * 更新 OCR 模型显示
+     */
+    private void updateOCRModelDisplay() {
+        com.oilquiz.app.ai.model.OnlineModelManager modelManager = 
+            com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
+        String ocrModelId = modelManager.getOCRModelId();
+        
+        if (ocrModelId == null) {
+            tvOcrModelName.setText("自动选择（推荐）");
+        } else {
+            // 优先显示用户指定的具体模型名（同一 API Key 下的某个模型）
+            String ocrModelName = modelManager.getOCRModelName();
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config = 
+                modelManager.getModel(ocrModelId);
+            if (ocrModelName != null && !ocrModelName.isEmpty()) {
+                tvOcrModelName.setText(ocrModelName);
+            } else if (config != null) {
+                tvOcrModelName.setText(config.name);
+            } else {
+                tvOcrModelName.setText("自动选择（推荐）");
+            }
+        }
     }
     
     private void setupButtons() {
@@ -164,14 +215,14 @@ public class OCRActivity extends AppCompatActivity {
     private void openImagePicker() {
         Intent intent = new Intent();
         intent.setType("image/*");
-        intent.setAction(Intent.ACTION_GET_CONTENT);
+        intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
         startActivityForResult(Intent.createChooser(intent, "选择图片"), PICK_IMAGE_REQUEST);
     }
     
     private void openPdfPicker() {
         Intent intent = new Intent();
         intent.setType("application/pdf");
-        intent.setAction(Intent.ACTION_GET_CONTENT);
+        intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
         startActivityForResult(Intent.createChooser(intent, "选择PDF文件"), PICK_PDF_REQUEST);
     }
 
@@ -346,7 +397,8 @@ public class OCRActivity extends AppCompatActivity {
         isProcessing = true;
         showProgress(true, "正在识别...");
         
-        ocrManager.processImage(selectedImage, new OCRManager.OCRCallback() {
+        // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+        ocrManager.processImageOnlineFirst(selectedImage, new OCRManager.OCRCallback() {
             @Override
             public void onSuccess(String text) {
                 isProcessing = false;
@@ -369,7 +421,7 @@ public class OCRActivity extends AppCompatActivity {
                 findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
                 Toast.makeText(OCRActivity.this, "识别失败: " + error, Toast.LENGTH_SHORT).show();
             }
-        }, true); // 启用自动检测重试
+        });
     }
     
     private void processPdf() {

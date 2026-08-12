@@ -8,18 +8,15 @@ import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import com.oilquiz.app.ui.base.BaseActivity;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputLayout;
-import android.widget.EditText;
 import com.oilquiz.app.R;
 import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.util.render.ExcelUtil;
@@ -34,20 +31,21 @@ public class DataIssueFixActivity extends BaseActivity {
     public static final String EXTRA_SKIP_AND_CONTINUE = "skip_and_continue";
 
     private ExcelUtil.DataIssueReport issueReport;
-    private IssuesAdapter issuesAdapter;
 
     private TextView totalIssuesCount;
     private TextView resolvedIssuesCount;
     private TextView unresolvedIssuesCount;
-    private RecyclerView issuesRecyclerView;
+    private LinearLayout issuesContainer;
+    private TextView tvNoIssues;
     private MaterialButton buttonBatchFix;
     private MaterialButton buttonSkipAndContinue;
     private MaterialButton buttonCompleteFix;
+    private MaterialButton btnScanIssues;
+    private MaterialButton btnFixAll;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         SystemUIResourceAdapter uiAdapter = SystemUIResourceAdapter.getInstance(this);
         uiAdapter.applySystemTheme(this);
     }
@@ -59,20 +57,18 @@ public class DataIssueFixActivity extends BaseActivity {
 
     @Override
     protected void initView() {
-        // 设置Toolbar
         setupToolbar("数据问题修复");
 
         totalIssuesCount = findViewById(R.id.totalIssuesCount);
         resolvedIssuesCount = findViewById(R.id.resolvedIssuesCount);
         unresolvedIssuesCount = findViewById(R.id.unresolvedIssuesCount);
-        issuesRecyclerView = findViewById(R.id.rvIssuesList);
+        issuesContainer = findViewById(R.id.issuesContainer);
+        tvNoIssues = findViewById(R.id.tvNoIssues);
         buttonBatchFix = findViewById(R.id.buttonBatchFix);
         buttonSkipAndContinue = findViewById(R.id.buttonSkipAndContinue);
         buttonCompleteFix = findViewById(R.id.buttonCompleteFix);
-
-        issuesRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        issuesAdapter = new IssuesAdapter();
-        issuesRecyclerView.setAdapter(issuesAdapter);
+        btnScanIssues = findViewById(R.id.btnScanIssues);
+        btnFixAll = findViewById(R.id.btnFixAll);
     }
 
     @Override
@@ -87,11 +83,34 @@ public class DataIssueFixActivity extends BaseActivity {
         }
 
         updateStats();
-        issuesAdapter.setIssues(issueReport.issues);
+        renderIssueList();
     }
 
     @Override
     protected void initListener() {
+        btnScanIssues.setOnClickListener(v ->
+                Toast.makeText(this, "请在导入流程中重新扫描", Toast.LENGTH_SHORT).show());
+
+        btnFixAll.setOnClickListener(v -> {
+            int fixed = 0;
+            for (ExcelUtil.DataIssueItem issue : issueReport.issues) {
+                if (!issue.isResolved) {
+                    if (issue.issueType == ExcelUtil.DataIssueType.MISSING_QUESTION_TYPE) {
+                        issue.userCorrectedValue = "单选题";
+                    } else if (issue.suggestedValue != null && !issue.suggestedValue.isEmpty()) {
+                        issue.userCorrectedValue = issue.suggestedValue;
+                    } else {
+                        continue;
+                    }
+                    issue.isResolved = true;
+                    fixed++;
+                }
+            }
+            updateStats();
+            renderIssueList();
+            Toast.makeText(this, "已自动修复 " + fixed + " 个问题", Toast.LENGTH_SHORT).show();
+        });
+
         buttonBatchFix.setOnClickListener(v -> showBatchFixDialog());
         buttonSkipAndContinue.setOnClickListener(v -> skipAndContinue());
         buttonCompleteFix.setOnClickListener(v -> completeFixAndContinue());
@@ -104,11 +123,133 @@ public class DataIssueFixActivity extends BaseActivity {
         unresolvedIssuesCount.setText(String.valueOf(issueReport.totalIssues - issueReport.resolvedIssues));
     }
 
+    /**
+     * 重新渲染整个问题列表（用 LinearLayout 替代 RecyclerView，避免嵌套滚动问题）
+     */
+    private void renderIssueList() {
+        issuesContainer.removeAllViews();
+
+        if (issueReport.issues == null || issueReport.issues.isEmpty()) {
+            tvNoIssues.setVisibility(View.VISIBLE);
+            return;
+        }
+        tvNoIssues.setVisibility(View.GONE);
+
+        for (int i = 0; i < issueReport.issues.size(); i++) {
+            ExcelUtil.DataIssueItem issue = issueReport.issues.get(i);
+            View itemView = createIssueItemView(issue, i);
+            issuesContainer.addView(itemView);
+        }
+    }
+
+    /**
+     * 创建单个问题的 item 视图
+     */
+    private View createIssueItemView(ExcelUtil.DataIssueItem issue, int index) {
+        View view = LayoutInflater.from(this).inflate(R.layout.item_data_issue, issuesContainer, false);
+
+        TextView issueRowNumber = view.findViewById(R.id.issueRowNumber);
+        TextView issueDescription = view.findViewById(R.id.issueDescription);
+        ImageView issueStatusIcon = view.findViewById(R.id.issueStatusIcon);
+        View inputArea = view.findViewById(R.id.inputArea);
+        TextView inputLabel = view.findViewById(R.id.inputLabel);
+        TextInputLayout spinnerInputLayout = view.findViewById(R.id.spinnerInputLayout);
+        AutoCompleteTextView spinnerAutoComplete = view.findViewById(R.id.spinnerAutoComplete);
+        MaterialButton buttonSkip = view.findViewById(R.id.buttonSkip);
+        MaterialButton buttonApply = view.findViewById(R.id.buttonApply);
+
+        issueRowNumber.setText("第" + issue.rowNumber + "行");
+        issueDescription.setText(issue.getIssueDescription());
+        inputLabel.setText(issue.fieldName);
+
+        if (issue.isResolved) {
+            // 已解决：显示解决状态和修正值
+            issueStatusIcon.setVisibility(View.VISIBLE);
+            inputArea.setVisibility(View.VISIBLE);
+            spinnerInputLayout.setVisibility(View.VISIBLE);
+            spinnerAutoComplete.setText(issue.userCorrectedValue != null ? issue.userCorrectedValue : "");
+            spinnerAutoComplete.setEnabled(false);
+            buttonSkip.setVisibility(View.GONE);
+            buttonApply.setText("撤销");
+            buttonApply.setOnClickListener(v -> {
+                issue.isResolved = false;
+                issue.userCorrectedValue = null;
+                updateStats();
+                renderIssueList();
+            });
+        } else {
+            // 未解决：显示输入区域
+            issueStatusIcon.setVisibility(View.GONE);
+            inputArea.setVisibility(View.VISIBLE);
+            spinnerAutoComplete.setEnabled(true);
+            buttonSkip.setVisibility(View.VISIBLE);
+            buttonApply.setText("应用");
+
+            // 构建建议值列表
+            List<String> suggestions = new ArrayList<>();
+            if (issue.suggestedValuesList != null) {
+                for (String s : issue.suggestedValuesList) {
+                    if (!suggestions.contains(s)) suggestions.add(s);
+                }
+            }
+            if (issue.issueType == ExcelUtil.DataIssueType.MISSING_QUESTION_TYPE) {
+                String[] defaults = {"单选题", "多选题", "判断题", "填空题", "简答题"};
+                for (String d : defaults) {
+                    if (!suggestions.contains(d)) suggestions.add(d);
+                }
+            }
+            if (issue.suggestedValue != null && !issue.suggestedValue.isEmpty()
+                    && !suggestions.contains(issue.suggestedValue)) {
+                suggestions.add(issue.suggestedValue);
+            }
+
+            if (!suggestions.isEmpty()) {
+                ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                        this, android.R.layout.simple_dropdown_item_1line, suggestions);
+                spinnerAutoComplete.setAdapter(adapter);
+                spinnerAutoComplete.setOnItemClickListener((parent, v, position, id) -> {
+                    spinnerAutoComplete.setText(suggestions.get(position));
+                    spinnerAutoComplete.dismissDropDown();
+                });
+                spinnerAutoComplete.setOnClickListener(v -> {
+                    spinnerAutoComplete.showDropDown();
+                });
+                spinnerAutoComplete.setOnFocusChangeListener((v, hasFocus) -> {
+                    if (hasFocus) spinnerAutoComplete.showDropDown();
+                });
+                spinnerInputLayout.setVisibility(View.VISIBLE);
+            } else {
+                spinnerInputLayout.setVisibility(View.VISIBLE);
+            }
+
+            buttonSkip.setOnClickListener(v -> {
+                issue.isResolved = false;
+                issue.userCorrectedValue = null;
+                updateStats();
+                renderIssueList();
+            });
+
+            buttonApply.setOnClickListener(v -> {
+                String value = spinnerAutoComplete.getText().toString().trim();
+                if (value.isEmpty()) {
+                    Toast.makeText(this, "请输入或从下拉选择值", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                issue.userCorrectedValue = value;
+                issue.isResolved = true;
+                updateStats();
+                renderIssueList();
+            });
+        }
+
+        return view;
+    }
+
     private void showBatchFixDialog() {
-        String[] options = {"统一设置题型为'单选题'", 
-                          "统一设置题型为'多选题'", 
-                          "统一设置题型为'判断题'"};
-        
+        String[] options = {"统一设置题型为'单选题'",
+                "统一设置题型为'多选题'",
+                "统一设置题型为'判断题'"};
+
         new AlertDialog.Builder(this)
                 .setTitle("批量修复")
                 .setItems(options, (dialog, which) -> {
@@ -132,7 +273,7 @@ public class DataIssueFixActivity extends BaseActivity {
             }
         }
         updateStats();
-        issuesAdapter.notifyDataSetChanged();
+        renderIssueList();
         Toast.makeText(this, "批量修复完成", Toast.LENGTH_SHORT).show();
     }
 
@@ -150,110 +291,5 @@ public class DataIssueFixActivity extends BaseActivity {
         resultIntent.putExtra(EXTRA_SKIP_AND_CONTINUE, false);
         setResult(RESULT_OK, resultIntent);
         finish();
-    }
-
-    private class IssuesAdapter extends RecyclerView.Adapter<IssueViewHolder> {
-        private List<ExcelUtil.DataIssueItem> issues = new ArrayList<>();
-
-        public void setIssues(List<ExcelUtil.DataIssueItem> issues) {
-            this.issues = issues;
-            notifyDataSetChanged();
-        }
-
-        @NonNull
-        @Override
-        public IssueViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_data_issue, parent, false);
-            return new IssueViewHolder(view);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull IssueViewHolder holder, int position) {
-            holder.bind(issues.get(position));
-        }
-
-        @Override
-        public int getItemCount() {
-            return issues.size();
-        }
-    }
-
-    private class IssueViewHolder extends RecyclerView.ViewHolder {
-        private ImageView issueTypeIcon;
-        private TextView issueRowNumber;
-        private TextView issueDescription;
-        private ImageView issueStatusIcon;
-        private View inputArea;
-        private TextView inputLabel;
-        private TextInputLayout spinnerInputLayout;
-        private AutoCompleteTextView spinnerAutoComplete;
-        private MaterialButton buttonSkip;
-        private MaterialButton buttonApply;
-
-        public IssueViewHolder(@NonNull View itemView) {
-            super(itemView);
-            issueTypeIcon = itemView.findViewById(R.id.issueTypeIcon);
-            issueRowNumber = itemView.findViewById(R.id.issueRowNumber);
-            issueDescription = itemView.findViewById(R.id.issueDescription);
-            issueStatusIcon = itemView.findViewById(R.id.issueStatusIcon);
-            inputArea = itemView.findViewById(R.id.inputArea);
-            inputLabel = itemView.findViewById(R.id.inputLabel);
-            spinnerInputLayout = itemView.findViewById(R.id.spinnerInputLayout);
-            spinnerAutoComplete = itemView.findViewById(R.id.spinnerAutoComplete);
-            buttonSkip = itemView.findViewById(R.id.buttonSkip);
-            buttonApply = itemView.findViewById(R.id.buttonApply);
-        }
-
-        public void bind(ExcelUtil.DataIssueItem issue) {
-            issueRowNumber.setText("第" + issue.rowNumber + "行");
-            issueDescription.setText(issue.getIssueDescription());
-            inputLabel.setText(issue.fieldName);
-
-            if (issue.isResolved) {
-                issueStatusIcon.setVisibility(View.VISIBLE);
-                inputArea.setVisibility(View.GONE);
-                spinnerAutoComplete.setText(issue.userCorrectedValue);
-            } else {
-                issueStatusIcon.setVisibility(View.GONE);
-                inputArea.setVisibility(View.VISIBLE);
-                spinnerAutoComplete.setText("");
-
-                // 设置建议值下拉选择框
-                if (issue.suggestedValuesList != null && !issue.suggestedValuesList.isEmpty()) {
-                    ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                            itemView.getContext(),
-                            android.R.layout.simple_dropdown_item_1line,
-                            issue.suggestedValuesList
-                    );
-                    spinnerAutoComplete.setAdapter(adapter);
-                    spinnerAutoComplete.setOnItemClickListener((parent, view, position, id) -> {
-                        String selectedValue = issue.suggestedValuesList.get(position);
-                        spinnerAutoComplete.setText(selectedValue, false);
-                    });
-                    spinnerInputLayout.setVisibility(View.VISIBLE);
-                } else {
-                    spinnerInputLayout.setVisibility(View.GONE);
-                }
-            }
-
-            buttonSkip.setOnClickListener(v -> {
-                issue.isResolved = false;
-                updateStats();
-                issuesAdapter.notifyItemChanged(getAdapterPosition());
-            });
-
-            buttonApply.setOnClickListener(v -> {
-                String value = spinnerAutoComplete.getText().toString();
-                if (value.trim().isEmpty()) {
-                    Toast.makeText(itemView.getContext(), "请从下拉选项中选择值", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                issue.userCorrectedValue = value;
-                issue.isResolved = true;
-                updateStats();
-                issuesAdapter.notifyItemChanged(getAdapterPosition());
-            });
-        }
     }
 }

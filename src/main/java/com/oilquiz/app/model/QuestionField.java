@@ -24,14 +24,14 @@ public enum QuestionField {
     OPTION_B("选项B", "optionB", "选项", "b", "optionb", "option_b", "选项乙"),
     OPTION_C("选项C", "optionC", "选项", "c", "optionc", "option_c", "选项丙"),
     OPTION_D("选项D", "optionD", "选项", "d", "optiond", "option_d", "选项丁"),
-    OPTION_E("选项E", "extraOptions", "选项", "e", "optione", "option_e", "选项戊"),
-    OPTION_F("选项F", "extraOptions", "选项", "f", "optionf", "option_f", "选项己"),
-    OPTION_G("选项G", "extraOptions", "选项", "g", "optiong", "option_g", "选项庚"),
-    OPTION_H("选项H", "extraOptions", "选项", "h", "optionh", "option_h", "选项辛"),
-    OPTION_I("选项I", "extraOptions", "选项", "i", "optioni", "option_i", "选项壬"),
-    OPTION_J("选项J", "extraOptions", "选项", "j", "optionj", "option_j", "选项癸"),
-    OPTION_K("选项K", "extraOptions", "选项", "k", "optionk", "option_k", "选项子"),
-    OPTION_L("选项L", "extraOptions", "选项", "l", "optionl", "option_l", "选项丑"),
+    OPTION_E("选项E", "optionE", "选项", "e", "optione", "option_e", "选项戊"),
+    OPTION_F("选项F", "optionF", "选项", "f", "optionf", "option_f", "选项己"),
+    OPTION_G("选项G", "optionG", "选项", "g", "optiong", "option_g", "选项庚"),
+    OPTION_H("选项H", "optionH", "选项", "h", "optionh", "option_h", "选项辛"),
+    OPTION_I("选项I", "optionI", "选项", "i", "optioni", "option_i", "选项壬"),
+    OPTION_J("选项J", "optionJ", "选项", "j", "optionj", "option_j", "选项癸"),
+    OPTION_K("选项K", "optionK", "选项", "k", "optionk", "option_k", "选项子"),
+    OPTION_L("选项L", "optionL", "选项", "l", "optionl", "option_l", "选项丑"),
 
     // ========== 答案与解析 ==========
     CORRECT_ANSWER("正确答案", "correctAnswer", "答案与解析", "answer", "correct", "答案", "标准答案", "参考答案", "正确选项"),
@@ -268,7 +268,7 @@ public enum QuestionField {
     }
 
     /**
-     * 判断该字段是否为额外选项（E~L，存储在 extraOptions JSON 中）
+     * 判断该字段是否为扩展选项（E~L，独立数据库列）
      */
     public boolean isExtraOption() {
         return this == OPTION_E || this == OPTION_F || this == OPTION_G || this == OPTION_H
@@ -300,35 +300,18 @@ public enum QuestionField {
     }
 
     /**
-     * 从字段映射表中按优先级获取列索引：显示名 → 全部别名
-     * 替代 ExcelUtil 中各处散落的 finalFieldMapping.get("题目"); ... finalFieldMapping.get("question"); 写法
-     */
-    public Integer getColumnIndex(Map<String, Integer> fieldMapping) {
-        if (fieldMapping == null) return null;
-        // 显示名优先
-        Integer idx = fieldMapping.get(displayName);
-        if (idx != null) return idx;
-        // 别名回退
-        for (String alias : aliases) {
-            idx = fieldMapping.get(alias);
-            if (idx != null) return idx;
-        }
-        return null;
-    }
-
-    /**
      * 将单元格字符串值设置到 Question 对象对应字段。
-     * 额外选项(E~L)会聚合到 extraOptions JSON 中；空N答案会通过 question.addBlankAnswer() 合并到 correctAnswer。
+     * 扩展选项(E~L)直接写入独立列；空N答案会通过 question.addBlankAnswer() 合并到 correctAnswer。
      * @param question 题目对象
      * @param value 字符串值
-     * @param extraOptionsAggregator 额外选项聚合器（可为 null，仅对 E~L 生效）
+     * @param extraOptionsAggregator 已废弃，传null即可（兼容旧签名）
      */
     public void setValue(Question question, String value, org.json.JSONObject extraOptionsAggregator) {
         if (question == null || value == null) return;
         if (isExtraOption()) {
-            String key = getExtraOptionKey();
-            if (extraOptionsAggregator != null && key != null && !value.isEmpty()) {
-                try { extraOptionsAggregator.put(key, value); } catch (Exception ignored) {}
+            // E~L 直接写入独立列
+            if (!value.isEmpty()) {
+                question.setOptionByLetter(getExtraOptionKey(), value);
             }
             return;
         }

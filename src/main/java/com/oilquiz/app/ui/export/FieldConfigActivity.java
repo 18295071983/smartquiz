@@ -64,7 +64,8 @@ public class FieldConfigActivity extends AppCompatActivity {
         Intent intent = getIntent();
         format = intent.getStringExtra("format");
         templateId = intent.getStringExtra("templateId");
-        questions = (java.util.List<com.oilquiz.app.model.Question>) intent.getSerializableExtra("questions");
+        // 题目列表从内存持有器获取（Intent 序列化大列表会抛 TransactionTooLargeException）
+        questions = ExportQuestionsHolder.get();
         
         // 检查是否是内容模板
         if (intent.hasExtra("contentTemplateId")) {
@@ -93,7 +94,7 @@ public class FieldConfigActivity extends AppCompatActivity {
         Map<String, String> allFields = FieldMapper.getAllAvailableFields();
         List<String> templateFields = new ArrayList<>();
         
-        if (!isContentTemplateMode && template != null) {
+        if (!isContentTemplateMode && template != null && template.getFields() != null && !template.getFields().isEmpty()) {
             templateFields = template.getFields();
         } else {
             // 对于内容模板或APK格式，使用默认字段列表
@@ -141,7 +142,7 @@ public class FieldConfigActivity extends AppCompatActivity {
         // 启动导出任务
         Intent intent = new Intent(this, ExportProgressActivity.class);
         intent.putExtra("config", config);
-        intent.putExtra("questions", (java.io.Serializable) questions);
+        // questions 继续由 ExportQuestionsHolder 持有，不再放入 Intent
         
         // 传递内容模板信息
         if (isContentTemplateMode) {

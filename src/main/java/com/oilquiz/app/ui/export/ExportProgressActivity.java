@@ -64,9 +64,10 @@ public class ExportProgressActivity extends AppCompatActivity {
     private void getIntentData() {
         Intent intent = getIntent();
         config = (ExportManager.ExportConfig) intent.getSerializableExtra("config");
-        // 这里应该从Intent中获取questions，或者从全局状态中获取
-        // 暂时使用空列表，实际应用中需要传递真实的问题列表
-        questions = (List<Question>) intent.getSerializableExtra("questions");
+        // 题目列表从内存持有器获取（Intent 序列化大列表会抛 TransactionTooLargeException），
+        // 取到本地引用后立即释放静态持有
+        questions = ExportQuestionsHolder.get();
+        ExportQuestionsHolder.clear();
         
         // 检查是否是内容模板
         if (intent.hasExtra("isContentTemplateMode")) {

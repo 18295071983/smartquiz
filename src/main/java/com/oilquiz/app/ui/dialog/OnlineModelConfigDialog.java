@@ -7,6 +7,8 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.Window;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -20,13 +22,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.model.UsageInfo;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.service.UsageTracker;
-import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ui.adapter.ModelListAdapter;
 
 import java.util.ArrayList;
@@ -46,6 +46,12 @@ public class OnlineModelConfigDialog {
     private EditText nameInput;
     private EditText urlInput;
     private EditText keyInput;
+    private EditText apiSecretInput;
+    private EditText appIdInput;
+    private AutoCompleteTextView serviceTypeSpinner;
+    private View apiSecretLayout;
+    private View appIdLayout;
+    private TextView endpointHint;
     private MaterialButton testConnectionButton;
     private MaterialButton fetchModelsButton;
     private MaterialButton saveButton;
@@ -67,7 +73,6 @@ public class OnlineModelConfigDialog {
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
     private OnlineModelManager modelManager;
-    private APIKeyManager apiKeyManager;
     
     private String selectedModelId;
     private List<ApiModel> fetchedModels = new ArrayList<>();
@@ -88,7 +93,6 @@ public class OnlineModelConfigDialog {
         this.modelListFetcher = ModelListFetcher.getInstance(context);
         this.usageTracker = UsageTracker.getInstance(context);
         this.modelManager = OnlineModelManager.getInstance(context);
-        this.apiKeyManager = APIKeyManager.getInstance(context);
     }
 
     public OnlineModelConfigDialog setExistingConfig(OnlineModelManager.OnlineModelConfig config) {
@@ -96,6 +100,12 @@ public class OnlineModelConfigDialog {
             nameInput.setText(config.name);
             urlInput.setText(config.apiUrl);
             keyInput.setText(config.apiKey);
+            if (config.apiSecret != null && !config.apiSecret.isEmpty()) {
+                apiSecretInput.setText(config.apiSecret);
+            }
+            if (config.appId != null && !config.appId.isEmpty()) {
+                appIdInput.setText(config.appId);
+            }
             selectedModelId = config.selectedModel;
         }
         return this;
@@ -120,13 +130,25 @@ public class OnlineModelConfigDialog {
 
         initViews();
         setupListeners();
+        setupServiceTypeSpinner();
         
         if (existingConfig != null) {
             nameInput.setText(existingConfig.name);
             urlInput.setText(existingConfig.apiUrl);
             keyInput.setText(existingConfig.apiKey);
             selectedModelId = existingConfig.selectedModel;
-            
+
+            // 填充 apiSecret 和 appId
+            if (existingConfig.apiSecret != null && !existingConfig.apiSecret.isEmpty()) {
+                apiSecretInput.setText(existingConfig.apiSecret);
+            }
+            if (existingConfig.appId != null && !existingConfig.appId.isEmpty()) {
+                appIdInput.setText(existingConfig.appId);
+            }
+
+            // 触发端点类型检测，显示/隐藏扩展字段
+            updateEndpointFields(existingConfig.apiUrl);
+
             // 如果有缓存的模型，尝试加载
             if (existingConfig.cachedModelsJson != null && !existingConfig.cachedModelsJson.isEmpty()) {
                 loadCachedModels(existingConfig.cachedModelsJson);
@@ -145,7 +167,13 @@ public class OnlineModelConfigDialog {
         nameInput = dialog.findViewById(R.id.input_model_name);
         urlInput = dialog.findViewById(R.id.input_api_url);
         keyInput = dialog.findViewById(R.id.input_api_key);
-        
+        serviceTypeSpinner = dialog.findViewById(R.id.spinner_service_type);
+        apiSecretInput = dialog.findViewById(R.id.input_api_secret);
+        appIdInput = dialog.findViewById(R.id.input_app_id);
+        apiSecretLayout = dialog.findViewById(R.id.layout_api_secret);
+        appIdLayout = dialog.findViewById(R.id.layout_app_id);
+        endpointHint = dialog.findViewById(R.id.endpoint_hint);
+
         testConnectionButton = dialog.findViewById(R.id.btn_test_connection);
         fetchModelsButton = dialog.findViewById(R.id.btn_fetch_models);
         saveButton = dialog.findViewById(R.id.btn_save);
@@ -183,6 +211,106 @@ public class OnlineModelConfigDialog {
             }
             dialog.dismiss();
         });
+
+        // API URL 变化时自动检测端点类型，显示/隐藏 apiSecret 和 appId 字段
+        urlInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(android.text.Editable s) {
+                updateEndpointFields(s.toString().trim());
+            }
+        });
+    }
+
+    /**
+     * 初始化服务类型下拉框
+     */
+    private void setupServiceTypeSpinner() {
+        String[] types = context.getResources().getStringArray(
+            com.oilquiz.app.R.array.service_types_default);
+        
+        // 默认值和端点 URL 映射
+        final String[][] mappings = {
+            {"OpenAI 兼容", "https://api.openai.com/v1"},
+            {"百炼 DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+            {"讯飞", "https://api.xfyun.cn"},
+            {"火山引擎", "https://openspeech.bytedance.com"},
+            {"百度", "https://aip.baidubce.com"}
+        };
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+            context, android.R.layout.simple_dropdown_item_1line, types);
+        serviceTypeSpinner.setAdapter(adapter);
+
+        // 选择后自动填充 URL 和 API Key 占位符
+        serviceTypeSpinner.setOnItemClickListener((parent, view, position, id) -> {
+            String selectedType = parent.getItemAtPosition(position).toString();
+            for (String[] mapping : mappings) {
+                if (mapping[0].equals(selectedType)) {
+                    if (!urlInput.hasFocus()) {
+                        urlInput.setText(mapping[1]);
+                    }
+                    // 设置 API Key 占位符
+                    if (keyInput.getText().toString().trim().isEmpty()) {
+                        keyInput.setHint(mapping[0] + " API Key（sk-...）");
+                    }
+                    break;
+                }
+            }
+            // 自动检测端点字段
+            updateEndpointFields(urlInput.getText().toString().trim());
+        });
+    }
+
+    /**
+     * 根据 API URL 检测端点类型，动态显示/隐藏 apiSecret 和 appId 字段
+     *
+     * 讯飞：需要 appId + apiKey + apiSecret
+     * 百度：需要 apiKey + apiSecret（Secret Key）
+     * 火山引擎：需要 appId + apiKey（Access Token）
+     * 其他：只需 apiKey
+     */
+    private void updateEndpointFields(String url) {
+        if (url == null || url.isEmpty()) {
+            apiSecretLayout.setVisibility(View.GONE);
+            appIdLayout.setVisibility(View.GONE);
+            endpointHint.setVisibility(View.GONE);
+            return;
+        }
+        String lower = url.toLowerCase();
+        boolean isXfyun = lower.contains("xfyun.cn") || lower.contains("iflytek");
+        boolean isBaidu = lower.contains("baidu.com") || lower.contains("baidubce.com");
+        boolean isVolcano = lower.contains("openspeech.bytedance.com") || lower.contains("volcengine.com")
+                || lower.contains("bytedance");
+
+        if (isXfyun) {
+            apiSecretLayout.setVisibility(View.VISIBLE);
+            appIdLayout.setVisibility(View.VISIBLE);
+            ((com.google.android.material.textfield.TextInputLayout) apiSecretLayout)
+                    .setHint("APISecret（在控制台获取）");
+            ((com.google.android.material.textfield.TextInputLayout) appIdLayout)
+                    .setHint("APPID（在控制台获取）");
+            endpointHint.setVisibility(View.VISIBLE);
+            endpointHint.setText("检测到讯飞端点，需填写 APPID、APIKey 和 APISecret");
+        } else if (isBaidu) {
+            apiSecretLayout.setVisibility(View.VISIBLE);
+            appIdLayout.setVisibility(View.GONE);
+            ((com.google.android.material.textfield.TextInputLayout) apiSecretLayout)
+                    .setHint("Secret Key（百度智能云控制台获取）");
+            endpointHint.setVisibility(View.VISIBLE);
+            endpointHint.setText("检测到百度端点，API 密钥填 API Key，API Secret 填 Secret Key");
+        } else if (isVolcano) {
+            apiSecretLayout.setVisibility(View.GONE);
+            appIdLayout.setVisibility(View.VISIBLE);
+            ((com.google.android.material.textfield.TextInputLayout) appIdLayout)
+                    .setHint("AppID（火山引擎控制台获取）");
+            endpointHint.setVisibility(View.VISIBLE);
+            endpointHint.setText("检测到火山引擎端点，API 密钥填 Access Token，需填写 AppID");
+        } else {
+            apiSecretLayout.setVisibility(View.GONE);
+            appIdLayout.setVisibility(View.GONE);
+            endpointHint.setVisibility(View.GONE);
+        }
     }
 
     private void testConnection() {
@@ -301,6 +429,8 @@ public class OnlineModelConfigDialog {
         String name = nameInput.getText().toString().trim();
         String url = urlInput.getText().toString().trim();
         String key = keyInput.getText().toString().trim();
+        String apiSecret = apiSecretInput.getText().toString().trim();
+        String appId = appIdInput.getText().toString().trim();
 
         if (name.isEmpty()) {
             Toast.makeText(context, "请填写模型名称", Toast.LENGTH_SHORT).show();
@@ -359,29 +489,14 @@ public class OnlineModelConfigDialog {
         // 更新扩展字段
         config.selectedModel = selectedModel;
         config.autoFetchModels = true;
+        config.apiSecret = apiSecret.isEmpty() ? null : apiSecret;
+        config.appId = appId.isEmpty() ? null : appId;
         if (cachedModelsJson != null) {
             config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();
         }
         // 持久化扩展字段
         modelManager.updateModelConfig(config);
-
-        // 反向同步到 APIKeyManager，确保数据源互通
-        try {
-            APIConfig apiConfig = new APIConfig();
-            apiConfig.setId(config.id);
-            apiConfig.setName(name);
-            apiConfig.setApiKey(key);
-            apiConfig.setApiHost(url);
-            apiConfig.setModelName(selectedModel);
-            apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
-            apiConfig.setCategory(APIConfig.Category.AI);
-            apiConfig.setActive(true);
-            apiConfig.setStatus(APIConfig.Status.UNKNOWN);
-            apiKeyManager.saveAPIConfig(apiConfig);
-        } catch (Exception ignored) {
-            // 反向同步失败不影响 OnlineModelManager 的保存
-        }
 
         if (saveListener != null) {
             saveListener.onConfigSaved(config);

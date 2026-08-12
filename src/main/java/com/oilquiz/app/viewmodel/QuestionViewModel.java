@@ -394,11 +394,20 @@ public class QuestionViewModel extends AndroidViewModel {
     }
 
     /**
-     * 插入题目
+     * 插入题目（直接写入数据库）
      * @param question 题目
      */
     public void insertQuestion(Question question) {
-        // 实现插入题目的逻辑
+        if (question == null) return;
+        // 设置默认值
+        question.initDefaults();
+        new Thread(() -> {
+            try {
+                questionRepository.addQuestion(question, null);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     /**

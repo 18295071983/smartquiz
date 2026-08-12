@@ -27,7 +27,20 @@ public class DatabaseManager {
     private static DatabaseManager instance;
     private final AppDatabase database;
     private final Context context;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
+    // 注意：非 final，配合 getExecutor() 实现"Terminated 后自动重建"，
+    // 修复 ImportActivity 等调用 shutdown() 后单例线程池永久失效导致的 RejectedExecutionException
+    private volatile ExecutorService executorService = Executors.newFixedThreadPool(4);
+
+    /**
+     * 获取可用线程池；若已 shutdown/terminated 则自动重建，
+     * 保证单例在任意时刻都能提交任务。
+     */
+    private synchronized ExecutorService getExecutor() {
+        if (executorService == null || executorService.isShutdown() || executorService.isTerminated()) {
+            executorService = Executors.newFixedThreadPool(4);
+        }
+        return executorService;
+    }
     
     // 单例模式
     public static synchronized DatabaseManager getInstance(Context context) {
@@ -48,7 +61,7 @@ public class DatabaseManager {
      * 批量添加题目
      */
     public Future<Boolean> addQuestions(List<Question> questions) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 database.questionDao().insertAll(questions);
                 return true;
@@ -63,7 +76,7 @@ public class DatabaseManager {
      * 更新题目
      */
     public Future<Boolean> updateQuestion(Question question) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 database.questionDao().update(question);
                 return true;
@@ -78,7 +91,7 @@ public class DatabaseManager {
      * 删除题目
      */
     public Future<Boolean> deleteQuestion(long id) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 database.questionDao().deleteQuestion(id);
                 return true;
@@ -93,7 +106,7 @@ public class DatabaseManager {
      * 清空所有题目
      */
     public Future<Boolean> clearAllQuestions() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 database.questionDao().deleteAllQuestions();
                 return true;
@@ -108,7 +121,7 @@ public class DatabaseManager {
      * 根据ID获取题目
      */
     public Future<Question> getQuestionById(long id) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestionById(id);
             } catch (Exception e) {
@@ -122,7 +135,7 @@ public class DatabaseManager {
      * 获取所有题目
      */
     public Future<List<Question>> getAllQuestions() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestions();
             } catch (Exception e) {
@@ -136,7 +149,7 @@ public class DatabaseManager {
      * 分页获取题目
      */
     public Future<List<Question>> getQuestionsByPage(int page, int pageSize) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 int offset = (page - 1) * pageSize;
                 return database.questionDao().getQuestionsByPage(pageSize, offset);
@@ -151,7 +164,7 @@ public class DatabaseManager {
      * 根据分类获取题目
      */
     public Future<List<Question>> getQuestionsByCategory(String category) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestionsByCategory(category);
             } catch (Exception e) {
@@ -165,7 +178,7 @@ public class DatabaseManager {
      * 根据难度获取题目
      */
     public Future<List<Question>> getQuestionsByDifficulty(int difficulty) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestionsByDifficulty(difficulty);
             } catch (Exception e) {
@@ -179,7 +192,7 @@ public class DatabaseManager {
      * 根据类型获取题目
      */
     public Future<List<Question>> getQuestionsByType(String type) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestionsByType(type);
             } catch (Exception e) {
@@ -193,7 +206,7 @@ public class DatabaseManager {
      * 搜索题目
      */
     public Future<List<Question>> searchQuestions(String keyword) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().searchQuestions(keyword);
             } catch (Exception e) {
@@ -207,7 +220,7 @@ public class DatabaseManager {
      * 高级搜索题目
      */
     public Future<List<Question>> searchQuestionsWithFilters(String keyword, String category, String type, Integer difficulty) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().searchQuestionsWithFilters(keyword, category, type, difficulty);
             } catch (Exception e) {
@@ -221,7 +234,7 @@ public class DatabaseManager {
      * 获取题目总数
      */
     public Future<Integer> getQuestionCount() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getQuestionCount();
             } catch (Exception e) {
@@ -235,7 +248,7 @@ public class DatabaseManager {
      * 获取所有分类
      */
     public Future<List<String>> getAllCategories() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getAllCategories();
             } catch (Exception e) {
@@ -249,7 +262,7 @@ public class DatabaseManager {
      * 获取所有题目类型
      */
     public Future<List<String>> getAllQuestionTypes() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.questionDao().getAllQuestionTypes();
             } catch (Exception e) {
@@ -265,7 +278,7 @@ public class DatabaseManager {
      * 添加用户
      */
     public Future<Long> addUser(User user) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.userDao().insert(user);
             } catch (Exception e) {
@@ -279,7 +292,7 @@ public class DatabaseManager {
      * 获取用户
      */
     public Future<User> getUser(String username) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.userDao().getByUsername(username);
             } catch (Exception e) {
@@ -293,7 +306,7 @@ public class DatabaseManager {
      * 添加分数记录
      */
     public Future<Long> addScore(ScoreHistory score) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.scoreDao().insert(score);
             } catch (Exception e) {
@@ -307,7 +320,7 @@ public class DatabaseManager {
      * 获取分数记录
      */
     public Future<List<ScoreHistory>> getScoreHistory(long userId) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.scoreDao().getScoresByUserId(userId);
             } catch (Exception e) {
@@ -321,7 +334,7 @@ public class DatabaseManager {
      * 获取分数记录（按分类）
      */
     public Future<List<ScoreHistory>> getScoreHistoryByCategory(String category) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.scoreDao().getScoresByCategory(category);
             } catch (Exception e) {
@@ -335,7 +348,7 @@ public class DatabaseManager {
      * 获取用户平均分
      */
     public Future<Float> getAverageScore(long userId) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.scoreDao().getAverageScoreByUserId(userId);
             } catch (Exception e) {
@@ -351,7 +364,7 @@ public class DatabaseManager {
      * 执行事务
      */
     public <T> Future<T> executeTransaction(Callable<T> task) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 return database.runInTransaction(task);
             } catch (Exception e) {
@@ -367,7 +380,7 @@ public class DatabaseManager {
      * 获取题目统计信息
      */
     public Future<QuestionStatistics> getQuestionStatistics() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 QuestionStatistics stats = new QuestionStatistics();
                 stats.totalQuestions = database.questionDao().getQuestionCount();
@@ -462,7 +475,7 @@ public class DatabaseManager {
      * 执行数据库升级
      */
     public Future<Boolean> upgradeDatabase() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
@@ -478,7 +491,7 @@ public class DatabaseManager {
      * 执行数据库升级（指定目标版本）
      */
     public Future<Boolean> upgradeDatabase(int targetVersion) {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
@@ -494,7 +507,7 @@ public class DatabaseManager {
      * 备份数据库
      */
     public Future<String> backupDatabase() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
@@ -510,7 +523,7 @@ public class DatabaseManager {
      * 回滚数据库
      */
     public Future<Boolean> rollbackDatabase() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 DatabaseUpgradeManager upgradeManager = 
                     DatabaseUpgradeManager.getInstance(context);
@@ -540,7 +553,7 @@ public class DatabaseManager {
      * 重置数据库（危险操作）
      */
     public Future<Boolean> resetDatabase() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 if (database == null) {
                     Log.e(TAG, "数据库实例为空，无法重置");
@@ -596,7 +609,7 @@ public class DatabaseManager {
      * 验证数据库完整性
      */
     public Future<Boolean> verifyDatabaseIntegrity() {
-        return executorService.submit(() -> {
+        return getExecutor().submit(() -> {
             try {
                 if (database == null) {
                     Log.e(TAG, "数据库实例为空，无法验证完整性");
@@ -629,6 +642,10 @@ public class DatabaseManager {
     // ==================== 清理资源 ====================
     
     public void shutdown() {
-        executorService.shutdown();
+        // 允许外部调用关闭；后续任务提交时会通过 getExecutor() 自动重建线程池
+        ExecutorService es = executorService;
+        if (es != null) {
+            es.shutdown();
+        }
     }
 }

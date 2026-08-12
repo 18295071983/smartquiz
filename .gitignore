@@ -1,4 +1,5 @@
 # ============ Gradle ============
+.gradle_temp/
 .gradle/
 **/build/
 gradle/wrapper/gradle-8.*/

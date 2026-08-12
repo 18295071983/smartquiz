@@ -24,6 +24,10 @@ public class TemplateManager {
     private static final String TAG = "TemplateManager";
     private static final String TEMPLATES_DIR = "templates";
     private static final String TEMPLATES_FILE = "templates.json";
+    /** 模板结构版本：v2 起为场景化模板（scene_*），旧版按格式区分的默认模板不再创建 */
+    private static final int SCHEMA_VERSION = 2;
+    /** 场景化默认模板的 ID 前缀 */
+    private static final String SCENE_PREFIX = "scene_";
     private static TemplateManager instance;
     private Context context;
     private List<Template> templates;
@@ -68,6 +72,8 @@ public class TemplateManager {
                 reader.close();
                 updateTemplateMap();
                 Log.d(TAG, "Loaded " + templates.size() + " templates");
+                // 版本迁移：检测到旧版默认模板时，重建场景化默认模板（保留用户自定义模板）
+                migrateTemplatesIfNeeded();
             } else {
                 Log.d(TAG, "Templates file does not exist, will create default templates");
             }
@@ -93,408 +99,443 @@ public class TemplateManager {
     }
 
     /**
-     * 创建默认模板
+     * 版本迁移：确保场景化默认模板齐全。
+     * - 若完全没有场景模板（旧版 schema），删除旧默认模板并重建全部场景模板；
+     * - 若有场景模板但缺失部分（如升级后新增模板），只补齐缺失项，保留用户自定义模板。
+     */
+    private void migrateTemplatesIfNeeded() {
+        boolean hasSceneTemplate = false;
+        for (Template template : templates) {
+            if (template.getId() != null && template.getId().startsWith(SCENE_PREFIX)) {
+                hasSceneTemplate = true;
+                break;
+            }
+        }
+        if (!hasSceneTemplate) {
+            Log.i(TAG, "Schema v" + SCHEMA_VERSION + " templates missing, rebuilding default scene templates");
+            templates.removeIf(Template::isDefault);
+            createDefaultTemplates();
+            return;
+        }
+        // 按 id 补齐缺失的场景模板（老用户升级后自动获得新增模板，不删除任何用户数据）
+        List<String> existingIds = new ArrayList<>();
+        for (Template template : templates) {
+            if (template.getId() != null) {
+                existingIds.add(template.getId());
+            }
+        }
+        boolean changed = false;
+        if (!existingIds.contains("scene_standard")) { createSceneStandardTemplate(); changed = true; }
+        if (!existingIds.contains("scene_practice")) { createScenePracticeTemplate(); changed = true; }
+        if (!existingIds.contains("scene_answer")) { createSceneAnswerTemplate(); changed = true; }
+        if (!existingIds.contains("scene_teaching")) { createSceneTeachingTemplate(); changed = true; }
+        if (!existingIds.contains("scene_memory")) { createSceneMemoryTemplate(); changed = true; }
+        if (!existingIds.contains("scene_data")) { createSceneDataTemplate(); changed = true; }
+        if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; }
+        if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; }
+        if (changed) {
+            Log.i(TAG, "Missing scene templates created, saving");
+            saveTemplates();
+        }
+    }
+
+    /**
+     * 创建默认模板（场景化）
      */
     private void createDefaultTemplates() {
-        // 创建默认的HTML模板
-        createDefaultHTMLTemplate();
-        // 创建默认的增强HTML模板
-        createDefaultEnhancedHTMLTemplate();
-        // 创建默认的Word模板
-        createDefaultWordTemplate();
-        // 创建默认的Excel模板
-        createDefaultExcelTemplate();
-        // 创建默认的PDF模板
-        createDefaultPDFTemplate();
-        // 创建默认的CSV模板
-        createDefaultCSVTemplate();
-        // 创建默认的Markdown模板
-        createDefaultMarkdownTemplate();
-        // 创建默认的JSON模板
-        createDefaultJSONTemplate();
-        // 创建默认的长图片模板
-        createDefaultLongImageTemplate();
+        createSceneStandardTemplate();
+        createScenePracticeTemplate();
+        createSceneAnswerTemplate();
+        createSceneTeachingTemplate();
+        createSceneMemoryTemplate();
+        createSceneDataTemplate();
+        createSceneMistakeTemplate();
+        createSceneExamTemplate();
         saveTemplates();
     }
 
-    private void createDefaultHTMLTemplate() {
+    /**
+     * 场景模板：标准完整版（全部核心字段，适合备份与跨端迁移）
+     */
+    private void createSceneStandardTemplate() {
         Template template = new Template();
-        template.setId("html_default");
-        template.setName("默认HTML模板");
-        template.setDescription("标准的HTML导出模板");
-        template.setFormat("HTML");
-        template.setDefault(true);
-        
-        List<String> fields = new ArrayList<>();
-        fields.add("questionText");
-        fields.add("optionA");
-        fields.add("optionB");
-        fields.add("optionC");
-        fields.add("optionD");
-        fields.add("correctAnswer");
-        fields.add("explanation");
-        fields.add("questionType");
-        fields.add("difficulty");
-        fields.add("category");
-        template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
-        Map<String, Object> config = new HashMap<>();
-        config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("groupByCategory", false);
-        config.put("includeCategories", true);
-        template.setConfig(config);
-        
-        templates.add(template);
-    }
-
-    private void createDefaultWordTemplate() {
-        Template template = new Template();
-        template.setId("word_default");
-        template.setName("默认Word模板");
-        template.setDescription("标准的Word导出模板");
-        template.setFormat("WORD");
-        template.setDefault(true);
-        
-        List<String> fields = new ArrayList<>();
-        fields.add("questionText");
-        fields.add("optionA");
-        fields.add("optionB");
-        fields.add("optionC");
-        fields.add("optionD");
-        fields.add("correctAnswer");
-        fields.add("explanation");
-        template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        template.setFieldMappings(mappings);
-        
-        Map<String, Object> config = new HashMap<>();
-        config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("documentTitle", "题库导出");
-        config.put("documentAuthor", "OilQuiz");
-        template.setConfig(config);
-        
-        templates.add(template);
-    }
-
-    private void createDefaultExcelTemplate() {
-        Template template = new Template();
-        template.setId("excel_default");
-        template.setName("默认Excel模板");
-        template.setDescription("标准的Excel导出模板");
+        template.setId("scene_standard");
+        template.setName("标准完整版");
+        template.setDescription("包含题目、选项、答案、解析、知识点、分类、难度等全部核心字段，适合题库备份与跨端迁移");
         template.setFormat("EXCEL");
+        template.setScene("standard");
+        template.setVersion(2);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "MARKDOWN", "WORD"));
+
         List<String> fields = new ArrayList<>();
+        fields.add("id");
+        fields.add("questionType");
         fields.add("questionText");
         fields.add("optionA");
         fields.add("optionB");
         fields.add("optionC");
         fields.add("optionD");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         fields.add("correctAnswer");
+        fields.add("answerText");
         fields.add("explanation");
-        fields.add("questionType");
-        fields.add("difficulty");
+        fields.add("analysis");
+        fields.add("knowledgePoint");
         fields.add("category");
+        fields.add("subCategory");
+        fields.add("difficulty");
+        fields.add("tags");
+        fields.add("hint");
+        fields.add("relatedQuestion");
+        fields.add("source");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
         config.put("includeAnswers", true);
         config.put("includeExplanations", true);
-        config.put("autoSizeColumns", true);
+        config.put("includeDifficulty", true);
+        config.put("groupByCategory", false);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultPDFTemplate() {
+    /**
+     * 场景模板：刷题训练版（只含题干与选项，不含答案，适合打印练习/课堂测验）
+     */
+    private void createScenePracticeTemplate() {
         Template template = new Template();
-        template.setId("pdf_default");
-        template.setName("默认PDF模板");
-        template.setDescription("标准的PDF导出模板");
-        template.setFormat("PDF");
+        template.setId("scene_practice");
+        template.setName("刷题训练版");
+        template.setDescription("仅导出题干与选项，不含答案与解析，适合打印练习、课堂测验与自我检测");
+        template.setFormat("EXCEL");
+        template.setScene("practice");
+        template.setVersion(2);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE"));
+
         List<String> fields = new ArrayList<>();
+        fields.add("id");
+        fields.add("questionType");
         fields.add("questionText");
         fields.add("optionA");
         fields.add("optionB");
         fields.add("optionC");
         fields.add("optionD");
-        fields.add("correctAnswer");
-        fields.add("explanation");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
-        config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("pageSize", "A4");
+        config.put("includeAnswers", false);
+        config.put("includeExplanations", false);
+        config.put("includeDifficulty", false);
+        config.put("groupByCategory", false);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultEnhancedHTMLTemplate() {
+    /**
+     * 场景模板：答案解析版（题干+答案+解析，适合复习备考与错题整理）
+     */
+    private void createSceneAnswerTemplate() {
         Template template = new Template();
-        template.setId("enhanced_html_default");
-        template.setName("默认增强HTML模板");
-        template.setDescription("增强版HTML导出模板，包含更多样式和交互功能");
-        template.setFormat("ENHANCED_HTML");
+        template.setId("scene_answer");
+        template.setName("答案解析版");
+        template.setDescription("导出题干、答案、解析与知识点，适合复习备考、错题整理与学习笔记");
+        template.setFormat("EXCEL");
+        template.setScene("answer");
+        template.setVersion(2);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "HTML", "MARKDOWN", "WORD"));
+
         List<String> fields = new ArrayList<>();
+        fields.add("id");
+        fields.add("questionType");
+        fields.add("questionText");
+        fields.add("correctAnswer");
+        fields.add("answerText");
+        fields.add("explanation");
+        fields.add("analysis");
+        fields.add("knowledgePoint");
+        template.setFields(fields);
+
+        template.setFieldMappings(buildMappings());
+
+        Map<String, Object> config = new HashMap<>();
+        config.put("includeAnswers", true);
+        config.put("includeExplanations", true);
+        config.put("includeDifficulty", false);
+        config.put("groupByCategory", false);
+        template.setConfig(config);
+
+        templates.add(template);
+    }
+
+    /**
+     * 场景模板：讲义备课版（按分类分组，含难度与知识点，适合老师备课讲义）
+     */
+    private void createSceneTeachingTemplate() {
+        Template template = new Template();
+        template.setId("scene_teaching");
+        template.setName("讲义备课版");
+        template.setDescription("按分类分组导出，含难度、知识点、详细解析，适合老师备课、讲义与课堂材料");
+        template.setFormat("EXCEL");
+        template.setScene("teaching");
+        template.setVersion(2);
+        template.setDefault(true);
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "HTML", "WORD", "PDF"));
+
+        List<String> fields = new ArrayList<>();
+        fields.add("id");
+        fields.add("questionType");
+        fields.add("category");
+        fields.add("subCategory");
+        fields.add("difficulty");
+        fields.add("knowledgePoint");
         fields.add("questionText");
         fields.add("optionA");
         fields.add("optionB");
         fields.add("optionC");
         fields.add("optionD");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         fields.add("correctAnswer");
+        fields.add("answerText");
         fields.add("explanation");
-        fields.add("questionType");
-        fields.add("difficulty");
-        fields.add("category");
+        fields.add("analysis");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
         config.put("includeAnswers", true);
         config.put("includeExplanations", true);
+        config.put("includeDifficulty", true);
         config.put("groupByCategory", true);
-        config.put("includeCategories", true);
-        config.put("enableSearch", true);
-        config.put("enableFilter", true);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultCSVTemplate() {
+    /**
+     * 场景模板：记忆卡片版（题干+答案精简，适合背诵与制卡）
+     */
+    private void createSceneMemoryTemplate() {
         Template template = new Template();
-        template.setId("csv_default");
-        template.setName("默认CSV模板");
-        template.setDescription("标准的CSV导出模板，适合数据分析");
+        template.setId("scene_memory");
+        template.setName("记忆卡片版");
+        template.setDescription("仅导出题干与答案两列核心信息，适合快速背诵、制作记忆卡片或导入 Anki");
         template.setFormat("CSV");
+        template.setScene("memory");
+        template.setVersion(2);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("CSV", "EXCEL", "HTML", "MARKDOWN"));
+
         List<String> fields = new ArrayList<>();
         fields.add("questionText");
-        fields.add("optionA");
-        fields.add("optionB");
-        fields.add("optionC");
-        fields.add("optionD");
         fields.add("correctAnswer");
-        fields.add("explanation");
-        fields.add("questionType");
-        fields.add("difficulty");
-        fields.add("category");
+        fields.add("answerText");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
         config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("delimiter", ",");
-        config.put("quoteCharacter", "\"");
+        config.put("includeExplanations", false);
+        config.put("includeDifficulty", false);
+        config.put("groupByCategory", false);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultMarkdownTemplate() {
+    /**
+     * 场景模板：数据分析版（题型/分类/难度与答题统计，适合数据分析）
+     */
+    private void createSceneDataTemplate() {
         Template template = new Template();
-        template.setId("markdown_default");
-        template.setName("默认Markdown模板");
-        template.setDescription("标准的Markdown导出模板，适合文档编写");
-        template.setFormat("MARKDOWN");
+        template.setId("scene_data");
+        template.setName("数据分析版");
+        template.setDescription("导出题型、分类、难度、知识点与答题统计（正确/错误次数），适合学习情况数据分析");
+        template.setFormat("CSV");
+        template.setScene("data");
+        template.setVersion(2);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("CSV", "EXCEL"));
+
         List<String> fields = new ArrayList<>();
-        fields.add("questionText");
-        fields.add("optionA");
-        fields.add("optionB");
-        fields.add("optionC");
-        fields.add("optionD");
-        fields.add("correctAnswer");
-        fields.add("explanation");
+        fields.add("id");
         fields.add("questionType");
-        fields.add("difficulty");
         fields.add("category");
+        fields.add("difficulty");
+        fields.add("knowledgePoint");
+        fields.add("favorite");
+        fields.add("usageCount");
+        fields.add("correctCount");
+        fields.add("incorrectCount");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
-        config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("useHeadingLevels", true);
-        config.put("includeTableOfContents", true);
+        config.put("includeAnswers", false);
+        config.put("includeExplanations", false);
+        config.put("includeDifficulty", true);
+        config.put("groupByCategory", false);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultJSONTemplate() {
+    private void createSceneMistakeTemplate() {
         Template template = new Template();
-        template.setId("json_default");
-        template.setName("默认JSON模板");
-        template.setDescription("标准的JSON导出模板，适合程序处理");
-        template.setFormat("JSON");
+        template.setId("scene_mistake");
+        template.setName("错题回顾版");
+        template.setDescription("导出错题及解析，包含错误次数与正确答案，适合错题复习");
+        template.setFormat("EXCEL");
+        template.setScene("mistake");
+        template.setVersion(1);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV"));
+
         List<String> fields = new ArrayList<>();
+        fields.add("id");
         fields.add("questionText");
-        fields.add("optionA");
-        fields.add("optionB");
-        fields.add("optionC");
-        fields.add("optionD");
+        fields.add("questionType");
+        fields.add("category");
+        fields.add("difficulty");
+        fields.add("knowledgePoint");
+        fields.add("answerText");
         fields.add("correctAnswer");
         fields.add("explanation");
-        fields.add("questionType");
-        fields.add("difficulty");
-        fields.add("category");
+        fields.add("incorrectCount");
         template.setFields(fields);
-        
-        Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
-        mappings.put("optionA", "选项A");
-        mappings.put("optionB", "选项B");
-        mappings.put("optionC", "选项C");
-        mappings.put("optionD", "选项D");
-        mappings.put("correctAnswer", "正确答案");
-        mappings.put("explanation", "解析");
-        mappings.put("questionType", "题型");
-        mappings.put("difficulty", "难度");
-        mappings.put("category", "分类");
-        template.setFieldMappings(mappings);
-        
+
+        template.setFieldMappings(buildMappings());
+
         Map<String, Object> config = new HashMap<>();
         config.put("includeAnswers", true);
         config.put("includeExplanations", true);
-        config.put("prettyPrint", true);
-        config.put("indentSize", 2);
+        config.put("includeDifficulty", true);
+        config.put("onlyIncorrect", true);
         template.setConfig(config);
-        
+
         templates.add(template);
     }
 
-    private void createDefaultLongImageTemplate() {
+    private void createSceneExamTemplate() {
         Template template = new Template();
-        template.setId("long_image_default");
-        template.setName("默认长图片模板");
-        template.setDescription("标准的长图片导出模板，适合分享");
-        template.setFormat("LONG_IMAGE");
+        template.setId("scene_exam");
+        template.setName("模拟考试版");
+        template.setDescription("按题型、难度、分类组卷导出，适合模拟考试练习");
+        template.setFormat("EXCEL");
+        template.setScene("exam");
+        template.setVersion(1);
         template.setDefault(true);
-        
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "PDF"));
+
         List<String> fields = new ArrayList<>();
+        fields.add("id");
         fields.add("questionText");
+        fields.add("questionType");
         fields.add("optionA");
         fields.add("optionB");
         fields.add("optionC");
         fields.add("optionD");
         fields.add("correctAnswer");
-        fields.add("explanation");
+        fields.add("category");
+        fields.add("difficulty");
+        fields.add("knowledgePoint");
         template.setFields(fields);
-        
+
+        template.setFieldMappings(buildMappings());
+
+        Map<String, Object> config = new HashMap<>();
+        config.put("includeAnswers", true);
+        config.put("includeExplanations", false);
+        config.put("includeDifficulty", true);
+        config.put("groupByCategory", true);
+        config.put("sortByDifficulty", true);
+        template.setConfig(config);
+
+        templates.add(template);
+    }
+
+    /**
+     * 构建字段中文名映射（与 ExportUtils.getFieldDisplayName 保持一致）
+     */
+    private Map<String, String> buildMappings() {
         Map<String, String> mappings = new HashMap<>();
-        mappings.put("questionText", "题目");
+        mappings.put("id", "序号");
+        mappings.put("questionText", "题目内容");
         mappings.put("optionA", "选项A");
         mappings.put("optionB", "选项B");
         mappings.put("optionC", "选项C");
         mappings.put("optionD", "选项D");
+        mappings.put("optionE", "选项E");
+        mappings.put("optionF", "选项F");
+        mappings.put("optionG", "选项G");
+        mappings.put("optionH", "选项H");
+        mappings.put("optionI", "选项I");
+        mappings.put("optionJ", "选项J");
+        mappings.put("optionK", "选项K");
+        mappings.put("optionL", "选项L");
         mappings.put("correctAnswer", "正确答案");
+        mappings.put("answerText", "答案文本");
         mappings.put("explanation", "解析");
-        template.setFieldMappings(mappings);
-        
-        Map<String, Object> config = new HashMap<>();
-        config.put("includeAnswers", true);
-        config.put("includeExplanations", true);
-        config.put("imageWidth", 3840);
-        config.put("textSize", 32);
-        config.put("backgroundColor", "#FFFFFF");
-        config.put("padding", 40);
-        template.setConfig(config);
-        
-        templates.add(template);
+        mappings.put("analysis", "详细解析");
+        mappings.put("knowledgePoint", "知识点");
+        mappings.put("category", "分类");
+        mappings.put("subCategory", "子分类");
+        mappings.put("difficulty", "难度");
+        mappings.put("tags", "标签");
+        mappings.put("hint", "提示");
+        mappings.put("relatedQuestion", "相关题目");
+        mappings.put("source", "来源");
+        mappings.put("favorite", "收藏");
+        mappings.put("usageCount", "使用次数");
+        mappings.put("correctCount", "答对次数");
+        mappings.put("incorrectCount", "答错次数");
+        mappings.put("questionType", "题型");
+        mappings.put("points", "分值");
+        mappings.put("timeLimit", "时限(秒)");
+        mappings.put("status", "状态");
+        mappings.put("isPublic", "是否公开");
+        mappings.put("author", "作者");
+        mappings.put("comment", "备注");
+        mappings.put("createdAt", "创建时间");
+        mappings.put("updatedAt", "更新时间");
+        mappings.put("imageUri", "配图路径");
+        mappings.put("audioUri", "音频路径");
+        mappings.put("parentId", "母题ID");
+        mappings.put("sortOrder", "排序");
+        return mappings;
     }
 
     /**
@@ -514,12 +555,25 @@ public class TemplateManager {
     }
 
     /**
-     * 根据格式获取模板
+     * 根据格式获取模板（支持场景化模板的 appliesTo 匹配）
      */
     public List<Template> getTemplatesByFormat(String format) {
         List<Template> result = new ArrayList<>();
         for (Template template : templates) {
-            if (template.getFormat().equals(format)) {
+            if (template.supportsFormat(format)) {
+                result.add(template);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 获取全部默认模板（场景模板，按创建顺序）
+     */
+    public List<Template> getDefaultTemplates() {
+        List<Template> result = new ArrayList<>();
+        for (Template template : templates) {
+            if (template.isDefault()) {
                 result.add(template);
             }
         }
@@ -538,13 +592,13 @@ public class TemplateManager {
      */
     public Template getDefaultTemplate(String format) {
         for (Template template : templates) {
-            if (template.getFormat().equals(format) && template.isDefault()) {
+            if (template.supportsFormat(format) && template.isDefault()) {
                 return template;
             }
         }
-        // 如果没有默认模板，返回第一个该格式的模板
+        // 如果没有默认模板，返回第一个支持该格式的模板
         for (Template template : templates) {
-            if (template.getFormat().equals(format)) {
+            if (template.supportsFormat(format)) {
                 return template;
             }
         }

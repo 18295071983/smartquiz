@@ -22,6 +22,10 @@ public class PDFExporter implements Exporter {
         validateParameters(task);
 
         java.util.List<Question> questions = task.getQuestions();
+        // 模板生效字段列表（场景模板/自定义字段），决定导出内容
+        java.util.List<String> fields = ExportUtils.getEffectiveFields(task.getConfig());
+        boolean includeAnswers = task.getConfig().isIncludeAnswers();
+        boolean includeExplanations = task.getConfig().isIncludeExplanations();
         
         // 按题型分组并排序
         java.util.Map<String, java.util.List<Question>> questionsByType = new java.util.HashMap<>();
@@ -126,43 +130,90 @@ public class PDFExporter implements Exporter {
                         typeQuestionNumber++;
                     }
                     
-                    // 选项
+                    // 题目元信息行（题型/难度/分类/知识点/分值等，按模板字段）
+                    StringBuilder metaInfo = new StringBuilder();
+                    if (ExportUtils.hasField(fields, "questionType") && question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
+                        metaInfo.append("题型: ").append(question.getQuestionType()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "difficulty")) {
+                        metaInfo.append("难度: ").append(question.getDifficultyText()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "category") && question.getCategory() != null && !question.getCategory().isEmpty()) {
+                        metaInfo.append("分类: ").append(question.getCategory()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "knowledgePoint") && question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
+                        metaInfo.append("知识点: ").append(question.getKnowledgePoint()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "points")) {
+                        metaInfo.append("分值: ").append(question.getPoints()).append(" | ");
+                    }
+                    if (metaInfo.length() > 0) {
+                        Paragraph metaPara = new Paragraph(metaInfo.substring(0, metaInfo.length() - 3));
+                        metaPara.setFont(font);
+                        metaPara.setFontSize(9);
+                        metaPara.setFontColor(new com.itextpdf.kernel.colors.DeviceRgb(136, 136, 136));
+                        document.add(metaPara);
+                    }
+                    
+                    // 选项（A~L 动态渲染，只输出模板选中且非空的选项）
                     if (question.hasOptions()) {
-                        document.add(new Paragraph("选项:").setFont(font).setFontSize(12));
                         com.itextpdf.layout.element.List optionsList = new com.itextpdf.layout.element.List();
-                        if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                            ListItem itemA = new ListItem("A. " + question.getOptionA());
-                            itemA.setFont(font);
-                            optionsList.add(itemA);
-                        }
-                        if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                            ListItem itemB = new ListItem("B. " + question.getOptionB());
-                            itemB.setFont(font);
-                            optionsList.add(itemB);
-                        }
-                        if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                            ListItem itemC = new ListItem("C. " + question.getOptionC());
-                            itemC.setFont(font);
-                            optionsList.add(itemC);
-                        }
-                        if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                            ListItem itemD = new ListItem("D. " + question.getOptionD());
-                            itemD.setFont(font);
-                            optionsList.add(itemD);
+                        for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                            if (!ExportUtils.hasField(fields, ExportUtils.OPTION_FIELDS[o])) continue;
+                            Object optionValue = ExportUtils.getOptionValue(question, o);
+                            if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                            ListItem item = new ListItem(ExportUtils.OPTION_LABELS[o] + ". " + optionValue);
+                            item.setFont(font);
+                            optionsList.add(item);
                         }
                         document.add(optionsList);
                     }
                     
-                    // 根据配置决定是否包含答案
-                    if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                        document.add(new Paragraph("正确答案: " + question.getCorrectAnswer()).setFont(font).setFontSize(12).setBold());
+                    // 根据配置决定是否包含答案（正确答案 + 答案文本）
+                    if (includeAnswers) {
+                        if (ExportUtils.hasField(fields, "correctAnswer") && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                            document.add(new Paragraph("正确答案: " + question.getCorrectAnswer()).setFont(font).setFontSize(12).setBold());
+                        }
+                        if (ExportUtils.hasField(fields, "answerText") && question.getAnswerText() != null && !question.getAnswerText().isEmpty()) {
+                            document.add(new Paragraph("答案文本: " + question.getAnswerText()).setFont(font).setFontSize(12).setBold());
+                        }
                     }
                     
-                    // 根据配置决定是否包含解析
-                    if (task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
+                    // 根据配置决定是否包含解析（解析 + 详细解析）
+                    if (includeExplanations && ExportUtils.hasField(fields, "explanation") && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
                         document.add(new Paragraph("解析: " + question.getExplanation()).setFont(font).setFontSize(12));
                     }
+                    if (includeExplanations && ExportUtils.hasField(fields, "analysis") && question.getAnalysis() != null && !question.getAnalysis().isEmpty()) {
+                        document.add(new Paragraph("详细解析: " + question.getAnalysis()).setFont(font).setFontSize(12));
+                    }
                     
+                    // 其他元信息（标签/提示/来源/作者/备注/相关题目）
+                    StringBuilder extraInfo = new StringBuilder();
+                    if (ExportUtils.hasField(fields, "tags") && question.getTags() != null && !question.getTags().isEmpty()) {
+                        extraInfo.append("标签: ").append(question.getTags()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "hint") && question.getHint() != null && !question.getHint().isEmpty()) {
+                        extraInfo.append("提示: ").append(question.getHint()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "source") && question.getSource() != null && !question.getSource().isEmpty()) {
+                        extraInfo.append("来源: ").append(question.getSource()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "author") && question.getAuthor() != null && !question.getAuthor().isEmpty()) {
+                        extraInfo.append("作者: ").append(question.getAuthor()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "comment") && question.getComment() != null && !question.getComment().isEmpty()) {
+                        extraInfo.append("备注: ").append(question.getComment()).append("  ");
+                    }
+                    if (ExportUtils.hasField(fields, "relatedQuestion") && question.getRelatedQuestion() != null && !question.getRelatedQuestion().isEmpty()) {
+                        extraInfo.append("相关题目: ").append(question.getRelatedQuestion()).append("  ");
+                    }
+                    if (extraInfo.length() > 0) {
+                        Paragraph extraPara = new Paragraph(extraInfo.toString().trim());
+                        extraPara.setFont(font);
+                        extraPara.setFontSize(9);
+                        extraPara.setFontColor(new com.itextpdf.kernel.colors.DeviceRgb(102, 102, 102));
+                        document.add(extraPara);
+                    }
 
                     
                     // 更新进度

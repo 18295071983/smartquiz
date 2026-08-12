@@ -180,6 +180,133 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 纯单次推理（专供数据修复等批量场景）：
+     * <ul>
+     *   <li>非流式、单次请求，无重试、无降级、无兜底；</li>
+     *   <li>显式关闭 thinking（enable_thinking=false），防思考模型把 token 预算耗在
+     *       reasoning 上导致 content 返回空；</li>
+     *   <li>content 为空时回退读取 reasoning_content，避免整批白等。</li>
+     * </ul>
+     */
+    public CompletableFuture<String> generateOnceAsync(String prompt,
+            OnlineModelManager.OnlineModelConfig config, int maxTokens) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String apiUrl = config.apiUrl;
+                String modelName = config.modelName;
+                String apiKey = config.apiKey;
+                if (apiUrl == null || apiUrl.isEmpty()) throw new IllegalArgumentException("API URL 不能为空");
+                if (modelName == null || modelName.isEmpty()) throw new IllegalArgumentException("模型名称不能为空");
+                if (apiKey == null || apiKey.isEmpty()) throw new IllegalArgumentException("API Key 不能为空");
+                if (isAnthropicAPI(apiUrl)) {
+                    String result = callAnthropicAPI(apiUrl, apiKey, modelName, prompt, null, maxTokens, false, null);
+                    return cleanOrSanitize(result);
+                }
+                String result = callOpenAIAPIOnce(apiUrl, apiKey, modelName, prompt, maxTokens);
+                return cleanOrSanitize(result);
+            } catch (Exception e) {
+                AILogger.e(TAG, "generateOnce failed: " + e.getMessage(), e);
+                throw new RuntimeException(e);
+            }
+        }, executor);
+    }
+
+    /** 清理模型输出；清理后为空则返回原文 */
+    private String cleanOrSanitize(String result) {
+        if (result == null) return null;
+        String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
+        return cleaned != null ? cleaned : result;
+    }
+
+    /**
+     * OpenAI 兼容 API 单次请求：关闭 thinking，content 为空时回退 reasoning_content。
+     */
+    private String callOpenAIAPIOnce(String apiUrl, String apiKey, String modelName,
+                                     String prompt, int maxTokens) throws Exception {
+        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            // 批量修复输出较长，读超时提升到 90 秒（默认 30 秒对 5 题批量不够）
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(90000);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setDoOutput(true);
+
+            JsonObject requestBody = new JsonObject();
+            requestBody.addProperty("model", modelName);
+            JsonArray messages = new JsonArray();
+            JsonObject userMessage = new JsonObject();
+            userMessage.addProperty("role", "user");
+            userMessage.addProperty("content", prompt);
+            messages.add(userMessage);
+            requestBody.add("messages", messages);
+            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
+            // 关闭思考模式：防 reasoning 耗尽 token 预算导致 content 为空（DeepSeek/Qwen3 等）
+            requestBody.addProperty("enable_thinking", false);
+            // vLLM/llama.cpp 类服务端参数位置在 chat_template_kwargs 内，双位置下发兼容
+            JsonObject chatTemplateKwargs = new JsonObject();
+            chatTemplateKwargs.addProperty("enable_thinking", false);
+            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(requestBody).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = readErrorStream(connection);
+                throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
+            }
+
+            InputStream inputStream = connection.getInputStream();
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+            StringBuilder response = new StringBuilder();
+            try {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+            } finally {
+                reader.close();
+            }
+
+            JsonObject json = JsonParser.parseString(response.toString()).getAsJsonObject();
+            parseAndNotifyTokenStats(json);
+
+            JsonArray choices = json.getAsJsonArray("choices");
+            if (choices != null && choices.size() > 0) {
+                JsonObject choice = choices.get(0).getAsJsonObject();
+                if (choice.has("message")) {
+                    JsonObject message = choice.getAsJsonObject("message");
+                    String content = message.has("content") && !message.get("content").isJsonNull()
+                            ? message.get("content").getAsString() : "";
+                    if (!content.isEmpty()) return content;
+                    // 回退：思考模型可能把全部内容放在 reasoning_content
+                    if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) {
+                        String reasoning = message.get("reasoning_content").getAsString();
+                        if (!reasoning.isEmpty()) {
+                            AILogger.w(TAG, "content为空，回退使用reasoning_content(长度" + reasoning.length() + ")");
+                            return reasoning;
+                        }
+                    }
+                    return "";
+                }
+            }
+            throw new Exception("无法解析 API 响应");
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
      * 流式生成
      */
     public void generateStream(String prompt, OnlineModelManager.OnlineModelConfig config,
