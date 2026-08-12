@@ -1,0 +1,268 @@
+{
+  "configVersion": 2,
+  "lastUpdated": "2026-08-12T00:00:00Z",
+  "remoteConfig": {
+    "giteeUrl": "https://gitee.com/xiaocongcong495863994/smartquiz/raw/main/ai-usage-config.json",
+    "connectTimeoutMs": 5000,
+    "readTimeoutMs": 10000,
+    "autoSync": true,
+    "syncIntervalHours": 6
+  },
+  "currency": "CNY",
+  "exchangeRate": 7.2,
+  
+  "providers": [
+    {
+      "providerId": "openai",
+      "displayName": "OpenAI / DeepSeek",
+      "apiBase": "https://api.deepseek.com",
+      "authType": "Bearer",
+      "authHeaderName": "Authorization",
+      "usageFormat": "openai"
+    },
+    {
+      "providerId": "anthropic",
+      "displayName": "Anthropic",
+      "apiBase": "https://api.anthropic.com",
+      "authType": "Bearer",
+      "authHeaderName": "x-api-key",
+      "usageFormat": "anthropic"
+    },
+    {
+      "providerId": "local",
+      "displayName": "本地模型",
+      "apiBase": "http://127.0.0.1:8000",
+      "authType": "None",
+      "authHeaderName": "",
+      "usageFormat": "openai"
+    },
+    {
+      "providerId": "dashscope",
+      "displayName": "阿里云百炼",
+      "apiBase": "https://dashscope.aliyuncs.com/compatible-mode",
+      "authType": "Bearer",
+      "authHeaderName": "Authorization",
+      "usageFormat": "openai"
+    }
+  ],
+  
+  "models": [
+    {
+      "modelId": "deepseek-chat",
+      "providerId": "openai",
+      "displayName": "DeepSeek Chat",
+      "family": "deepseek",
+      "capabilities": "chat",
+      "maxInput": 64000,
+      "maxOutput": 8192
+    },
+    {
+      "modelId": "deepseek-reasoner",
+      "providerId": "openai",
+      "displayName": "DeepSeek Reasoner",
+      "family": "deepseek",
+      "capabilities": "chat",
+      "maxInput": 64000,
+      "maxOutput": 8192
+    },
+    {
+      "modelId": "local-llama-3",
+      "providerId": "local",
+      "displayName": "本地 Llama 3",
+      "family": "llama",
+      "capabilities": "chat",
+      "maxInput": 8192,
+      "maxOutput": 2048
+    },
+    {
+      "modelId": "qwen3.5-plus",
+      "providerId": "dashscope",
+      "displayName": "Qwen 3.5 Plus",
+      "family": "qwen",
+      "capabilities": "chat",
+      "maxInput": 131072,
+      "maxOutput": 8192
+    },
+    {
+      "modelId": "qwen3-tts-flash",
+      "providerId": "dashscope",
+      "displayName": "Qwen TTS Flash",
+      "family": "qwen-tts",
+      "capabilities": "tts",
+      "maxInput": 1024,
+      "maxOutput": 0
+    },
+    {
+      "modelId": "qwen3-asr-flash",
+      "providerId": "dashscope",
+      "displayName": "Qwen ASR Flash",
+      "family": "qwen-asr",
+      "capabilities": "asr",
+      "maxInput": 0,
+      "maxOutput": 4096
+    }
+  ],
+  
+  "prices": [
+    {
+      "modelId": "deepseek-chat",
+      "providerId": "openai",
+      "priceType": "input",
+      "pricePer1M": 3.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 64000
+    },
+    {
+      "modelId": "deepseek-chat",
+      "providerId": "openai",
+      "priceType": "output",
+      "pricePer1M": 6.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 64000
+    },
+    {
+      "modelId": "deepseek-reasoner",
+      "providerId": "openai",
+      "priceType": "input",
+      "pricePer1M": 3.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 64000
+    },
+    {
+      "modelId": "deepseek-reasoner",
+      "providerId": "openai",
+      "priceType": "output",
+      "pricePer1M": 6.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 64000
+    },
+    {
+      "modelId": "local-llama-3",
+      "providerId": "local",
+      "priceType": "input",
+      "pricePer1M": 0.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 8192
+    },
+    {
+      "modelId": "local-llama-3",
+      "providerId": "local",
+      "priceType": "output",
+      "pricePer1M": 0.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 8192
+    },
+    {
+      "modelId": "qwen3.5-plus",
+      "providerId": "dashscope",
+      "priceType": "input",
+      "pricePer1M": 3.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 131072
+    },
+    {
+      "modelId": "qwen3.5-plus",
+      "providerId": "dashscope",
+      "priceType": "output",
+      "pricePer1M": 8.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 8192
+    },
+    {
+      "modelId": "qwen3-tts-flash",
+      "providerId": "dashscope",
+      "priceType": "input",
+      "pricePer1M": 1.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 1024
+    },
+    {
+      "modelId": "qwen3-asr-flash",
+      "providerId": "dashscope",
+      "priceType": "input",
+      "pricePer1M": 2.0,
+      "currency": "CNY",
+      "minContext": 1,
+      "maxContext": 524288
+    }
+  ],
+  
+  "responseSchemas": [
+    {
+      "schemaId": "openai-default",
+      "providerId": "openai",
+      "modelId": "",
+      "rootPath": "usage",
+      "inputTokenPath": "prompt_tokens",
+      "outputTokenPath": "completion_tokens",
+      "cacheHitTokenPath": null,
+      "cacheCreateTokenPath": null
+    },
+    {
+      "schemaId": "anthropic-default",
+      "providerId": "anthropic",
+      "modelId": "",
+      "rootPath": "usage",
+      "inputTokenPath": "input_tokens",
+      "outputTokenPath": "output_tokens",
+      "cacheHitTokenPath": null,
+      "cacheCreateTokenPath": null
+    },
+    {
+      "schemaId": "dashscope-default",
+      "providerId": "dashscope",
+      "modelId": "",
+      "rootPath": "usage",
+      "inputTokenPath": "input_tokens",
+      "outputTokenPath": "output_tokens",
+      "cacheHitTokenPath": "cache_hits_tokens",
+      "cacheCreateTokenPath": "cache_efficiency"
+    }
+  ],
+  
+  "requestSchemas": [
+    {
+      "schemaId": "openai-default",
+      "providerId": "openai",
+      "modelId": "",
+      "requestBodyPath": "",
+      "messagesPath": "messages",
+      "messageRolePath": "role",
+      "messageContentPath": "content",
+      "systemMessageRole": "system",
+      "userMessageRole": "user",
+      "assistantMessageRole": "assistant",
+      "temperaturePath": "temperature",
+      "topPPath": "top_p",
+      "maxTokensPath": "max_tokens",
+      "streamPath": "stream",
+      "supportsStream": true
+    },
+    {
+      "schemaId": "anthropic-default",
+      "providerId": "anthropic",
+      "modelId": "",
+      "requestBodyPath": "",
+      "messagesPath": "messages",
+      "messageRolePath": "role",
+      "messageContentPath": "content",
+      "systemMessageRole": "system",
+      "userMessageRole": "user",
+      "assistantMessageRole": "assistant",
+      "temperaturePath": "temperature",
+      "topPPath": "top_p",
+      "maxTokensPath": "max_tokens",
+      "streamPath": "stream",
+      "supportsStream": true
+    }
+  ]
+}
