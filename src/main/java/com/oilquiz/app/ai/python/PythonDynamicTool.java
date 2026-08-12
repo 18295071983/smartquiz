@@ -63,7 +63,7 @@ public class PythonDynamicTool implements AITool {
             String fullCode = buildFullCode(code, parameters);
             Log.d(TAG, "Code: " + fullCode.substring(0, Math.min(200, fullCode.length())));
             
-            PythonToolManager.ExecutionResult result = toolManager.processTask(fullCode, parameters);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(fullCode, parameters);
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", name);

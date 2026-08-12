@@ -10,6 +10,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -34,8 +37,12 @@ public class OnlineToolManager {
 
     private static final String TAG = "OnlineToolManager";
     private static final int TOOL_TIMEOUT_MS = 30_000;
+    /** 权限请求类工具需要用户交互，超时时间设为 120 秒 */
+    private static final int PERMISSION_TOOL_TIMEOUT_MS = 120_000;
     private static final int MAX_RETRY = 2;
-    private static final int RESULT_MAX_LENGTH = 3000;
+    // 不再截断工具返回结果，保证数据完整性
+    private static final int RESULT_MAX_LENGTH = Integer.MAX_VALUE;
+    private static final Gson resultGson = new GsonBuilder().disableHtmlEscaping().create();
 
     private final AIToolManager aiToolManager;
     private final OnlineToolRegistry registry;
@@ -80,9 +87,12 @@ public class OnlineToolManager {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         long startTime = System.currentTimeMillis();
 
-        // 检查缓存
+        // 权限工具的状态是动态的，不应缓存（避免缓存到过期结果）
+        boolean isPermissionTool = "permission_manager".equals(toolName);
+
+        // 检查缓存（权限工具跳过缓存）
         String cacheKey = toolName + ":" + arguments;
-        String cached = resultCache.get(cacheKey);
+        String cached = isPermissionTool ? null : resultCache.get(cacheKey);
         if (cached != null) {
             AILogger.d(TAG, "Tool cache HIT: " + toolName);
             long elapsed = 0;
@@ -100,6 +110,11 @@ public class OnlineToolManager {
                 System.currentTimeMillis() - startTime);
         }
 
+        // 权限请求类工具需要用户交互，使用更长超时
+        boolean isPermissionRequest = isPermissionTool && arguments != null
+                && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
+        int effectiveTimeout = isPermissionRequest ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS;
+
         // 带重试的执行
         Exception lastException = null;
         for (int attempt = 0; attempt <= MAX_RETRY; attempt++) {
@@ -112,7 +127,7 @@ public class OnlineToolManager {
                         AILogger.e(TAG, "Tool execution error (attempt " + currentAttempt + "): " + e.getMessage(), e);
                         return null;
                     }
-                }).get(TOOL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                }).get(effectiveTimeout, TimeUnit.MILLISECONDS);
 
                 if (result == null) {
                     throw new RuntimeException("工具执行返回 null");
@@ -122,8 +137,8 @@ public class OnlineToolManager {
                 String resultStr = formatResult(result);
                 boolean success = result.isSuccess();
 
-                // 缓存成功结果
-                if (success) {
+                // 缓存成功结果（权限工具不缓存，状态随时变化）
+                if (success && !isPermissionTool) {
                     resultCache.put(cacheKey, resultStr);
                 }
 
@@ -146,6 +161,11 @@ public class OnlineToolManager {
             } catch (TimeoutException e) {
                 AILogger.w(TAG, "Tool " + toolName + " timeout (attempt " + attempt + ")");
                 lastException = e;
+                // 权限请求工具超时后不重试（避免重复弹出权限对话框）
+                if (isPermissionRequest) {
+                    AILogger.w(TAG, "Permission tool timeout, skip retry");
+                    break;
+                }
             } catch (Exception e) {
                 AILogger.w(TAG, "Tool " + toolName + " error (attempt " + attempt + "): " + e.getMessage());
                 lastException = e;
@@ -263,7 +283,17 @@ public class OnlineToolManager {
         if (raw == null) {
             return "执行成功，无返回值";
         }
-        String str = raw.toString();
+        // Map/复杂对象用 Gson 序列化为合法 JSON，避免 Java toString() 产生非 JSON 格式
+        String str;
+        if (raw instanceof Map || raw instanceof com.google.gson.JsonElement) {
+            try {
+                str = resultGson.toJson(raw);
+            } catch (Exception e) {
+                str = raw.toString();
+            }
+        } else {
+            str = raw.toString();
+        }
         if (str.length() > RESULT_MAX_LENGTH) {
             str = str.substring(0, RESULT_MAX_LENGTH) + "...(已截断)";
         }

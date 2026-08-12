@@ -69,15 +69,11 @@ public class AIToolUsageGuide {
 
         // 1. 调用协议
         sb.append("【一、调用协议】\n");
-        sb.append("使用 TOOLS_CALL / TOOLS_END 标记格式调用工具（标记必须独占一行）：\n");
-        sb.append("  TOOLS_CALL\n");
-        sb.append("  {\"name\": \"<工具名>\", \"arguments\": {\"参数名\": \"参数值\"}}\n");
-        sb.append("  TOOLS_END\n\n");
-        sb.append("说明：\n");
-        sb.append("  • TOOLS_CALL 和 TOOLS_END 必须各独占一行\n");
-        sb.append("  • 中间是合法 JSON，包含 name 和 arguments 两个字段\n");
-        sb.append("  • arguments 是 JSON 对象，不是字符串\n");
-        sb.append("  • 参数名严格匹配下方工具定义，区分大小写\n");
+        sb.append("使用原生 function calling 调用工具，无需任何 JSON 封装或文本格式标记：\n");
+        sb.append("  • 直接以原生 function calling 格式输出工具调用，系统会自动解析并执行\n");
+        sb.append("  • 不要在回复中构造 {\"tool_calls\": [...]} 之类的 JSON 封装，也不要使用 TOOLS_CALL/TOOLS_END 等文本标记\n");
+        sb.append("  • 可在一次回复中输出多个工具调用\n");
+        sb.append("  • 参数为 JSON 对象，严格匹配下方工具定义的参数名与类型\n");
         sb.append("  • 必填参数缺失会导致工具执行失败\n\n");
         sb.append("特殊命令：\n");
         sb.append("  • 输出 [TOOL_INFO: 工具名] 可获取该工具的详细参数说明\n");
@@ -122,34 +118,14 @@ public class AIToolUsageGuide {
 
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");
-        sb.append("  示例1 查询天气：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"ai_weather\", \"arguments\": {\"action\":\"current\",\"city\":\"北京\"}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例2 网络搜索并阅读：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"network_search\", \"arguments\": {\"action\":\"search_and_read\",\"query\":\"量子计算最新进展\",\"limit\":5}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例3 数学计算：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"python_calculate\", \"arguments\": {\"expression\":\"3.14*5*5\"}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例4 翻译：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"translation\", \"arguments\": {\"text\":\"Hello world\",\"target_lang\":\"zh\"}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例5 读取文件：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"file_reader\", \"arguments\": {\"action\":\"read\",\"file_path\":\"/storage/emulated/0/note.txt\"}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例6 OCR识别（聚合工具）：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"app_toolkit\", \"arguments\": {\"action\":\"ocr_recognize\",\"image_path\":\"/storage/emulated/0/test.jpg\"}}\n");
-        sb.append("    TOOLS_END\n\n");
-        sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：\n");
-        sb.append("    TOOLS_CALL\n");
-        sb.append("    {\"name\": \"smart_research\", \"arguments\": {\"topic\":\"可再生能源发展现状\",\"depth\":2,\"maxResults\":5}}\n");
-        sb.append("    TOOLS_END\n\n");
+        sb.append("  以下示例说明各场景应使用的工具与关键参数（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n\n");
+        sb.append("  示例1 查询天气：使用 ai_weather，参数 action=current、city=北京\n");
+        sb.append("  示例2 网络搜索并阅读：使用 network_search，参数 action=search_and_read、query=量子计算最新进展、limit=5\n");
+        sb.append("  示例3 数学计算：使用 python_calculate，参数 expression=3.14*5*5\n");
+        sb.append("  示例4 翻译：使用 translation，参数 text=Hello world、target_lang=zh\n");
+        sb.append("  示例5 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
+        sb.append("  示例6 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
+        sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n\n");
 
         // 5. 错误处理
         sb.append("【五、错误处理】\n");

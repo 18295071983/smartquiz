@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Looper;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -54,6 +55,7 @@ public class ModelSelectorActivity extends AppCompatActivity
     private MaterialButton refreshButton;
     private MaterialButton addOnlineModelButton;
     private MaterialButton importLocalModelButton;
+    private MaterialButton btnApiConfig;
     private LinearLayout onlineModelsSection;
     private View onlineModelsEmptyView;
     private View localModelsEmptyView;
@@ -61,6 +63,10 @@ public class ModelSelectorActivity extends AppCompatActivity
     private View statusIndicator;
     private TextView tvServiceStatus;
     private TextView tvUsageInfo;
+    private TextView tvAsrModelValue;  // 语音识别模型显示
+    private TextView tvTtsModelValue;  // 语音合成模型显示
+    private TextView tvTtsVoiceValue;  // TTS 音色显示
+    private LinearLayout rowFeatureModelsHeader;  // 功能专用模型标题行
 
     /** 在线模型配置变更监听器（需在 onDestroy 中注销避免内存泄漏） */
     private OnlineModelManager.ModelChangeListener modelChangeListener;
@@ -83,6 +89,7 @@ public class ModelSelectorActivity extends AppCompatActivity
             refreshButton = findViewById(R.id.refresh_button);
             addOnlineModelButton = findViewById(R.id.add_online_model_button);
             importLocalModelButton = findViewById(R.id.import_local_model_button);
+            btnApiConfig = findViewById(R.id.btn_api_config);
             onlineModelsSection = findViewById(R.id.online_models_section);
             onlineModelsEmptyView = findViewById(R.id.online_models_empty);
             localModelsEmptyView = findViewById(R.id.local_models_empty);
@@ -99,6 +106,12 @@ public class ModelSelectorActivity extends AppCompatActivity
                 toolbar.setOnClickListener(v -> finish());
             }
 
+            // 功能专用模型标题行：点击弹出语音功能介绍
+            rowFeatureModelsHeader = findViewById(R.id.row_feature_models_header);
+            if (rowFeatureModelsHeader != null) {
+                rowFeatureModelsHeader.setOnClickListener(v -> showVoiceFeatureInfoDialog());
+            }
+
             if (refreshButton != null) {
                 refreshButton.setOnClickListener(v -> {
                     // 强制从数据源重新同步，再刷新 UI
@@ -108,6 +121,32 @@ public class ModelSelectorActivity extends AppCompatActivity
             if (addOnlineModelButton != null) {
                 addOnlineModelButton.setOnClickListener(v -> showAddOnlineModelDialog());
             }
+            if (btnApiConfig != null) {
+                btnApiConfig.setOnClickListener(v -> {
+                    startActivity(new Intent(ModelSelectorActivity.this, ApiConfigActivity.class));
+                });
+            }
+
+            // 功能专用模型：语音识别 / 语音合成（点击弹出模型选择器）
+            tvAsrModelValue = findViewById(R.id.tv_asr_model_value);
+            tvTtsModelValue = findViewById(R.id.tv_tts_model_value);
+            tvTtsVoiceValue = findViewById(R.id.tv_tts_voice_value);
+            View rowAsrModel = findViewById(R.id.row_asr_model);
+            View rowTtsModel = findViewById(R.id.row_tts_model);
+            View rowTtsVoice = findViewById(R.id.row_tts_voice);
+            if (rowAsrModel != null) {
+                rowAsrModel.setOnClickListener(v -> showSpeechModelSelector(
+                        com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.ASR));
+            }
+            if (rowTtsModel != null) {
+                rowTtsModel.setOnClickListener(v -> showSpeechModelSelector(
+                        com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.TTS));
+            }
+            if (rowTtsVoice != null) {
+                rowTtsVoice.setOnClickListener(v ->
+                        new com.oilquiz.app.ui.dialog.TTSVoiceSelectorDialog(this).show());
+            }
+            updateFeatureModelsDisplay();
             if (importLocalModelButton != null) {
                 importLocalModelButton.setOnClickListener(v -> importModel());
             }
@@ -408,8 +447,7 @@ public class ModelSelectorActivity extends AppCompatActivity
             .setTitle("删除确认")
             .setMessage("确定要删除在线模型 \"" + config.name + "\" 吗？")
             .setPositiveButton("删除", (dialog, which) -> {
-                onlineModelManager.removeModel(configId);
-                // 同步删除 APIKeyManager 中对应的配置（如果存在）
+                // 先同步删除 APIKeyManager 中对应的配置（如果存在）
                 try {
                     APIKeyManager manager = APIKeyManager.getInstance(this);
                     if (manager.getAPIConfigById(configId) != null) {
@@ -417,6 +455,7 @@ public class ModelSelectorActivity extends AppCompatActivity
                     }
                 } catch (Exception ignored) {
                 }
+                onlineModelManager.removeModel(configId);
                 Toast.makeText(this, "在线模型已删除", Toast.LENGTH_SHORT).show();
                 refreshModels();
             })
@@ -586,6 +625,39 @@ public class ModelSelectorActivity extends AppCompatActivity
         super.onResume();
         refreshModels();
         updateServiceStatus();
+        updateFeatureModelsDisplay();
+    }
+
+    /** 弹出语音模型选择器（ASR/TTS） */
+    private void showSpeechModelSelector(com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode mode) {
+        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(this, mode)
+                .setListener((modelId, modelName) -> updateFeatureModelsDisplay())
+                .show();
+    }
+
+    /** 刷新功能专用模型的当前配置显示 */
+    private void updateFeatureModelsDisplay() {
+        if (tvAsrModelValue != null) {
+            tvAsrModelValue.setText(com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getCurrentAsrModelDisplay());
+        }
+        if (tvTtsModelValue != null) {
+            tvTtsModelValue.setText(com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getCurrentTtsModelDisplay());
+        }
+        if (tvTtsVoiceValue != null) {
+            // 未保存过音色时不回填默认值，显示"跟随模型默认"避免误导
+            String savedVoice = com.oilquiz.app.ai.speech.SpeechManager
+                    .getInstance(this).getSavedTtsVoice();
+            if (savedVoice == null || savedVoice.isEmpty()) {
+                tvTtsVoiceValue.setText("跟随模型默认");
+            } else if (savedVoice.startsWith(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX)) {
+                tvTtsVoiceValue.setText("系统·"
+                        + savedVoice.substring(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX.length()));
+            } else {
+                tvTtsVoiceValue.setText(savedVoice);
+            }
+        }
     }
 
     @Override
@@ -630,5 +702,23 @@ public class ModelSelectorActivity extends AppCompatActivity
                 tvServiceStatus.setText("全部服务异常");
             }
         }
+    }
+
+    /** 弹出语音功能介绍对话框 */
+    private void showVoiceFeatureInfoDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_voice_feature_info, null);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(true)
+                .create();
+        dialog.show();
+
+        // 设置对话框宽度与页面一致
+        dialog.getWindow().setLayout(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT);
+        dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
+
+        dialogView.findViewById(R.id.bt_close).setOnClickListener(v -> dialog.dismiss());
     }
 }

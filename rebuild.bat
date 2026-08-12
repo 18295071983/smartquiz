@@ -1,0 +1,9 @@
+@echo off
+cd /d d:\qzq\smartquiz
+echo Stopping gradle daemon...
+call gradlew.bat --stop
+echo Clearing cmake cache...
+if exist ".cxx\Debug" rmdir /s /q ".cxx\Debug"
+echo Building...
+call gradlew.bat assembleDebug
+echo Done. Exit code: %ERRORLEVEL%

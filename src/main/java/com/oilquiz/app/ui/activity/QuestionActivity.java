@@ -31,7 +31,6 @@ public class QuestionActivity extends BaseActivity {
     private Button btnToggleAnswer;
     private Button btnRefresh;
     private Button btnClearAll;
-    private Button btnFrontendView;
     private SearchView searchView;
     private Spinner questionTypeSpinner;
     private Spinner difficultySpinner;
@@ -60,7 +59,6 @@ public class QuestionActivity extends BaseActivity {
         btnToggleAnswer = findViewById(R.id.btn_toggle_answer);
         btnRefresh = findViewById(R.id.btn_refresh);
         btnClearAll = findViewById(R.id.btn_clear_all);
-        btnFrontendView = findViewById(R.id.btn_frontend_view);
         searchView = findViewById(R.id.searchView);
         questionTypeSpinner = findViewById(R.id.spinner_question_type);
         difficultySpinner = findViewById(R.id.spinner_difficulty);
@@ -90,14 +88,6 @@ public class QuestionActivity extends BaseActivity {
         
         // 清空全部按钮点击事件
         btnClearAll.setOnClickListener(v -> showClearAllConfirmationDialog());
-        
-        // 前端界面按钮点击事件
-        btnFrontendView.setOnClickListener(v -> {
-            Intent intent = new Intent(QuestionActivity.this, com.oilquiz.app.WebViewActivity.class);
-            intent.putExtra("url", "file:///android_asset/pages/question-renderer.html");
-            intent.putExtra("title", "题目渲染器");
-            startActivity(intent);
-        });
 
         searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
@@ -310,6 +300,8 @@ public class QuestionActivity extends BaseActivity {
                             @Override
                             public void run() {
                                 Toast.makeText(QuestionActivity.this, isFavorited ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
+                                // 收藏变更后刷新统计
+                                updateHeaderStats(questions);
                             }
                         });
                     }
@@ -328,6 +320,24 @@ public class QuestionActivity extends BaseActivity {
         });
         questionListView.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
         questionListView.setAdapter(questionAdapter);
+        
+        // 更新 header 统计数据
+        updateHeaderStats(questions);
+    }
+    
+    /** 计算并更新 header 统计（总题数、收藏数、分类数） */
+    private void updateHeaderStats(List<Question> questions) {
+        if (questionAdapter == null || questions == null) return;
+        int total = questions.size();
+        int favoriteCount = 0;
+        java.util.Set<String> categories = new java.util.HashSet<>();
+        for (Question q : questions) {
+            if (q == null) continue;
+            if (q.isFavorite()) favoriteCount++;
+            String cat = q.getCategory();
+            if (cat != null && !cat.isEmpty()) categories.add(cat);
+        }
+        questionAdapter.updateStats(total, favoriteCount, categories.size());
     }
     
     // 筛选题目
@@ -346,7 +356,7 @@ public class QuestionActivity extends BaseActivity {
             searchText = searchView.getQuery().toString();
         }
         
-        questionViewModel.filterQuestions(questionType, "", difficulty, searchText, new QuestionViewModel.GetQuestionsCallback() {
+        questionViewModel.filterQuestions(questionType, null, difficulty, searchText, new QuestionViewModel.GetQuestionsCallback() {
             @Override
             public void onSuccess(List<Question> questions) {
                 runOnUiThread(new Runnable() {

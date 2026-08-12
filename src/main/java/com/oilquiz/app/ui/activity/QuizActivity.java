@@ -24,6 +24,10 @@ import android.animation.AnimatorSet;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
+import android.widget.ImageView;
+import android.graphics.BitmapFactory;
+import android.graphics.Bitmap;
 
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.model.ScoreHistory;
@@ -40,6 +44,7 @@ import com.oilquiz.app.ui.base.BaseActivity;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
@@ -67,33 +72,39 @@ public class QuizActivity extends BaseActivity {
     private TextView textViewProgress;
     private TextView textViewTimer;
     private TextView textViewScore;
-    private RadioGroup radioGroupOptions;
+    private RadioGroup radioGroupOptions; // 动态创建，放入optionsContainer
+    private LinearLayout optionsContainer;
+        private ImageView questionImageView; // 题目配图
+        private android.media.MediaPlayer audioPlayer; // 题目音频
     private List<com.google.android.material.radiobutton.MaterialRadioButton> radioButtons = new ArrayList<>();
     private com.google.android.material.textfield.TextInputLayout answerInputLayout;
     private EditText editTextUserAnswer;
-    private MaterialButton buttonCheckAnswer;
     private MaterialButton buttonPrevious;
     private MaterialButton buttonNext;
     private MaterialButton buttonMark;
     private MaterialButton buttonSubmit;
     private MaterialButton buttonShowAnswer;
-    private Spinner spinnerQuestionType;
     private TextView textViewExplanation;
     private View linearLayoutExplanation;
 
     private CountDownTimer countDownTimer;
 
     private LinearLayout navigationLayout;
-    private TextView textViewMode;
-    private List<String> questionTypes;
     private List<Question> originalQuestions;
     private GestureDetector gestureDetector;
     private String questionOrderMode = "顺序";
-    private Spinner spinnerQuestionOrder;
-    private LinearLayout checkBoxContainer;
+    // checkBoxContainer 已合并到 optionsContainer
+    private LinearLayout checkBoxContainer; // 多选题复选框容器
     private List<com.google.android.material.checkbox.MaterialCheckBox> checkBoxes = new ArrayList<>();
+    private android.text.TextWatcher answerTextWatcher; // 填空题TextWatcher（避免重复注册）
 
     private ProgressBar progressBar;
+    private View answerCard; // 答案卡片
+    // 缓存视图引用（避免重复findViewById）
+    private ScrollView scrollViewContent;
+    private TextView textViewAnswer;
+    // 当前题型缓存（避免重复normalize）
+    private String currentNormalizedType;
 
     @Override
     protected int getLayoutId() {
@@ -101,6 +112,7 @@ public class QuizActivity extends BaseActivity {
     }
 
     private TextView textViewQuestionType;
+    private TextView textViewQuestionNumber;
     
     @Override
     protected void initView() {
@@ -111,44 +123,38 @@ public class QuizActivity extends BaseActivity {
         textViewQuestion = findViewById(R.id.textViewQuestion);
         textViewProgress = findViewById(R.id.textViewProgress);
         textViewTimer = findViewById(R.id.textViewTimer);
-        textViewMode = findViewById(R.id.textViewMode);
         textViewScore = findViewById(R.id.textViewScore);
         textViewQuestionType = findViewById(R.id.textViewQuestionType);
+        textViewQuestionNumber = findViewById(R.id.textViewQuestionNumber);
         progressBar = findViewById(R.id.progressBar);
         buttonPrevious = findViewById(R.id.buttonPrevious);
         buttonNext = findViewById(R.id.buttonNext);
         buttonMark = findViewById(R.id.buttonMark);
         buttonShowAnswer = findViewById(R.id.buttonShowAnswer);
+        buttonSubmit = findViewById(R.id.buttonSubmit);
         
         // 初始化背诵模式专用组件
         textViewExplanation = findViewById(R.id.textViewExplanation);
         linearLayoutExplanation = findViewById(R.id.linearLayoutExplanation);
         
         // 初始化非背诵模式组件
-        radioGroupOptions = findViewById(R.id.radioGroupOptions);
+        optionsContainer = findViewById(R.id.optionsContainer);
         answerInputLayout = findViewById(R.id.answerInputLayout);
         editTextUserAnswer = findViewById(R.id.editTextUserAnswer);
+        answerCard = findViewById(R.id.answerCard);
+        
+        // 缓存频繁访问的视图引用
+        scrollViewContent = findViewById(R.id.scrollViewContent);
+        textViewAnswer = findViewById(R.id.textViewAnswer);
         
         // 设置显示答案按钮的点击事件
         if (buttonShowAnswer != null) {
             buttonShowAnswer.setOnClickListener(v -> showAnswerButtonClicked());
         }
         
-        // 初始化多选题容器
-        LinearLayout contentLayout = findViewById(R.id.card_content);
-        if (contentLayout != null) {
-            // 创建多选题容器
-            checkBoxContainer = new LinearLayout(this);
-            checkBoxContainer.setId(View.generateViewId());
-            checkBoxContainer.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            params.setMargins(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.spacing_16));
-            checkBoxContainer.setLayoutParams(params);
-            checkBoxContainer.setVisibility(View.GONE);
-            contentLayout.addView(checkBoxContainer);
+        // 设置提交按钮的点击事件
+        if (buttonSubmit != null) {
+            buttonSubmit.setOnClickListener(v -> submitQuiz());
         }
     }
 
@@ -276,32 +282,63 @@ public class QuizActivity extends BaseActivity {
 
     // 更新模式显示
     private void updateModeDisplay() {
-        if (textViewMode != null) {
-            switch (quizMode) {
-                case "practice":
-                    textViewMode.setText("练习模式");
-                    setModeTheme(R.color.primary_color, R.color.primary_dark);
-                    break;
-                case "exam":
-                    textViewMode.setText("考试模式");
-                    setModeTheme(R.color.blue, R.color.primary_dark);
-                    break;
-                case "review":
-                    textViewMode.setText("复习模式");
-                    setModeTheme(R.color.green, R.color.success_color);
-                    break;
-                case "challenge":
-                    textViewMode.setText("挑战模式");
-                    setModeTheme(R.color.red, R.color.error_color);
-                    break;
-                case "recite":
-                    textViewMode.setText("背诵模式");
-                    setModeTheme(R.color.yellow, R.color.warning_color);
-                    break;
-                default:
-                    textViewMode.setText(quizMode);
-                    setModeTheme(R.color.primary_color, R.color.primary_dark);
-            }
+        String modeTitle;
+        switch (quizMode) {
+            case "practice":
+                modeTitle = "练习模式";
+                setModeTheme(R.color.primary_color, R.color.primary_dark);
+                break;
+            case "exam":
+                modeTitle = "考试模式";
+                setModeTheme(R.color.blue, R.color.primary_dark);
+                break;
+            case "review":
+                modeTitle = "复习模式";
+                setModeTheme(R.color.green, R.color.success_color);
+                break;
+            case "challenge":
+                modeTitle = "挑战模式";
+                setModeTheme(R.color.red, R.color.error_color);
+                break;
+            case "recite":
+                modeTitle = "背诵模式";
+                setModeTheme(R.color.yellow, R.color.warning_color);
+                break;
+            default:
+                modeTitle = quizMode != null ? quizMode : "答题";
+                setModeTheme(R.color.primary_color, R.color.primary_dark);
+        }
+        // 更新工具栏标题
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(modeTitle);
+        }
+        // 根据模式设置UI元素可见性
+        setupModeUI();
+    }
+
+    /**
+     * 根据模式设置UI元素可见性
+     * 背诵: 无得分/无计时/答案+解析始终显示/无查看答案按钮/无标记
+     * 练习: 有得分/无计时/选后可看答案/有查看答案按钮/有标记
+     * 考试: 无得分/有计时/交卷后可看/无查看答案按钮/有标记
+     * 复习: 无得分/无计时/答案+解析始终显示/无查看答案按钮/有标记
+     * 挑战: 有得分/有计时/不可看答案/无查看答案按钮/有标记
+     */
+    private void setupModeUI() {
+        boolean isRecite = "recite".equals(quizMode);
+        boolean isPractice = "practice".equals(quizMode);
+        boolean isExam = "exam".equals(quizMode);
+        boolean isReview = "review".equals(quizMode);
+        boolean isChallenge = "challenge".equals(quizMode);
+
+        // 得分显示：练习、挑战模式
+        if (textViewScore != null) {
+            textViewScore.setVisibility((isPractice || isChallenge) ? View.VISIBLE : View.GONE);
+        }
+
+        // 计时器显示：考试、挑战模式
+        if (textViewTimer != null) {
+            textViewTimer.setVisibility((isExam || isChallenge) ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -350,8 +387,7 @@ public class QuizActivity extends BaseActivity {
             buttonShowAnswer.setTextColor(getResources().getColor(R.color.black));
         }
         
-        // 更新选项按钮颜色
-        updateOptionButtonColors();
+        // 选项卡片背景由渲染引擎统一管理
         
         // 更新导航按钮颜色
         updateAllNavButtons();
@@ -414,40 +450,24 @@ public class QuizActivity extends BaseActivity {
         }
     }
     
-    // 新的数据库匹配方法
+    // 新的数据库匹配方法（直接查询，跳过count检查减少一次DB往返）
     private void matchDatabaseQuestions(QuestionRepository repository) {
-        // 首先检查数据库中是否有题目
-        repository.getQuestionCount(new QuestionRepository.RepositoryCallback<Integer>() {
-            @Override
-            public void onSuccess(Integer count) {
-                Log.d("QuizActivity", "数据库题目数量: " + count);
-                
-                // 根据不同条件匹配数据库题目
-                if (questionType != null && !questionType.isEmpty() && !questionType.equals("all") && !questionType.equals("全部")) {
-                    // 根据题目类型匹配题目
-                    matchQuestionsByType(repository, questionType);
-                } else if (category != null && !category.isEmpty()) {
-                    // 根据分类匹配题目
-                    matchQuestionsByCategory(repository, category, questionCount);
-                } else {
-                    // 匹配所有题目或随机题目
-                    matchAllQuestions(repository, questionCount);
-                }
-            }
-
-            @Override
-            public void onFailure(String error) {
-                Log.e("QuizActivity", "获取题目数量失败: " + error);
-                // 执行失败，使用模拟数据作为备选
-                handleDatabaseError();
-            }
-        });
+        Log.d("QuizActivity", "开始查询题目: type=" + questionType + ", category=" + category + ", count=" + questionCount);
+        
+        if (questionType != null && !questionType.isEmpty() && !questionType.equals("all") && !questionType.equals("全部")) {
+            matchQuestionsByType(repository, questionType);
+        } else if (category != null && !category.isEmpty()) {
+            matchQuestionsByCategory(repository, category, questionCount);
+        } else {
+            matchAllQuestions(repository, questionCount);
+        }
     }
     
-    // 根据题目类型匹配题目
+    // 根据题目类型匹配题目（v23优化: 使用索引+LIMIT）
     private void matchQuestionsByType(QuestionRepository repository, String type) {
-        Log.d("QuizActivity", "根据题目类型匹配题目: " + type);
-        repository.getQuestionsByType(type, new QuestionRepository.RepositoryCallback<List<Question>>() {
+        int limit = (questionCount > 0) ? questionCount : 100;
+        Log.d("QuizActivity", "根据题目类型匹配题目: " + type + ", limit=" + limit);
+        repository.getRandomQuestionsByType(type, limit, new QuestionRepository.RepositoryCallback<List<Question>>() {
             @Override
             public void onSuccess(List<Question> result) {
                 // 检查Activity是否已经结束
@@ -481,7 +501,7 @@ public class QuizActivity extends BaseActivity {
                     @Override
                     public void run() {
                         Log.e("QuizActivity", "获取题目失败: " + error);
-                        Toast.makeText(QuizActivity.this, "获取题目失败: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
                         handleDatabaseError();
                     }
                 });
@@ -489,54 +509,11 @@ public class QuizActivity extends BaseActivity {
         });
     }
     
-    // 根据分类匹配题目
+    // 根据分类匹配题目（v23优化: 使用索引+LIMIT）
     private void matchQuestionsByCategory(QuestionRepository repository, String category, int limit) {
-        Log.d("QuizActivity", "根据分类匹配题目: " + category + ", 数量: " + limit);
-        if (limit == -1) {
-            // 不限制获取所有题目
-            repository.getQuestionsByCategory(category, new QuestionViewModel.GetQuestionsByCategoryCallback() {
-                @Override
-                public void onSuccess(List<Question> result) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                Log.d("QuizActivity", "获取题目成功，数量: " + (result != null ? result.size() : 0));
-                                processQuestionResult(result);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "处理题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                handleDatabaseError();
-                            }
-                        }
-                    });
-                }
-
-                @Override
-                public void onError(String error) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Log.e("QuizActivity", "获取题目失败: " + error);
-                            Toast.makeText(QuizActivity.this, "获取题目失败: " + error, Toast.LENGTH_SHORT).show();
-                            handleDatabaseError();
-                        }
-                    });
-                }
-            });
-        } else {
-            // 限制获取指定数量的题目
-            repository.getQuestionsByCategory(category, limit, new QuestionRepository.RepositoryCallback<List<Question>>() {
+        int effectiveLimit = (limit > 0) ? limit : 100;
+        Log.d("QuizActivity", "根据分类匹配题目: " + category + ", limit=" + effectiveLimit);
+        repository.getRandomQuestionsByCategory(category, effectiveLimit, new QuestionRepository.RepositoryCallback<List<Question>>() {
                 @Override
                 public void onSuccess(List<Question> result) {
                     // 检查Activity是否已经结束
@@ -571,7 +548,7 @@ public class QuizActivity extends BaseActivity {
                         public void run() {
                             try {
                                 Log.e("QuizActivity", "获取题目失败: " + error);
-                                Toast.makeText(QuizActivity.this, "获取题目失败: " + error, Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
                                 // 使用模拟数据
                                 questions = getMockQuestions(questionCount);
                                 initAnswerLists();
@@ -584,15 +561,13 @@ public class QuizActivity extends BaseActivity {
                     });
                 }
             });
-        }
     }
     
-    // 匹配所有题目或随机题目
+    // 匹配所有题目或随机题目（v23优化: 使用SQL层LIMIT）
     private void matchAllQuestions(QuestionRepository repository, int questionCount) {
-        Log.d("QuizActivity", "获取所有题目或随机题目: questionCount=" + questionCount);
-        if (questionCount == -1) {
-            // 获取所有题目
-            repository.getAllQuestions(new QuestionRepository.RepositoryCallback<List<Question>>() {
+        int limit = (questionCount > 0) ? questionCount : 100;
+        Log.d("QuizActivity", "获取随机题目: limit=" + limit);
+        repository.getRandomQuestionsLimited(limit, new QuestionRepository.RepositoryCallback<List<Question>>() {
                 @Override
                 public void onSuccess(List<Question> result) {
                     // 检查Activity是否已经结束
@@ -627,7 +602,7 @@ public class QuizActivity extends BaseActivity {
                         public void run() {
                             try {
                                 Log.e("QuizActivity", "获取题目失败: " + error);
-                                Toast.makeText(QuizActivity.this, "获取题目失败: " + error, Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
                                 // 使用模拟数据
                                 questions = getMockQuestions(questionCount);
                                 initAnswerLists();
@@ -640,57 +615,6 @@ public class QuizActivity extends BaseActivity {
                     });
                 }
             });
-        } else {
-            // 随机获取题目
-            repository.getRandomQuestions(questionCount, new QuestionRepository.RepositoryCallback<List<Question>>() {
-                @Override
-                public void onSuccess(List<Question> result) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                Log.d("QuizActivity", "获取题目成功，数量: " + (result != null ? result.size() : 0));
-                                processQuestionResult(result);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "初始化题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                finish();
-                            }
-                        }
-                    });
-                }
-
-                @Override
-                public void onFailure(String error) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                Log.e("QuizActivity", "获取题目失败: " + error);
-                                Toast.makeText(QuizActivity.this, "获取题目失败: " + error, Toast.LENGTH_SHORT).show();
-                                // 使用模拟数据
-                                questions = getMockQuestions(questionCount);
-                                initAnswerLists();
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "初始化模拟数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                finish();
-                            }
-                        }
-                    });
-                }
-            });
-        }
     }
     
     // 处理题目结果
@@ -771,6 +695,9 @@ public class QuizActivity extends BaseActivity {
                 markedQuestions.add(false);
             }
             
+            // 尝试恢复之前的答题进度（如果存在）
+            loadQuizProgress();
+            
             // 增强时间管理
             enhanceTimeManagement();
             
@@ -796,222 +723,252 @@ public class QuizActivity extends BaseActivity {
 
     // 显示当前题目
     private void showCurrentQuestion() {
+        if (isFinishing() || isDestroyed()) return;
+        if (questions == null || questions.isEmpty() || currentQuestionIndex < 0 || currentQuestionIndex >= questions.size()) {
+            Toast.makeText(this, "题目数据不存在", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        Question question = questions.get(currentQuestionIndex);
+        if (question == null) {
+            Toast.makeText(this, "题目对象为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
         try {
-            // 检查Activity是否已经结束
-            if (isFinishing() || isDestroyed()) {
-                return;
+            // 滚动到顶部
+            if (scrollViewContent != null) {
+                scrollViewContent.smoothScrollTo(0, 0);
             }
             
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        if (questions != null && !questions.isEmpty() && currentQuestionIndex >= 0 && currentQuestionIndex < questions.size()) {
-                            Question question = questions.get(currentQuestionIndex);
-                            if (question != null) {
-                                // 检查UI组件是否已经初始化
-                                if (textViewQuestion != null) {
-                                    String questionText = question.getQuestionText();
-                                    textViewQuestion.setText((currentQuestionIndex + 1) + ". " + (questionText != null ? questionText : ""));
-                                }
-                                
-                                // 显示进度
-                                if (textViewProgress != null) {
-                                    textViewProgress.setText((currentQuestionIndex + 1) + "/" + questions.size());
-                                }
-                                
-                                // 更新进度条
-                                if (progressBar != null) {
-                                    // 动态设置进度条最大值
-                                    progressBar.setMax(questions.size());
-                                    // 设置当前进度
-                                    progressBar.setProgress(currentQuestionIndex + 1);
-                                }
-                                
-                                // 更新得分显示
-                                if (textViewScore != null) {
-                                    textViewScore.setText("得分: " + correctCount);
-                                }
-                                
-                                // 显示题型
-                                if (textViewQuestionType != null) {
-                                    String questionType = question.getQuestionType();
-                                    String normalizedType = normalizeQuestionType(questionType, question);
-                                    textViewQuestionType.setText(normalizedType);
-                                }
+            // 题目文本
+            if (textViewQuestion != null) {
+                String questionText = question.getQuestionText();
+                textViewQuestion.setText(questionText != null ? questionText : "");
+            }
+            
+            // 题号
+            if (textViewQuestionNumber != null) {
+                textViewQuestionNumber.setText(String.valueOf(currentQuestionIndex + 1));
+            }
+            
+            // 进度
+            if (textViewProgress != null) {
+                textViewProgress.setText((currentQuestionIndex + 1) + "/" + questions.size());
+            }
+            
+            // 进度条
+            if (progressBar != null) {
+                progressBar.setMax(questions.size());
+                progressBar.setProgress(currentQuestionIndex + 1);
+            }
+            
+            // 得分
+            if (textViewScore != null) {
+                textViewScore.setText("得分: " + correctCount);
+            }
+            
+            // 题型（只计算一次，缓存到字段供后续方法复用）
+            currentNormalizedType = normalizeQuestionType(question.getQuestionType(), question);
+            if (textViewQuestionType != null) {
+                textViewQuestionType.setText(currentNormalizedType);
+            }
 
-                                // 根据题目类型显示不同的UI
-                                String questionType = question.getQuestionType();
-                                String normalizedType = normalizeQuestionType(questionType, question);
-                                showUIForQuestionType(normalizedType, questionType, question);
+            // 渲染题目选项区域（构建控件 + 绑定事件 + 恢复选择）
+            boolean isReadOnlyMode = "recite".equals(quizMode) || "review".equals(quizMode);
+            renderQuestionOptions(currentNormalizedType, question, isReadOnlyMode);
+            restoreUserSelection();
+            
+            // 题目配图（在选项渲染之后插入，避免被removeAllViews清除）
+            showQuestionImage(question);
 
-                                // 恢复之前的选择
-                                restoreUserSelection();
+            // 加载答案和解析数据
+            showAnswer(question, currentNormalizedType);
+            showExplanation(question);
+            
+            // 根据模式控制答案和解析的显示/隐藏
+            controlAnswerVisibilityByMode();
 
-                                // 为当前题目设置实时保存
-                                setupRealTimeSave();
-
-                                // 加载答案和解析数据
-                                showAnswer(question);
-                                showExplanation(question);
-                                
-                                // 根据模式控制答案和解析的显示/隐藏
-                                controlAnswerVisibilityByMode();
-
-                                // 更新按钮状态
-                                updateButtonStates();
-                                
-                                // 更新导航按钮样式
-                                updateAllNavButtons();
-                                // 滚动到当前题目的导航按钮
-                                scrollToCurrentQuestion();
-                            } else {
-                                Toast.makeText(QuizActivity.this, "题目对象为空", Toast.LENGTH_SHORT).show();
-                            }
-                        } else {
-                            Toast.makeText(QuizActivity.this, "题目数据不存在", Toast.LENGTH_SHORT).show();
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        Toast.makeText(QuizActivity.this, "显示题目失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                    }
-                }
-            });
+            // 更新按钮状态 + 导航按钮样式
+            updateButtonStates();
+            updateAllNavButtons();
+            scrollToCurrentQuestion();
         } catch (Exception e) {
-            e.printStackTrace();
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(QuizActivity.this, "显示题目失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            });
+            Log.e("QuizActivity", "显示题目异常: " + e.getMessage(), e);
+            Toast.makeText(this, "显示题目失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
     
     // 根据模式控制答案和解析的显示/隐藏
     private void controlAnswerVisibilityByMode() {
-        View answerCard = findViewById(R.id.answerCard);
+        boolean isRecite = "recite".equals(quizMode);
+        boolean isPractice = "practice".equals(quizMode);
+        boolean isReview = "review".equals(quizMode);
+    
+        // 答案卡片可见性：背诵/复习模式显示，但无答案数据时隐藏
         if (answerCard != null) {
-            switch (quizMode) {
-                case "recite":
-                    // 背诵模式：默认显示答案和解析
-                    answerCard.setVisibility(View.VISIBLE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.VISIBLE);
-                    }
-                    break;
-                case "practice":
-                    // 练习模式：可随时查看答案
-                    answerCard.setVisibility(View.GONE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.GONE);
-                    }
-                    break;
-                case "exam":
-                    // 考试模式：禁止查看答案
-                    answerCard.setVisibility(View.GONE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.GONE);
-                    }
-                    if (buttonShowAnswer != null) {
-                        buttonShowAnswer.setVisibility(View.GONE);
-                    }
-                    break;
-                case "review":
-                    // 复习模式：默认显示答案和解析
-                    answerCard.setVisibility(View.VISIBLE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.VISIBLE);
-                    }
-                    break;
-                case "challenge":
-                    // 挑战模式：禁止查看答案
-                    answerCard.setVisibility(View.GONE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.GONE);
-                    }
-                    if (buttonShowAnswer != null) {
-                        buttonShowAnswer.setVisibility(View.GONE);
-                    }
-                    break;
-                default:
-                    // 默认：隐藏答案和解析
-                    answerCard.setVisibility(View.GONE);
-                    if (linearLayoutExplanation != null) {
-                        linearLayoutExplanation.setVisibility(View.GONE);
-                    }
+            boolean hasAnswerData = false;
+            if (textViewAnswer != null) {
+                String answerText = textViewAnswer.getText() != null ? textViewAnswer.getText().toString() : "";
+                hasAnswerData = !answerText.isEmpty() && !answerText.contains("暂无答案");
             }
+            answerCard.setVisibility((isRecite || isReview) && hasAnswerData ? View.VISIBLE : View.GONE);
+        }
+    
+        // 解析区域可见性：背诵/复习模式且有解析内容时显示，其他情况隐藏
+        if (linearLayoutExplanation != null) {
+            boolean hasExplanation = false;
+            if (questions != null && currentQuestionIndex < questions.size() && currentQuestionIndex >= 0) {
+                String explanation = questions.get(currentQuestionIndex).getExplanation();
+                hasExplanation = explanation != null && !explanation.isEmpty();
+            }
+            linearLayoutExplanation.setVisibility((isRecite || isReview) && hasExplanation ? View.VISIBLE : View.GONE);
+        }
+    
+        // “查看答案”按钮可见性：仅练习模式显示
+        if (buttonShowAnswer != null) {
+            buttonShowAnswer.setVisibility(isPractice ? View.VISIBLE : View.GONE);
         }
     }
     
     // 更新按钮状态
     private void updateButtonStates() {
+        if (questions == null || questions.isEmpty()) return;
+            
+        boolean isRecite = "recite".equals(quizMode);
+        boolean isPractice = "practice".equals(quizMode);
+        boolean isExam = "exam".equals(quizMode);
+        boolean isReview = "review".equals(quizMode);
+        boolean isChallenge = "challenge".equals(quizMode);
+        boolean isLastQuestion = currentQuestionIndex >= questions.size() - 1;
+            
+        // 上一题按钮：挑战模式不允许回退
         if (buttonPrevious != null) {
-            buttonPrevious.setEnabled(currentQuestionIndex > 0);
+            if (isChallenge) {
+                buttonPrevious.setVisibility(View.GONE);
+            } else {
+                buttonPrevious.setVisibility(currentQuestionIndex > 0 ? View.VISIBLE : View.GONE);
+            }
         }
+            
+        // 下一题按钮文字
         if (buttonNext != null) {
-            if (quizMode != null && quizMode.equals("recite")) {
-                // 背诵模式：除了最后一题显示"→"，最后一题显示"结束"
-                if (currentQuestionIndex < questions.size() - 1) {
-                    buttonNext.setText("→");
+            if (isLastQuestion) {
+                if (isRecite) {
+                    buttonNext.setText("完成");
+                } else if (isExam) {
+                    buttonNext.setText("交卷");
                 } else {
-                    buttonNext.setText("结束");
+                    buttonNext.setText("完成");
                 }
             } else {
-                // 其他模式：正常显示
-                if (currentQuestionIndex < questions.size() - 1) {
-                    buttonNext.setText("→");
-                } else {
-                    buttonNext.setText("提交");
-                }
+                buttonNext.setText("→");
             }
         }
-        
-        // 根据模式控制标记按钮
+            
+        // 标记按钮：练习/考试/复习/挑战模式可见，背诵模式隐藏
         if (buttonMark != null) {
-            if (quizMode != null && (quizMode.equals("exam") || quizMode.equals("challenge"))) {
-                // 考试和挑战模式允许标记题目
-                buttonMark.setVisibility(View.VISIBLE);
-            } else {
-                // 其他模式隐藏标记按钮
-                buttonMark.setVisibility(View.GONE);
+            boolean showMark = isPractice || isExam || isReview || isChallenge;
+            buttonMark.setVisibility(showMark ? View.VISIBLE : View.GONE);
+            // 更新标记状态文字
+            if (showMark && markedQuestions != null && currentQuestionIndex < markedQuestions.size()) {
+                boolean isMarked = markedQuestions.get(currentQuestionIndex);
+                buttonMark.setText(isMarked ? "★ 已标记" : "☆ 标记");
             }
         }
     }
     
-    // 显示答案
-    private void showAnswer(Question question) {
-        // 查找答案卡片和其中的textViewAnswer
-        View answerCard = findViewById(R.id.answerCard);
-        TextView textViewAnswer = findViewById(R.id.textViewAnswer);
+    // 显示题目配图
+    private void showQuestionImage(Question question) {
+        if (optionsContainer == null) return;
         
-        if (textViewAnswer != null) {
-            String correctAnswer = question.getCorrectAnswer();
-            String answerText = buildAnswerText(question, correctAnswer);
-            if (answerText != null && !answerText.isEmpty()) {
-                textViewAnswer.setText(answerText);
-                // 不在这里设置可见性，由showCurrentQuestion和toggleAnswerVisibility控制
+        // 先移除旧的配图
+        if (questionImageView != null) {
+            optionsContainer.removeView(questionImageView);
+            questionImageView = null;
+        }
+        
+        String imageUri = question.getImageUri();
+        if (imageUri == null || imageUri.isEmpty()) return;
+        
+        try {
+            questionImageView = new ImageView(this);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            params.setMargins(0, 0, 0, 16);
+            questionImageView.setLayoutParams(params);
+            questionImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            questionImageView.setAdjustViewBounds(true);
+            
+            // 尝试加载图片
+            if (imageUri.startsWith("/")) {
+                // 本地文件路径
+                Bitmap bitmap = BitmapFactory.decodeFile(imageUri);
+                if (bitmap != null) {
+                    questionImageView.setImageBitmap(bitmap);
+                    optionsContainer.addView(questionImageView, 0);
+                }
+            } else if (imageUri.startsWith("content://") || imageUri.startsWith("file://")) {
+                android.net.Uri uri = android.net.Uri.parse(imageUri);
+                questionImageView.setImageURI(uri);
+                optionsContainer.addView(questionImageView, 0);
             } else {
-                textViewAnswer.setText("正确答案: 暂无答案");
-                if (answerCard != null) {
-                    answerCard.setVisibility(View.GONE);
+                // 尝试作为资源ID
+                int resId = getResources().getIdentifier(imageUri, "drawable", getPackageName());
+                if (resId != 0) {
+                    questionImageView.setImageResource(resId);
+                    optionsContainer.addView(questionImageView, 0);
                 }
             }
+        } catch (Exception e) {
+            Log.w("QuizActivity", "加载题目配图失败: " + e.getMessage());
+            if (questionImageView != null) {
+                optionsContainer.removeView(questionImageView);
+                questionImageView = null;
+            }
         }
     }
     
-    // 构建答案文本，包含选项内容
-    private String buildAnswerText(Question question, String correctAnswer) {
+    // 显示答案（接收已规范化的题型，避免重复normalize）
+    private void showAnswer(Question question, String normalizedType) {
+        if (textViewAnswer == null) return;
+        
+        String answerText;
+        boolean isTextType = "填空题".equals(normalizedType) || "简答题".equals(normalizedType) 
+                           || "问答题".equals(normalizedType) || "论述题".equals(normalizedType);
+        
+        if (isTextType) {
+            // 文本型题目：优先使用answerText字段
+            String stdAnswer = question.getAnswerText();
+            if (stdAnswer != null && !stdAnswer.isEmpty()) {
+                answerText = "正确答案: " + stdAnswer;
+            } else {
+                answerText = buildAnswerText(question, question.getCorrectAnswer(), normalizedType);
+                if (answerText == null) answerText = "正确答案: 暂无答案";
+            }
+        } else {
+            // 选择型题目：使用correctAnswer（字母）
+            answerText = buildAnswerText(question, question.getCorrectAnswer(), normalizedType);
+            if (answerText == null) answerText = "正确答案: 暂无答案";
+        }
+        
+        textViewAnswer.setText(answerText);
+        // 无答案时隐藏答案卡片
+        if ("正确答案: 暂无答案".equals(answerText) && answerCard != null) {
+            answerCard.setVisibility(View.GONE);
+        }
+    }
+    
+    // 构建答案文本，包含选项内容（接收已规范化的题型，避免重复normalize）
+    private String buildAnswerText(Question question, String correctAnswer, String normalizedType) {
         if (correctAnswer == null || correctAnswer.isEmpty()) {
             return null;
         }
         
         StringBuilder answerBuilder = new StringBuilder();
         answerBuilder.append("正确答案: ");
-        
-        // 判断题型
-        String questionType = question.getQuestionType();
-        String normalizedType = normalizeQuestionType(questionType, question);
         
         if ("单选题".equals(normalizedType) || "判断题".equals(normalizedType)) {
             // 单选题/判断题：显示选项字母和内容
@@ -1022,11 +979,23 @@ public class QuizActivity extends BaseActivity {
                 answerBuilder.append(correctAnswer);
             }
         } else if ("多选题".equals(normalizedType)) {
-            // 多选题：显示所有正确选项
-            String[] answers = correctAnswer.split("[,，]");
+            // 多选题：显示所有正确选项（兼容 "AC" 和 "A,C" 两种格式）
+            String cleaned = correctAnswer.replaceAll("[,，\\s]", "");
+            String[] answers;
+            if (correctAnswer.contains(",") || correctAnswer.contains("，")) {
+                // 逗号分隔格式："A,C,D"
+                answers = correctAnswer.split("[,，]");
+            } else {
+                // 无分隔符格式："ACD" → 拆为单个字母
+                answers = new String[cleaned.length()];
+                for (int k = 0; k < cleaned.length(); k++) {
+                    answers[k] = String.valueOf(cleaned.charAt(k));
+                }
+            }
             for (int i = 0; i < answers.length; i++) {
                 String answer = answers[i].trim();
-                if (i > 0) {
+                if (answer.isEmpty()) continue;
+                if (i > 0 && answerBuilder.length() > "正确答案: ".length()) {
                     answerBuilder.append("，");
                 }
                 String optionContent = getOptionContentByLetter(question, answer);
@@ -1037,359 +1006,70 @@ public class QuizActivity extends BaseActivity {
                 }
             }
         } else {
-            // 填空题、简答题等：直接显示答案内容
-            answerBuilder.append(correctAnswer);
+            // 填空题、简答题等：优先使用answerText字段
+            String stdAnswer = question.getAnswerText();
+            if (stdAnswer != null && !stdAnswer.isEmpty()) {
+                answerBuilder.append(stdAnswer);
+            } else {
+                // 回退到correctAnswer
+                answerBuilder.append(correctAnswer);
+            }
         }
         
         return answerBuilder.toString();
     }
     
-    // 根据选项字母获取选项内容
+    // 根据选项字母获取选项内容（支持A-L）
     private String getOptionContentByLetter(Question question, String letter) {
         if (letter == null || letter.isEmpty()) {
             return null;
         }
         
-        String upperLetter = letter.toUpperCase();
-        switch (upperLetter) {
-            case "A":
-                return question.getOptionA();
-            case "B":
-                return question.getOptionB();
-            case "C":
-                return question.getOptionC();
-            case "D":
-                return question.getOptionD();
-            default:
-                return null;
-        }
+        // 使用Question的通用方法，支持A-L所有选项
+        return question.getOptionByLetter(letter);
     }
     
-    // 切换答案显示/隐藏
+    // 切换答案显示/隐藏（练习模式下使用）
     private void toggleAnswerVisibility() {
-        // 操作答案卡片的可见性，而不是直接操作textViewAnswer
-        View answerCard = findViewById(R.id.answerCard);
         if (answerCard != null) {
-            if (answerCard.getVisibility() == View.VISIBLE) {
-                answerCard.setVisibility(View.GONE);
-            } else {
-                answerCard.setVisibility(View.VISIBLE);
+            // 无答案数据时不切换显示
+            String answerText = (textViewAnswer != null && textViewAnswer.getText() != null) ? textViewAnswer.getText().toString() : "";
+            boolean hasAnswerData = !answerText.isEmpty() && !answerText.contains("暂无答案");
+            if (hasAnswerData) {
+                answerCard.setVisibility(answerCard.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             }
         }
-        
-        // 同时切换解析的显示
         if (linearLayoutExplanation != null) {
-            if (linearLayoutExplanation.getVisibility() == View.VISIBLE) {
-                linearLayoutExplanation.setVisibility(View.GONE);
-            } else {
-                linearLayoutExplanation.setVisibility(View.VISIBLE);
-            }
+            linearLayoutExplanation.setVisibility(linearLayoutExplanation.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         }
     }
     
-    // 显示解析（只加载数据，不控制显示/隐藏）
+    // 显示解析（加载数据 + 根据内容有无控制可见性）
     private void showExplanation(Question question) {
-        if (textViewExplanation != null) {
-            String explanation = question.getExplanation();
-            if (explanation != null && !explanation.isEmpty()) {
-                textViewExplanation.setText(explanation);
-                // 注意：不在这里设置可见性，由 toggleAnswerVisibility 控制
+        if (textViewExplanation == null || linearLayoutExplanation == null) return;
+            
+        String explanation = question.getExplanation();
+        if (explanation != null && !explanation.isEmpty()) {
+            textViewExplanation.setText(explanation);
+            // 有解析内容：可见性由模式控制（controlAnswerVisibilityByMode）
+        } else {
+            // 无解析内容：直接隐藏解析区域
+            if (linearLayoutExplanation != null) {
+                linearLayoutExplanation.setVisibility(View.GONE);
             }
         }
     }
     
-    // 显示答案按钮点击事件
+    // 显示答案按钮点击事件（仅练习模式触发）
     private void showAnswerButtonClicked() {
-        // 根据模式控制是否允许查看答案
-        if (quizMode != null && (quizMode.equals("exam") || quizMode.equals("challenge"))) {
-            // 考试和挑战模式禁止查看答案
-            Toast.makeText(this, "该模式下禁止查看答案", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        
         if (questions != null && currentQuestionIndex < questions.size() && currentQuestionIndex >= 0) {
             Question question = questions.get(currentQuestionIndex);
-            // 先确保答案和解析数据已加载
-            showAnswer(question);
+            String normalizedType = normalizeQuestionType(question.getQuestionType(), question);
+            // 加载答案和解析数据
+            showAnswer(question, normalizedType);
             showExplanation(question);
             // 切换答案和解析的显示状态
             toggleAnswerVisibility();
-        }
-    }
-
-    // 保存用户题目类型选择偏好
-    private void saveQuestionTypePreference(String selectedType) {
-        android.content.SharedPreferences sharedPreferences = getSharedPreferences("app_preferences", MODE_PRIVATE);
-        sharedPreferences.edit().putString("preferred_question_type", selectedType).apply();
-    }
-    
-    // 加载用户题目类型选择偏好
-    private String loadQuestionTypePreference() {
-        android.content.SharedPreferences sharedPreferences = getSharedPreferences("app_preferences", MODE_PRIVATE);
-        return sharedPreferences.getString("preferred_question_type", "全部题目");
-    }
-    
-    // 初始化题目类型筛选
-    private void initQuestionTypeFilter() {
-        if (spinnerQuestionType != null) {
-            // 从数据库直接获取当前题库的题目类型
-            QuestionRepository repository = new QuestionRepository(getApplication());
-            repository.getAllQuestionTypes(new QuestionRepository.RepositoryCallback<List<String>>() {
-                @Override
-                public void onSuccess(List<String> result) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            // 准备题目类型列表
-                            questionTypes = new ArrayList<>();
-                            questionTypes.add("全部题目");
-                            
-                            // 收集所有唯一的题目类型
-                            java.util.Set<String> uniqueTypes = new java.util.HashSet<>();
-                            if (result != null) {
-                                for (String type : result) {
-                                    if (type != null && !type.isEmpty()) {
-                                        uniqueTypes.add(type);
-                                    }
-                                }
-                            }
-                            
-                            // 添加未分类
-                            uniqueTypes.add("未分类");
-                            
-                            // 添加到列表并使用用户友好的名称
-                            for (String type : uniqueTypes) {
-                                String displayName = getFriendlyQuestionTypeName(type);
-                                if (!questionTypes.contains(displayName)) {
-                                    questionTypes.add(displayName);
-                                }
-                            }
-                            
-                            // 为Spinner设置适配器
-                            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(QuizActivity.this,
-                                    android.R.layout.simple_spinner_item, questionTypes);
-                            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                            spinnerQuestionType.setAdapter(adapter);
-                            
-                            // 设置选择监听器
-                            spinnerQuestionType.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                                private boolean firstSelection = true;
-                                
-                                @Override
-                                public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                                    // 忽略初始选择事件，避免重复筛选
-                                    if (firstSelection) {
-                                        firstSelection = false;
-                                        return;
-                                    }
-                                    
-                                    String selectedDisplayName = questionTypes.get(position);
-                                    // 保存用户偏好
-                                    saveQuestionTypePreference(selectedDisplayName);
-                                    filterQuestionsByType(selectedDisplayName);
-                                }
-                                
-                                @Override
-                                public void onNothingSelected(android.widget.AdapterView<?> parent) {
-                                }
-                            });
-                            
-                            // 根据用户偏好设置默认选择
-                            String preferredType = loadQuestionTypePreference();
-                            int preferredPosition = questionTypes.indexOf(preferredType);
-                            if (preferredPosition >= 0) {
-                                spinnerQuestionType.setSelection(preferredPosition);
-                            }
-                        }
-                    });
-                }
-
-                @Override
-                public void onFailure(String error) {
-                    // 检查Activity是否已经结束
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            // 出错时使用当前加载的题目列表中的类型作为备选
-                            if (questions != null) {
-                                // 准备题目类型列表
-                                questionTypes = new ArrayList<>();
-                                questionTypes.add("全部题目");
-                                
-                                // 收集所有唯一的题目类型
-                                java.util.Set<String> uniqueTypes = new java.util.HashSet<>();
-                                for (Question question : questions) {
-                                    if (question != null) {
-                                        String questionType = question.getQuestionType();
-                                        String normalizedType = normalizeQuestionType(questionType, question);
-                                        uniqueTypes.add(normalizedType);
-                                    }
-                                }
-                                
-                                // 添加未分类
-                                uniqueTypes.add("未分类");
-                                
-                                // 添加到列表并使用用户友好的名称
-                                for (String type : uniqueTypes) {
-                                    String displayName = getFriendlyQuestionTypeName(type);
-                                    if (!questionTypes.contains(displayName)) {
-                                        questionTypes.add(displayName);
-                                    }
-                                }
-                                
-                                // 为Spinner设置适配器
-                                android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(QuizActivity.this,
-                                        android.R.layout.simple_spinner_item, questionTypes);
-                                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                                spinnerQuestionType.setAdapter(adapter);
-                                
-                                // 设置选择监听器
-                                spinnerQuestionType.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                                    private boolean firstSelection = true;
-                                    
-                                    @Override
-                                    public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                                        // 忽略初始选择事件，避免重复筛选
-                                        if (firstSelection) {
-                                            firstSelection = false;
-                                            return;
-                                        }
-                                        
-                                        String selectedDisplayName = questionTypes.get(position);
-                                        // 保存用户偏好
-                                        saveQuestionTypePreference(selectedDisplayName);
-                                        filterQuestionsByType(selectedDisplayName);
-                                    }
-                                    
-                                    @Override
-                                    public void onNothingSelected(android.widget.AdapterView<?> parent) {
-                                    }
-                                });
-                                
-                                // 根据用户偏好设置默认选择
-                                String preferredType = loadQuestionTypePreference();
-                                int preferredPosition = questionTypes.indexOf(preferredType);
-                                if (preferredPosition >= 0) {
-                                    spinnerQuestionType.setSelection(preferredPosition);
-                                }
-                            } else {
-                                // 如果当前没有加载的题目，只显示"全部题目"
-                                questionTypes = new ArrayList<>();
-                                questionTypes.add("全部题目");
-                                questionTypes.add("未分类");
-                                
-                                // 为Spinner设置适配器
-                                android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(QuizActivity.this,
-                                        android.R.layout.simple_spinner_item, questionTypes);
-                                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                                spinnerQuestionType.setAdapter(adapter);
-                                
-                                // 设置选择监听器
-                                spinnerQuestionType.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                                    private boolean firstSelection = true;
-                                    
-                                    @Override
-                                    public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                                        // 忽略初始选择事件，避免重复筛选
-                                        if (firstSelection) {
-                                            firstSelection = false;
-                                            return;
-                                        }
-                                        
-                                        String selectedDisplayName = questionTypes.get(position);
-                                        // 保存用户偏好
-                                        saveQuestionTypePreference(selectedDisplayName);
-                                        filterQuestionsByType(selectedDisplayName);
-                                    }
-                                    
-                                    @Override
-                                    public void onNothingSelected(android.widget.AdapterView<?> parent) {
-                                    }
-                                });
-                            }
-                        }
-                    });
-                }
-            });
-        }
-    }
-    
-    // 过滤题目按类型
-    private void filterQuestionsByType(String selectedType) {
-        if (originalQuestions != null) {
-            if ("全部题目".equals(selectedType)) {
-                questions = new ArrayList<>(originalQuestions);
-            } else if ("未分类".equals(selectedType)) {
-                questions = new ArrayList<>();
-                for (Question question : originalQuestions) {
-                    if (question != null && (question.getQuestionType() == null || question.getQuestionType().isEmpty())) {
-                        questions.add(question);
-                    }
-                }
-            } else {
-                questions = new ArrayList<>();
-                for (Question question : originalQuestions) {
-                    if (question != null) {
-                        String questionType = question.getQuestionType();
-                        String normalizedType = normalizeQuestionType(questionType, question);
-                        String friendlyType = getFriendlyQuestionTypeName(normalizedType);
-                        if (selectedType.equals(friendlyType)) {
-                            questions.add(question);
-                        }
-                    }
-                }
-            }
-            
-            // 重新初始化答案列表
-            initAnswerLists();
-        }
-    }
-    
-    // 初始化题目顺序选择器
-    private void initQuestionOrderSelector() {
-        if (spinnerQuestionOrder != null) {
-            List<String> orderOptions = new ArrayList<>();
-            orderOptions.add("顺序");
-            orderOptions.add("随机");
-            
-            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(this,
-                    android.R.layout.simple_spinner_item, orderOptions);
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-            spinnerQuestionOrder.setAdapter(adapter);
-            
-            spinnerQuestionOrder.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                private boolean firstSelection = true;
-                
-                @Override
-                public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    if (firstSelection) {
-                        firstSelection = false;
-                        return;
-                    }
-                    
-                    questionOrderMode = orderOptions.get(position);
-                    if ("随机".equals(questionOrderMode)) {
-                        java.util.Collections.shuffle(questions);
-                    } else {
-                        // 顺序模式，恢复原始顺序
-                        questions = new ArrayList<>(originalQuestions);
-                    }
-                    initAnswerLists();
-                }
-                
-                @Override
-                public void onNothingSelected(android.widget.AdapterView<?> parent) {
-                }
-            });
         }
     }
     
@@ -1398,74 +1078,52 @@ public class QuizActivity extends BaseActivity {
         if (navigationLayout != null && questions != null) {
             navigationLayout.removeAllViews();
             
-            // 设置固定大小的圆形按钮，进一步增大宽度以确保三位数的题目编号能完整显示
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    100, // 进一步增大宽度以适应三位数
-                    60  // 适中的高度
-            );
-            params.setMargins(
-                    getResources().getDimensionPixelSize(R.dimen.spacing_8),
-                    0,
-                    getResources().getDimensionPixelSize(R.dimen.spacing_8),
-                    0
-            );
+            // 圆形按钮尺寸（dp→px）
+            int sizePx = (int) (40 * getResources().getDisplayMetrics().density + 0.5f);
+            int marginPx = (int) (4 * getResources().getDisplayMetrics().density + 0.5f);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(sizePx, sizePx);
+            params.setMargins(marginPx, 0, marginPx, 0);
             
             for (int i = 0; i < questions.size(); i++) {
                 final int questionIndex = i;
                 com.google.android.material.button.MaterialButton navButton = new com.google.android.material.button.MaterialButton(this);
                 navButton.setLayoutParams(params);
-                String questionNumber = String.valueOf(i + 1);
-                navButton.setText(questionNumber);
-                
-                // 根据题目编号长度自动调整字体大小
-                if (questionNumber.length() > 2) {
-                    // 三位数或四位数，使用较小的字体
-                    navButton.setTextSize(14);
-                } else {
-                    // 一位数或两位数，使用正常字体
-                    navButton.setTextSize(16);
-                }
-                
+                navButton.setText(String.valueOf(i + 1));
+                navButton.setTextSize(13);
                 navButton.setTag(questionIndex);
                 navButton.setGravity(android.view.Gravity.CENTER);
-                
-                // 根据题目状态设置按钮样式
-                if (i == currentQuestionIndex) {
-                    // 当前题目
-                    navButton.setBackgroundColor(getResources().getColor(R.color.gray_100));
-                    navButton.setTextColor(getResources().getColor(R.color.text_primary));
-                    navButton.setStrokeWidth(2);
-                    navButton.setStrokeColor(android.content.res.ColorStateList.valueOf(currentThemeColor));
-                } else if (i < currentQuestionIndex) {
-                    // 已回答的题目
-                    navButton.setBackgroundColor(getResources().getColor(R.color.gray_50));
-                    navButton.setTextColor(getResources().getColor(R.color.text_primary));
-                    navButton.setStrokeWidth(1);
-                    navButton.setStrokeColor(android.content.res.ColorStateList.valueOf(currentThemeColor));
-                } else {
-                    // 未回答的题目
-                    navButton.setBackgroundColor(getResources().getColor(R.color.gray_50));
-                    navButton.setTextColor(getResources().getColor(R.color.text_primary));
-                    navButton.setStrokeWidth(1);
-                    navButton.setStrokeColor(android.content.res.ColorStateList.valueOf(getResources().getColor(R.color.gray_400)));
-                }
-                
-                // 移除图标，只显示题目编号，确保数字能够完整显示
+                // 移除MaterialButton默认最小尺寸和内边距
+                navButton.setMinimumWidth(0);
+                navButton.setMinimumHeight(0);
+                navButton.setIconPadding(0);
+                navButton.setInsetTop(0);
+                navButton.setInsetBottom(0);
+                navButton.setCornerRadius(0); // 圆形由drawable控制
                 navButton.setIcon(null);
+                
+                // 根据题目状态设置初始样式（基于userAnswers判断是否真正已作答）
+                if (i == currentQuestionIndex) {
+                    navButton.setBackgroundResource(R.drawable.nav_button_current);
+                    navButton.setTextColor(getResources().getColor(R.color.white));
+                } else if (userAnswers != null && i < userAnswers.size()
+                        && userAnswers.get(i) != null && !userAnswers.get(i).isEmpty()) {
+                    navButton.setBackgroundResource(R.drawable.nav_button_answered);
+                    navButton.setTextColor(getResources().getColor(R.color.white));
+                } else {
+                    navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
+                    navButton.setTextColor(getResources().getColor(R.color.text_secondary));
+                }
                 
                 // 标记的题目显示星号
                 if (markedQuestions.get(i)) {
                     navButton.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_star, 0);
                 }
                 
-                // 设置点击事件
-                navButton.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        saveUserSelection();
-                        currentQuestionIndex = questionIndex;
-                        showCurrentQuestion();
-                    }
+                navButton.setOnClickListener(v -> {
+                    saveUserSelection();
+                    currentQuestionIndex = questionIndex;
+                    saveQuizProgress(); // 导航时统一保存进度
+                    showCurrentQuestion();
                 });
                 
                 navigationLayout.addView(navButton);
@@ -1483,17 +1141,21 @@ public class QuizActivity extends BaseActivity {
                     com.google.android.material.button.MaterialButton navButton = (com.google.android.material.button.MaterialButton) child;
                     int questionIndex = (int) navButton.getTag();
                     
-                    // 根据题目状态更新按钮样式
+                    // 根据题目状态更新按钮样式（基于userAnswers判断是否真正已作答）
+                    String answer = (userAnswers != null && questionIndex < userAnswers.size())
+                            ? userAnswers.get(questionIndex) : "";
+                    boolean isAnswered = answer != null && !answer.isEmpty();
+                                        
                     if (questionIndex == currentQuestionIndex) {
-                        // 当前题目
+                        // 当前题目：主色圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_current);
                         navButton.setTextColor(getResources().getColor(R.color.white));
-                    } else if (questionIndex < currentQuestionIndex) {
-                        // 已回答的题目
+                    } else if (isAnswered) {
+                        // 已作答题目：浅主色圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_answered);
                         navButton.setTextColor(getResources().getColor(R.color.white));
                     } else {
-                        // 未回答的题目
+                        // 未作答题目：白底灰边圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
                         navButton.setTextColor(currentThemeColor);
                     }
@@ -1647,37 +1309,6 @@ public class QuizActivity extends BaseActivity {
         }.start();
     }
     
-    // 设置实时保存
-    private void setupRealTimeSave() {
-        // 为单选按钮组添加实时保存
-        if (radioGroupOptions != null) {
-            radioGroupOptions.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-                @Override
-                public void onCheckedChanged(RadioGroup group, int checkedId) {
-                    saveUserSelection();
-                    saveQuizProgress();
-                }
-            });
-        }
-        
-        // 为填空题编辑框添加实时保存
-        if (editTextUserAnswer != null) {
-            editTextUserAnswer.addTextChangedListener(new android.text.TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-                
-                @Override
-                public void onTextChanged(CharSequence s, int start, int before, int count) {}
-                
-                @Override
-                public void afterTextChanged(android.text.Editable s) {
-                    saveUserSelection();
-                    saveQuizProgress();
-                }
-            });
-        }
-    }
-    
     // 保存测验进度
     private void saveQuizProgress() {
         android.content.SharedPreferences sharedPreferences = getSharedPreferences("quiz_progress", MODE_PRIVATE);
@@ -1741,300 +1372,393 @@ public class QuizActivity extends BaseActivity {
         }
     }
     
-    // 根据题目类型显示不同的UI
-    private void showUIForQuestionType(String normalizedType, String originalType, Question question) {
-        // 隐藏所有选项UI
-        if (radioGroupOptions != null) {
-            radioGroupOptions.setVisibility(View.GONE);
-        }
-        if (checkBoxContainer != null) {
-            checkBoxContainer.setVisibility(View.GONE);
-        }
+    // ======================== 题目渲染引擎 ========================
+    // 统一的题目渲染入口：根据题型动态构建选项UI + 绑定事件 + 恢复选择
+    // 设计原则：一次调用完成所有渲染，避免重复normalize和多次遍历
+    
+    /**
+     * 渲染题目选项区域（统一入口）
+     * 根据题型创建对应的交互控件（单选RadioGroup/多选CheckBox/填空EditText），
+     * 并绑定实时保存监听器。
+     *
+     * @param normalizedType 规范化后的题型（单选题/多选题/判断题/填空题等）
+     * @param question       题目数据对象
+     * @param isReadOnlyMode 是否只读（背诵/复习模式）
+     */
+    private void renderQuestionOptions(String normalizedType, Question question, boolean isReadOnlyMode) {
+        // 1. 清空动态容器和状态
+        if (optionsContainer != null) optionsContainer.removeAllViews();
+        radioButtons.clear();
+        checkBoxes.clear();
+        radioGroupOptions = null;
+        checkBoxContainer = null;
         if (answerInputLayout != null) {
             answerInputLayout.setVisibility(View.GONE);
-        }
-        if (editTextUserAnswer != null) {
-            editTextUserAnswer.setVisibility(View.GONE);
+            // 重置输入框布局参数
+            answerInputLayout.setPadding(0, 0, 0, 0);
+            answerInputLayout.setBackground(null);
         }
         
-        // 检查是否有选项
         boolean hasOptions = hasValidOptions(question);
+        boolean isTextType = "填空题".equals(normalizedType) || "简答题".equals(normalizedType)
+                || "问答题".equals(normalizedType) || "论述题".equals(normalizedType);
         
-        // 添加详细调试日志
-        Log.d("QuizActivity", "显示题目UI: normalizedType=" + normalizedType + ", originalType=" + originalType);
-        Log.d("QuizActivity", "选项检查: hasOptions=" + hasOptions);
-        Log.d("QuizActivity", "选项A=" + question.getOptionA());
-        Log.d("QuizActivity", "选项B=" + question.getOptionB());
-        Log.d("QuizActivity", "选项C=" + question.getOptionC());
-        Log.d("QuizActivity", "选项D=" + question.getOptionD());
+        if (normalizedType == null || optionsContainer == null) return;
         
-        // 添加调试日志
-        Log.d("QuizActivity", "显示题目UI: type=" + normalizedType + ", hasOptions=" + hasOptions);
-        Log.d("QuizActivity", "选项: A=" + question.getOptionA() + ", B=" + question.getOptionB() + ", C=" + question.getOptionC() + ", D=" + question.getOptionD());
+        // 2. 根据题型构建对应的交互控件
+        switch (normalizedType) {
+            case "单选题":
+            case "判断题":
+                buildRadioGroupUI(question, hasOptions);
+                applyReadOnlyToRadioGroup(isReadOnlyMode);
+                attachRadioListeners();
+                break;
+                
+            case "多选题":
+                buildCheckBoxUI(question, hasOptions);
+                applyReadOnlyToCheckBox(isReadOnlyMode);
+                attachCheckBoxListeners();
+                break;
+                
+            case "填空题":
+            case "简答题":
+            case "问答题":
+            case "论述题":
+                buildTextInputUI(normalizedType, isReadOnlyMode);
+                attachTextInputListener();
+                break;
+                
+            default:
+                // 未知题型默认按单选题处理
+                buildRadioGroupUI(question, hasOptions);
+                applyReadOnlyToRadioGroup(isReadOnlyMode);
+                attachRadioListeners();
+                break;
+        }
         
-        // 判断是否是背诵模式
-        boolean isReciteMode = quizMode != null && quizMode.equals("recite");
+        // 3. 布局协调：根据题型动态调整间距
+        if (isTextType) {
+            // 文本型题目：隐藏选项容器，输入框已有视觉包装
+            if (optionsContainer != null) optionsContainer.setVisibility(View.GONE);
+        } else if (optionsContainer != null && optionsContainer.getChildCount() == 0) {
+            // 选择型但无选项：隐藏容器
+            optionsContainer.setVisibility(View.GONE);
+        } else if (optionsContainer != null) {
+            optionsContainer.setVisibility(View.VISIBLE);
+        }
+    }
+    
+    // --- 控件构建 ---
+    
+    /** 构建单选/判断题的 RadioGroup 选项UI */
+    private void buildRadioGroupUI(Question question, boolean hasOptions) {
+        radioGroupOptions = new RadioGroup(this);
+        radioGroupOptions.setOrientation(RadioGroup.VERTICAL);
+        optionsContainer.addView(radioGroupOptions);
         
-        // 根据题目类型显示对应的UI
-        if (normalizedType != null) {
-            switch (normalizedType) {
-                case "单选题":
-                case "判断题":
-                    // 显示单选按钮组（即使没有选项也显示，以便用户知道这是单选题）
-                    if (radioGroupOptions != null) {
-                        if (hasOptions) {
-                            radioGroupOptions.setVisibility(View.VISIBLE);
-                            // 根据实际选项数量显示选项
-                            updateRadioButtonVisibility(question);
-                        } else {
-                            // 如果没有选项，显示提示信息
-                            radioGroupOptions.removeAllViews();
-                            TextView hintText = new TextView(this);
-                            hintText.setText("（此题无选项，请直接作答）");
-                            hintText.setTextColor(getResources().getColor(R.color.text_secondary));
-                            radioGroupOptions.addView(hintText);
-                            radioGroupOptions.setVisibility(View.VISIBLE);
-                        }
-                        // 背诵模式下禁用单选按钮
-                        if (isReciteMode) {
-                            for (int i = 0; i < radioGroupOptions.getChildCount(); i++) {
-                                View child = radioGroupOptions.getChildAt(i);
-                                if (child instanceof RadioButton) {
-                                    child.setEnabled(false);
-                                }
-                            }
-                        }
-                    }
-                    break;
-                    
-                case "多选题":
-                    // 显示复选框组
-                    if (checkBoxContainer != null) {
-                        if (hasOptions) {
-                            checkBoxContainer.setVisibility(View.VISIBLE);
-                            // 根据实际选项数量显示选项
-                            updateCheckBoxVisibility(question);
-                        } else {
-                            // 如果没有选项，显示提示信息
-                            checkBoxContainer.removeAllViews();
-                            TextView hintText = new TextView(this);
-                            hintText.setText("（此题无选项，请直接作答）");
-                            hintText.setTextColor(getResources().getColor(R.color.text_secondary));
-                            checkBoxContainer.addView(hintText);
-                            checkBoxContainer.setVisibility(View.VISIBLE);
-                        }
-                        // 背诵模式下禁用复选框
-                        if (isReciteMode) {
-                            for (int i = 0; i < checkBoxContainer.getChildCount(); i++) {
-                                View child = checkBoxContainer.getChildAt(i);
-                                if (child instanceof CheckBox) {
-                                    child.setEnabled(false);
-                                }
-                            }
-                        }
-                    }
-                    break;
-                    
-                case "填空题":
-                case "简答题":
-                case "问答题":
-                case "论述题":
-                    // 确保隐藏选项UI
-                    if (radioGroupOptions != null) {
-                        radioGroupOptions.setVisibility(View.GONE);
-                    }
-                    if (checkBoxContainer != null) {
-                        checkBoxContainer.setVisibility(View.GONE);
-                    }
-                    // 显示编辑框容器和编辑框（所有模式都显示，但背诵模式禁用）
-                    if (answerInputLayout != null) {
-                        answerInputLayout.setVisibility(View.VISIBLE);
-                    }
-                    if (editTextUserAnswer != null) {
-                        editTextUserAnswer.setVisibility(View.VISIBLE);
-                        // 根据题型设置不同的提示文字
-                        if ("填空题".equals(normalizedType)) {
-                            answerInputLayout.setHint("请填写答案");
-                        } else if ("简答题".equals(normalizedType)) {
-                            answerInputLayout.setHint("请简要回答");
-                        } else if ("问答题".equals(normalizedType)) {
-                            answerInputLayout.setHint("请详细回答");
-                        } else if ("论述题".equals(normalizedType)) {
-                            answerInputLayout.setHint("请展开论述");
-                        }
-                        // 背诵模式下禁用编辑框
-                        if (isReciteMode) {
-                            editTextUserAnswer.setEnabled(false);
-                        } else {
-                            editTextUserAnswer.setEnabled(true);
-                        }
-                    }
-                    break;
-                    
-                default:
-                    // 默认情况下，当作单选题处理
-                    if (radioGroupOptions != null) {
-                        if (hasOptions) {
-                            radioGroupOptions.setVisibility(View.VISIBLE);
-                            // 根据实际选项数量显示选项
-                            updateRadioButtonVisibility(question);
-                        } else {
-                            // 如果没有选项，显示提示信息
-                            radioGroupOptions.removeAllViews();
-                            TextView hintText = new TextView(this);
-                            hintText.setText("（此题无选项，请直接作答）");
-                            hintText.setTextColor(getResources().getColor(R.color.text_secondary));
-                            radioGroupOptions.addView(hintText);
-                            radioGroupOptions.setVisibility(View.VISIBLE);
-                        }
-                        // 背诵模式下禁用单选按钮
-                        if (isReciteMode) {
-                            for (int i = 0; i < radioGroupOptions.getChildCount(); i++) {
-                                View child = radioGroupOptions.getChildAt(i);
-                                if (child instanceof RadioButton) {
-                                    child.setEnabled(false);
-                                }
-                            }
-                        }
-                    }
-                    break;
+        if (hasOptions) {
+            populateOptionViews(question, false);
+        }
+        // 无选项时不添加任何控件，optionsContainer会在renderQuestionOptions中自动隐藏
+    }
+    
+    /** 构建多选题的 CheckBox 选项UI */
+    private void buildCheckBoxUI(Question question, boolean hasOptions) {
+        checkBoxContainer = new LinearLayout(this);
+        checkBoxContainer.setOrientation(LinearLayout.VERTICAL);
+        optionsContainer.addView(checkBoxContainer);
+        
+        if (hasOptions) {
+            populateOptionViews(question, true);
+        }
+        // 无选项时不添加任何控件，optionsContainer会在renderQuestionOptions中自动隐藏
+    }
+    
+    /** 构建填空题/简答题的文本输入UI（按题型区分视觉风格和尺寸） */
+    private void buildTextInputUI(String normalizedType, boolean isReadOnlyMode) {
+        if (answerInputLayout != null) answerInputLayout.setVisibility(View.VISIBLE);
+        if (editTextUserAnswer != null) {
+            editTextUserAnswer.setVisibility(View.VISIBLE);
+            
+            // 按题型设置输入提示和样式
+            boolean isLongAnswer = "简答题".equals(normalizedType) || "问答题".equals(normalizedType) || "论述题".equals(normalizedType);
+            
+            if ("填空题".equals(normalizedType)) {
+                answerInputLayout.setHint("请填写答案");
+                editTextUserAnswer.setMinLines(1);
+                editTextUserAnswer.setMaxLines(1);
+                editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            } else if ("简答题".equals(normalizedType)) {
+                answerInputLayout.setHint("请简要回答");
+                editTextUserAnswer.setMinLines(3);
+                editTextUserAnswer.setMaxLines(6);
+                editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            } else if ("问答题".equals(normalizedType)) {
+                answerInputLayout.setHint("请详细回答");
+                editTextUserAnswer.setMinLines(4);
+                editTextUserAnswer.setMaxLines(8);
+                editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            } else if ("论述题".equals(normalizedType)) {
+                answerInputLayout.setHint("请展开论述");
+                editTextUserAnswer.setMinLines(5);
+                editTextUserAnswer.setMaxLines(10);
+                editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            }
+            
+            editTextUserAnswer.setGravity(isLongAnswer ? android.view.Gravity.TOP : android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            editTextUserAnswer.setEnabled(!isReadOnlyMode);
+            
+            // 为输入框添加视觉包装背景（与选项卡片风格统一）
+            int padV = (int) (12 * getResources().getDisplayMetrics().density + 0.5f);
+            int padH = (int) (16 * getResources().getDisplayMetrics().density + 0.5f);
+            answerInputLayout.setPadding(padH, padV, padH, padV);
+            answerInputLayout.setBackgroundResource(R.drawable.option_bg_default);
+        }
+    }
+    
+    // --- 选项填充（统一处理单选/多选） ---
+    
+    /**
+     * 根据题目选项数据，批量创建选项控件并添加到容器
+     * @param question    题目数据
+     * @param isCheckBox  true=创建CheckBox（多选），false=创建RadioButton（单选/判断）
+     */
+    private void populateOptionViews(Question question, boolean isCheckBox) {
+        List<java.util.Map.Entry<String, String>> entries = getValidOptionEntries(question);
+        int optionCount = entries.size();
+        
+        // 根据选项数量动态调整间距：选项越多间距越紧凑
+        int marginDp;
+        if (optionCount <= 4) {
+            marginDp = 10;
+        } else if (optionCount <= 8) {
+            marginDp = 8;
+        } else {
+            marginDp = 6;
+        }
+        int marginPx = (int) (marginDp * getResources().getDisplayMetrics().density + 0.5f);
+        
+        for (java.util.Map.Entry<String, String> entry : entries) {
+            View optionView = createOptionView(entry.getValue(), entry.getKey(), isCheckBox, marginPx);
+            if (isCheckBox) {
+                checkBoxContainer.addView(optionView);
+                checkBoxes.add((com.google.android.material.checkbox.MaterialCheckBox) optionView);
+            } else {
+                radioGroupOptions.addView(optionView);
+                radioButtons.add((com.google.android.material.radiobutton.MaterialRadioButton) optionView);
+            }
+        }
+    }
+    
+    /**
+     * 创建单个选项卡片控件（统一RadioButton和CheckBox）
+     * 卡片样式：字母编号 + 选项文本，卡片式背景，动态间距
+     *
+     * @param optionText  选项文本内容
+     * @param letterKey   选项字母标识（A/B/C/D...）
+     * @param isCheckBox  true=CheckBox，false=RadioButton
+     * @param marginPx    选项之间的下间距（像素）
+     * @return 创建好的选项控件
+     */
+    private View createOptionView(String optionText, String letterKey, boolean isCheckBox, int marginPx) {
+        CompoundButton optionView;
+        if (isCheckBox) {
+            optionView = new com.google.android.material.checkbox.MaterialCheckBox(this);
+        } else {
+            optionView = new com.google.android.material.radiobutton.MaterialRadioButton(this);
+        }
+        
+        optionView.setId(View.generateViewId());
+        optionView.setTag(letterKey);
+        // 隐藏原生圆点，使用卡片式背景（必须用ColorDrawable对象，不能传int颜色值0）
+        optionView.setButtonDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        optionView.setText("  " + letterKey + ". " + optionText);
+        optionView.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
+        optionView.setTextColor(getResources().getColor(R.color.text_primary));
+        optionView.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        
+        // 布局参数（动态间距）
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, marginPx);
+        optionView.setLayoutParams(params);
+        
+        // 卡片式默认背景 + 内边距
+        optionView.setBackgroundResource(R.drawable.option_bg_default);
+        int pad = getResources().getDimensionPixelSize(R.dimen.spacing_16);
+        optionView.setPadding(pad, pad, pad, pad);
+        
+        return optionView;
+    }
+    
+    // --- 事件绑定 ---
+    
+    /** 绑定单选组监听器：选中变化时保存答案 + 刷新选项卡片背景（不写SP，导航时统一保存） */
+    private void attachRadioListeners() {
+        if (radioGroupOptions != null) {
+            radioGroupOptions.setOnCheckedChangeListener((group, checkedId) -> {
+                saveUserSelection();
+                updateOptionBackgrounds();
+            });
+        }
+    }
+    
+    /** 绑定多选框监听器：选中变化时实时保存 + 刷新选项卡片背景 */
+    private void attachCheckBoxListeners() {
+        // CheckBox的监听器已在createOptionView中逐个绑定（因为CheckBox没有Group级别的监听）
+        // 此处无需额外操作，保留方法以保持结构一致性
+    }
+    
+    /** 绑定填空题文本输入监听器：文本变化时保存答案（不写SP，导航时统一保存） */
+    private void attachTextInputListener() {
+        if (editTextUserAnswer != null) {
+            if (answerTextWatcher != null) {
+                editTextUserAnswer.removeTextChangedListener(answerTextWatcher);
+            }
+            answerTextWatcher = new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    saveUserSelection();
+                }
+            };
+            editTextUserAnswer.addTextChangedListener(answerTextWatcher);
+        }
+    }
+    
+    // --- 只读模式控制 ---
+    
+    /** 在背诵/复习模式下禁用RadioGroup中所有RadioButton */
+    private void applyReadOnlyToRadioGroup(boolean isReadOnlyMode) {
+        if (!isReadOnlyMode || radioGroupOptions == null) return;
+        for (int i = 0; i < radioGroupOptions.getChildCount(); i++) {
+            View child = radioGroupOptions.getChildAt(i);
+            if (child instanceof RadioButton) child.setEnabled(false);
+        }
+    }
+    
+    /** 在背诵/复习模式下禁用CheckBox容器中所有CheckBox */
+    private void applyReadOnlyToCheckBox(boolean isReadOnlyMode) {
+        if (!isReadOnlyMode || checkBoxContainer == null) return;
+        for (int i = 0; i < checkBoxContainer.getChildCount(); i++) {
+            View child = checkBoxContainer.getChildAt(i);
+            if (child instanceof CheckBox) child.setEnabled(false);
+        }
+    }
+    
+    // --- 选项卡片背景刷新 ---
+    
+    /**
+     * 统一刷新所有选项卡片的视觉状态
+     * 选中项 → option_bg_selected + 主题色文字
+     * 未选中 → option_bg_default + 默认文字色
+     */
+    private void updateOptionBackgrounds() {
+        int selectedColor = getResources().getColor(R.color.primary);
+        int defaultColor = getResources().getColor(R.color.text_primary);
+        
+        for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
+            if (rb.isChecked()) {
+                rb.setBackgroundResource(R.drawable.option_bg_selected);
+                rb.setTextColor(selectedColor);
+            } else {
+                rb.setBackgroundResource(R.drawable.option_bg_default);
+                rb.setTextColor(defaultColor);
+            }
+        }
+        for (com.google.android.material.checkbox.MaterialCheckBox cb : checkBoxes) {
+            if (cb.isChecked()) {
+                cb.setBackgroundResource(R.drawable.option_bg_selected);
+                cb.setTextColor(selectedColor);
+            } else {
+                cb.setBackgroundResource(R.drawable.option_bg_default);
+                cb.setTextColor(defaultColor);
             }
         }
     }
     
     // 检查题目是否有有效的选项
     private boolean hasValidOptions(Question question) {
-        return (question.getOptionA() != null && !question.getOptionA().isEmpty()) ||
-               (question.getOptionB() != null && !question.getOptionB().isEmpty()) ||
-               (question.getOptionC() != null && !question.getOptionC().isEmpty()) ||
-               (question.getOptionD() != null && !question.getOptionD().isEmpty());
+        java.util.Map<String, String> options = question.getOptions();
+        return options != null && !options.isEmpty();
     }
     
-    // 获取所有有效的选项
+    // 获取所有有效的选项（按字母排序，支持A-L）
     private List<String> getValidOptions(Question question) {
         List<String> options = new ArrayList<>();
-        if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-            options.add(question.getOptionA());
-        }
-        if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-            options.add(question.getOptionB());
-        }
-        if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-            options.add(question.getOptionC());
-        }
-        if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-            options.add(question.getOptionD());
+        java.util.Map<String, String> optionMap = question.getOptions();
+        if (optionMap != null && !optionMap.isEmpty()) {
+            java.util.TreeMap<String, String> sorted = new java.util.TreeMap<>(optionMap);
+            for (java.util.Map.Entry<String, String> entry : sorted.entrySet()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    options.add(entry.getValue());
+                }
+            }
         }
         return options;
     }
     
-    // 创建单个 RadioButton
-    private com.google.android.material.radiobutton.MaterialRadioButton createRadioButton(String optionText, int index) {
-        com.google.android.material.radiobutton.MaterialRadioButton radioButton = new com.google.android.material.radiobutton.MaterialRadioButton(this);
-        radioButton.setId(View.generateViewId());
-        radioButton.setTag(index);
-        radioButton.setText(((char) ('A' + index)) + ". " + optionText);
-        radioButton.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
-        radioButton.setTextColor(getResources().getColor(R.color.text_primary));
-        
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        int marginBottom = (int) getResources().getDimension(R.dimen.radio_button_margin_bottom);
-        params.setMargins(0, 0, 0, marginBottom);
-        radioButton.setLayoutParams(params);
-        
-        radioButton.setBackgroundResource(R.drawable.option_background);
-        radioButton.setPadding(
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16)
-        );
-        radioButton.setButtonTintList(android.content.res.ColorStateList.valueOf(currentThemeColor));
-        
-        return radioButton;
-    }
-    
-    // 创建单个 CheckBox
-    private com.google.android.material.checkbox.MaterialCheckBox createCheckBox(String optionText, int index) {
-        com.google.android.material.checkbox.MaterialCheckBox checkBox = new com.google.android.material.checkbox.MaterialCheckBox(this);
-        checkBox.setId(View.generateViewId());
-        checkBox.setTag(index);
-        checkBox.setText(((char) ('A' + index)) + ". " + optionText);
-        checkBox.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
-        checkBox.setTextColor(getResources().getColor(R.color.text_primary));
-        
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        int marginBottom = (int) getResources().getDimension(R.dimen.radio_button_margin_bottom);
-        params.setMargins(0, 0, 0, marginBottom);
-        checkBox.setLayoutParams(params);
-        
-        checkBox.setBackgroundResource(R.drawable.option_background);
-        checkBox.setPadding(
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16),
-                getResources().getDimensionPixelSize(R.dimen.spacing_16)
-        );
-        checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(currentThemeColor));
-        
-        // 为复选框添加实时保存监听器
-        checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                saveUserSelection();
-                saveQuizProgress();
-            }
-        });
-        
-        return checkBox;
-    }
-    
-    // 更新单选按钮（动态创建）
-    private void updateRadioButtonVisibility(Question question) {
-        if (radioGroupOptions != null) {
-            radioGroupOptions.removeAllViews();
-            radioButtons.clear();
-            
-            List<String> options = getValidOptions(question);
-            for (int i = 0; i < options.size(); i++) {
-                com.google.android.material.radiobutton.MaterialRadioButton radioButton = createRadioButton(options.get(i), i);
-                radioGroupOptions.addView(radioButton);
-                radioButtons.add(radioButton);
+    // 获取所有有效选项的Entry列表（保留字母Key，按字母排序）
+    private List<java.util.Map.Entry<String, String>> getValidOptionEntries(Question question) {
+        List<java.util.Map.Entry<String, String>> entries = new ArrayList<>();
+        java.util.Map<String, String> optionMap = question.getOptions();
+        if (optionMap != null && !optionMap.isEmpty()) {
+            java.util.TreeMap<String, String> sorted = new java.util.TreeMap<>(optionMap);
+            for (java.util.Map.Entry<String, String> entry : sorted.entrySet()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    entries.add(entry);
+                }
             }
         }
+        return entries;
     }
     
-    // 更新复选框（动态创建）
-    private void updateCheckBoxVisibility(Question question) {
-        if (checkBoxContainer != null) {
-            checkBoxContainer.removeAllViews();
-            checkBoxes.clear();
-            
-            List<String> options = getValidOptions(question);
-            for (int i = 0; i < options.size(); i++) {
-                com.google.android.material.checkbox.MaterialCheckBox checkBox = createCheckBox(options.get(i), i);
-                checkBoxContainer.addView(checkBox);
-                checkBoxes.add(checkBox);
-            }
-        }
+    /**
+     * 规范化答案字母：去除逗号、空白字符，转大写，排序后拼接
+     * 兼容 "AC" / "A,C" / "A, C" / "A，C" 等各种格式
+     */
+    private String normalizeAnswerLetters(String answer) {
+        if (answer == null) return "";
+        // 去除所有逗号（中英文）、空格、制表符
+        String cleaned = answer.replaceAll("[,，\\s]", "").toUpperCase();
+        // 排序字母，确保顺序无关
+        char[] chars = cleaned.toCharArray();
+        java.util.Arrays.sort(chars);
+        return new String(chars);
     }
     
-    // 更新选项按钮颜色
-    private void updateOptionButtonColors() {
-        // 更新单选按钮颜色
-        for (com.google.android.material.radiobutton.MaterialRadioButton radioButton : radioButtons) {
-            radioButton.setButtonTintList(android.content.res.ColorStateList.valueOf(currentThemeColor));
-        }
+    // 显示答题结果反馈（正确/错误高亮）
+    private void showAnswerFeedback(Question question) {
+        String correctAnswer = question.getCorrectAnswer();
+        String userAnswer = userAnswers.get(currentQuestionIndex);
+        String questionType = question.getQuestionType();
+        String normalizedType = normalizeQuestionType(questionType, question);
         
-        // 更新复选框颜色
-        for (com.google.android.material.checkbox.MaterialCheckBox checkBox : checkBoxes) {
-            checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(currentThemeColor));
+        if ("单选题".equals(normalizedType) || "判断题".equals(normalizedType)) {
+            for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
+                String tag = (String) rb.getTag();
+                if (tag != null && tag.equals(correctAnswer)) {
+                    rb.setBackgroundResource(R.drawable.option_bg_correct);
+                    rb.setTextColor(getResources().getColor(R.color.success));
+                } else if (tag != null && tag.equals(userAnswer) && !tag.equals(correctAnswer)) {
+                    rb.setBackgroundResource(R.drawable.option_bg_wrong);
+                    rb.setTextColor(getResources().getColor(R.color.error));
+                }
+            }
+        } else if ("多选题".equals(normalizedType)) {
+            for (com.google.android.material.checkbox.MaterialCheckBox cb : checkBoxes) {
+                String tag = (String) cb.getTag();
+                if (tag == null) continue;
+                boolean isCorrectOption = correctAnswer != null && correctAnswer.contains(tag);
+                boolean isUserSelected = userAnswer != null && userAnswer.contains(tag);
+                if (isCorrectOption) {
+                    cb.setBackgroundResource(R.drawable.option_bg_correct);
+                    cb.setTextColor(getResources().getColor(R.color.success));
+                } else if (isUserSelected && !isCorrectOption) {
+                    cb.setBackgroundResource(R.drawable.option_bg_wrong);
+                    cb.setTextColor(getResources().getColor(R.color.error));
+                }
+            }
         }
     }
     
@@ -2050,26 +1774,21 @@ public class QuizActivity extends BaseActivity {
                 switch (normalizedType) {
                     case "单选题":
                     case "判断题":
-                        // 恢复单选按钮选择
-                        if (radioGroupOptions != null) {
-                            radioGroupOptions.clearCheck();
-                            for (int i = 0; i < radioButtons.size(); i++) {
-                                String optionLabel = String.valueOf((char) ('A' + i));
-                                if (optionLabel.equals(userAnswer)) {
-                                    radioButtons.get(i).setChecked(true);
-                                    break;
-                                }
+                        // 恢复单选按钮选择（从tag读取字母Key对比）
+                        for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
+                            String tag = (String) rb.getTag();
+                            if (tag != null && tag.equals(userAnswer)) {
+                                rb.setChecked(true);
+                                break;
                             }
                         }
                         break;
                         
                     case "多选题":
-                        // 恢复复选框选择
-                        if (checkBoxContainer != null) {
-                            for (int i = 0; i < checkBoxes.size(); i++) {
-                                String optionLabel = String.valueOf((char) ('A' + i));
-                                checkBoxes.get(i).setChecked(userAnswer.contains(optionLabel));
-                            }
+                        // 恢复复选框选择（从tag读取字母Key对比）
+                        for (com.google.android.material.checkbox.MaterialCheckBox cb : checkBoxes) {
+                            String tag = (String) cb.getTag();
+                            cb.setChecked(tag != null && userAnswer.contains(tag));
                         }
                         break;
                         
@@ -2085,18 +1804,18 @@ public class QuizActivity extends BaseActivity {
                 }
             } else {
                 // 清除选择
-                if (radioGroupOptions != null) {
-                    radioGroupOptions.clearCheck();
+                for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
+                    rb.setChecked(false);
                 }
-                if (checkBoxContainer != null) {
-                    for (CheckBox checkBox : checkBoxes) {
-                        checkBox.setChecked(false);
-                    }
+                for (com.google.android.material.checkbox.MaterialCheckBox cb : checkBoxes) {
+                    cb.setChecked(false);
                 }
                 if (editTextUserAnswer != null) {
                     editTextUserAnswer.setText("");
                 }
             }
+            // 恢复后统一刷新选项卡片背景
+            updateOptionBackgrounds();
         }
     }
     
@@ -2111,28 +1830,24 @@ public class QuizActivity extends BaseActivity {
             switch (normalizedType) {
                 case "单选题":
                 case "判断题":
-                    // 保存单选按钮选择
-                    if (radioGroupOptions != null) {
-                        for (int i = 0; i < radioButtons.size(); i++) {
-                            if (radioButtons.get(i).isChecked()) {
-                                userAnswer = String.valueOf((char) ('A' + i));
-                                break;
-                            }
+                    // 保存单选按钮选择（从tag读取字母Key）
+                    for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
+                        if (rb.isChecked()) {
+                            userAnswer = (String) rb.getTag();
+                            break;
                         }
                     }
                     break;
                     
                 case "多选题":
-                    // 保存复选框选择
-                    if (checkBoxContainer != null) {
-                        StringBuilder answerBuilder = new StringBuilder();
-                        for (int i = 0; i < checkBoxes.size(); i++) {
-                            if (checkBoxes.get(i).isChecked()) {
-                                answerBuilder.append((char) ('A' + i));
-                            }
+                    // 保存复选框选择（从tag读取字母Key）
+                    StringBuilder answerBuilder = new StringBuilder();
+                    for (com.google.android.material.checkbox.MaterialCheckBox cb : checkBoxes) {
+                        if (cb.isChecked()) {
+                            answerBuilder.append((String) cb.getTag());
                         }
-                        userAnswer = answerBuilder.toString();
                     }
+                    userAnswer = answerBuilder.toString();
                     break;
                     
                 case "填空题":
@@ -2156,35 +1871,41 @@ public class QuizActivity extends BaseActivity {
             saveUserSelection();
             Question question = questions.get(currentQuestionIndex);
             String userAnswer = userAnswers.get(currentQuestionIndex);
-            String correctAnswer = question.getCorrectAnswer();
+            String questionType = question.getQuestionType();
+            String normalizedType = normalizeQuestionType(questionType, question);
+            
+            // 根据题型选择正确的标准答案字段
+            String correctAnswer;
+            boolean isTextType = "填空题".equals(normalizedType) || "简答题".equals(normalizedType)
+                    || "问答题".equals(normalizedType) || "论述题".equals(normalizedType);
+            if (isTextType) {
+                // 文本题型：优先使用answerText（实际答案文本），回退到correctAnswer
+                correctAnswer = (question.getAnswerText() != null && !question.getAnswerText().isEmpty())
+                        ? question.getAnswerText() : question.getCorrectAnswer();
+            } else {
+                correctAnswer = question.getCorrectAnswer();
+            }
             
             if (correctAnswer != null && !correctAnswer.isEmpty()) {
                 boolean isCorrect = false;
-                String questionType = question.getQuestionType();
-                String normalizedType = normalizeQuestionType(questionType, question);
                 
                 switch (normalizedType) {
                     case "单选题":
                     case "判断题":
-                        // 单选题和判断题：直接比较答案
-                        isCorrect = correctAnswer.equals(userAnswer);
+                        // 单选题和判断题：去除空白后直接比较
+                        isCorrect = normalizeAnswerLetters(correctAnswer).equals(normalizeAnswerLetters(userAnswer));
                         break;
                     case "多选题":
-                        // 多选题：比较排序后的答案
-                        if (userAnswer != null) {
-                            char[] userChars = userAnswer.toCharArray();
-                            char[] correctChars = correctAnswer.toCharArray();
-                            java.util.Arrays.sort(userChars);
-                            java.util.Arrays.sort(correctChars);
-                            isCorrect = java.util.Arrays.equals(userChars, correctChars);
-                        }
+                        // 多选题：统一去除逗号/空白后排序比较
+                        isCorrect = normalizeAnswerLetters(correctAnswer).equals(normalizeAnswerLetters(userAnswer));
                         break;
                     case "填空题":
                     case "简答题":
                     case "问答题":
                     case "论述题":
-                        // 填空题、简答题、问答题和论述题：简单比较
-                        isCorrect = correctAnswer.equals(userAnswer);
+                        // 文本题型：忽略首尾空白比较
+                        String ua = userAnswer != null ? userAnswer.trim() : "";
+                        isCorrect = correctAnswer.trim().equals(ua);
                         break;
                 }
                 
@@ -2230,6 +1951,9 @@ public class QuizActivity extends BaseActivity {
                                 });
                     }
                 }
+                
+                // 显示选项卡片的结果反馈（正确/错误高亮）
+                showAnswerFeedback(question);
                 
                 // 显示解析
                 if (question.getExplanation() != null && !question.getExplanation().isEmpty()) {
@@ -2299,6 +2023,7 @@ public class QuizActivity extends BaseActivity {
         
         if (currentQuestionIndex > 0) {
             currentQuestionIndex--;
+            saveQuizProgress(); // 导航时统一保存进度
             showCurrentQuestion();
         }
     }
@@ -2310,10 +2035,16 @@ public class QuizActivity extends BaseActivity {
         
         if (currentQuestionIndex < questions.size() - 1) {
             currentQuestionIndex++;
+            saveQuizProgress(); // 导航时统一保存进度
             showCurrentQuestion();
         } else {
-            // 最后一题，提交答案
-            submitQuiz();
+            // 最后一题：考试/挑战模式提交，背诵/复习模式直接结束
+            if ("exam".equals(quizMode) || "challenge".equals(quizMode) || "practice".equals(quizMode)) {
+                submitQuiz();
+            } else {
+                // 背诵/复习模式：直接返回
+                finish();
+            }
         }
     }
     
@@ -2321,7 +2052,10 @@ public class QuizActivity extends BaseActivity {
     private void toggleMarkQuestion() {
         if (currentQuestionIndex >= 0 && currentQuestionIndex < markedQuestions.size()) {
             markedQuestions.set(currentQuestionIndex, !markedQuestions.get(currentQuestionIndex));
-            // 更新标记状态
+            // 刷新标记按钮UI
+            updateButtonStates();
+            // 持久化标记状态
+            saveQuizProgress();
         }
     }
     
@@ -2384,6 +2118,9 @@ public class QuizActivity extends BaseActivity {
         // 保存得分记录
         saveScoreRecord(score, totalQuestions, correctCount, timeUsed);
         
+        // 更新题目统计字段（使用次数、正确/错误次数）
+        updateQuestionStats();
+        
         // 记录错题
         for (int i = 0; i < wrongQuestions.size(); i++) {
             recordWrongQuestion(wrongQuestions.get(i), userAnswersList.get(i));
@@ -2394,6 +2131,34 @@ public class QuizActivity extends BaseActivity {
         
         // 清除进度保存
         clearQuizProgress();
+    }
+    
+    /** 更新所有参与答题的题目的统计字段 */
+    private void updateQuestionStats() {
+        if (questions == null || questions.isEmpty()) return;
+        
+        QuestionRepository repo = new QuestionRepository(getApplication());
+        long now = System.currentTimeMillis();
+        
+        for (int i = 0; i < questions.size(); i++) {
+            Question q = questions.get(i);
+            if (q == null) continue;
+            
+            // 增加使用次数
+            repo.incrementUsageCount(q.getId(), now);
+            
+            // 判断是否正确并更新对应计数
+            String userAnswer = (i < userAnswers.size()) ? userAnswers.get(i) : "";
+            String correctAnswer = q.getCorrectAnswer();
+            if (correctAnswer != null && !correctAnswer.isEmpty()) {
+                boolean isCorrect = q.checkAnswer(userAnswer);
+                if (isCorrect) {
+                    repo.incrementCorrectCount(q.getId());
+                } else {
+                    repo.incrementIncorrectCount(q.getId());
+                }
+            }
+        }
     }
     
     // 显示测验结果
@@ -2514,7 +2279,45 @@ public class QuizActivity extends BaseActivity {
     
     // 开始计时
     private void startTimer() {
-        // 实现计时逻辑
+        boolean isExam = "exam".equals(quizMode);
+        boolean isChallenge = "challenge".equals(quizMode);
+        
+        // 仅考试和挑战模式启用计时
+        if (!isExam && !isChallenge) return;
+        if (textViewTimer == null) return;
+        
+        startTime = System.currentTimeMillis();
+        
+        // 考试模式：10分钟限时；挑战模式：5分钟限时
+        long totalTimeMs;
+        if (isExam) {
+            totalTimeMs = 10 * 60 * 1000L; // 10分钟
+        } else {
+            totalTimeMs = 5 * 60 * 1000L; // 5分钟
+        }
+        
+        countDownTimer = new CountDownTimer(totalTimeMs, 1000) {
+            @Override
+            public void onTick(long millisUntilFinished) {
+                int minutes = (int) (millisUntilFinished / 60000);
+                int seconds = (int) ((millisUntilFinished % 60000) / 1000);
+                String timeStr = String.format("%02d:%02d", minutes, seconds);
+                textViewTimer.setText(timeStr);
+                
+                // 最后1分钟变红色警告
+                if (millisUntilFinished < 60000) {
+                    textViewTimer.setTextColor(getResources().getColor(R.color.error_color));
+                }
+            }
+            
+            @Override
+            public void onFinish() {
+                textViewTimer.setText("00:00");
+                Toast.makeText(QuizActivity.this, "时间到！自动交卷", Toast.LENGTH_LONG).show();
+                submitQuiz();
+            }
+        };
+        countDownTimer.start();
     }
     
     // 加载自定义题目类型映射
@@ -2548,12 +2351,6 @@ public class QuizActivity extends BaseActivity {
         }
         
         return questionType;
-    }
-    
-    // 获取友好的题目类型名称
-    private String getFriendlyQuestionTypeName(String type) {
-        // 实现友好题目类型名称获取逻辑
-        return type != null ? type : "未分类";
     }
     
 
@@ -2623,6 +2420,12 @@ public class QuizActivity extends BaseActivity {
         // 释放资源
         if (countDownTimer != null) {
             countDownTimer.cancel();
+        }
+        // 释放音频播放器
+        if (audioPlayer != null) {
+            if (audioPlayer.isPlaying()) audioPlayer.stop();
+            audioPlayer.release();
+            audioPlayer = null;
         }
     }
 }

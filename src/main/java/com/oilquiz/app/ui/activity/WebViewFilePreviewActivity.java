@@ -4,10 +4,12 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import com.google.android.material.button.MaterialButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -23,6 +25,12 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.infra.AppLogger;
 import com.oilquiz.app.util.render.WebViewRenderer;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,6 +42,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     public static final String EXTRA_FIELD_MAPPING = "field_mapping";
     public static final String EXTRA_RESULT_FIELD_MAPPING = "result_field_mapping";
     private static final int REQUEST_CODE_FILE_PICKER = 1001;
+    private static final String TAG = "WebViewFilePreview";
+    /** 页面加载完成后是否需要同步虚拟列默认映射 */
+    private volatile boolean pendingVirtualSync = false;
 
     /**
      * 启动WebView文件预览活动
@@ -75,6 +86,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     private MaterialButton btnSettings;
     private MaterialButton btnAutoMap;
     private MaterialButton btnClearMap;
+    private MaterialButton btnSplitOptions;
     private TextView mappedFieldCount;
     private LinearLayout loadingContainer;
     
@@ -86,6 +98,14 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     private String defaultQuestion = "数据题目为空";
     private String defaultOption = "选项为空";
     private String defaultAnswer = "答案为空";
+    /** 选项分隔符（用于拆分单列多选项） */
+    private String optionsDelimiter = null;
+    /** 记录分隔符对应的拆分列索引，用于判断是否需要重新弹出分隔符对话框 */
+    private int optionsDelimiterSplitCol = -1;
+    /** 是否正在显示拆分预览模式 */
+    private boolean showSplitPreview = false;
+    /** 独立拆分列索引（通过"拆分选项"按钮设置，不依赖fieldMapping） */
+    private int independentSplitCol = -1;
 
     // 映射字段选项（从 QuestionField 动态生成，支持 A~L 选项和 12 个空答案字段）
     private java.util.ArrayList<String> fieldOptions = new java.util.ArrayList<>(
@@ -112,6 +132,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         btnSettings = findViewById(R.id.btnSettings);
         btnAutoMap = findViewById(R.id.btnAutoMap);
         btnClearMap = findViewById(R.id.btnClearMap);
+        btnSplitOptions = findViewById(R.id.btnSplitOptions);
         mappedFieldCount = findViewById(R.id.mappedFieldCount);
         loadingContainer = findViewById(R.id.loadingContainer);
         
@@ -167,6 +188,10 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         btnClearMap.setOnClickListener(v -> {
             clearAllMappings();
         });
+
+        btnSplitOptions.setOnClickListener(v -> {
+            showSplitColumnDialog();
+        });
     }
 
     private void loadFilePreview() {
@@ -190,6 +215,18 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         
         // 设置WebView的JavaScript接口
         previewWebView.addJavascriptInterface(this, "Android");
+
+        // 页面加载完成后同步虚拟列默认映射（拆分预览模式）
+        previewWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (pendingVirtualSync) {
+                    pendingVirtualSync = false;
+                    registerDefaultVirtualMappings();
+                }
+            }
+        });
 
         // 使用WebViewRenderer渲染Excel文件为HTML
         WebViewRenderer.renderExcelToHtml(file, sheetIndex, fieldMapping, fieldOptions, new WebViewRenderer.RenderCallback() {
@@ -284,10 +321,68 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     }
     
     private void performAutoMapping() {
-        // 自动映射功能
+        if (file == null || !file.exists()) {
+            Toast.makeText(this, "请先加载文件", Toast.LENGTH_SHORT).show();
+            return;
+        }
         Toast.makeText(this, "正在执行自动映射...", Toast.LENGTH_SHORT).show();
-        // 这里可以实现自动映射逻辑
-        updateMappedFieldCount();
+        new Thread(() -> {
+            try (org.apache.poi.ss.usermodel.Workbook wb = org.apache.poi.ss.usermodel.WorkbookFactory.create(file)) {
+                org.apache.poi.ss.usermodel.Sheet sheet = wb.getSheetAt(sheetIndex);
+                org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(0);
+                if (headerRow == null) {
+                    runOnUiThread(() -> Toast.makeText(this, "表头为空，无法自动映射", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                // 清除现有映射
+                fieldMapping.clear();
+                columnToFieldMap.clear();
+                optionsDelimiter = null;
+                optionsDelimiterSplitCol = -1;
+                independentSplitCol = -1;
+                showSplitPreview = false;
+                
+                int mapped = 0;
+                int lastCol = headerRow.getLastCellNum();
+                for (int c = 0; c < lastCol; c++) {
+                    org.apache.poi.ss.usermodel.Cell cell = headerRow.getCell(c);
+                    if (cell == null) continue;
+                    String header = com.oilquiz.app.util.render.ExcelUtil.getCellValue(cell);
+                    if (header == null || header.trim().isEmpty()) continue;
+                    
+                    com.oilquiz.app.model.QuestionField suggested = com.oilquiz.app.model.QuestionField.suggestField(header.trim());
+                    if (suggested != null) {
+                        String displayName = suggested.getDisplayName();
+                        // 避免重复映射同一字段（后者保留）
+                        Integer prevCol = fieldMapping.get(displayName);
+                        if (prevCol != null) {
+                            columnToFieldMap.remove(prevCol);
+                        }
+                        fieldMapping.put(displayName, c);
+                        columnToFieldMap.put(c, displayName);
+                        mapped++;
+                    }
+                }
+                final int finalMapped = mapped;
+                runOnUiThread(() -> {
+                    // 同步WebView显示
+                    for (Map.Entry<Integer, String> entry : columnToFieldMap.entrySet()) {
+                        syncColumnDisplay(entry.getKey(), entry.getValue());
+                    }
+                    // 将未映射的列同步为"不映射"
+                    for (int c = 0; c < lastCol; c++) {
+                        if (!columnToFieldMap.containsKey(c)) {
+                            syncColumnDisplay(c, "不映射");
+                        }
+                    }
+                    updateMappedFieldCount();
+                    Toast.makeText(this, "自动映射完成，已映射 " + finalMapped + " 个字段", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "自动映射失败", e);
+                runOnUiThread(() -> Toast.makeText(this, "自动映射失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }).start();
     }
     
     private void clearAllMappings() {
@@ -298,6 +393,11 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             .setPositiveButton("确定", (dialog, which) -> {
                 fieldMapping.clear();
                 columnToFieldMap.clear();
+                // 同步重置分隔符状态和独立拆分状态
+                optionsDelimiter = null;
+                optionsDelimiterSplitCol = -1;
+                independentSplitCol = -1;
+                showSplitPreview = false;
                 updateMappedFieldCount();
                 loadFilePreview(); // 重新加载预览
                 Toast.makeText(this, "已清除所有映射", Toast.LENGTH_SHORT).show();
@@ -306,6 +406,12 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             .show();
     }
 
+    /** 独立选项字段名列表（用于与"选项(拆分)"互斥检测，支持A~L全部12个选项） */
+    private static final String[] INDIVIDUAL_OPTION_FIELDS = {
+        "选项A", "选项B", "选项C", "选项D", "选项E", "选项F",
+        "选项G", "选项H", "选项I", "选项J", "选项K", "选项L"
+    };
+
     /**
      * 更新字段映射
      * @param columnIndex 列索引
@@ -313,17 +419,81 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
      */
     @android.webkit.JavascriptInterface
     public void updateFieldMapping(int columnIndex, String fieldName) {
+        // 虚拟列（索引 >= 1000）：拆分预览模式下的拆分部分列
+        if (columnIndex >= 1000) {
+            if (!"不映射".equals(fieldName)) {
+                // 若该字段已被其他虚拟列占用，先释放并同步更新其显示
+                Integer occupiedCol = fieldMapping.get(fieldName);
+                if (occupiedCol != null && occupiedCol >= 1000 && occupiedCol != columnIndex) {
+                    columnToFieldMap.put(occupiedCol, "不映射");
+                    syncColumnDisplay(occupiedCol, "不映射");
+                }
+                fieldMapping.put(fieldName, columnIndex);
+                columnToFieldMap.put(columnIndex, fieldName);
+            } else {
+                String existingField = columnToFieldMap.get(columnIndex);
+                if (existingField != null) fieldMapping.remove(existingField);
+                columnToFieldMap.put(columnIndex, "不映射");
+            }
+            runOnUiThread(() -> updateMappedFieldCount());
+            return;
+        }
+
+        // ── 冲突处理："选项(拆分)" 与独立选项列互斥 ──
+        // 拆分预览模式下跳过，避免破坏已建立的拆分状态（此时映射仍可自由修改）
+        if (!showSplitPreview) {
+            if ("选项(拆分)".equals(fieldName)) {
+                // 映射"选项(拆分)"时，自动移除已映射的独立选项列
+                for (String optField : INDIVIDUAL_OPTION_FIELDS) {
+                    if (fieldMapping.containsKey(optField)) {
+                        Integer optCol = fieldMapping.get(optField);
+                        fieldMapping.remove(optField);
+                        columnToFieldMap.remove(optCol);
+                        syncColumnDisplay(optCol, "不映射");
+                    }
+                }
+                // 拆分列变更，重置分隔符和独立拆分状态
+                optionsDelimiter = null;
+                optionsDelimiterSplitCol = -1;
+                independentSplitCol = -1;
+            } else if (isIndividualOptionField(fieldName)) {
+                // 映射独立选项列时，自动移除已映射的"选项(拆分)"
+                if (fieldMapping.containsKey("选项(拆分)")) {
+                    Integer splitCol = fieldMapping.get("选项(拆分)");
+                    fieldMapping.remove("选项(拆分)");
+                    columnToFieldMap.remove(splitCol);
+                    syncColumnDisplay(splitCol, "不映射");
+                    // 拆分模式被取消，重置分隔符和独立拆分状态
+                    optionsDelimiter = null;
+                    optionsDelimiterSplitCol = -1;
+                    independentSplitCol = -1;
+                }
+            }
+        }
+
         if (fieldName.equals("不映射")) {
             // 移除映射
             for (Map.Entry<String, Integer> entry : fieldMapping.entrySet()) {
                 if (entry.getValue().equals(columnIndex)) {
-                    fieldMapping.remove(entry.getKey());
+                    String removedField = entry.getKey();
+                    fieldMapping.remove(removedField);
                     columnToFieldMap.remove(columnIndex);
+                    // 如果移除的是"选项(拆分)"，重置分隔符
+                    if ("选项(拆分)".equals(removedField)) {
+                        optionsDelimiter = null;
+                        optionsDelimiterSplitCol = -1;
+                    }
                     break;
                 }
             }
         } else {
-            // 首先检查该列是否已被其他字段映射，如果是，先移除旧的映射
+            // 若该字段已映射到其他列，先解除旧列的映射并同步其显示
+            Integer prevCol = fieldMapping.get(fieldName);
+            if (prevCol != null && prevCol != columnIndex && prevCol < 1000) {
+                columnToFieldMap.remove(prevCol);
+                syncColumnDisplay(prevCol, "不映射");
+            }
+            // 检查该列是否已被其他字段映射，如果是，先移除旧的映射
             String existingField = columnToFieldMap.get(columnIndex);
             if (existingField != null) {
                 fieldMapping.remove(existingField);
@@ -338,9 +508,341 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     }
 
     /**
+     * 同步更新WebView中指定列的下拉显示状态（用于映射冲突时动态刷新旧列）
+     * @param colIdx 列索引（含虚拟列）
+     * @param fieldName 要显示的字段名
+     */
+    private void syncColumnDisplay(int colIdx, String fieldName) {
+        final String js = "(function(){var th=document.getElementById('col-" + colIdx + "');"
+                + "if(!th)return;var t=th.querySelector('.mdd-trig');"
+                + "if(t&&t.childNodes[0])t.childNodes[0].nodeValue='" + fieldName + " ';"
+                + "var items=th.querySelectorAll('.mdd-item');"
+                + "for(var i=0;i<items.length;i++){items[i].classList.remove('sel');"
+                + "if(items[i].getAttribute('data-v')==='" + fieldName + "')items[i].classList.add('sel');}"
+                + "if('" + fieldName + "'!=='不映射')th.classList.add('mapped');else th.classList.remove('mapped');})();";
+        runOnUiThread(() -> previewWebView.evaluateJavascript(js, null));
+    }
+
+    /**
+     * 判断字段名是否为独立选项字段
+     */
+    private boolean isIndividualOptionField(String fieldName) {
+        if (fieldName == null) return false;
+        for (String f : INDIVIDUAL_OPTION_FIELDS) {
+            if (f.equals(fieldName)) return true;
+        }
+        return false;
+    }
+
+    /**
      * 显示映射结果
      */
     private void showMappingResult() {
+        // 拆分预览模式下，点击"下一步"直接进入确认
+        if (showSplitPreview) {
+            showMappingResultConfirm();
+            return;
+        }
+        // 独立拆分模式已激活，直接进入确认
+        if (independentSplitCol >= 0) {
+            showMappingResultConfirm();
+            return;
+        }
+        // 检查是否通过字段映射设置了"选项(拆分)" → 自动检测分隔符并提示
+        if (fieldMapping.containsKey("选项(拆分)")) {
+            int splitCol = fieldMapping.get("选项(拆分)");
+            if (optionsDelimiterSplitCol != splitCol) {
+                optionsDelimiter = null;
+                String detected = detectColumnDelimiter(splitCol);
+                showDelimiterDialog(detected, splitCol);
+                return;
+            }
+        }
+        showMappingResultConfirm();
+    }
+
+    /**
+     * 加载拆分预览：重新渲染WebView，在拆分列后显示拆分后的虚拟选项列
+     */
+    private void loadSplitPreview() {
+        if (file == null || !file.exists() || optionsDelimiter == null) return;
+        // 优先使用独立拆分列，否则从 fieldMapping 获取
+        int splitCol = independentSplitCol >= 0 ? independentSplitCol
+                : (fieldMapping.containsKey("选项(拆分)") ? fieldMapping.get("选项(拆分)") : -1);
+        if (splitCol < 0) return;
+
+        showLoadingState("正在渲染拆分预览...", "准备中...");
+        WebViewRenderer.renderExcelToHtml(file, sheetIndex, fieldMapping, fieldOptions, splitCol, optionsDelimiter, new WebViewRenderer.RenderCallback() {
+            @Override
+            public void onRenderStart() {
+                updateLoadingProgress("渲染拆分预览中...", "");
+            }
+            @Override
+            public void onRenderProgress(int current, int total) {
+                updateLoadingProgress("渲染拆分预览中...", String.format("已处理 %d/%d 行", current, total));
+            }
+            @Override
+            public void onRenderComplete(String htmlContent) {
+                runOnUiThread(() -> {
+                    loadingContainer.setVisibility(View.GONE);
+                    previewWebView.setVisibility(View.VISIBLE);
+                    WebViewRenderer.displayInWebView(previewWebView, htmlContent);
+                    updateMappedFieldCount();
+                    // 页面加载完成后，将虚拟列的默认映射同步到数据结构，保证后续冲突检测和结果传递一致
+                    pendingVirtualSync = true;
+                    Toast.makeText(WebViewFilePreviewActivity.this,
+                        "拆分预览已加载，可调整虚拟列映射后点击“下一步”", Toast.LENGTH_LONG).show();
+                });
+            }
+            @Override
+            public void onRenderError(String message) {
+                showErrorState("拆分预览渲染失败: " + message);
+            }
+        });
+    }
+
+    /**
+     * 拆分预览渲染完成后，将虚拟列的默认映射同步到 fieldMapping/columnToFieldMap
+     */
+    private void registerDefaultVirtualMappings() {
+        previewWebView.evaluateJavascript(
+            "(function(){var r=[];document.querySelectorAll('.mdd').forEach(function(d){"
+            + "var c=parseInt(d.getAttribute('data-c'),10);"
+            + "if(c>=1000){var t=d.querySelector('.mdd-trig');"
+            + "if(t&&t.childNodes[0])r.push(c+':'+t.childNodes[0].nodeValue.trim());}});"
+            + "return JSON.stringify(r);})();",
+            value -> runOnUiThread(() -> {
+                try {
+                    if (value == null || value.isEmpty() || "null".equals(value)) return;
+                    String json = value;
+                    if (json.startsWith("\"") && json.endsWith("\"")) {
+                        json = json.substring(1, json.length() - 1).replace("\\\"", "\"");
+                    }
+                    org.json.JSONArray arr = new org.json.JSONArray(json);
+                    for (int i = 0; i < arr.length(); i++) {
+                        String item = arr.getString(i);
+                        int sep = item.indexOf(':');
+                        if (sep <= 0) continue;
+                        int col = Integer.parseInt(item.substring(0, sep));
+                        String field = item.substring(sep + 1);
+                        if (!"不映射".equals(field) && !field.isEmpty()) {
+                            fieldMapping.put(field, col);
+                            columnToFieldMap.put(col, field);
+                        } else {
+                            columnToFieldMap.put(col, "不映射");
+                        }
+                    }
+                    updateMappedFieldCount();
+                } catch (Exception e) {
+                    Log.w(TAG, "同步虚拟列默认映射失败: " + e.getMessage());
+                }
+            }));
+    }
+
+    /**
+     * 扫描指定列的前几行数据，自动检测常见分隔符
+     */
+    private String detectColumnDelimiter(int colIdx) {
+        if (file == null || !file.exists()) return null;
+        try (Workbook wb = WorkbookFactory.create(file)) {
+            Sheet sheet = wb.getSheetAt(sheetIndex);
+            // 常见分隔符候选
+            String[] candidates = {"|", "||", ";", "；", "\t", "///", "###", "@@@"};
+            // 检查前 10 行数据
+            int checkRows = Math.min(sheet.getLastRowNum(), 10);
+            for (String cand : candidates) {
+                int matchCount = 0;
+                for (int r = 1; r <= checkRows; r++) {
+                    Row row = sheet.getRow(r);
+                    if (row == null) continue;
+                    Cell cell = row.getCell(colIdx);
+                    if (cell == null) continue;
+                    String val = com.oilquiz.app.util.render.ExcelUtil.getCellValue(cell);
+                    if (val != null && val.contains(cand)) matchCount++;
+                }
+                // 超过一半的行包含该分隔符，认为是有效分隔符
+                if (matchCount >= Math.max(2, checkRows / 2)) return cand;
+            }
+            // 尝试正则模式：A. B. C. 或 ①②③ 等
+            int letterMatch = 0;
+            for (int r = 1; r <= checkRows; r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+                Cell cell = row.getCell(colIdx);
+                if (cell == null) continue;
+                String val = com.oilquiz.app.util.render.ExcelUtil.getCellValue(cell);
+                if (val != null && val.matches("(?s).*[A-D][.、．].*[A-D][.、．].*")) letterMatch++;
+            }
+            if (letterMatch >= Math.max(2, checkRows / 2)) return "LETTER_PATTERN";
+        } catch (Exception e) {
+            // 忽略解析错误
+        }
+        return null;
+    }
+
+    /**
+     * 显示拆分列选择对话框（独立入口，不依赖字段映射）
+     */
+    private void showSplitColumnDialog() {
+        if (file == null || !file.exists()) {
+            Toast.makeText(this, "请先加载文件", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(() -> {
+            try (Workbook wb = WorkbookFactory.create(file)) {
+                Sheet sheet = wb.getSheetAt(sheetIndex);
+                Row headerRow = sheet.getRow(0);
+                if (headerRow == null) {
+                    runOnUiThread(() -> Toast.makeText(this, "表头为空", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                int lastCol = headerRow.getLastCellNum();
+                String[] colNames = new String[lastCol];
+                for (int c = 0; c < lastCol; c++) {
+                    Cell cell = headerRow.getCell(c);
+                    String name = (cell != null) ? com.oilquiz.app.util.render.ExcelUtil.getCellValue(cell) : null;
+                    colNames[c] = (name != null && !name.trim().isEmpty()) ? name.trim() : ("列" + (c + 1));
+                }
+                runOnUiThread(() -> {
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("选择要拆分的列")
+                        .setItems(colNames, (dialog, which) -> {
+                            // 记录独立拆分列索引（不写入 fieldMapping）
+                            independentSplitCol = which;
+                            // 自动检测分隔符，直接拆分预览，不弹对话框
+                            String detected = detectColumnDelimiter(which);
+                            optionsDelimiter = (detected != null) ? detected : "|";
+                            optionsDelimiterSplitCol = which;
+                            showSplitPreview = true;
+                            loadSplitPreview();
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "读取表头失败", e);
+                runOnUiThread(() -> Toast.makeText(this, "读取表头失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    /**
+     * 显示分隔符确认对话框
+     * @param detected 自动检测到的分隔符，可为null
+     * @param colIdx 拆分列索引
+     */
+    private void showDelimiterDialog(String detected, int colIdx) {
+        String displayDelim;
+        if (detected == null) {
+            displayDelim = "未检测到";
+        } else if ("LETTER_PATTERN".equals(detected)) {
+            displayDelim = "字母标号(如 A. B. C.)";
+        } else {
+            displayDelim = "\"" + detected + "\"";
+        }
+        String[] presetDelims = {"|", ";", "；", "\t", "||", "///", "###"};
+        
+        StringBuilder msg = new StringBuilder();
+        msg.append("检测到列 ").append(colIdx + 1).append(" 的选项内容使用分隔符：\n");
+        msg.append(displayDelim).append("\n\n");
+        msg.append("确认后将自动拆分该列内容到选项A/B/C/D...\n");
+        msg.append("也可选择其他分隔符或输入自定义分隔符。");
+
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        container.setPadding(pad, pad/2, pad, 0);
+
+        // 预设分隔符单选
+        android.widget.RadioGroup radioGroup = new android.widget.RadioGroup(this);
+        radioGroup.setOrientation(android.widget.RadioGroup.VERTICAL);
+        
+        if (detected != null) {
+            android.widget.RadioButton rbAuto = new android.widget.RadioButton(this);
+            rbAuto.setText("自动检测: " + displayDelim);
+            rbAuto.setTag(detected);
+            rbAuto.setChecked(true);
+            radioGroup.addView(rbAuto);
+        }
+        for (String d : presetDelims) {
+            if (d.equals(detected)) continue;
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setText("\"" + d + "\"");
+            rb.setTag(d);
+            if (detected == null && d.equals("|")) rb.setChecked(true); // 默认选中|
+            radioGroup.addView(rb);
+        }
+        android.widget.RadioButton rbLetter = new android.widget.RadioButton(this);
+        rbLetter.setText("字母标号(如 A. B. C. D.)");
+        rbLetter.setTag("LETTER_PATTERN");
+        radioGroup.addView(rbLetter);
+        android.widget.RadioButton rbNone = new android.widget.RadioButton(this);
+        rbNone.setText("不拆分（每行内容作为一个完整选项）");
+        rbNone.setTag("NONE");
+        radioGroup.addView(rbNone);
+        container.addView(radioGroup);
+
+        // 自定义输入框
+        android.widget.EditText customInput = new android.widget.EditText(this);
+        customInput.setHint("或输入自定义分隔符");
+        customInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = pad/2;
+        customInput.setLayoutParams(lp);
+        container.addView(customInput);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("选项分隔符")
+            .setMessage(msg.toString())
+            .setView(container)
+            .setPositiveButton("确认", (dlg, w) -> {
+                String custom = customInput.getText().toString();
+                if (!custom.isEmpty()) {
+                    optionsDelimiter = custom;
+                } else {
+                    int checkedId = radioGroup.getCheckedRadioButtonId();
+                    android.widget.RadioButton checkedRb = radioGroup.findViewById(checkedId);
+                    String tag = checkedRb != null ? (String) checkedRb.getTag() : "NONE";
+                    if ("NONE".equals(tag)) {
+                        optionsDelimiter = null;
+                    } else if ("LETTER_PATTERN".equals(tag)) {
+                        optionsDelimiter = "LETTER_PATTERN";
+                    } else {
+                        optionsDelimiter = tag;
+                    }
+                }
+                // 记录分隔符对应的拆分列索引
+                optionsDelimiterSplitCol = colIdx;
+                if (optionsDelimiter == null) {
+                    // 用户选择"不拆分"
+                    showSplitPreview = false;
+                    independentSplitCol = -1;
+                    showMappingResultConfirm();
+                } else {
+                    // 有分隔符，重新渲染WebView显示拆分预览
+                    showSplitPreview = true;
+                    // 判断来源：如果是独立拆分按钮触发的，不写 fieldMapping
+                    if (independentSplitCol >= 0) {
+                        // 独立拆分路径：不修改 fieldMapping，直接预览
+                        loadSplitPreview();
+                    } else {
+                        // 字段映射路径：设置"选项(拆分)"映射
+                        fieldMapping.put("选项(拆分)", colIdx);
+                        columnToFieldMap.put(colIdx, "选项(拆分)");
+                        loadSplitPreview();
+                    }
+                }
+            })
+            .setNegativeButton("返回修改", null)
+            .show();
+    }
+
+    /**
+     * 显示映射确认对话框（最终确认）
+     */
+    private void showMappingResultConfirm() {
         // 检查必填字段是否有映射
         boolean hasQuestionType = fieldMapping.containsKey("题型");
         boolean hasQuestion = fieldMapping.containsKey("题目") || fieldMapping.containsKey("题目内容");
@@ -393,7 +895,13 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         mappingResult.append("📋 映射结果：\n\n");
         
         for (Map.Entry<String, Integer> entry : fieldMapping.entrySet()) {
-            mappingResult.append("✅ ").append(entry.getKey()).append(" → 列 ").append(entry.getValue() + 1).append("\n");
+            int colIdx = entry.getValue();
+            if (colIdx >= 1000) {
+                // 虚拟列：显示为拆分列的第N部分
+                mappingResult.append("✅ ").append(entry.getKey()).append(" → 拆分部分 ").append(colIdx - 999).append("\n");
+            } else {
+                mappingResult.append("✅ ").append(entry.getKey()).append(" → 列 ").append(colIdx + 1).append("\n");
+            }
         }
         
         // 显示映射结果对话框
@@ -411,6 +919,24 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 resultIntent.putExtra("default_question", defaultQuestion);
                 resultIntent.putExtra("default_option", defaultOption);
                 resultIntent.putExtra("default_answer", defaultAnswer);
+                if (optionsDelimiter != null) {
+                    resultIntent.putExtra("options_delimiter", optionsDelimiter);
+                }
+                // 传递拆分列索引（用于虚拟列还原）—— 优先使用独立拆分列
+                int splitColForResult = independentSplitCol >= 0 ? independentSplitCol : optionsDelimiterSplitCol;
+                resultIntent.putExtra("options_split_col", splitColForResult);
+                // 传递拆分部分自定义映射（虚拟列索引-1000 → 选项字段名），使重新映射生效
+                if (showSplitPreview) {
+                    java.util.HashMap<Integer, String> partMapping = new java.util.HashMap<>();
+                    for (Map.Entry<Integer, String> e : columnToFieldMap.entrySet()) {
+                        if (e.getKey() >= 1000 && e.getValue() != null && !"不映射".equals(e.getValue())) {
+                            partMapping.put(e.getKey() - 1000, e.getValue());
+                        }
+                    }
+                    if (!partMapping.isEmpty()) {
+                        resultIntent.putExtra("split_part_mapping", partMapping);
+                    }
+                }
                 setResult(RESULT_OK, resultIntent);
                 finish();
             })
@@ -538,7 +1064,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
      * 启动文件选择器
      */
     private void launchFilePicker() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         

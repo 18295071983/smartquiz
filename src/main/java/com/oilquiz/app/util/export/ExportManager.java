@@ -343,9 +343,11 @@ public class ExportManager {
                                 selectedExporter = new WordExporter();
                                 break;
                             case HTML:
-                                // 检查是否指定了模板
-                                if (task.getConfig().getTemplateId() != null) {
-                                    com.oilquiz.app.util.export.template.Template template = templateManager.getTemplateById(task.getConfig().getTemplateId());
+                                // 场景化模板（scene_*）/自定义字段模板统一走 HTMLExporter（按模板字段渲染）；
+                                // 仅旧版内容模板（无 scene 前缀）才走 TemplateHTMLExporter
+                                String templateId = task.getConfig().getTemplateId();
+                                if (templateId != null && !templateId.startsWith("scene_")) {
+                                    com.oilquiz.app.util.export.template.Template template = templateManager.getTemplateById(templateId);
                                     if (template != null) {
                                         selectedExporter = new TemplateHTMLExporter(template);
                                     } else {

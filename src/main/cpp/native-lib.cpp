@@ -13,9 +13,12 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <dlfcn.h>
+#include <sys/system_properties.h>
 #include "llama.h"
 #include "ggml-backend.h"
 #include "chat.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 #include <nlohmann/json.hpp>
 #include <vulkan/vulkan.h>
 
@@ -123,6 +126,22 @@ typedef int cl_bool;
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// ========== llama.cpp 日志回调 ==========
+// 将 llama.cpp 内部日志转发到 Android logcat，便于诊断模型加载失败原因
+static void llama_log_callback_impl(enum ggml_log_level level, const char * text, void * user_data) {
+    (void)user_data;
+    if (!text) return;
+    // 过滤掉空行和重复消息
+    if (text[0] == '\0') return;
+    switch (level) {
+        case GGML_LOG_LEVEL_ERROR:  LOGE("[llama] %s", text); break;
+        case GGML_LOG_LEVEL_WARN:   LOGW("[llama] %s", text); break;
+        case GGML_LOG_LEVEL_INFO:   LOGI("[llama] %s", text); break;
+        case GGML_LOG_LEVEL_DEBUG:  LOGD("[llama] %s", text); break;
+        default: LOGI("[llama] %s", text); break;
+    }
+}
+
 // ========== UTF-8 安全工具 ==========
 
 /**
@@ -215,23 +234,75 @@ static std::string sanitizeUtf8(const std::string& input) {
 }
 
 /**
+ * 分离 UTF-8 字符串为完整部分和不完整尾部
+ * 用于流式传输时缓存不完整的多字节字符
+ */
+static std::string splitUtf8Complete(const std::string& input, std::string& completeOut) {
+    if (input.empty()) {
+        completeOut.clear();
+        return "";
+    }
+    
+    size_t len = input.size();
+    // 从末尾往前找最后一个 UTF-8 序列的起始位置
+    size_t i = len;
+    while (i > 0 && (static_cast<unsigned char>(input[i - 1]) & 0xC0) == 0x80) {
+        i--; // 跳过 continuation bytes (10xxxxxx)
+    }
+    
+    if (i == 0) {
+        // 全是 continuation bytes，都是不完整的
+        completeOut.clear();
+        return input;
+    }
+    
+    i--; // 现在指向起始字节
+    unsigned char c = static_cast<unsigned char>(input[i]);
+    size_t expectedLen;
+    
+    if (c < 0x80) {
+        expectedLen = 1;       // ASCII
+    } else if ((c & 0xE0) == 0xC0) {
+        expectedLen = 2;       // 2-byte sequence
+    } else if ((c & 0xF0) == 0xE0) {
+        expectedLen = 3;       // 3-byte sequence (中文)
+    } else if ((c & 0xF8) == 0xF0) {
+        expectedLen = 4;       // 4-byte sequence
+    } else {
+        // 无效起始字节
+        completeOut = input;
+        return "";
+    }
+    
+    size_t actualLen = len - i;
+    if (actualLen >= expectedLen) {
+        // 最后一个字符是完整的
+        completeOut = input;
+        return "";
+    } else {
+        // 最后一个字符不完整，分离出来
+        completeOut = input.substr(0, i);
+        return input.substr(i);
+    }
+}
+
+/**
  * 安全的 NewStringUTF 包装器
- * 验证 UTF-8 有效性，防止 JNI 崩溃
+ * 不再强制清洗 UTF-8：模型输出的 token 按顺序拼接本身就是有效 UTF-8
+ * 不完整字节已在回调层通过 splitUtf8Complete 缓冲，到达这里时已是完整字符
  */
 static jstring safeNewStringUTF(JNIEnv* env, const char* str) {
     if (str == nullptr) {
         return env->NewStringUTF("");
     }
-    std::string sanitized = sanitizeUtf8(std::string(str));
-    return env->NewStringUTF(sanitized.c_str());
+    return env->NewStringUTF(str);
 }
 
 /**
  * 安全的 NewStringUTF 包装器（std::string 版本）
  */
 static jstring safeNewStringUTF(JNIEnv* env, const std::string& str) {
-    std::string sanitized = sanitizeUtf8(str);
-    return env->NewStringUTF(sanitized.c_str());
+    return env->NewStringUTF(str.c_str());
 }
 
 static volatile bool s_openclLoaded = false;
@@ -568,6 +639,60 @@ static JavaVM* getJavaVM() {
 // JNI_OnLoad函数，在库加载时被调用
 jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_jvm = vm;
+
+    // ========== Vulkan 自适应 GPU 检测 ==========
+    // 使用 NDK 标准存根链接，运行时通过 Android 系统属性检测 GPU 厂商
+    // ggml-vulkan 通过 vkGetInstanceProcAddr 动态加载所有 Vulkan 函数，自适应任何设备
+    // 已知问题：Adreno 840 的 VK_KHR_cooperative_matrix 驱动实现有 bug，导致矩阵乘法计算错误
+    {
+        // 检测 GPU 厂商：通过 Android 系统属性判断是 Adreno (Qualcomm) 还是 Mali (ARM/MediaTek)
+        char platform[128] = {0};
+        char egl_renderer[128] = {0};
+        
+        // ro.board.platform: 芯片平台名 (如 snapdragon, mt6989)
+        __system_property_get("ro.board.platform", platform);
+        // ro.hardware.egl: GPU 渲染器名 (如 adreno, mali)
+        __system_property_get("ro.hardware.egl", egl_renderer);
+        
+        bool isAdreno = (strstr(egl_renderer, "adreno") != nullptr || strstr(egl_renderer, "Adreno") != nullptr);
+        
+        // 备用检测：通过芯片平台名判断
+        if (!isAdreno) {
+            if (strstr(platform, "snapdragon") != nullptr || 
+                strstr(platform, "qcom") != nullptr ||
+                strstr(platform, "kona") != nullptr ||      // SM8250
+                strstr(platform, "lahaina") != nullptr ||    // SM8350
+                strstr(platform, "taro") != nullptr ||       // SM8450/8475
+                strstr(platform, "kalama") != nullptr ||     // SM8550/8650
+                strstr(platform, "sun") != nullptr) {        // SM8650+
+                isAdreno = true;
+            }
+        }
+        
+        if (isAdreno) {
+            // Adreno GPU: 多个 Vulkan 特性驱动实现有 bug，全部禁用以保证计算正确性
+            // coopmat: 矩阵乘法计算结果错误
+            // fusion: shader 融合导致计算异常
+            // graph_optimize: 图形优化导致输出乱码
+            // bfloat16/dot/integer_dot: Adreno 驱动可能不支持或实现有 bug
+            setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);
+            setenv("GGML_VK_DISABLE_COOPMAT2", "1", 1);
+            setenv("GGML_VK_DISABLE_COOPMAT2_DECODE_VECTOR", "1", 1);
+            setenv("GGML_VK_DISABLE_FUSION", "1", 1);
+            setenv("GGML_VK_DISABLE_GRAPH_OPTIMIZE", "1", 1);
+            setenv("GGML_VK_DISABLE_BFLOAT16", "1", 1);
+            setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 1);
+            setenv("GGML_VK_DISABLE_DOT2", "1", 1);
+            __android_log_print(ANDROID_LOG_INFO, "LlamaJNI", 
+                "Vulkan: Adreno GPU detected (platform=%s, egl=%s), disabled coopmat+fusion+graph_opt+bfloat16+dot, API capped to 1.2", 
+                platform, egl_renderer);
+        } else {
+            // 非 Adreno GPU (Mali/其他): 不禁用任何特性
+            __android_log_print(ANDROID_LOG_INFO, "LlamaJNI", 
+                "Vulkan: Non-Adreno GPU detected (platform=%s, egl=%s), all features enabled", 
+                platform, egl_renderer);
+        }
+    }
     JNIEnv* env;
     if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
@@ -709,6 +834,10 @@ namespace llama_jni {
 
 static int s_defaultGpuLayers = -1;
 static int s_defaultThreadCount = 4;
+
+// 多模态视觉上下文（mtmd）——需在 InferenceContext 之前声明，其多模态方法引用该全局变量
+static mtmd_context* s_mtmdCtx = nullptr;
+static std::mutex s_mtmdMutex;
 static int s_defaultMemoryPoolSize = 1024;
 static int s_defaultBatchSize = 512;
 static std::string s_defaultChatTemplate = "";
@@ -750,6 +879,7 @@ public:
         if (!s_llamaBackendInitialized.exchange(true)) {
             auto startTime = std::chrono::steady_clock::now();
             llama_backend_init();
+            llama_log_set(llama_log_callback_impl, nullptr);
             auto endTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
             LOGI("Llama backend initialized in %lldms", elapsed);
@@ -854,8 +984,28 @@ public:
             LOGE("Model file not found: %s", modelPath.c_str());
             return false;
         }
+        // 诊断：读取文件头和大小，验证 GGUF 格式
+        fseek(fileCheck, 0, SEEK_END);
+        long fileSize = ftell(fileCheck);
+        fseek(fileCheck, 0, SEEK_SET);
+        unsigned char header[16] = {0};
+        size_t bytesRead = fread(header, 1, sizeof(header), fileCheck);
         fclose(fileCheck);
-        LOGI("Model file exists");
+        LOGI("Model file exists, size=%ld bytes (%.1fMB), header read=%zu bytes",
+             fileSize, fileSize / 1024.0 / 1024.0, bytesRead);
+        LOGI("Model file header (hex): %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x",
+             header[0], header[1], header[2], header[3],
+             header[4], header[5], header[6], header[7],
+             header[8], header[9], header[10], header[11],
+             header[12], header[13], header[14], header[15]);
+        // GGUF magic: "GGUF" = 0x47 0x47 0x55 0x46
+        if (bytesRead >= 4 && header[0] == 0x47 && header[1] == 0x47 && header[2] == 0x55 && header[3] == 0x46) {
+            uint32_t version = *(uint32_t*)&header[4];
+            LOGI("Valid GGUF format detected, version=%u", version);
+        } else {
+            LOGE("WARNING: File does NOT start with GGUF magic! Expected 47 47 55 46, got %02x %02x %02x %02x",
+                 header[0], header[1], header[2], header[3]);
+        }
         
         this->modelPath = modelPath;
         this->contextSize = contextSize;
@@ -927,56 +1077,34 @@ public:
         LOGI("OpenCL loaded: %s, ggml GPU detected: %s", 
              s_openclLoaded ? "true" : "false", hasGPU ? "true" : "false");
         
-        bool gpuAvailable = hasGPU && s_openclLoaded;
-        
-        if (!s_openclLoaded) {
-            LOGI("OpenCL library not loaded - disabling GPU mode (forcing CPU only)");
-            gpuAvailable = false;
+        // ========== Vulkan GPU 加速 ==========
+        // OpenCL 在 Adreno 840 上不兼容，已切换到 Vulkan 后端
+        // ggml-vulkan 会自动检测 Vulkan 设备
+        // 支持 GPU+CPU 混合推理：部分层在 GPU 计算，剩余层在 CPU 计算
+        bool gpuAvailable = hasGPU;
+        if (gpuAvailable && this->gpuLayers <= 0) {
+            // Java 端未指定 GPU 层数时，自动使用安全上限（而非全部卸载）
+            // 保留部分层给 CPU，避免 GPU 显存不足和带宽瓶颈
+            this->gpuLayers = MAX_GPU_LAYERS;
+            LOGI("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
         }
-        
-        if (gpuAvailable) {
-            double gpuMemGB = static_cast<double>(gpuTotalMemory) / (1024.0 * 1024.0 * 1024.0);
-            
-            int autoLayers = 0;
-            if (gpuMemGB < 0.5) {
-                if (gpuTotalMemory == 0) {
-                    autoLayers = 50;
-                    LOGI("GPU memory detection returned 0, using default layers for Adreno GPU: %d", autoLayers);
-                } else {
-                    autoLayers = 0;
-                }
-            } else {
-                double usableMemGB = gpuMemGB * 0.8;
-                if (usableMemGB >= 6.0) {
-                    autoLayers = 99;
-                } else {
-                    autoLayers = static_cast<int>((usableMemGB / 6.0) * 99.0);
-                    autoLayers = std::min(autoLayers, 99);
-                    autoLayers = std::max(40, autoLayers);
-                }
-            }
-            
-            if (this->gpuLayers < 0) {
-                this->gpuLayers = autoLayers;
-                LOGI("Auto-config: GPU detected (total=%.2fGB, usable=%.2fGB), setting %d layers (aggressive setting)", gpuMemGB, gpuMemGB * 0.8, this->gpuLayers);
-            } else if (this->gpuLayers == 0) {
-                LOGI("GPU explicitly disabled (0), using CPU only");
-            } else {
-                LOGI("Using configured GPU layers: %d (auto-calculated would be: %d)", 
-                     this->gpuLayers, autoLayers);
-            }
-        } else {
-            this->gpuLayers = 0;
-            if (!hasGPU) {
-                LOGI("No GPU detected, using CPU only");
-            } else if (!s_openclLoaded) {
-                LOGI("GPU detected but OpenCL library not available - using CPU only");
-            }
+        // 最终安全限幅：确保 GPU 层数不超过 MAX_GPU_LAYERS
+        if (this->gpuLayers > MAX_GPU_LAYERS) {
+            LOGW("GPU layers %d exceeds max %d, clamping (keeping %d layers for CPU)", 
+                 this->gpuLayers, MAX_GPU_LAYERS, MAX_GPU_LAYERS);
+            this->gpuLayers = MAX_GPU_LAYERS;
         }
+        LOGI("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
+             gpuAvailable ? "true" : "false", hasGPU ? "true" : "false", this->gpuLayers);
+        
+        // 配置多 GPU 分片参数（手机通常只有 1 个 GPU，但保留扩展性）
+        // split_mode=LAYER: 按层分配给不同 GPU，适合异构设备
+        model_params.split_mode = LLAMA_SPLIT_MODE_LAYER;
+        model_params.main_gpu = 0;  // 主 GPU 设备索引
         
         if (this->gpuLayers > 0) {
             model_params.n_gpu_layers = this->gpuLayers;
-            LOGI("Loading model with %d GPU layers", this->gpuLayers);
+            LOGI("Loading model with %d GPU layers (mixed GPU+CPU inference)", this->gpuLayers);
         } else {
             model_params.n_gpu_layers = 0;
             LOGI("Loading model with CPU only");
@@ -1303,9 +1431,10 @@ public:
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu", n_ctx, prompt_tokens.size());
-        if ((int)prompt_tokens.size() > n_ctx) {
-            LOGE("Prompt too long: %zu tokens > n_ctx %d", prompt_tokens.size(), n_ctx);
+        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, prompt_tokens.size(), maxTokens);
+        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
+        if ((int)prompt_tokens.size() + maxTokens > n_ctx) {
+            LOGE("Prompt too long: %zu tokens + maxTokens %d > n_ctx %d", prompt_tokens.size(), maxTokens, n_ctx);
             setLastError("Prompt too long for context window");
             return false;
         }
@@ -1328,10 +1457,17 @@ public:
         LOGI("Starting generation loop, maxTokens=%d", maxTokens);
         
         int n_remain = maxTokens;
+        // 当前 KV cache 位置：prompt 已全部写入，后续每生成一个 token 位置 +1
+        int n_past = (int)prompt_tokens.size();
         
         while (n_remain > 0 && !shouldStop) {
             if (shouldStop) {
                 LOGI("Stop requested");
+                break;
+            }
+            // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
+            if (n_past >= n_ctx - 4) {
+                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
                 break;
             }
             
@@ -1376,6 +1512,7 @@ public:
                 LOGE("llama_decode failed for generation with code: %d", ret);
                 break;
             }
+            n_past++;
             
             n_remain--;
             n_decode++;
@@ -1435,15 +1572,18 @@ public:
         LOGI("Clearing context, used tokens before: %d", currentTokenCount);
 
         // 清理 KV cache
+        // 必须使用软清理(false)：硬清理(true)会释放 Vulkan/OpenCL 后端的 KV GPU 缓冲区，
+        // 下一次 llama_decode 访问已释放的缓冲区会触发 signal 6 崩溃
+        // （导入引擎每次推理前调用此接口，曾因此导致本地推理必崩；对话路径的软清理一直正常）
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
-            llama_memory_clear(mem, true);
+            llama_memory_clear(mem, false);
         }
 
         // 重置 token 计数
         currentTokenCount = 0;
 
-        LOGI("Context cleared, freed tokens");
+        LOGI("Context cleared (soft), freed tokens");
     }
 
     void release() {
@@ -1587,6 +1727,45 @@ public:
     
     // 流式生成回调接口
     using TokenCallback = std::function<void(const std::string& token, bool isDone, const std::string& error)>;
+
+    /**
+     * 在累积的思考缓冲中查找思考结束标记（跨 token 安全）。
+     * 单 token 检测会漏掉被拆分到多个 token 的结束标记（如  被拆成 "</" + "think>"），
+     * 导致思考永不结束、全部内容滞留思考布局、主回复为空。
+     * @return >=0 标记起始位置并回填标记长度；-1 未发现
+     */
+    static int findThinkingEndMarker(const std::string& buf, int& markerLen) {
+        static const char* markers[] = {"\x3c/think\x3e", "\xe2\x9d\xb4", "\xe2\x9d\xb5"};
+        int found = -1;
+        markerLen = 0;
+        for (const char* m : markers) {
+            size_t mlen = strlen(m);
+            size_t pos = buf.rfind(m);
+            if (pos != std::string::npos && (found < 0 || (int)pos < found)) {
+                found = (int)pos;
+                markerLen = (int)mlen;
+            }
+        }
+        return found;
+    }
+
+    /**
+     * 缓冲末尾与某个结束标记的前缀匹配的字节数（需暂扣等待后续 token 拼接）。
+     * 暂扣只会发生在字符边界（ASCII 前缀或多字节字符的起始字节），保证已冲刷部分始终是合法 UTF-8。
+     */
+    static size_t partialMarkerTailLen(const std::string& buf) {
+        static const char* markers[] = {"\x3c/think\x3e", "\xe2\x9d\xb4", "\xe2\x9d\xb5"};
+        size_t hold = 0;
+        for (const char* m : markers) {
+            std::string marker(m);
+            for (size_t len = 1; len < marker.size() && len <= buf.size(); len++) {
+                if (buf.compare(buf.size() - len, len, marker, 0, len) == 0) {
+                    if (len > hold) hold = len;
+                }
+            }
+        }
+        return hold;
+    }
     
     bool generateStream(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
         if (isGenerating.exchange(true)) {
@@ -1675,9 +1854,11 @@ public:
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu", n_ctx, tokens_list.size());
-        if ((int)tokens_list.size() > n_ctx) {
-            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens > n_ctx " + std::to_string(n_ctx);
+        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
+        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
+        if ((int)tokens_list.size() + maxTokens > n_ctx) {
+            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens + maxTokens "
+                + std::to_string(maxTokens) + " > n_ctx " + std::to_string(n_ctx);
             LOGE("%s", error.c_str());
             setLastError(error);
             callback("", true, error);
@@ -1716,20 +1897,36 @@ public:
         
         int n_remain = maxTokens;
         int n_decode = 0;
+        // 当前 KV cache 位置：prompt 已全部写入，后续每生成一个 token 位置 +1
+        int n_past = (int)tokens_list.size();
         const int TIMEOUT_SECONDS = 120;
+        // 思考 token 上限：防止非思考模型（如 qwen2.5-instruct）被强行引导后
+        // 永不输出 </think>，耗尽全部 maxTokens 导致主回复为空
+        const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
         std::string fullText;
         std::string thinkingText;
+        std::string thinkingPending; // 思考待冲刷缓冲：暂扣可能是结束标记前缀的尾部
         bool inThinking = enableThinking;
         bool thinkingEnded = !enableThinking;
+        int thinkingTokens = 0;
+        // 生成终止时思考未结束的原因诊断（便于日志定位）
+        std::string stopReason = "normal";
         
         auto start = std::chrono::steady_clock::now();
         
         while (n_remain > 0 && !shouldStop) {
+            // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
+            if (n_past >= n_ctx - 4) {
+                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                stopReason = "ctx_full";
+                break;
+            }
             // Check for timeout
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
             if (elapsed > TIMEOUT_SECONDS) {
                 LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                stopReason = "timeout";
                 break;
             }
             
@@ -1740,12 +1937,14 @@ public:
             // Check for EOS (end of sequence) token
             if (llama_vocab_is_eog(vocab, new_token_id)) {
                 LOGI("EOS token detected, stopping generation");
+                stopReason = "eos";
                 break;
             }
             
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
                 new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
                 LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                stopReason = "eos";
                 break;
             }
             
@@ -1760,21 +1959,50 @@ public:
                 token.find("</s>") != std::string::npos ||
                 token.find("<|im_sep|>") != std::string::npos) {
                 LOGI("Stop word detected in token, stopping generation");
+                stopReason = "stop_word";
                 break;
             }
             
             if (inThinking && !thinkingEnded) {
-                thinkingText += token;
-                if (token.find("</think>") != std::string::npos ||
-                    token.find("\xe2\x9d\xb4") != std::string::npos ||
-                    token.find("\xe2\x9d\xb5") != std::string::npos) {
+                thinkingTokens++;
+                thinkingPending += token;
+                int markerLen = 0;
+                int markerPos = findThinkingEndMarker(thinkingPending, markerLen);
+                if (markerPos >= 0) {
+                    // 发现结束标记（跨 token 拆分也能命中）：冲刷标记前的思考内容
+                    if (markerPos > 0) {
+                        callback(thinkingPending.substr(0, markerPos), false, "");
+                    }
                     thinkingEnded = true;
                     callback("[THINK_END]", false, "");
-                } else if (thinkingText.size() >= 4 && thinkingText.substr(thinkingText.size() - 2) == "\n\n") {
+                    // 标记之后的文本属于正文
+                    std::string rest = thinkingPending.substr(markerPos + markerLen);
+                    thinkingPending.clear();
+                    if (!rest.empty()) {
+                        fullText += rest;
+                        callback(rest, false, "");
+                    }
+                } else if (thinkingTokens >= THINKING_TOKEN_LIMIT) {
+                    // 思考 token 达到上限：强制结束思考，保留剩余额度给主回复，
+                    // 避免思考无限延续导致主回复为空
+                    if (!thinkingPending.empty()) {
+                        thinkingText += thinkingPending;
+                        callback(thinkingPending, false, "");
+                        thinkingPending.clear();
+                    }
                     thinkingEnded = true;
+                    LOGI("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                     callback("[THINK_END]", false, "");
                 } else {
-                    callback(token, false, "");
+                    // 冲刷安全前缀：暂扣末尾可能是标记前缀的字节，等待后续 token 拼接
+                    size_t hold = partialMarkerTailLen(thinkingPending);
+                    size_t flushLen = thinkingPending.size() - hold;
+                    if (flushLen > 0) {
+                        std::string chunk = thinkingPending.substr(0, flushLen);
+                        thinkingText += chunk;
+                        callback(chunk, false, "");
+                        thinkingPending.erase(0, flushLen);
+                    }
                 }
             } else {
                 fullText += token;
@@ -1783,6 +2011,7 @@ public:
             
             llama_batch batch = llama_batch_get_one(&new_token_id, 1);
             ret = llama_decode(ctx, batch);
+            n_past++;
             
             if (ret != 0) {
                 LOGE("llama_decode failed with code: %d", ret);
@@ -1797,6 +2026,20 @@ public:
         }
         
         llama_sampler_free(smpl);
+        
+        // 生成终止时思考仍未结束：冲刷残留思考内容并补发 [THINK_END]，保证 UI 思考布局正常闭合
+        if (!thinkingEnded) {
+            if (n_remain <= 0) stopReason = "max_tokens";
+            if (shouldStop) stopReason = "user_stop";
+            LOGW("Thinking NOT ended by model (reason=%s, thinkingTokens=%d, mainTokens=%d), "
+                 "sending fallback [THINK_END]", stopReason.c_str(), thinkingTokens, n_decode - thinkingTokens);
+            if (!thinkingPending.empty()) {
+                callback(thinkingPending, false, "");
+                thinkingPending.clear();
+            }
+            callback("[THINK_END]", false, "");
+            thinkingEnded = true;
+        }
         
         // Call callback with completion and full text
         callback(fullText, true, "");
@@ -1869,10 +2112,17 @@ public:
      * @param callback token 回调
      * @return 生成是否成功
      */
+    // common_chat_parse 解析结果结构体
+    struct ChatParseResult {
+        std::vector<common_chat_tool_call> tool_calls;
+        std::string reasoning_content;
+    };
+
     bool generateWithTools(const std::vector<std::pair<std::string, std::string>>& messages,
                            const std::string& toolsJson,
                            int maxTokens, float temperature, float topP, int topK,
-                           bool enableThinking, TokenCallback callback) {
+                           bool enableThinking, TokenCallback callback,
+                           ChatParseResult* outParseResult = nullptr) {
         LOGI("=== GENERATE WITH TOOLS START ===");
         LOGI("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
              messages.size(), toolsJson.size(), maxTokens, (int)enableThinking);
@@ -1944,8 +2194,60 @@ public:
             return false;
         }
 
-        // 复用 generateStream 的核心生成逻辑
-        return generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
+        // 不再传 enableThinking=true 给 generateStream。
+        // 模型想输出什么就输出什么：如果模型自己决定思考，chat template 会处理；
+        // 如果模型直接回答，generateStream 正常输出 token。
+        // 生成完成后用 common_chat_parse 解析模型输出，提取 tool_calls 和 reasoning_content。
+        // 解析结果通过结构体传给 JNI 层，JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调，
+        // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通。
+
+        // 用包装回调收集 fullText，拦截 onComplete 以便在 common_chat_parse 解析后再发送
+        std::string collectedText;
+        auto wrappedCallback = [&callback, &collectedText](const std::string& text, bool isComplete, const std::string& error) {
+            if (!isComplete && !error.empty()) {
+                callback(text, isComplete, error);
+                return;
+            }
+            if (isComplete && !text.empty()) {
+                collectedText = text;
+                // 不立即触发 onComplete，等 common_chat_parse 解析完后再触发
+                return;
+            }
+            if (!isComplete) {
+                callback(text, isComplete, error);
+            }
+        };
+
+        bool genOk = generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, false, wrappedCallback);
+
+        // 生成完成后，用 common_chat_parse 解析模型输出
+        // 解析结果存到 outParseResult，由 JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调
+        // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通，无需中间层
+        if (genOk && !collectedText.empty()) {
+            try {
+                common_chat_parser_params parser_params(chat_params);
+                parser_params.parse_tool_calls = true;
+                common_chat_msg parsed = common_chat_parse(collectedText, false, parser_params);
+
+                if (outParseResult != nullptr) {
+                    outParseResult->tool_calls = std::move(parsed.tool_calls);
+                    outParseResult->reasoning_content = std::move(parsed.reasoning_content);
+                    if (!outParseResult->tool_calls.empty()) {
+                        LOGI("Parsed %zu tool calls via common_chat_parse", outParseResult->tool_calls.size());
+                    }
+                    if (!outParseResult->reasoning_content.empty()) {
+                        LOGI("Parsed reasoning content (%zu chars) via common_chat_parse", outParseResult->reasoning_content.size());
+                    }
+                }
+            } catch (const std::exception& e) {
+                LOGW("common_chat_parse failed: %s", e.what());
+            }
+        }
+
+        // 触发 onComplete
+        callback(collectedText, true, "");
+
+        return genOk;
     }
     
     // 并行批处理生成
@@ -2161,6 +2463,283 @@ public:
         resetRuntimeState();
         return ok ? 0 : -5;
     }
+
+    // ========== 多模态视觉支持 ==========
+
+    /**
+     * 加载多模态投影文件（mmproj）
+     * @param mmprojPath mmproj 文件路径
+     * @return true 成功，false 失败
+     */
+    bool loadMultimodalProj(const std::string& mmprojPath) {
+        if (model == nullptr) {
+            LOGE("loadMultimodalProj: model not loaded");
+            return false;
+        }
+
+        LOGI("Loading multimodal projection: %s", mmprojPath.c_str());
+
+        // 检查文件是否存在
+        FILE* f = fopen(mmprojPath.c_str(), "rb");
+        if (f == nullptr) {
+            LOGE("Multimodal projection file not found: %s", mmprojPath.c_str());
+            return false;
+        }
+        fclose(f);
+
+        // 设置 mtmd 参数
+        mtmd_context_params mparams = mtmd_context_params_default();
+        mparams.use_gpu = true;           // 使用 GPU 加速视觉编码
+        mparams.print_timings = false;
+        mparams.n_threads = threadCount > 0 ? threadCount : 4;
+        mparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        mparams.warmup = false;           // 跳过预热以加快加载
+        mparams.image_min_tokens = 256;   // 限制图像 token 数量
+        mparams.image_max_tokens = 1024;
+
+        // 初始化 mtmd 上下文
+        s_mtmdCtx = mtmd_init_from_file(mmprojPath.c_str(), model, mparams);
+        if (s_mtmdCtx == nullptr) {
+            LOGE("Failed to initialize multimodal context from: %s", mmprojPath.c_str());
+            return false;
+        }
+
+        LOGI("Multimodal projection loaded successfully");
+        return true;
+    }
+
+    /**
+     * 释放多模态上下文
+     */
+    void releaseMultimodal() {
+        if (s_mtmdCtx != nullptr) {
+            mtmd_free(s_mtmdCtx);
+            s_mtmdCtx = nullptr;
+            LOGI("Multimodal context released");
+        }
+    }
+
+    /**
+     * 检查多模态是否已加载
+     */
+    bool isMultimodalLoaded() const {
+        return s_mtmdCtx != nullptr;
+    }
+
+    /**
+     * 带图像的生成长文本（流式）- 支持历史上下文
+     * @param history 历史消息列表 (role, content)
+     * @param userText 当前用户文本
+     * @param imagePath 图像文件路径
+     * @param maxTokens 最大生成 token 数
+     * @param temperature 温度
+     * @param topP top-p 采样
+     * @param topK top-k 采样
+     * @param enableThinking 是否启用思考
+     * @param callback 流式回调
+     */
+    bool generateStreamWithImage(
+        const std::vector<std::pair<std::string, std::string>>& history,
+        const std::string& userText,
+        const std::string& imagePath,
+        int maxTokens, float temperature, float topP, int topK,
+        bool enableThinking, TokenCallback callback) {
+        if (!isMultimodalLoaded()) {
+            LOGE("generateStreamWithImage: multimodal not loaded");
+            callback("", true, "Multimodal not loaded");
+            return false;
+        }
+
+        LOGI("=== STREAM GENERATE WITH IMAGE START ===");
+        LOGI("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
+             history.size(), userText.size(), imagePath.c_str(), maxTokens);
+
+        // 1. 构建当前用户消息（带图像标记）
+        const char* marker = mtmd_default_marker();
+        std::string currentUserMsg = std::string(marker) + "\n" + userText;
+
+        // 2. 添加当前消息到历史
+        std::vector<std::pair<std::string, std::string>> allMessages = history;
+        allMessages.push_back({"user", currentUserMsg});
+
+        // 3. 格式化完整消息（含历史）
+        std::string fullPrompt = applyChatTemplateForMessages(allMessages, true);
+        if (fullPrompt.empty()) {
+            LOGE("Failed to apply chat template");
+            callback("", true, "Failed to format prompt");
+            return false;
+        }
+        LOGI("Full prompt (history + image) length: %zu", fullPrompt.size());
+
+        // 4. 评估历史部分（不带图像）- 先评估历史 text，写入 KV cache
+        if (!history.empty()) {
+            // 构建不含图像的历史提示词
+            std::vector<std::pair<std::string, std::string>> historyWithoutImage = history;
+            if (!history.empty() && history.back().first == "user") {
+                // 最后一条用户消息不含图像标记
+                std::string textOnly = history.back().second;
+                size_t markerPos = textOnly.find(marker);
+                if (markerPos != std::string::npos) {
+                    // 移除图像标记部分
+                    textOnly = textOnly.substr(0, markerPos);
+                }
+                historyWithoutImage.back() = {"user", textOnly};
+            } else {
+                historyWithoutImage.push_back({"user", userText});
+            }
+            
+            std::string historyPrompt = applyChatTemplateForMessages(historyWithoutImage, false);
+            if (!historyPrompt.empty()) {
+                // Tokenize 历史
+                std::vector<llama_token> historyTokens;
+                int nHistoryTokens = -llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), NULL, 0, true, true);
+                if (nHistoryTokens > 0) {
+                    historyTokens.resize(nHistoryTokens);
+                    if (llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), historyTokens.data(), historyTokens.size(), true, true) >= 0) {
+                        // 评估历史 token 到 KV cache
+                        llama_batch historyBatch = llama_batch_get_one(historyTokens.data(), historyTokens.size());
+                        int ret = llama_decode(ctx, historyBatch);
+                        if (ret == 0) {
+                            LOGI("History evaluated: %zu tokens into KV cache", historyTokens.size());
+                        } else {
+                            LOGW("Failed to evaluate history into KV cache: %d", ret);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. 加载图像
+        mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false);
+        if (bitmapWrapper.bitmap == nullptr) {
+            LOGE("Failed to load image: %s", imagePath.c_str());
+            callback("", true, "Failed to load image");
+            return false;
+        }
+
+        // 6. 构建输入
+        mtmd_input_text inputText;
+        inputText.text = fullPrompt.c_str();
+        inputText.text_len = fullPrompt.size();
+        inputText.add_special = true;
+        inputText.parse_special = true;
+
+        const mtmd_bitmap* bitmaps[1] = { bitmapWrapper.bitmap };
+
+        // 7. 分词（图像 + 当前消息）
+        mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+        int32_t tokenizeRes = mtmd_tokenize(s_mtmdCtx, chunks, &inputText, bitmaps, 1);
+        if (tokenizeRes != 0) {
+            LOGE("mtmd_tokenize failed: %d", tokenizeRes);
+            mtmd_input_chunks_free(chunks);
+            mtmd_bitmap_free(bitmapWrapper.bitmap);
+            callback("", true, "Failed to tokenize");
+            return false;
+        }
+
+        // 8. 评估图像 token
+        // 如果历史已评估，从历史结束位置开始评估图像
+        // 否则从 0 开始
+        llama_pos n_past = 0;
+        if (!history.empty()) {
+            // 历史评估后，n_past 就是历史 token 数量
+            // 使用 mtmd_helper_get_n_tokens 估算历史大小
+            // 由于我们没有单独保存历史的 chunks，使用 llama_batch 评估后无法直接获取 n_past
+            // 改为保守估计：假设历史评估后 KV cache 已就位
+            n_past = 0;  // mtmd 会从当前位置继续
+        }
+        
+        // 检查上下文容量
+        size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
+        LOGI("Image+prompt tokens: %zu, n_past: %d, total: %zu", totalTokens, (int)n_past, totalTokens + n_past);
+        
+        int n_ctx = llama_n_ctx(ctx);
+        if ((int)(totalTokens + n_past) > n_ctx - maxTokens) {
+            LOGW("Tokens exceed context, clearing KV cache");
+            clearContextForInference();
+            n_past = 0;
+        }
+
+        llama_pos new_n_past = 0;
+        int32_t evalRes = mtmd_helper_eval_chunks(s_mtmdCtx, ctx, chunks, n_past, 0, 256, true, &new_n_past);
+        mtmd_input_chunks_free(chunks);
+        mtmd_bitmap_free(bitmapWrapper.bitmap);
+
+        if (evalRes != 0) {
+            LOGE("mtmd_helper_eval_chunks failed: %d", evalRes);
+            callback("", true, "Failed to evaluate");
+            return false;
+        }
+
+        LOGI("Image and prompt evaluated, starting generation from pos %d", (int)new_n_past);
+
+        // 采样和生成循环（复用现有逻辑）
+        // 这里需要实现采样循环，类似 generateStream 的后半部分
+        // 为简化，先调用一个辅助方法
+        return generateFromEvaluatedContext(maxTokens, temperature, topP, topK, enableThinking, callback);
+    }
+
+    /**
+     * 从已评估的上下文生成（辅助方法）
+     */
+    bool generateFromEvaluatedContext(int maxTokens, float temperature, float topP, int topK,
+                                       bool enableThinking, TokenCallback callback) {
+        // 创建采样器
+        auto sparams = llama_sampler_chain_default_params();
+        struct llama_sampler* smpl = llama_sampler_chain_init(sparams);
+        if (temperature <= 0) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+        } else {
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        }
+
+        int n_remain = maxTokens;
+        std::string fullText;
+        const int TIMEOUT_SECONDS = 120;
+        auto start = std::chrono::steady_clock::now();
+
+        while (n_remain > 0 && !shouldStop) {
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
+            if (elapsed > TIMEOUT_SECONDS) {
+                LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                break;
+            }
+
+            llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
+            llama_sampler_accept(smpl, new_token_id);
+
+            if (llama_vocab_is_eog(vocab, new_token_id)) {
+                LOGI("EOS token detected");
+                break;
+            }
+
+            char token_str[256] = {0};
+            int n = llama_token_to_piece(vocab, new_token_id, token_str, sizeof(token_str), 0, true);
+            if (n < 0) break;
+
+            std::string token(token_str, n);
+            fullText += token;
+            callback(token, false, "");
+
+            llama_batch batch = llama_batch_get_one(&new_token_id, 1);
+            int ret = llama_decode(ctx, batch);
+            if (ret != 0) {
+                LOGE("llama_decode failed: %d", ret);
+                break;
+            }
+
+            n_remain--;
+        }
+
+        llama_sampler_free(smpl);
+        callback(fullText, true, "");
+        LOGI("=== STREAM GENERATE WITH IMAGE END ===");
+        return true;
+    }
 };
 
 // InferenceContext::applyChatTemplateForMessages 的类外定义
@@ -2203,6 +2782,22 @@ std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std
 }
 
 } // namespace llama_jni
+
+// 命名空间外的 JNI 函数需要引用 llama_jni 内的多模态全局变量
+using llama_jni::s_mtmdCtx;
+using llama_jni::s_mtmdMutex;
+
+// UTF-8 安全截断：按字节截断时回退到完整字符边界，避免切断多字节字符
+// （曾导致 getInfo 返回非法 UTF-8，NewStringUTF 触发 JNI abort 杀进程）
+static std::string utf8SafeTruncate(const std::string& s, size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    size_t end = maxBytes;
+    // 跳过续字节（10xxxxxx），回退到字符起始字节
+    while (end > 0 && (static_cast<unsigned char>(s[end]) & 0xC0) == 0x80) {
+        --end;
+    }
+    return s.substr(0, end);
+}
 
 // ============================================================
 // NativeChatContext - Native层独立管理上下文、KV缓存、多轮对话
@@ -2766,9 +3361,16 @@ public:
         std::string fullResponse;
         fullResponse.reserve(maxTokens * 4);
         std::string thinkingText;
+        std::string thinkingPending; // 思考待冲刷缓冲：暂扣可能是结束标记前缀的尾部
         bool inThinking = enableThinking;
         bool thinkingEnded = !enableThinking;
         int n_decode = 0;
+        // 思考 token 上限：防止非思考模型（如 qwen2.5-instruct）被强行引导后
+        // 永不输出 结束标记，耗尽全部 maxTokens 导致主回复为空
+        const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
+        int thinkingTokens = 0;
+        // 生成终止时思考未结束的原因诊断（便于日志定位）
+        std::string stopReason = "normal";
 
         const int TOOL_CALL_DETECT_THRESHOLD = 10;
         bool possibleToolCall = false;
@@ -2785,20 +3387,22 @@ public:
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - genStartTime).count();
             if (elapsedMs > TIMEOUT_MS) {
                 LOGW("Generation timeout: %lldms > %lldms, stopping", elapsedMs, TIMEOUT_MS);
+                stopReason = "timeout";
                 break;
             }
 
             if (total_tokens_in_kv >= n_ctx - 4) {
                 LOGI("Context full, stopping generation");
+                stopReason = "ctx_full";
                 break;
             }
 
             llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
             llama_sampler_accept(smpl, new_token_id);
 
-            if (llama_vocab_is_eog(vocab, new_token_id)) break;
+            if (llama_vocab_is_eog(vocab, new_token_id)) { stopReason = "eos"; break; }
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
-                new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) break;
+                new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) { stopReason = "eos"; break; }
 
             char buf[128];
             int n = llama_token_to_piece(vocab, new_token_id, buf, sizeof(buf), 0, true);
@@ -2806,22 +3410,52 @@ public:
                 std::string token_str(buf, n);
                 if (token_str.find("<|im_end|") != std::string::npos ||
                     token_str.find("</s>") != std::string::npos ||
-                    token_str.find("<|endoftext|") != std::string::npos) break;
+                    token_str.find("<|endoftext|") != std::string::npos) { stopReason = "stop_word"; break; }
 
+                bool sendToBody = false;
                 if (inThinking && !thinkingEnded) {
-                    thinkingText += token_str;
-                    if (token_str.find("</think>") != std::string::npos ||
-                        token_str.find("\xe2\x9d\xb4") != std::string::npos ||
-                        token_str.find("\xe2\x9d\xb5") != std::string::npos) {
+                    thinkingTokens++;
+                    thinkingPending += token_str;
+                    int markerLen = 0;
+                    int markerPos = llama_jni::InferenceContext::findThinkingEndMarker(thinkingPending, markerLen);
+                    if (markerPos >= 0) {
+                        // 发现结束标记（跨 token 拆分也能命中）：冲刷标记前的思考内容
+                        if (markerPos > 0) {
+                            callback(thinkingPending.substr(0, markerPos), false, "");
+                        }
                         thinkingEnded = true;
                         callback("[THINK_END]", false, "");
-                    } else if (thinkingText.size() >= 4 && thinkingText.substr(thinkingText.size() - 2) == "\n\n") {
+                        // 标记之后的文本属于正文，交由下方正文流程处理
+                        token_str = thinkingPending.substr(markerPos + markerLen);
+                        thinkingPending.clear();
+                        sendToBody = !token_str.empty();
+                    } else if (thinkingTokens >= THINKING_TOKEN_LIMIT) {
+                        // 思考 token 达到上限：强制结束思考，保留剩余额度给主回复，
+                        // 避免思考无限延续导致主回复为空
+                        if (!thinkingPending.empty()) {
+                            thinkingText += thinkingPending;
+                            callback(thinkingPending, false, "");
+                            thinkingPending.clear();
+                        }
                         thinkingEnded = true;
+                        LOGI("chatSend: thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                         callback("[THINK_END]", false, "");
                     } else {
-                        callback(token_str, false, "");
+                        // 冲刷安全前缀：暂扣末尾可能是标记前缀的字节，等待后续 token 拼接
+                        size_t hold = llama_jni::InferenceContext::partialMarkerTailLen(thinkingPending);
+                        size_t flushLen = thinkingPending.size() - hold;
+                        if (flushLen > 0) {
+                            std::string chunk = thinkingPending.substr(0, flushLen);
+                            thinkingText += chunk;
+                            callback(chunk, false, "");
+                            thinkingPending.erase(0, flushLen);
+                        }
                     }
                 } else {
+                    sendToBody = true;
+                }
+
+                if (sendToBody) {
                     fullResponse += token_str;
                     
                     if (!possibleToolCall && n_decode > TOOL_CALL_DETECT_THRESHOLD) {
@@ -2871,6 +3505,20 @@ public:
 
         llama_sampler_free(smpl);
 
+        // 生成终止时思考仍未结束：冲刷残留思考内容并补发 [THINK_END]，保证 UI 思考布局正常闭合
+        if (!thinkingEnded) {
+            if (n_decode >= maxTokens) stopReason = "max_tokens";
+            if (shouldStop) stopReason = "user_stop";
+            LOGW("chatSend: thinking NOT ended by model (reason=%s, thinkingTokens=%d, mainTokens=%d), "
+                 "sending fallback [THINK_END]", stopReason.c_str(), thinkingTokens, n_decode - thinkingTokens);
+            if (!thinkingPending.empty()) {
+                callback(thinkingPending, false, "");
+                thinkingPending.clear();
+            }
+            callback("[THINK_END]", false, "");
+            thinkingEnded = true;
+        }
+
         bool isToolCallResponse = (fullResponse.find("<|tool_call_begin|>") != std::string::npos ||
             fullResponse.find("tool_call_begin") != std::string::npos ||
             (fullResponse.find("tool") != std::string::npos && fullResponse.find("call") != std::string::npos && fullResponse.find("begin") != std::string::npos));
@@ -2915,6 +3563,16 @@ public:
         chatMessages.push_back({"tool", toolResultContent});
     }
 
+    // 注入 assistant 消息（不生成）：供外部产物（如工具结果解读）进入主对话历史，
+    // 使后续轮次追问可见。与 addAssistantToolCall 同机制：不更新 prev_formatted_len，
+    // 下次 chatSend 的增量模板编码会自动将其编入 KV
+    void addAssistantMessage(const std::string& content) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (destroyed) return;
+        LOGI("addAssistantMessage: len=%zu", content.size());
+        chatMessages.push_back({"assistant", content});
+    }
+
     void stopGeneration() {
         shouldStop = true;
     }
@@ -2939,10 +3597,10 @@ public:
         std::string info = "n_ctx: " + std::to_string(n_ctx) + "\n";
         info += "KV tokens: " + std::to_string(total_tokens_in_kv) + "/" + std::to_string(n_ctx) + "\n";
         info += "Turns: " + std::to_string(turns.size()) + "\n";
-        info += "Global prompt: " + (global_prompt.empty() ? "(none)" : global_prompt.substr(0, 50) + (global_prompt.size() > 50 ? "..." : "")) + "\n";
+        info += "Global prompt: " + (global_prompt.empty() ? "(none)" : utf8SafeTruncate(global_prompt, 50) + (global_prompt.size() > 50 ? "..." : "")) + "\n";
         info += "Global tokens: " + std::to_string(global_tokens.size()) + "\n";
         info += "System tokens: " + std::to_string(system_tokens.size()) + "\n";
-        info += "Normal prompt: " + (normal_prompt.empty() ? "(none)" : normal_prompt.substr(0, 50) + (normal_prompt.size() > 50 ? "..." : "")) + "\n";
+        info += "Normal prompt: " + (normal_prompt.empty() ? "(none)" : utf8SafeTruncate(normal_prompt, 50) + (normal_prompt.size() > 50 ? "..." : "")) + "\n";
         info += "Normal tokens: " + std::to_string(normal_tokens.size()) + "\n";
         info += "Available: " + std::to_string(n_ctx - total_tokens_in_kv) + " tokens\n";
         return info;
@@ -3029,9 +3687,11 @@ public:
         LOGI("Clearing context, used tokens before: %d", total_tokens_in_kv);
 
         // 清理 KV cache
+        // 必须使用软清理(false)：硬清理(true)会释放 Vulkan/OpenCL 后端的 KV GPU 缓冲区，
+        // 下一次 llama_decode 会因访问已释放缓冲区触发 signal 6 崩溃
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
-            llama_memory_clear(mem, true);
+            llama_memory_clear(mem, false);
         }
 
         // 重置计数器
@@ -3041,7 +3701,7 @@ public:
         chatMessages.clear();
         prev_formatted_len = 0;
 
-        LOGI("Context cleared, freed all tokens");
+        LOGI("Context cleared (soft), freed all tokens");
     }
 
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
@@ -3314,7 +3974,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     }
     env->DeleteLocalRef(cbClass);
 
-    auto streamCallback = [javaVM, globalCallback, globalCbClass, onToken, onComplete, onError](const std::string& token, bool isDone, const std::string& error) {
+    // UTF-8 流式缓冲：缓存不完整的多字节字符，与下一个 token 拼接
+    auto streamCallback = [javaVM, globalCallback, globalCbClass, onToken, onComplete, onError,
+                           utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         if (javaVM == nullptr) {
             LOGE("streamCallback: JVM is null");
             return;
@@ -3349,7 +4011,13 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
                     }
                 } else {
                     if (onComplete != nullptr) {
-                        jstring jToken = safeNewStringUTF(cbEnv, token);
+                        // 刷新 UTF-8 缓冲区中剩余的不完整字节
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring jToken = safeNewStringUTF(cbEnv, finalToken);
                         cbEnv->CallVoidMethod(globalCallback, onComplete, jToken);
                         cbEnv->DeleteLocalRef(jToken);
                     }
@@ -3365,9 +4033,25 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
                 if (globalCbClass != nullptr) cbEnv->DeleteGlobalRef(globalCbClass);
             } else {
                 if (onToken != nullptr) {
-                    jstring jToken = safeNewStringUTF(cbEnv, token);
-                    cbEnv->CallVoidMethod(globalCallback, onToken, jToken);
-                    cbEnv->DeleteLocalRef(jToken);
+                    // 将缓存的不完整字节与新 token 拼接
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+                    
+                    // 分离完整 UTF-8 和不完整尾部
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+                    
+                    // 缓存不完整尾部，等下一个 token
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+                    
+                    // 只发送完整部分
+                    if (!completePart.empty()) {
+                        jstring jToken = safeNewStringUTF(cbEnv, completePart);
+                        cbEnv->CallVoidMethod(globalCallback, onToken, jToken);
+                        cbEnv->DeleteLocalRef(jToken);
+                    }
                 }
             }
         } catch (...) {
@@ -3531,6 +4215,29 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddToolResult(
     if (content) env->ReleaseStringUTFChars(toolResultContent, content);
 
     chatCtx->addToolResult(toolResultStr);
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistant(
+    JNIEnv* env, jclass, jlong handle, jstring content) {
+    LOGI("nativeChatAddAssistant called");
+
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeChatAddAssistant: invalid handle");
+        return;
+    }
+
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeChatAddAssistant: invalid chat context");
+        return;
+    }
+
+    const char* contentChars = content ? env->GetStringUTFChars(content, nullptr) : nullptr;
+    std::string contentStr(contentChars ? contentChars : "");
+    if (contentChars) env->ReleaseStringUTFChars(content, contentChars);
+
+    chatCtx->addAssistantMessage(contentStr);
 }
 
 JNIEXPORT jint JNICALL
@@ -3767,11 +4474,247 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeRelease(
     JNIEnv* env,
     jclass /* clazz */) {
     LOGI("LlamaHelper: Releasing resources");
+    // 先释放多模态上下文
+    if (s_mtmdCtx != nullptr) {
+        mtmd_free(s_mtmdCtx);
+        s_mtmdCtx = nullptr;
+        LOGI("Multimodal context released");
+    }
     if (s_helperContext != nullptr) {
         delete s_helperContext;
         s_helperContext = nullptr;
         LOGI("LlamaHelper: Resources released successfully");
     }
+}
+
+// ========== 多模态 JNI 函数 ==========
+
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeLoadMultimodal(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jstring mmprojPath) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("nativeLoadMultimodal: model not loaded");
+        return JNI_FALSE;
+    }
+    const char* path = env->GetStringUTFChars(mmprojPath, nullptr);
+    if (path == nullptr) {
+        return JNI_FALSE;
+    }
+    std::string pathStr(path);
+    env->ReleaseStringUTFChars(mmprojPath, path);
+
+    std::lock_guard<std::mutex> lock(s_mtmdMutex);
+    // 如果已加载，先释放
+    if (s_mtmdCtx != nullptr) {
+        mtmd_free(s_mtmdCtx);
+        s_mtmdCtx = nullptr;
+    }
+    bool result = s_helperContext->loadMultimodalProj(pathStr);
+    return result ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReleaseMultimodal(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    std::lock_guard<std::mutex> lock(s_mtmdMutex);
+    if (s_mtmdCtx != nullptr) {
+        mtmd_free(s_mtmdCtx);
+        s_mtmdCtx = nullptr;
+        LOGI("Multimodal context released via JNI");
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeIsMultimodalLoaded(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    return s_mtmdCtx != nullptr ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jobjectArray historyArray,  // 历史消息数组: [{"role":"user","content":"..."}, ...]
+    jstring prompt,
+    jstring imagePath,
+    jint maxTokens,
+    jfloat temperature,
+    jfloat topP,
+    jint topK,
+    jboolean enableThinking,
+    jobject callback) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("nativeGenerateWithImage: model not initialized");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Model not initialized");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        env->DeleteLocalRef(callbackClass);
+        return;
+    }
+
+    if (s_mtmdCtx == nullptr) {
+        LOGE("nativeGenerateWithImage: multimodal not loaded");
+        jclass callbackClass = env->GetObjectClass(callback);
+        jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+        if (onErrorMethod != nullptr) {
+            jstring errorStr = env->NewStringUTF("Multimodal not loaded");
+            env->CallVoidMethod(callback, onErrorMethod, errorStr);
+            env->DeleteLocalRef(errorStr);
+        }
+        env->DeleteLocalRef(callbackClass);
+        return;
+    }
+
+    // 解析历史消息数组
+    std::vector<std::pair<std::string, std::string>> history;
+    if (historyArray != nullptr) {
+        jsize historyLen = env->GetArrayLength(historyArray);
+        jclass msgClass = env->FindClass("com/oilquiz/app/ai/chat/ChatMessage");
+        jfieldID typeField = env->GetFieldID(msgClass, "type", "Lcom/oilquiz/app/ai/chat/ChatMessage$MessageType;");
+        jfieldID contentField = env->GetFieldID(msgClass, "content", "Ljava/lang/String;");
+        
+        // 获取 MessageType 枚举的 name 方法
+        jclass msgTypeClass = env->FindClass("com/oilquiz/app/ai/chat/ChatMessage$MessageType");
+        jmethodID nameMethod = env->GetMethodID(msgTypeClass, "name", "()Ljava/lang/String;");
+        
+        for (int i = 0; i < historyLen; i++) {
+            jobject msgObj = env->GetObjectArrayElement(historyArray, i);
+            jobject typeObj = env->GetObjectField(msgObj, typeField);
+            jstring contentStr = (jstring)env->GetObjectField(msgObj, contentField);
+            
+            if (typeObj && contentStr) {
+                jstring typeStr = (jstring)env->CallObjectMethod(typeObj, nameMethod);
+                if (typeStr) {
+                    const char* type = env->GetStringUTFChars(typeStr, nullptr);
+                    const char* content = env->GetStringUTFChars(contentStr, nullptr);
+                    if (type && content) {
+                        // 转换为小写 role 字符串
+                        std::string roleLower = std::string(type);
+                        for (auto& c : roleLower) c = std::tolower(c);
+                        history.push_back({roleLower, std::string(content)});
+                    }
+                    if (type) env->ReleaseStringUTFChars(typeStr, type);
+                    if (content) env->ReleaseStringUTFChars(contentStr, content);
+                }
+            }
+            env->DeleteLocalRef(typeObj);
+            env->DeleteLocalRef(contentStr);
+            env->DeleteLocalRef(msgObj);
+        }
+        env->DeleteLocalRef(msgTypeClass);
+        env->DeleteLocalRef(msgClass);
+    }
+    
+    LOGI("Received %zu history messages for multimodal generation", history.size());
+
+    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
+    const char* imagePathStr = env->GetStringUTFChars(imagePath, nullptr);
+    if (promptStr == nullptr || imagePathStr == nullptr) {
+        if (promptStr) env->ReleaseStringUTFChars(prompt, promptStr);
+        if (imagePathStr) env->ReleaseStringUTFChars(imagePath, imagePathStr);
+        return;
+    }
+
+    std::string promptContent(promptStr);
+    std::string imagePathContent(imagePathStr);
+    env->ReleaseStringUTFChars(prompt, promptStr);
+    env->ReleaseStringUTFChars(imagePath, imagePathStr);
+
+    // 创建全局引用，防止回调时对象被回收
+    jobject globalCallback = env->NewGlobalRef(callback);
+
+    // 提前缓存 jmethodID
+    jclass callbackClass = env->GetObjectClass(globalCallback);
+    jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
+    env->DeleteLocalRef(callbackClass);
+
+    // 创建回调包装器
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod,
+                          utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
+        JavaVM* jvm = getJavaVM();
+        JNIEnv* env = nullptr;
+
+        int result = jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+        bool didAttach = false;
+        if (result == JNI_EDETACHED) {
+            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                LOGE("Failed to attach thread to JVM");
+                return;
+            }
+            didAttach = true;
+        } else if (result != JNI_OK) {
+            LOGE("Failed to get JNIEnv");
+            return;
+        }
+
+        try {
+            if (isDone) {
+                if (!error.empty()) {
+                    if (onErrorMethod != nullptr) {
+                        jstring errorStr = safeNewStringUTF(env, error);
+                        env->CallVoidMethod(globalCallback, onErrorMethod, errorStr);
+                        env->DeleteLocalRef(errorStr);
+                    }
+                } else {
+                    if (onCompleteMethod != nullptr) {
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring resultStr = safeNewStringUTF(env, finalToken);
+                        env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
+                        env->DeleteLocalRef(resultStr);
+                    }
+                }
+            } else if (!token.empty()) {
+                if (onTokenMethod != nullptr) {
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+
+                    if (!completePart.empty()) {
+                        jstring tokenStr = safeNewStringUTF(env, completePart);
+                        env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                        env->DeleteLocalRef(tokenStr);
+                    }
+                }
+            }
+        } catch (...) {
+            LOGE("Exception in JNI callback");
+        }
+
+        if (isDone) {
+            env->DeleteGlobalRef(globalCallback);
+            env->DeleteGlobalRef(globalCallbackClass);
+        }
+
+        if (didAttach) {
+            jvm->DetachCurrentThread();
+        }
+    };
+
+    // 执行多模态生成（传入历史消息）
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->generateStreamWithImage(history, promptContent, imagePathContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+    );
 }
 
 JNIEXPORT jint JNICALL
@@ -4010,7 +4953,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
     env->DeleteLocalRef(callbackClass);
     
     // Create a callback wrapper for JNI - 正确处理线程安全
-    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod,
+                          utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         JavaVM* jvm = getJavaVM();
         JNIEnv* env = nullptr;
         
@@ -4040,16 +4984,38 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
                     }
                 } else {
                     if (onCompleteMethod != nullptr) {
-                        jstring resultStr = safeNewStringUTF(env, token);
+                        // 刷新 UTF-8 缓冲区中剩余的不完整字节
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring resultStr = safeNewStringUTF(env, finalToken);
                         env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
                         env->DeleteLocalRef(resultStr);
                     }
                 }
             } else if (!token.empty()) {
                 if (onTokenMethod != nullptr) {
-                    jstring tokenStr = safeNewStringUTF(env, token);
-                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
-                    env->DeleteLocalRef(tokenStr);
+                    // 将缓存的不完整字节与新 token 拼接
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+                    
+                    // 分离完整 UTF-8 和不完整尾部
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+                    
+                    // 缓存不完整尾部，等下一个 token
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+                    
+                    // 只发送完整部分
+                    if (!completePart.empty()) {
+                        jstring tokenStr = safeNewStringUTF(env, completePart);
+                        env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                        env->DeleteLocalRef(tokenStr);
+                    }
                 }
             }
         } catch (...) {
@@ -4224,7 +5190,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
     env->DeleteLocalRef(callbackClass);
 
     // Create a callback wrapper for JNI - 正确处理线程安全和中文编码
-    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod,
+                          utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         JavaVM* jvm = getJavaVM();
         JNIEnv* env = nullptr;
 
@@ -4254,16 +5221,38 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
                     }
                 } else {
                     if (onCompleteMethod != nullptr) {
-                        jstring resultStr = utf8StringToJstring(env, token);
+                        // 刷新 UTF-8 缓冲区中剩余的不完整字节
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring resultStr = utf8StringToJstring(env, finalToken);
                         env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
                         env->DeleteLocalRef(resultStr);
                     }
                 }
             } else if (!token.empty()) {
                 if (onTokenMethod != nullptr) {
-                    jstring tokenStr = utf8StringToJstring(env, token);
-                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
-                    env->DeleteLocalRef(tokenStr);
+                    // 将缓存的不完整字节与新 token 拼接
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+                    
+                    // 分离完整 UTF-8 和不完整尾部
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+                    
+                    // 缓存不完整尾部
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+                    
+                    // 只发送完整部分
+                    if (!completePart.empty()) {
+                        jstring tokenStr = utf8StringToJstring(env, completePart);
+                        env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                        env->DeleteLocalRef(tokenStr);
+                    }
                 }
             }
         } catch (...) {
@@ -4396,7 +5385,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
     env->DeleteLocalRef(callbackClass);
 
     // 复用 nativeGenerateStreamBytes 的回调包装器（支持中文）
-    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod,
+                          utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         JavaVM* jvm = getJavaVM();
         JNIEnv* env = nullptr;
 
@@ -4423,16 +5413,38 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
                     }
                 } else {
                     if (onCompleteMethod != nullptr) {
-                        jstring resultStr = utf8StringToJstring(env, token);
+                        // 刷新 UTF-8 缓冲区中剩余的不完整字节
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring resultStr = utf8StringToJstring(env, finalToken);
                         env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
                         env->DeleteLocalRef(resultStr);
                     }
                 }
             } else if (!token.empty()) {
                 if (onTokenMethod != nullptr) {
-                    jstring tokenStr = utf8StringToJstring(env, token);
-                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
-                    env->DeleteLocalRef(tokenStr);
+                    // 将缓存的不完整字节与新 token 拼接
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+                    
+                    // 分离完整 UTF-8 和不完整尾部
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+                    
+                    // 缓存不完整尾部
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+                    
+                    // 只发送完整部分
+                    if (!completePart.empty()) {
+                        jstring tokenStr = utf8StringToJstring(env, completePart);
+                        env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                        env->DeleteLocalRef(tokenStr);
+                    }
                 }
             }
         } catch (...) {
@@ -4543,11 +5555,15 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
     jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
     jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
+    // onToolCalls 和 onReasoning 是 default 方法，需要用接口类查找
+    jclass toolCallInfoClass = env->FindClass("com/oilquiz/app/ai/service/OnlineInferenceService$ToolCallInfo");
+    jclass listClass = env->FindClass("java/util/ArrayList");
     jclass globalCallbackClass = (jclass)env->NewGlobalRef(callbackClass);
     env->DeleteLocalRef(callbackClass);
 
     // 回调包装器
-    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod](const std::string& token, bool isDone, const std::string& error) {
+    auto tokenCallback = [globalCallback, globalCallbackClass, onTokenMethod, onCompleteMethod, onErrorMethod,
+                          utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         JavaVM* jvm = getJavaVM();
         JNIEnv* env = nullptr;
 
@@ -4573,16 +5589,38 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
                     }
                 } else {
                     if (onCompleteMethod != nullptr) {
-                        jstring resultStr = utf8StringToJstring(env, token);
+                        // 刷新 UTF-8 缓冲区中剩余的不完整字节
+                        std::string finalToken = token;
+                        if (!utf8Buffer->empty()) {
+                            finalToken = *utf8Buffer + finalToken;
+                            utf8Buffer->clear();
+                        }
+                        jstring resultStr = utf8StringToJstring(env, finalToken);
                         env->CallVoidMethod(globalCallback, onCompleteMethod, resultStr);
                         env->DeleteLocalRef(resultStr);
                     }
                 }
             } else if (!token.empty()) {
                 if (onTokenMethod != nullptr) {
-                    jstring tokenStr = utf8StringToJstring(env, token);
-                    env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
-                    env->DeleteLocalRef(tokenStr);
+                    // 将缓存的不完整字节与新 token 拼接
+                    std::string combined = *utf8Buffer + token;
+                    utf8Buffer->clear();
+                    
+                    // 分离完整 UTF-8 和不完整尾部
+                    std::string completePart;
+                    std::string incompleteTail = splitUtf8Complete(combined, completePart);
+                    
+                    // 缓存不完整尾部
+                    if (!incompleteTail.empty()) {
+                        *utf8Buffer = incompleteTail;
+                    }
+                    
+                    // 只发送完整部分
+                    if (!completePart.empty()) {
+                        jstring tokenStr = utf8StringToJstring(env, completePart);
+                        env->CallVoidMethod(globalCallback, onTokenMethod, tokenStr);
+                        env->DeleteLocalRef(tokenStr);
+                    }
                 }
             }
         } catch (...) {
@@ -4599,9 +5637,91 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
         }
     };
 
+    // 调用 generateWithTools，获取 common_chat_parse 解析结果
+    llama_jni::InferenceContext::ChatParseResult parseResult;
     SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
-        s_helperContext->generateWithTools(messages, toolsJson, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+        s_helperContext->generateWithTools(messages, toolsJson, maxTokens, temperature, topP, topK, enableThinking, tokenCallback, &parseResult)
     );
+
+    // 将 common_chat_parse 解析结果通过 Java 回调传递
+    // onToolCalls: 创建 ToolCallInfo 列表并调用 onToolCalls 回调
+    // onReasoning: 调用 onReasoning 回调
+    // 这与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通，无需中间层
+    try {
+        if (!parseResult.tool_calls.empty() && toolCallInfoClass != nullptr && listClass != nullptr) {
+            // 创建 ArrayList<ToolCallInfo>
+            jmethodID listConstructor = env->GetMethodID(listClass, "<init>", "()V");
+            jmethodID listAdd = env->GetMethodID(listClass, "add", "(Ljava/lang/Object;)Z");
+            jmethodID tcConstructor = env->GetMethodID(toolCallInfoClass, "<init>", "()V");
+
+            if (listConstructor != nullptr && listAdd != nullptr && tcConstructor != nullptr) {
+                jobject listObj = env->NewObject(listClass, listConstructor);
+
+                // ToolCallInfo 的字段: id (String), name (String), arguments (String)
+                jfieldID idField = env->GetFieldID(toolCallInfoClass, "id", "Ljava/lang/String;");
+                jfieldID nameField = env->GetFieldID(toolCallInfoClass, "name", "Ljava/lang/String;");
+                jfieldID argsField = env->GetFieldID(toolCallInfoClass, "arguments", "Ljava/lang/String;");
+
+                if (idField != nullptr && nameField != nullptr && argsField != nullptr) {
+                    for (const auto& tc : parseResult.tool_calls) {
+                        jobject tcObj = env->NewObject(toolCallInfoClass, tcConstructor);
+                        if (!tc.id.empty()) {
+                            jstring idStr = utf8StringToJstring(env, tc.id);
+                            env->SetObjectField(tcObj, idField, idStr);
+                            env->DeleteLocalRef(idStr);
+                        }
+                        if (!tc.name.empty()) {
+                            jstring nameStr = utf8StringToJstring(env, tc.name);
+                            env->SetObjectField(tcObj, nameField, nameStr);
+                            env->DeleteLocalRef(nameStr);
+                        }
+                        if (!tc.arguments.empty()) {
+                            jstring argsStr = utf8StringToJstring(env, tc.arguments);
+                            env->SetObjectField(tcObj, argsField, argsStr);
+                            env->DeleteLocalRef(argsStr);
+                        }
+                        env->CallBooleanMethod(listObj, listAdd, tcObj);
+                        env->DeleteLocalRef(tcObj);
+                    }
+                }
+
+                // 调用 onToolCalls 回调
+                // 使用接口类查找 default 方法
+                jclass tokenCallbackClass = env->FindClass("com/oilquiz/app/ai/jni/LlamaHelper$TokenCallback");
+                if (tokenCallbackClass != nullptr) {
+                    jmethodID onToolCallsMethod = env->GetMethodID(tokenCallbackClass, "onToolCalls", "(Ljava/util/List;)V");
+                    if (onToolCallsMethod != nullptr) {
+                        env->CallVoidMethod(globalCallback, onToolCallsMethod, listObj);
+                        LOGI("Called Java onToolCalls with %zu tool calls", parseResult.tool_calls.size());
+                    }
+                    env->DeleteLocalRef(tokenCallbackClass);
+                }
+
+                env->DeleteLocalRef(listObj);
+            }
+        }
+
+        // onReasoning 回调
+        if (!parseResult.reasoning_content.empty()) {
+            jclass tokenCallbackClass = env->FindClass("com/oilquiz/app/ai/jni/LlamaHelper$TokenCallback");
+            if (tokenCallbackClass != nullptr) {
+                jmethodID onReasoningMethod = env->GetMethodID(tokenCallbackClass, "onReasoning", "(Ljava/lang/String;)V");
+                if (onReasoningMethod != nullptr) {
+                    jstring reasoningStr = utf8StringToJstring(env, parseResult.reasoning_content);
+                    env->CallVoidMethod(globalCallback, onReasoningMethod, reasoningStr);
+                    env->DeleteLocalRef(reasoningStr);
+                    LOGI("Called Java onReasoning with %zu chars", parseResult.reasoning_content.size());
+                }
+                env->DeleteLocalRef(tokenCallbackClass);
+            }
+        }
+    } catch (...) {
+        LOGE("Exception in JNI onToolCalls/onReasoning callback");
+    }
+
+    // 清理局部引用
+    if (toolCallInfoClass != nullptr) env->DeleteLocalRef(toolCallInfoClass);
+    if (listClass != nullptr) env->DeleteLocalRef(listClass);
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -4865,7 +5985,21 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeClearContextForInference(
     jlong handle) {
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (chatCtx && chatCtx->isValid()) {
+        // 信号保护：推理崩溃（signal 6）后 GPU/KV 状态可能已损坏，
+        // 此时清理 KV 会触发 SIGSEGV，若无 sigsetjmp 保护会直接杀死整个进程
+        // （表现为导入结束后 App 瞬间退出）
+        has_jmp_set = true;
+        int sig = sigsetjmp(fatal_jmp_buf, 1);
+        if (sig != 0) {
+            has_jmp_set = false;
+            LOGE("clearContextForInference: caught fatal signal %d, KV cleanup aborted", sig);
+            if (s_helperContext != nullptr && s_helperContext->isCurrentlyGenerating()) {
+                s_helperContext->forceResetGeneration();
+            }
+            return;
+        }
         chatCtx->clearContextForInference();
+        has_jmp_set = false;
     }
 }
 

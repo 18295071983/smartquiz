@@ -394,7 +394,7 @@ public class TBSFilePreviewActivity extends Activity {
      * 启动文件选择器
      */
     private void launchFilePicker() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         

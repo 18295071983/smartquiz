@@ -794,4 +794,25 @@ public class PermissionResourceProvider {
         }
         ActivityCompat.requestPermissions(activity, permissions, requestCode);
     }
+
+    /**
+     * 直接请求权限（跳过自定义确认 Dialog，直接调用系统权限请求）。
+     * 用于 Agent 工具调用场景，避免弹出两个对话框。
+     * 如果系统不允许再弹出权限请求（用户选择了“不再询问”），
+     * 则通过 callback.onDenied() 返回，调用方可引导用户去设置页。
+     */
+    public void requestPermissionDirect(Activity activity, String permission, PermissionCallback callback) {
+        if (isPermissionGranted(permission)) {
+            if (callback != null) {
+                callback.onGranted();
+            }
+            return;
+        }
+        // 直接调用系统权限请求，不弹自定义 Dialog
+        int requestCode = nextRequestCode();
+        if (callback != null) {
+            pendingCallbacks.put(requestCode, callback);
+        }
+        ActivityCompat.requestPermissions(activity, new String[]{permission}, requestCode);
+    }
 }

@@ -282,7 +282,11 @@ public class ToolGuideFlow {
                 "选要做的数据库操作",
                 "action",
                 Arrays.asList(
+                        new GuideStep.Option("浏览题目列表", "get_questions"),
                         new GuideStep.Option("按关键词搜索", "search_questions"),
+                        new GuideStep.Option("按ID查题目", "get_question_by_id"),
+                        new GuideStep.Option("列出所有表", "list_tables"),
+                        new GuideStep.Option("查看表结构", "get_table_schema"),
                         new GuideStep.Option("获取所有分类", "get_all_categories"),
                         new GuideStep.Option("获取所有类型", "get_all_question_types"),
                         new GuideStep.Option("获取题目数量", "get_question_count"),
@@ -290,7 +294,18 @@ public class ToolGuideFlow {
                         new GuideStep.Option("获取数据库版本", "get_database_version")
                 )
         ));
-        // 步骤2：输入搜索关键词（仅 search_questions）
+        // 步骤2a：选择题分类（仅 get_questions，动态拉取分类列表供点选，可选）
+        steps.add(GuideStep.inputStep(
+                "按什么分类浏览?",
+                "从列表选择分类，或手动输入；留空查看全部",
+                "category",
+                "如：安全、消防（可留空）",
+                false,
+                false,
+                "action", "get_questions",
+                new GuideStep.DynamicOptionsSpec("database", "get_categories", "categories", null, "📖 全部分类（不限）")
+        ));
+        // 步骤2b：输入搜索关键词（仅 search_questions）
         steps.add(GuideStep.inputStep(
                 "搜什么关键词?",
                 "输入要搜的题目关键词",
@@ -300,10 +315,31 @@ public class ToolGuideFlow {
                 false,
                 "action", "search_questions"
         ));
+        // 步骤2c：输入题目ID（仅 get_question_by_id）
+        steps.add(GuideStep.inputStep(
+                "题目ID是多少?",
+                "输入要查的题目ID",
+                "id",
+                "输入题目ID",
+                true,
+                false,
+                "action", "get_question_by_id"
+        ));
+        // 步骤2d：选择表名（仅 get_table_schema，动态拉取表列表供点选）
+        steps.add(GuideStep.inputStep(
+                "查哪张表?",
+                "从列表选择表，或手动输入表名",
+                "table_name",
+                "如：questions",
+                true,
+                false,
+                "action", "get_table_schema",
+                new GuideStep.DynamicOptionsSpec("database", "list_tables", "tables", "name", null)
+        ));
         // 步骤3：确认执行
         steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
         return new ToolGuideFlow("database", "题库数据库",
-                "题目查询、分类统计、数据库信息等", steps);
+                "题目浏览与搜索、表结构查看、分类统计、数据库信息等", steps);
     }
 
     /** file 文件工具 */
@@ -515,6 +551,8 @@ public class ToolGuideFlow {
                 "选具体的图像处理操作",
                 "action",
                 Arrays.asList(
+                        new GuideStep.Option("图像识别", "image_label_recognize"),
+                        new GuideStep.Option("目标检测", "object_detect"),
                         new GuideStep.Option("保存图片", "image_save"),
                         new GuideStep.Option("缩放", "image_scale"),
                         new GuideStep.Option("裁剪", "image_crop"),
@@ -844,7 +882,7 @@ public class ToolGuideFlow {
                         new GuideStep.Option("主题摘要", "summarize_topic")
                 )
         ));
-        // 研究主题
+        // 研究主题（topic 与 query 互为别名，只需填一个，避免重复必填）
         steps.add(GuideStep.inputStep(
                 "研究什么主题?",
                 "输入研究主题或关键词",
@@ -853,14 +891,14 @@ public class ToolGuideFlow {
                 true, false,
                 "action", "research|quick_search|summarize_topic"
         ));
-        // query（等价于topic，也支持）
+        // 深度阅读需要 URL（deep_read 必填 urls，工具侧已兼容单个 url 字符串）
         steps.add(GuideStep.inputStep(
-                "搜索关键词?",
-                "输入搜索词",
-                "query",
-                "输入关键词",
+                "要深度阅读哪个网页?",
+                "输入要深度阅读的网址",
+                "url",
+                "例如：https://example.com/article",
                 true, false,
-                "action", "research|quick_search|summarize_topic"
+                "action", "deep_read"
         ));
         // 最大结果数
         steps.add(GuideStep.optionStep(
@@ -1037,6 +1075,9 @@ public class ToolGuideFlow {
         /** PICKER 类型专用：是否允许多选（默认false） */
         public boolean allowMultiple;
 
+        /** INPUT 类型可选：动态选项来源（渲染时异步拉取列表供用户点选，减少手动输入），null 表示纯手动输入 */
+        public DynamicOptionsSpec dynamicOptions;
+
         /** 条件分支：依赖的前序参数名 */
         public String conditionKey;
         /** 条件分支：依赖的前序参数值（支持 "|" 分隔多值，如 "search|ask"） */
@@ -1087,6 +1128,17 @@ public class ToolGuideFlow {
             step.multiline = multiline;
             step.conditionKey = conditionKey;
             step.conditionValue = conditionValue;
+            return step;
+        }
+
+        /** 创建带条件分支 + 动态选项的 INPUT 步骤（列表可点选，也可手动输入兜底） */
+        public static GuideStep inputStep(String title, String description, String paramKey,
+                                          String hint, boolean required, boolean multiline,
+                                          String conditionKey, String conditionValue,
+                                          DynamicOptionsSpec dynamicOptions) {
+            GuideStep step = inputStep(title, description, paramKey, hint, required, multiline,
+                    conditionKey, conditionValue);
+            step.dynamicOptions = dynamicOptions;
             return step;
         }
 
@@ -1193,6 +1245,31 @@ public class ToolGuideFlow {
             public Option(String label, String value) {
                 this.label = label;
                 this.value = value;
+            }
+        }
+
+        /**
+         * 动态选项来源声明：INPUT 步骤渲染时异步调用指定工具的 action 拉取列表，
+         * 让用户从列表点选而非手动输入。拉取失败时退化为纯手动输入。
+         */
+        public static class DynamicOptionsSpec {
+            /** 提供列表的工具名（如 "database"） */
+            public String toolName;
+            /** 工具 action（如 "get_categories"） */
+            public String action;
+            /** 结果 Map 中列表所在的 key（如 "categories"/"tables"） */
+            public String listKey;
+            /** 列表为 Map 元素时取值的字段名（如 tables 的 "name"）；列表为字符串时留空 */
+            public String itemField;
+            /** 可选项：列表顶部附加的"不限/全部"选项，label 为显示文本，value 为空串表示不传该参数 */
+            public String allOptionLabel;
+
+            public DynamicOptionsSpec(String toolName, String action, String listKey, String itemField, String allOptionLabel) {
+                this.toolName = toolName;
+                this.action = action;
+                this.listKey = listKey;
+                this.itemField = itemField;
+                this.allOptionLabel = allOptionLabel;
             }
         }
     }

@@ -81,7 +81,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="设置"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="4dp"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="12dp"
@@ -93,8 +93,20 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="自动映射"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="4dp"
                 app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSplitOptions"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="拆分选项"
+                android:layout_marginEnd="4dp"
+                app:backgroundTint="#FF9800"
                 android:textColor="@android:color/white"
                 app:cornerRadius="12dp"
                 android:textAllCaps="false"/>

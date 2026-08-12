@@ -17,6 +17,13 @@
         <domain includeSubdomains="true">127.0.0.1</domain>
     </domain-config>
     
+    <!-- 允许百炼音频下载明文HTTP流量 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">dashscope-result-bj.oss-cn-beijing.aliyuncs.com</domain>
+        <domain includeSubdomains="true">dashscope-result-hz.oss-cn-hangzhou.aliyuncs.com</domain>
+        <domain includeSubdomains="true">dashscope-result-sh.oss-cn-shanghai.aliyuncs.com</domain>
+    </domain-config>
+    
     <!-- 开发环境配置（可选） -->
     <!-- <debug-overrides>
         <trust-anchors>

@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) 系统架构设计
 
-> 版本: 2.2 | 更新日期: 2026-07-29 | 对应代码版本: v2.1
+> 版本: 2.3 | 更新日期: 2026-08-10 | 对应代码版本: v2.3
 
 ## 一、项目概述
 
@@ -172,6 +172,29 @@ com.oilquiz.app/
 | Gemini | `ServiceRouter` | Google Gemini |
 | 文心一言 | `ServiceRouter` | 百度文心 |
 
+### 4.2.1 多模态服务（新增 v2.3）
+
+支持多模态大语言模型（如 Qwen2.5-VL）的本地推理：
+
+```
+用户消息 + 图片
+  │
+  ├── 模型支持多模态（supportsVision）→ LlamaHelper.generateWithImage()
+  │    ├── 历史消息评估 → KV cache
+  │    ├── 图像编码 → mtmd
+  │    └── 流式生成 → 结合图文上下文
+  │
+  └── 模型不支持多模态 → AttachmentPreParser.parseImage()
+       └── OCR 识别 → 文字描述注入 prompt
+```
+
+| 组件 | 类 | 说明 |
+|------|-----|------|
+| 模型管理 | `MultiModelManager` | mmproj 生命周期管理 |
+| 模型信息 | `ModelInfo` | supportsVision / mmprojPath |
+| JNI 接口 | `LlamaHelper` | nativeLoadMultimodal / nativeGenerateWithImage |
+| 底层库 | `mtmd` | 图像编码（clip + 特征提取） |
+
 ### 4.3 GPU 加速子系统
 
 ```
@@ -303,7 +326,7 @@ WebView 与原生通过 JavaScript Bridge 通信，支持：
                     ┌──────────┼──────────┐
                     ↓                     ↓
              LlamaHelper (JNI)      Retrofit (云端API)
-                    ↓              (本地 llama.cpp)         ↓
+           (本地 llama.cpp)              ↓
                               Stream Response
                               ↓
                         ChatAdapter → RecyclerView

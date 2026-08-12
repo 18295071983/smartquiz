@@ -17,6 +17,9 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
+    <!-- 查询所有已安装应用（Agent需要检测微信等第三方应用） -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+
     <!-- 相机权限 -->
     <uses-permission android:name="android.permission.CAMERA" />
 
@@ -27,6 +30,15 @@
     <!-- 定位权限 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- 电话权限 -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- 联系人权限 -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <!-- 后台权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -43,6 +55,11 @@
     <!-- 系统通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 媒体文件访问权限 (Android 13+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
     <!-- 调试API密钥注入权限（仅用于开发环境） -->
     <permission
         android:name="com.oilquiz.app.permission.DEBUG_INJECT"
@@ -54,6 +71,7 @@
     <application
         android:name=".SmartQuizApplication"
         android:allowBackup="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -165,10 +183,13 @@
         <activity
             android:name=".ui.activity.ImportActivity"
             android:exported="false" />
-        <activity android:name=".ui.activity.AIImportActivity" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" />
+        <activity android:name=".ui.activity.AIImportActivity" android:exported="true" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.activity.ImportGuideActivity"
-            android:exported="false" />
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
+        <activity
+            android:name=".ui.activity.TemplateImportActivity"
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.activity.ImportResultActivity"
             android:exported="false" />
@@ -207,6 +228,9 @@
             android:name=".ui.activity.DataIssueFixActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.activity.QuestionRepairActivity"
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
+        <activity
             android:name=".ui.activity.ApiConfigActivity"
             android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />
@@ -218,7 +242,7 @@
             android:exported="false" />
         <activity
             android:name=".ui.export.TemplateSelectionActivity"
-            android:exported="false" />
+            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
             android:name=".ui.export.FieldConfigActivity"
             android:exported="false" />
@@ -302,7 +326,8 @@
 
         <activity
             android:name=".ui.activity.AIChatActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.activity.LogViewerActivity"

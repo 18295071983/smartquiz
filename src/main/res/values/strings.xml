@@ -556,4 +556,21 @@
     <string name="disable">禁用</string>
 
     <!-- Common -->
+
+    <!-- 在线模型配置 - 服务类型 -->
+    <string name="service_type_openai">OpenAI 兼容</string>
+    <string name="service_type_dashscope">百炼 DashScope</string>
+    <string name="service_type_xfyun">讯飞</string>
+    <string name="service_type_volcano">火山引擎</string>
+    <string name="service_type_baidu">百度</string>
+
+    <!-- 服务类型下拉列表 -->
+    <string-array name="service_types_default">
+        <item>@string/service_type_openai</item>
+        <item>@string/service_type_dashscope</item>
+        <item>@string/service_type_xfyun</item>
+        <item>@string/service_type_volcano</item>
+        <item>@string/service_type_baidu</item>
+    </string-array>
+
 </resources>

@@ -4,8 +4,12 @@ import android.content.Context;
 
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
+import com.oilquiz.app.ai.agent.online.OnlineToolManager;
+import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.openai.ParamDefinition;
@@ -40,16 +44,60 @@ import java.util.regex.Pattern;
 public class AgentLoopEngine {
 
     private static final String TAG = "AgentLoopEngine";
-    private static final int MAX_ITERATIONS = 10;
-    private static final int MAX_PROMPT_TOKENS = 4000;
+    /** Agent 总轮次上限（与上下文容量联动，128k+ 允许更多轮次） */
+    private static final int MAX_ITERATIONS_BASE = 10;
+    /** 循环保护：实际工具调用轮次上限（防止模型反复调工具不收敛） */
+    private static final int MAX_TOOL_ROUNDS = 4;
+    /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理） */
+    private static final long TOTAL_TIME_BUDGET_MS = 180000;
+    /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
+    private static final double PROMPT_BUDGET_RATIO = 0.8;
+    /** 工具结果最大字符数（超长时截断，节省上下文） */
     private static final int MAX_TOOL_RESULT_LENGTH = 2000;
+    /** 最终回复最大生成 token（与预算计算保持一致） */
     private static final int FINAL_RESPONSE_MAX_TOKENS = 1000;
+    /** 工具执行超时（毫秒） */
     private static final long TOOL_TIMEOUT_MS = 15000;
+    /** 工具失败重试次数 */
     private static final int MAX_RETRIES = 1;
+    /** 同步调用超时（毫秒） */
     private static final long SYNC_TIMEOUT_MS = 60000;
+    /** 单轮推理最大生成 token（与预算计算保持一致） */
+    private static final int ITER_MAX_TOKENS = 500;
+    /** 单次执行最多注入的工具数（防止全量工具定义塞满上下文） */
+    private static final int MAX_TOOLS_PER_RUN = 6;
+    /** 工具 schema 的 token 预算，超过则继续裁剪工具集 */
+    private static final int MAX_SCHEMA_TOKENS = 1500;
+    /** 用户问题长度上限（字符） */
+    private static final int MAX_USER_MESSAGE_CHARS = 2000;
+
+    /** 关键词路由表：根据用户消息智能选择相关工具，避免全量注入 */
+    private static final String[][] TOOL_ROUTES = {
+            {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾"},
+            {"location", "位置,定位,我在哪,附近,周边,坐标"},
+            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新"},
+            {"smart_research", "调研,研究,深度搜索,资料,报告"},
+            {"translation", "翻译,英文,translate,日文,韩文"},
+            {"file_reader", "读文件,读取文件,打开文件,文件内容"},
+            {"file_analyzer", "分析文件,文件分析,解析文件"},
+            {"file_generator", "生成文件,创建文件,生成网页,导出,保存为,html,写一个页面"},
+            {"database", "题库,题目,数据库,sqlite,sql查询,数据表"},
+            {"app_operation", "打开应用,启动应用,跳转应用,打开app"},
+            {"app_toolkit", "快捷指令,应用工具箱"},
+            {"system_resource", "内存,cpu,电量,存储空间,系统信息"},
+            {"python_calculate", "计算,算一下,数学,求和,平均,统计"},
+            {"python_analyze_data", "数据分析,数据处理,分析数据,表格分析"},
+            {"python_execute", "python,脚本,执行代码"},
+            {"webpage_reader", "网页,链接,url,http"},
+            {"file", "文件,目录,路径"},
+    };
+    /** 无关键词命中时的默认核心工具集 */
+    private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search", "file_generator"};
 
     private final AIService aiService;
     private final AIToolManager toolManager;
+    private final OnlineToolManager onlineToolManager;
+    private final AIConfig aiConfig;
     private LoopCallback callback;
 
     public interface LoopCallback {
@@ -67,6 +115,8 @@ public class AgentLoopEngine {
     public AgentLoopEngine(Context context, AIService aiService) {
         this.aiService = aiService;
         this.toolManager = AIToolManager.getInstance(context);
+        this.onlineToolManager = new OnlineToolManager(context);
+        this.aiConfig = new AIConfig(context);
     }
 
     public void setCallback(LoopCallback callback) {
@@ -80,34 +130,64 @@ public class AgentLoopEngine {
         int totalTokens = 0;
         int toolCallCount = 0;
 
-        String toolsJson = buildToolsJson();
+        // 超长问题先截断，避免单条消息撞穿预算
+        if (userMessage != null && userMessage.length() > MAX_USER_MESSAGE_CHARS) {
+            AILogger.w(TAG, "User message too long, truncating to " + MAX_USER_MESSAGE_CHARS);
+            userMessage = userMessage.substring(0, MAX_USER_MESSAGE_CHARS) + "…";
+        }
+
+        // 智能工具选择：只注入与本次问题相关的工具，不再全量加载（旧版全量注入会塞满上下文导致 decode 崩溃）
+        List<String> selectedTools = selectRelevantTools(userMessage);
+        String toolsJson = buildToolsJson(selectedTools);
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
-        AILogger.i(TAG, "Tools: " + toolManager.getToolsMap().size() + ", schema len: " + toolsJson.length());
+        AILogger.i(TAG, "Selected tools: " + selectedTools + ", schema len: " + toolsJson.length());
+
+        // 单次推理的 prompt token 预算（结合配置上下文容量）
+        final int promptBudget = computePromptBudget();
+        AILogger.i(TAG, "Prompt budget: " + promptBudget + " tokens");
 
         List<ChatMessage> history = new ArrayList<>();
         history.add(new ChatMessage("system", buildSystemPrompt()));
         history.add(new ChatMessage("user", userMessage));
 
-        for (int iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
+        // 循环保护状态：已执行调用去重、工具轮次计数、最近一次有效回复
+        java.util.Set<String> executedCallKeys = new java.util.HashSet<>();
+        int toolRounds = 0;
+        int consecutiveDuplicates = 0;
+        String lastMeaningfulResponse = null;
+        boolean forcedByLoopGuard = false;
+
+        for (int iteration = 1; iteration <= getAgentMaxIterations(); iteration++) {
+            // 总时长预算：超时直接收尾，避免长时间卡死
+            if (System.currentTimeMillis() - startTime > TOTAL_TIME_BUDGET_MS) {
+                AILogger.w(TAG, "Total time budget exceeded, forcing final response");
+                forcedByLoopGuard = true;
+                break;
+            }
+
             if (callback != null) {
                 callback.onIterationStart(iteration, "第 " + iteration + " 轮推理");
             }
 
+            // 每轮推理前裁剪历史，确保单次推理 prompt 不超预算（防截断/decode崩溃）
+            history = trimHistoryToFit(history, toolsJson, promptBudget);
+
             long genStart = System.currentTimeMillis();
-            String response = null;
+            GenerateResult genResult = null;
 
             try {
-                // thinking=false：当前本地模型（Qwen2.5-Instruct）不支持 thinking，
-                // 传 true 会触发模板引擎 abort；native 层也会按模板能力自动降级
-                response = generateWithToolsSync(history, toolsJsonBytes, 500, 0.7f, false);
+                // C++ 层通过 common_chat_parse 解析模型原生 FC 输出，
+                // 通过 JNI 回调直接传递 onToolCalls/onReasoning
+                genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, true);
             } catch (UnsatisfiedLinkError e) {
                 AILogger.w(TAG, "nativeGenerateWithTools unavailable, fallback to prompt mode");
-                response = generateFallbackPrompt(history, iteration);
+                String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
+                genResult = new GenerateResult(fallbackResponse, "", new ArrayList<>());
             } catch (Exception e) {
                 AILogger.e(TAG, "Generate failed at iter " + iteration + ": " + e.getMessage());
-                response = null;
             }
 
+            String response = genResult != null ? genResult.content : null;
             int iterTokens = response != null ? response.length() : 0;
             totalTokens += iterTokens;
 
@@ -122,63 +202,145 @@ public class AgentLoopEngine {
                 AILogger.w(TAG, "Empty response at iteration " + iteration);
                 break;
             }
+            lastMeaningfulResponse = response;
 
-            // 提取思考过程
-            String thought = extractThought(response);
-            if (thought != null && callback != null) {
-                callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(thought, 120));
+            // 提取思考过程（C++ 层通过 onReasoning 回调传递，也检查文本中的标签）
+            if (genResult.reasoning != null && !genResult.reasoning.isEmpty() && callback != null) {
+                callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(genResult.reasoning, 120));
             }
 
-            // 解析工具调用
-            List<ToolCall> toolCalls = parseToolCalls(response);
+            // 优先使用 C++ 层 common_chat_parse 解析的工具调用，如果没有则回退到文本解析
+            List<ToolCall> toolCalls = genResult.toolCalls;
+            if (toolCalls == null || toolCalls.isEmpty()) {
+                toolCalls = parseToolCalls(response);
+            }
 
             if (toolCalls.isEmpty()) {
                 AILogger.i(TAG, "No tool call at iteration " + iteration + ", using model answer directly");
                 String cleanResponse = cleanResponse(response);
-                if (cleanResponse.isEmpty()) cleanResponse = response;
-                // 模型的回答即最终答案：直接流式输出，不再二次生成（避免自问自答）
+
+                // ===== 降级重试机制 =====
+                // 如果第一轮 native FC 没解析到工具调用，说明模型不支持原生 FC，
+                // 走降级路径：使用 prompt 模式（<tool_call>{...}</tool_call> 标签）重试
+                boolean fallbackDone = false;
+                if (iteration == 1 && genResult.toolCalls == null) {
+                    AILogger.i(TAG, "First iteration, native FC returned empty tool calls, falling back to prompt mode");
+                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
+                    if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
+                        // 从降级回复中解析工具调用
+                        List<ToolCall> fallbackToolCalls = parseToolCalls(fallbackResponse);
+                        if (!fallbackToolCalls.isEmpty()) {
+                            AILogger.i(TAG, "Fallback prompt mode found " + fallbackToolCalls.size() + " tool calls, retrying");
+                            // 将降级回复追加到历史
+                            history.add(new ChatMessage("assistant", cleanResponse(fallbackResponse)));
+                            // 将降级路径解析到的工具调用作为正式的 toolCalls
+                            toolCalls = fallbackToolCalls;
+                            fallbackDone = true;
+                            // 通过 continue 进入下一轮循环（iteration++），走正常的工具执行流程
+                        }
+                    }
+                }
+
+                if (fallbackDone) {
+                    // 降级重试成功，跳出当前 if，进入下一轮循环执行工具
+                    continue;
+                }
+
+                if (cleanResponse.isEmpty()) {
+                    // 清理后为空（可能全是 </think> 标签），break 走统一退出路径
+                    AILogger.w(TAG, "Clean response empty after stripping tags, breaking");
+                    break;
+                }
+
+                // 提示词泄漏检测：模型把系统规则当回答输出时，break 走统一退出路径
+                if (isPromptLeakage(cleanResponse)) {
+                    AILogger.w(TAG, "Prompt leakage detected, breaking");
+                    break;
+                }
+                // ===== 降级重试结束 =====
+
+                // 模型的回答即最终答案：直接流式输出，不再二次生成
                 streamDirectAnswer(cleanResponse);
                 if (callback != null) callback.onComplete(cleanResponse);
                 return buildResponse(cleanResponse, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, iteration);
             }
 
-            // 将模型回复追加到历史
-            history.add(new ChatMessage("assistant", response));
+            // 将模型回复追加到历史（去掉思考标签，保持历史干净）
+            history.add(new ChatMessage("assistant", cleanResponse(response)));
 
-            // 执行所有工具，结果以 tool role 追加到历史
-            boolean anyToolExecuted = false;
+            // 循环保护①：去重。同一 tool+args 已执行过则不再执行；连续两轮全是重复调用 → 强制收尾
+            List<ToolCall> freshCalls = new ArrayList<>();
             for (ToolCall tc : toolCalls) {
+                String key = tc.toolName + "|" + tc.args.toString();
+                if (executedCallKeys.contains(key)) {
+                    AILogger.w(TAG, "Duplicate tool call skipped: " + key);
+                } else {
+                    executedCallKeys.add(key);
+                    freshCalls.add(tc);
+                }
+            }
+            if (freshCalls.isEmpty()) {
+                consecutiveDuplicates++;
+                history.add(new ChatMessage("tool",
+                        "[系统提示] 该工具调用已执行过且结果已在上方给出，请勿重复调用。请基于已有结果直接给出最终回答。"));
+                if (consecutiveDuplicates >= 2) {
+                    AILogger.w(TAG, "Repeated duplicate tool calls, forcing final answer");
+                    forcedByLoopGuard = true;
+                    break;
+                }
+                continue;
+            }
+            consecutiveDuplicates = 0;
+
+            // 循环保护②：工具轮次上限
+            toolRounds++;
+            if (toolRounds > MAX_TOOL_ROUNDS) {
+                AILogger.w(TAG, "Tool rounds exceeded " + MAX_TOOL_ROUNDS + ", forcing final answer");
+                forcedByLoopGuard = true;
+                break;
+            }
+
+            // 执行所有新工具调用，结果以 tool role 追加到历史
+            for (ToolCall tc : freshCalls) {
                 toolCallCount++;
                 String toolName = tc.toolName;
                 String argsStr = tc.args.toString();
 
                 if (callback != null) callback.onToolCall(toolName, argsStr);
 
-                AIToolResult result = executeToolSafely(toolName, tc.args);
-                boolean success = result.isSuccess();
-                String resultStr = result.getResult() != null
-                        ? result.getResult().toString() : result.getErrorMessage();
+                OnlineToolResult result = onlineToolManager.executeTool(tc.id, toolName, argsStr);
+                boolean success = result.success;
+                String resultStr = result.result != null ? result.result : result.error;
 
                 if (callback != null) callback.onToolResult(toolName, success, resultStr);
 
-                history.add(new ChatMessage("tool", resultStr));
-                anyToolExecuted = true;
+                history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH)));
                 AILogger.i(TAG, "Tool " + toolName + (success ? " OK" : " FAIL")
                         + ": " + truncate(resultStr, 100));
             }
 
-            // 上下文长度检查
-            if (countTokensSafe(serializeHistory(history)) > MAX_PROMPT_TOKENS - 500) {
-                AILogger.w(TAG, "Context too large, forcing final");
-                String fr = generateFinalResponse(userMessage, response, history);
-                return buildResponse(fr, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, iteration);
+            // 上下文长度兜底校验（trim 后理论上不会触发，作为安全网）
+            if (countTokensSafe(serializeHistory(history)) + countTokensSafe(toolsJson) > promptBudget) {
+                AILogger.w(TAG, "Context still too large after trim, ending loop");
+                break;
             }
         }
 
-        // 达到最大迭代次数
-        AILogger.w(TAG, "Reached max iterations");
-        String lastResp = generateFinalResponse(userMessage, "", history);
-        return buildResponse(lastResp, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, MAX_ITERATIONS);
+        // ===== 统一退出路径 =====
+        // 所有退出原因（超时/最大迭代/循环保护/上下文溢出/空回复/泄漏）统一走这里
+        AILogger.w(TAG, "Loop ended, using unified exit path");
+        String clean = cleanResponse(lastMeaningfulResponse);
+        if (!clean.isEmpty() && !isPromptLeakage(clean)) {
+            AILogger.i(TAG, "Using last meaningful response as final answer");
+            streamDirectAnswer(clean);
+            if (callback != null) callback.onComplete(clean);
+            return buildResponse(clean, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
+        }
+        // 完全没有有效回答，用简单兜底
+        String fb = buildSimpleFallback(userMessage);
+        streamDirectAnswer(fb);
+        if (callback != null) callback.onComplete(fb);
+        return buildResponse(fb, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
     }
 
     private AgentResponse buildResponse(String answer, int tokens, long time, int toolCalls, int steps) {
@@ -191,12 +353,16 @@ public class AgentLoopEngine {
 
     /**
      * 同步调用 llama.cpp 原生 function calling。
-     * 使用 CountDownLatch 等待异步 onComplete 回调，超时返回 null。
+     * C++ 层通过 common_chat_parse 解析模型原生 FC 输出，通过 JNI 回调直接传递
+     * onToolCalls/onReasoning，与在线 Agent 使用相同的 ToolCallInfo 格式。
+     * 模型想输出什么就输出什么，不强制思考、不强制工具调用格式。
      */
-    private String generateWithToolsSync(List<ChatMessage> history, byte[] toolsJson,
+    private GenerateResult generateWithToolsSync(List<ChatMessage> history, byte[] toolsJson,
                                          int maxTokens, float temperature, boolean thinking) {
         CountDownLatch latch = new CountDownLatch(1);
-        StringBuilder result = new StringBuilder();
+        final List<OnlineInferenceService.ToolCallInfo> toolCallsHolder = new ArrayList<>();
+        final StringBuilder reasoningBuf = new StringBuilder();
+        final StringBuilder fullTextBuf = new StringBuilder();
         final String[] errorHolder = {null};
 
         // 将 history 拆分为 roles + contents 数组
@@ -212,10 +378,28 @@ public class AgentLoopEngine {
                 0.9f, 40, thinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
-                        if (token != null && !token.isEmpty()) {
-                            result.append(token);
-                            if (thinking && callback != null) {
-                                callback.onToken(token);
+                        if (token == null || token.isEmpty()) return;
+                        fullTextBuf.append(token);
+                        if (callback != null) {
+                            callback.onToken(token);
+                        }
+                    }
+
+                    @Override
+                    public void onToolCalls(List<OnlineInferenceService.ToolCallInfo> toolCalls) {
+                        if (toolCalls != null && !toolCalls.isEmpty()) {
+                            toolCallsHolder.addAll(toolCalls);
+                            AILogger.i(TAG, "Received " + toolCalls.size() + " tool calls from C++ layer");
+                        }
+                    }
+
+                    @Override
+                    public void onReasoning(String reasoning) {
+                        if (reasoning != null && !reasoning.isEmpty()) {
+                            reasoningBuf.append(reasoning);
+                            AILogger.i(TAG, "Received reasoning (" + reasoning.length() + " chars) from C++ layer");
+                            if (callback != null) {
+                                callback.onThinkingUpdate(reasoning);
                             }
                         }
                     }
@@ -223,9 +407,9 @@ public class AgentLoopEngine {
                     @Override
                     public void onComplete(String fullText) {
                         if (fullText != null && !fullText.isEmpty()) {
-                            synchronized (result) {
-                                result.setLength(0);
-                                result.append(fullText);
+                            synchronized (fullTextBuf) {
+                                fullTextBuf.setLength(0);
+                                fullTextBuf.append(fullText);
                             }
                         }
                         latch.countDown();
@@ -254,61 +438,235 @@ public class AgentLoopEngine {
             return null;
         }
 
-        return result.toString();
+        // 直接使用 C++ 层解析出的工具调用和推理内容，不再从 onComplete 文本中解析
+        String content = fullTextBuf.toString().trim();
+        String reasoning = reasoningBuf.toString();
+
+        // 将 ToolCallInfo 转换为内部 ToolCall
+        List<ToolCall> nativeToolCalls = new ArrayList<>();
+        for (OnlineInferenceService.ToolCallInfo tc : toolCallsHolder) {
+            String argsStr = tc.arguments != null ? tc.arguments : "{}";
+            JSONObject argsJson;
+            try {
+                argsJson = new JSONObject(argsStr);
+            } catch (Exception e) {
+                argsJson = new JSONObject();
+            }
+            nativeToolCalls.add(new ToolCall(tc.id, tc.name, argsJson));
+        }
+
+        AILogger.i(TAG, "generateWithToolsSync result: contentLen=" + content.length()
+                + " reasoningLen=" + reasoning.length()
+                + " toolCalls=" + nativeToolCalls.size());
+
+        return new GenerateResult(content, reasoning, nativeToolCalls);
+    }
+
+    /**
+     * 从完整文本中分离思考）和回答内容。
+     */
+    private String[] splitThinkingAndContent(String fullText) {
+        String thinking = "";
+        String content = fullText;
+
+        String thinkStartTag = "<think>";
+        String thinkEndTag = "</think>";
+        int thinkStart = fullText.indexOf(thinkStartTag);
+        int thinkEnd = fullText.indexOf(thinkEndTag);
+
+        if (thinkStart >= 0 && thinkEnd > thinkStart) {
+            thinking = fullText.substring(thinkStart + thinkStartTag.length(), thinkEnd).trim();
+            content = fullText.substring(0, thinkStart) + fullText.substring(thinkEnd + thinkEndTag.length());
+            content = content.trim();
+        } else if (thinkStart >= 0 && thinkEnd < 0) {
+            thinking = fullText.substring(thinkStart + thinkStartTag.length()).trim();
+            content = fullText.substring(0, thinkStart).trim();
+        }
+
+        return new String[]{content, thinking};
+    }
+
+    /** 生成结果：包含正文、思考内容和工具调用 */
+    private static class GenerateResult {
+        final String content;
+        final String reasoning;
+        final List<ToolCall> toolCalls;
+        GenerateResult(String content, String reasoning, List<ToolCall> toolCalls) {
+            this.content = content;
+            this.reasoning = reasoning;
+            this.toolCalls = toolCalls;
+        }
     }
 
     /**
      * 降级方案：当 nativeGenerateWithTools 不可用时，使用 prompt 模式模拟工具调用
      */
-    private String generateFallbackPrompt(List<ChatMessage> history, int iteration) {
+    private String generateFallbackPrompt(List<ChatMessage> history, int iteration, List<String> toolNames) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("你是一个可以使用工具的智能助手。\n");
-        prompt.append("可用工具：\n").append(buildToolsPromptText()).append("\n");
+        prompt.append("可用工具：\n").append(buildToolsPromptText(toolNames)).append("\n");
         prompt.append("对话历史：\n");
         for (ChatMessage m : history) {
             prompt.append(m.role).append(": ").append(m.content).append("\n\n");
         }
         prompt.append("规则：\n");
-        prompt.append("1. 需要调用工具时，只输出  <tool_call>{\"name\":\"工具名\",\"args\":{...}}</tool_call>，不要输出其他内容。\n");
+        prompt.append("1. 需要调用工具时，必须严格按照以下格式输出，不要输出其他内容：\n");
+        prompt.append("   <tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
         prompt.append("2. 信息已足够或不需要工具时，直接回答用户问题，给出结论。\n");
         prompt.append("3. 不要重复问题、不要自问自答、不要描述\"我将调用工具\"而不实际调用。\n");
         return LlamaHelper.generate(prompt.toString(), 500, 0.7f);
+    }
+
+    // ==================== 智能工具选择与预算守卫 ====================
+
+    /**
+     * 根据用户消息关键词智能选择相关工具（不再全量注入，避免塞满上下文）。
+     * 规则：关键词路由命中 → 取命中工具；无命中 → 默认核心工具集；
+     * 最后按 schema token 预算与数量上限继续裁剪。
+     */
+    private List<String> selectRelevantTools(String userMessage) {
+        // 轻量查询已注册工具名，不触发全部工具实例初始化
+        List<String> registered = toolManager.getRegisteredToolNames();
+        List<String> selected = new ArrayList<>();
+        String msg = userMessage != null ? userMessage.toLowerCase() : "";
+
+        for (String[] route : TOOL_ROUTES) {
+            if (selected.size() >= MAX_TOOLS_PER_RUN) break;
+            String toolName = route[0];
+            if (!registered.contains(toolName) || selected.contains(toolName)) continue;
+            for (String keyword : route[1].split(",")) {
+                if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
+                    selected.add(toolName);
+                    break;
+                }
+            }
+        }
+
+        // 无命中时用默认核心工具集保底
+        if (selected.isEmpty()) {
+            for (String name : DEFAULT_CORE_TOOLS) {
+                if (registered.contains(name) && !selected.contains(name)) {
+                    selected.add(name);
+                }
+            }
+        }
+
+        // 全部未命中（工具表异常）时退化为限量全集，保证可用性
+        if (selected.isEmpty()) {
+            for (String name : registered) {
+                if (selected.size() >= 4) break;
+                selected.add(name);
+            }
+        }
+
+        // 动态工具：用户消息中直接提到工具名时选中（修复动态工具无法被本地Agent调用的问题）
+        try {
+            for (String dynName : toolManager.getDynamicToolNames()) {
+                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
+                if (!selected.contains(dynName)
+                        && dynName != null && !dynName.isEmpty()
+                        && msg.contains(dynName.toLowerCase())) {
+                    selected.add(dynName);
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Dynamic tool selection failed: " + t.getMessage());
+        }
+        return selected;
+    }
+
+    /**
+     * 计算单次推理的 prompt token 预算：
+     * 按上下文容量的 80% 计算，上限留出足够推理空间。
+     */
+    private int computePromptBudget() {
+        try {
+            int ctxSize = aiConfig != null ? aiConfig.getContextSize() : 0;
+            if (ctxSize > 0) {
+                return (int) (ctxSize * PROMPT_BUDGET_RATIO);
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "computePromptBudget failed: " + t.getMessage());
+        }
+        return 4000;
+    }
+
+    /**
+     * 获取 Agent 最大迭代轮次，与上下文容量联动。
+     */
+    private int getAgentMaxIterations() {
+        try {
+            int ctxSize = aiConfig != null ? aiConfig.getContextSize() : 0;
+            if (ctxSize >= 65536) return 15;
+            if (ctxSize >= 32768) return 12;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getAgentMaxIterations failed: " + t.getMessage());
+        }
+        return MAX_ITERATIONS_BASE;
+    }
+
+    /**
+     * 每轮推理前裁剪历史，使 历史+schema 的 token 总量不超过预算：
+     * 1) 从早到晚压缩工具结果；2) 仍超则从头部截断最旧的消息，保留 system+最新 N 轮。
+     */
+    private List<ChatMessage> trimHistoryToFit(List<ChatMessage> history, String toolsJson, int budgetTokens) {
+        int schemaTokens = countTokensSafe(toolsJson);
+        int total = countTokensSafe(serializeHistory(history)) + schemaTokens;
+        if (total <= budgetTokens) return history;
+
+        AILogger.w(TAG, "Trimming history: " + total + " > " + budgetTokens + " tokens");
+        List<ChatMessage> trimmed = new ArrayList<>(history);
+
+        // 1) 压缩工具结果（最占空间），从早到晚
+        for (int i = 0; i < trimmed.size() && total > budgetTokens; i++) {
+            ChatMessage m = trimmed.get(i);
+            if ("tool".equals(m.role) && m.content != null && m.content.length() > 400) {
+                trimmed.set(i, new ChatMessage(m.role, truncate(m.content, 400)));
+                total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
+            }
+        }
+
+        // 2) 仍超：从头部截断最旧的消息，保留 system(0) 与最新 N 轮
+        while (trimmed.size() > 3 && total > budgetTokens) {
+            trimmed.remove(trimmed.size() - 2);
+            total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
+        }
+
+        AILogger.i(TAG, "History trimmed to " + trimmed.size() + " messages, " + total + " tokens");
+        return trimmed;
     }
 
     // ==================== Prompt 构建 ====================
 
     private String buildSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一个智能AI助手，拥有多种工具来帮助用户完成任务。系统会自动执行你发起的工具调用并返回结果。\n\n");
+        sb.append("你是一个智能AI助手，可以使用工具来帮助用户完成任务。\n\n");
 
-        sb.append("【工具使用规范】\n");
-        sb.append("1. 需要实时信息（天气、时间、位置、搜索等）或执行操作时，调用合适的工具。\n");
-        sb.append("2. 优先使用专用工具：查天气用 ai_weather，搜索用 network_search，计算用 python_calculate。\n");
-        sb.append("3. 工具失败时分析原因：参数错误则修正重试，工具不适用则更换工具。\n");
-        sb.append("4. 同一工具连续失败2次，停止重试，向用户说明并提供替代建议。\n\n");
+        sb.append("【工具使用】\n");
+        sb.append("- 需要外部信息或执行操作时，必须调用工具，不要只用自然语言回复\n");
+        sb.append("- 工具返回结果后，分析结果决定是否需要继续调用其他工具\n");
+        sb.append("- 同一工具连续失败2次，停止重试并说明原因\n\n");
 
-        sb.append("【输出要求】\n");
-        sb.append("- 用中文回答用户问题\n");
-        sb.append("- 回答要简洁、准确、有条理\n");
-        sb.append("- 如果使用了工具，在回答中自然地融入工具结果\n");
-        sb.append("- 如果工具失败，向用户说明原因并提供替代建议\n\n");
+        sb.append("【工具调用格式】\n");
+        sb.append("需要调用工具时，使用以下格式输出：\n");
+        sb.append("  <tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
+        sb.append("多个工具调用时依次输出多个上述格式。\n");
+        sb.append("不需要工具时，直接给出最终回答。\n\n");
 
-        sb.append("【推理与终止规则】\n");
-        sb.append("- 你可以多轮推理和调用工具，每次工具结果返回后继续思考\n");
-        sb.append("- 如果已有足够信息，直接回答用户，不要调用不必要的工具\n");
-        sb.append("- 每次回复后明确判断任务是否完成：\n");
-        sb.append("  · 已完成 → 直接给出最终结论，不再调用任何工具\n");
-        sb.append("  · 未完成 → 继续调用工具或补充分析\n");
-        sb.append("- 严禁自问自答、重复已说过的内容或在回复中描述\"我将调用工具\"而不实际发起调用\n");
-        sb.append("- 最终回答只给出结论本身，不要输出内部思考过程\n");
+        sb.append("【回答要求】\n");
+        sb.append("- 用中文回答，简洁准确\n");
+        sb.append("- 基于工具返回的结果给出结论，不要说'请稍等'之类的话\n");
+        sb.append("- 不要描述'我将调用工具'，直接调用工具后基于结果回答\n");
 
         return sb.toString();
     }
 
-    private String buildToolsJson() {
+    private String buildToolsJson(List<String> toolNames) {
         JSONArray tools = new JSONArray();
-        for (Map.Entry<String, ?> entry : toolManager.getToolsMap().entrySet()) {
-            ToolDefinition def = toolManager.getToolDefinition(entry.getKey());
+        int schemaTokens = 0;
+        for (String name : toolNames) {
+            // resolveToolDefinition 支持静态定义 + 动态工具反射生成
+            ToolDefinition def = toolManager.resolveToolDefinition(name);
             if (def == null) continue;
             try {
                 JSONObject tool = new JSONObject();
@@ -332,18 +690,26 @@ public class AgentLoopEngine {
                 if (required.length() > 0) params.put("required", required);
                 function.put("parameters", params);
                 tool.put("function", function);
+
+                // schema token 预算守卫：超出则停止追加更多工具
+                int addTokens = countTokensSafe(tool.toString());
+                if (schemaTokens + addTokens > MAX_SCHEMA_TOKENS && tools.length() > 0) {
+                    AILogger.w(TAG, "Schema token budget reached, dropping tool: " + name);
+                    continue;
+                }
+                schemaTokens += addTokens;
                 tools.put(tool);
             } catch (Exception e) {
-                AILogger.w(TAG, "Build tool JSON failed: " + entry.getKey());
+                AILogger.w(TAG, "Build tool JSON failed: " + name);
             }
         }
         return tools.toString();
     }
 
-    private String buildToolsPromptText() {
+    private String buildToolsPromptText(List<String> toolNames) {
         StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, ?> entry : toolManager.getToolsMap().entrySet()) {
-            ToolDefinition def = toolManager.getToolDefinition(entry.getKey());
+        for (String name : toolNames) {
+            ToolDefinition def = toolManager.resolveToolDefinition(name);
             if (def != null) sb.append(def.toPromptFormat()).append("\n");
         }
         return sb.toString();
@@ -357,12 +723,33 @@ public class AgentLoopEngine {
         return sb.toString();
     }
 
+    // ==================== 提示词泄漏防护 ====================
+
+    /** 系统提示词的特征片段：命中即判定为泄漏 */
+    private static final String[] PROMPT_LEAK_MARKERS = {
+            "【工具使用】", "【工具使用规范】", "【输出要求】", "【推理与终止规则】",
+            "你是一个智能AI助手，可以使用工具", "你是一个智能AI助手，拥有多种工具",
+            "系统会自动执行你发起的工具调用", "严禁自问自答、重复已说过的内容"
+    };
+
+    /**
+     * 检测模型回复是否为提示词规则泄漏（把 system prompt 原文当回答输出）。
+     */
+    private boolean isPromptLeakage(String text) {
+        if (text == null || text.isEmpty()) return false;
+        for (String marker : PROMPT_LEAK_MARKERS) {
+            if (text.contains(marker)) return true;
+        }
+        return false;
+    }
+
     // ==================== 响应清理 ====================
 
     private String cleanResponse(String response) {
         if (response == null) return "";
         String cleaned = response
                 .replaceAll("(?s)<thought>.*?</thought>", "")
+                .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
                 .trim();
         // 去掉模型可能重复输出的"用户:"/"assistant:"等对话角色前缀，防止自问自答式续写
@@ -385,13 +772,36 @@ public class AgentLoopEngine {
 
     // ==================== 思考提取 ====================
 
+    /** 同时匹配 <think>（Qwen3等）和 <thought>（通用）两种思考标签 */
     private static final Pattern THOUGHT_PATTERN =
-            Pattern.compile("<thought>(.*?)</thought>", Pattern.DOTALL);
+            Pattern.compile("(?:<think>(.*?)</think>|<thought>(.*?)</thought>)", Pattern.DOTALL);
 
     private String extractThought(String response) {
         if (response == null) return null;
         Matcher m = THOUGHT_PATTERN.matcher(response);
-        return m.find() ? m.group(1).trim() : null;
+        if (m.find()) {
+            // 优先取 <think> 内容（group 1），其次取 <thought> 内容（group 2）
+            String think = m.group(1);
+            return think != null ? think.trim() : (m.group(2) != null ? m.group(2).trim() : null);
+        }
+        return null;
+    }
+
+    /**
+     * 判断当前加载的模型是否支持思考链（thinking / chain-of-thought）。
+     * 规则：模型名包含 qwen3、qwq、deepseek-r1、thinking 等关键词即视为思考模型。
+     */
+    private boolean isThinkingModel() {
+        try {
+            String name = aiService.getCurrentModelName();
+            if (name == null) return false;
+            String lower = name.toLowerCase();
+            return lower.contains("qwen3") || lower.contains("qwq")
+                    || lower.contains("deepseek-r1") || lower.contains("thinking")
+                    || lower.contains("deepthink");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // ==================== 工具调用解析 ====================
@@ -418,15 +828,37 @@ public class AgentLoopEngine {
             if (tc != null) calls.add(tc);
         }
 
-        // 2. 如果标签格式没找到，尝试从原始 JSON 块解析
-        if (calls.isEmpty()) {
+        // 2. 如果标签格式没找到，尝试从原始 JSON 块解析。
+        // 只接受以 { 开头的回复：避免把正文中的普通 JSON 文本误判为工具调用导致死循环
+        if (calls.isEmpty() && response.trim().startsWith("{")) {
             for (String block : findJsonBlocks(response)) {
                 ToolCall tc = parseToolCallJson(block);
                 if (tc != null) calls.add(tc);
             }
         }
 
-        return calls;
+        // 3. 去重：相同工具名 + 相同参数的重复调用只保留一个，避免重复执行
+        return dedupeToolCalls(calls);
+    }
+
+    /**
+     * 去重工具调用：小模型可能重复输出同一 tool_calls，按 name+args 去重。
+     */
+    private List<ToolCall> dedupeToolCalls(List<ToolCall> calls) {
+        if (calls == null || calls.size() <= 1) return calls;
+        List<ToolCall> dedup = new ArrayList<>();
+        for (ToolCall call : calls) {
+            boolean dup = false;
+            for (ToolCall existing : dedup) {
+                if (existing.toolName.equals(call.toolName)
+                        && existing.args.toString().equals(call.args.toString())) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) dedup.add(call);
+        }
+        return dedup;
     }
 
     /**
@@ -476,6 +908,25 @@ public class AgentLoopEngine {
     private ToolCall parseToolCallJson(String jsonStr) {
         try {
             JSONObject json = new JSONObject(jsonStr);
+
+            // 支持 OpenAI envelope 格式：{"tool_calls": [{"function": {"name":..., "arguments":{...}}}]}
+            JSONArray toolCallsArr = json.optJSONArray("tool_calls");
+            if (toolCallsArr != null && toolCallsArr.length() > 0) {
+                JSONObject tc = toolCallsArr.optJSONObject(0);
+                if (tc != null) {
+                    JSONObject fn = tc.optJSONObject("function");
+                    String name = fn != null ? fn.optString("name", "") : tc.optString("name", "");
+                    if (name.isEmpty()) return null;
+                    JSONObject args = new JSONObject();
+                    if (fn != null) {
+                        String argsStr = fn.optString("arguments", "");
+                        if (!argsStr.trim().isEmpty()) {
+                            try { args = new JSONObject(argsStr); } catch (Exception ignored) {}
+                        }
+                    }
+                    return new ToolCall(name, args);
+                }
+            }
 
             // 尝试多种字段名提取工具名
             String name = json.optString("name", json.optString("tool", ""));
@@ -602,90 +1053,10 @@ public class AgentLoopEngine {
         return map;
     }
 
-    // ==================== 结果生成 ====================
+    // ==================== 兜底回答 ====================
 
-    /**
-     * 最终回复生成：基于对话历史，通过流式 generateStream 生成最终回复。
-     */
-    private String generateFinalResponse(String userMessage, String llmResponse, List<ChatMessage> history) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("基于以下上下文，生成对用户的最终回复：\n\n");
-        sb.append("【用户问题】\n").append(userMessage).append("\n\n");
-
-        // 追加工具调用历史（从第 3 条开始，跳过 system + 初始 user）
-        int toolStart = Math.min(2, history.size());
-        if (history.size() > toolStart) {
-            sb.append("【对话上下文】\n");
-            for (int i = toolStart; i < history.size(); i++) {
-                ChatMessage m = history.get(i);
-                sb.append(m.role).append(": ").append(truncate(m.content, 500)).append("\n");
-            }
-            sb.append("\n");
-        }
-
-        if (llmResponse != null && !llmResponse.isEmpty()) {
-            sb.append("【模型推理】\n").append(truncate(llmResponse, 500)).append("\n\n");
-        }
-        sb.append("【要求】\n");
-        sb.append("- 直接输出最终回复内容，不要输出任何引导语（如\"好的\"、\"根据上下文\"）\n");
-        sb.append("- 不要提问、不要重复用户问题、不要自问自答\n");
-        sb.append("- 使用自然中文，基于真实数据给出结论\n");
-
-        AILogger.i(TAG, "Final prompt len: " + sb.length());
-
-        CountDownLatch latch = new CountDownLatch(1);
-        StringBuilder full = new StringBuilder();
-
-        LlamaHelper.generateStream(sb.toString(), FINAL_RESPONSE_MAX_TOKENS, 0.7f, 0.9f, 40, false,
-                new LlamaHelper.TokenCallback() {
-                    @Override
-                    public void onToken(String token) {
-                        if (token != null && !token.isEmpty()) {
-                            full.append(token);
-                            if (callback != null) callback.onToken(token);
-                        }
-                    }
-                    @Override
-                    public void onComplete(String fullText) {
-                        if (fullText != null && !fullText.isEmpty()) {
-                            synchronized (full) { full.setLength(0); full.append(fullText); }
-                        }
-                        latch.countDown();
-                    }
-                    @Override
-                    public void onError(String error) {
-                        AILogger.e(TAG, "Final stream error: " + error);
-                        latch.countDown();
-                    }
-                });
-
-        try {
-            boolean done = latch.await(SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (!done) AILogger.w(TAG, "Final response timeout");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        String resp = full.toString();
-        if (resp == null || resp.trim().isEmpty()) {
-            resp = buildFallback(userMessage, history);
-        }
-        if (callback != null) callback.onComplete(resp);
-        return resp;
-    }
-
-    private String buildFallback(String userMessage, List<ChatMessage> history) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("关于「").append(truncate(userMessage, 100)).append("」");
-        boolean hasTools = false;
-        for (ChatMessage m : history) {
-            if (m.role.equals("user") && m.content.contains("工具调用结果")) {
-                hasTools = true;
-                break;
-            }
-        }
-        sb.append(hasTools ? "，根据已获取的信息，以下是处理结果。" : "，我暂时无法提供详细回答。");
-        return sb.toString();
+    private String buildSimpleFallback(String userMessage) {
+        return "抱歉，我暂时无法完整回答这个问题。请尝试换一种方式描述，或使用更强大的模型。";
     }
 
     // ==================== 工具方法 ====================
@@ -715,8 +1086,10 @@ public class AgentLoopEngine {
     }
 
     private static class ToolCall {
+        final String id;
         final String toolName;
         final JSONObject args;
-        ToolCall(String name, JSONObject args) { this.toolName = name; this.args = args; }
+        ToolCall(String id, String name, JSONObject args) { this.id = id; this.toolName = name; this.args = args; }
+        ToolCall(String name, JSONObject args) { this.id = null; this.toolName = name; this.args = args; }
     }
 }

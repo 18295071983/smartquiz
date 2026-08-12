@@ -100,8 +100,13 @@ public class ImportValidator {
         s = singleToDoubleQuotes(s);
 
         // 4. 移除尾逗号(,} -> }, ,] -> ])
-        s = s.replaceAll(",\\s*}", "}");
-        s = s.replaceAll(",\\s*]", "]");
+        //    ⚠ Android ICU 正则引擎要求 } 和 ] 必须转义，否则抛 PatternSyntaxException
+        try {
+            s = s.replaceAll(",\\s*\\}", "}");
+            s = s.replaceAll(",\\s*\\]", "]");
+        } catch (java.util.regex.PatternSyntaxException ignored) {
+            // 防御：正则异常不影响主流程，跳过尾逗号修复
+        }
 
         // 5. 修复未闭合的 } 和 ] (统计括号配对补齐)
         s = closeUnclosedBrackets(s);
@@ -457,27 +462,21 @@ public class ImportValidator {
         return s != null && !s.trim().isEmpty();
     }
 
-    /** 统计非空选项数(A~D + extraOptions 中的 E/F/G...) */
+    /** 统计非空选项数(A~L全部独立字段) */
     private static int countNonEmptyOptions(Question q) {
         int n = 0;
         if (isFilled(q.getOptionA())) n++;
         if (isFilled(q.getOptionB())) n++;
         if (isFilled(q.getOptionC())) n++;
         if (isFilled(q.getOptionD())) n++;
-        String extra = q.getExtraOptions();
-        if (isFilled(extra)) {
-            try {
-                JSONObject jo = new JSONObject(extra);
-                Iterator<String> keys = jo.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    String v = jo.optString(k, "");
-                    if (isFilled(v)) n++;
-                }
-            } catch (JSONException ignore) {
-                // extraOptions 解析失败,忽略
-            }
-        }
+        if (isFilled(q.getOptionE())) n++;
+        if (isFilled(q.getOptionF())) n++;
+        if (isFilled(q.getOptionG())) n++;
+        if (isFilled(q.getOptionH())) n++;
+        if (isFilled(q.getOptionI())) n++;
+        if (isFilled(q.getOptionJ())) n++;
+        if (isFilled(q.getOptionK())) n++;
+        if (isFilled(q.getOptionL())) n++;
         return n;
     }
 

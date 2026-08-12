@@ -15,6 +15,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions;
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import com.oilquiz.app.ai.service.OnlineOCRService;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -22,6 +23,7 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
 /**
@@ -149,6 +151,118 @@ public class OCRManager {
             return LANG_KOREAN;
         } else {
             return LANG_ENGLISH;
+        }
+    }
+
+    /**
+     * 处理图片进行文字识别（优先在线视觉模型，失败回退本地 ML Kit）
+     */
+    public void processImageOnlineFirst(Bitmap bitmap, OCRCallback callback) {
+        processImageOnlineFirst(bitmap, callback, currentLanguage);
+    }
+
+    /**
+     * 处理图片进行文字识别（优先在线视觉模型，失败回退本地 ML Kit）
+     * @param bitmap   图片
+     * @param callback 回调
+     * @param language 语言提示（传给在线模型）
+     */
+    public void processImageOnlineFirst(Bitmap bitmap, OCRCallback callback, String language) {
+        try {
+            OnlineOCRService onlineOCR = OnlineOCRService.getInstance(context);
+            if (onlineOCR.isAvailable()) {
+                Log.i(TAG, "尝试在线视觉模型 OCR...");
+                String langCode = mapLanguageCode(language);
+                onlineOCR.recognizeAsync(bitmap, langCode)
+                    .thenAccept(ocrResult -> {
+                        // ocrResult 现在包含 text + modelName + modelId（支持多层数据传递）
+                        String text = ocrResult.text;
+                        if (text != null && !text.isEmpty() && !text.contains("未检测到文字")) {
+                            Log.i(TAG, "在线视觉模型 OCR 成功: " + text.length() + " chars, model=" + ocrResult.modelName);
+                            String cleaned = cleanText(text);
+                            callback.onSuccess(cleaned);
+                        } else {
+                            Log.w(TAG, "在线视觉模型返回空结果，回退本地 OCR");
+                            processImage(bitmap, callback, true);
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        Log.w(TAG, "在线视觉模型 OCR 失败，回退本地 OCR: " + ex.getMessage());
+                        processImage(bitmap, callback, true);
+                        return null;
+                    });
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "在线 OCR 调用异常，回退本地: " + e.getMessage());
+        }
+        // 在线不可用，直接本地
+        processImage(bitmap, callback, true);
+    }
+
+    /**
+     * 从文件路径进行在线 OCR（优先在线视觉模型，失败回退本地）
+     */
+    public CompletableFuture<String> recognizeFileOnlineFirst(String filePath, String language) {
+        OnlineOCRService onlineOCR = OnlineOCRService.getInstance(context);
+        if (onlineOCR.isAvailable()) {
+            String langCode = mapLanguageCode(language);
+            return onlineOCR.recognizeFromFileAsync(filePath, langCode)
+                .thenApply(ocrResult -> {
+                    // 从 OCRResult 中提取文本（模型信息可用于多层数据传递）
+                    Log.i(TAG, "在线文件 OCR 完成: model=" + ocrResult.modelName + ", text_len=" + ocrResult.text.length());
+                    return ocrResult.text;
+                })
+                .exceptionally(ex -> {
+                    Log.w(TAG, "在线文件 OCR 失败，回退本地: " + ex.getMessage());
+                    // 回退到本地 OCR
+                    return recognizeFileLocal(filePath);
+                });
+        }
+        // 在线不可用，直接本地
+        return CompletableFuture.supplyAsync(() -> recognizeFileLocal(filePath));
+    }
+
+    /**
+     * 本地文件 OCR（同步，阻塞）
+     */
+    private String recognizeFileLocal(String filePath) {
+        try {
+            Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(filePath);
+            if (bitmap == null) return "无法解码图片文件";
+
+            final String[] result = new String[1];
+            final Object lock = new Object();
+            synchronized (lock) {
+                processImage(bitmap, new OCRCallback() {
+                    @Override
+                    public void onSuccess(String text) {
+                        synchronized (lock) { result[0] = text; lock.notify(); }
+                    }
+                    @Override
+                    public void onFailure(String error) {
+                        synchronized (lock) { result[0] = "OCR识别失败: " + error; lock.notify(); }
+                    }
+                }, true);
+                try { lock.wait(30000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            return result[0] != null ? result[0] : "OCR未识别到文本";
+        } catch (Exception e) {
+            return "OCR识别失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 将内部语言代码映射为在线模型常用语言代码
+     */
+    private String mapLanguageCode(String language) {
+        if (language == null || language.isEmpty() || language.equals(LANG_AUTO)) return "auto";
+        switch (language) {
+            case LANG_CHINESE: return "zh";
+            case LANG_ENGLISH: return "en";
+            case LANG_JAPANESE: return "ja";
+            case LANG_KOREAN: return "ko";
+            default: return language;
         }
     }
 

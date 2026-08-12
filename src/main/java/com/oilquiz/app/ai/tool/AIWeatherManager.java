@@ -93,7 +93,7 @@ public class AIWeatherManager implements AITool {
     private String getMinutelyUrl(double lat, double lon) {
         return apiHost + "/v7/minutely/5m?location=" + String.format(java.util.Locale.US, "%.2f", lon) + "," + String.format(java.util.Locale.US, "%.2f", lat);
     }
-    private String getGeocodeUrl() { return "https://api.qweather.com/geo/v2/city/lookup"; }
+    private String getGeocodeUrl() { return apiHost + "/geo/v2/city/lookup"; }
     
     // 备用天气预警API (APISpace - 数据来自国家预警中心)
     private static final String APISPACE_ALERTS_URL = "https://eolink.o.apispace.com/467456/weather/v001/alarm";

@@ -43,10 +43,12 @@ public class AIImportAgent {
     /** 自纠最大轮次 */
     private static final int MAX_CORRECTION_ROUNDS = 2;
 
-    /** 在线模型上下文窗口（充分利用在线模型的大窗口） */
-    private static final int ONLINE_CONTEXT_MAX = 4096;
-    /** 本地模型上下文窗口（保守值，避免 OOM） */
-    private static final int LOCAL_CONTEXT_MAX = 2048;
+    /** 在线模型上下文窗口兜底默认值（实际值运行时从 OnlineModelConfig.contextWindow 实时获取） */
+    private static final int ONLINE_CONTEXT_FALLBACK = 4096;
+    /** 本地模型上下文窗口兜底默认值（实际值运行时从 LlamaHelper.getContextSize() 实时获取） */
+    private static final int LOCAL_CONTEXT_FALLBACK = 2048;
+    /** 输出长度硬上限（防止个别模型配置了过大的 maxOutputTokens 导致长耗时/费用失控） */
+    private static final int OUTPUT_TOKENS_CAP = 4096;
     /** 上下文缓冲区 */
     private static final int CONTEXT_BUFFER = 256;
 
@@ -170,9 +172,11 @@ public class AIImportAgent {
      * extractFromChunk 的实际实现（已被 try-catch 保护）。
      */
     private List<Question> doExtractFromChunk(String chunk, int chunkIndex, int totalChunks, AgentCallback callback) {
-        // 动态计算上下文预算
+        // v6: 实时获取上下文窗口与输出上限（不再硬编码）
         boolean useOnline = shouldUseOnline();
-        int contextMax = useOnline ? ONLINE_CONTEXT_MAX : LOCAL_CONTEXT_MAX;
+        int contextMax = resolveContextMax(useOnline);
+        int outputMax = resolveOutputMax(useOnline);
+        notifyThinking(callback, "上下文窗口: " + contextMax + " tokens (输出上限 " + outputMax + ")");
 
         // 构建 prompt
         notifyState(callback, AgentState.ANALYZING, "分析文本块 " + (chunkIndex + 1) + "/" + totalChunks);
@@ -187,7 +191,7 @@ public class AIImportAgent {
         }
 
         int promptOverhead = estimateTokens(systemPrompt) + estimateTokens(schema.toString());
-        int availableBudget = contextMax - promptOverhead - CONTEXT_BUFFER;
+        int availableBudget = Math.max(256, contextMax - promptOverhead - CONTEXT_BUFFER);
 
         // Token 预算守卫：截断过长的 chunk
         String workingChunk = chunk;
@@ -213,7 +217,7 @@ public class AIImportAgent {
 
             // 调用 LLM
             chunkStartTimeMs = System.currentTimeMillis();
-            String rawOutput = callLlm(currentPrompt, schema, useOnline, callback);
+            String rawOutput = callLlm(currentPrompt, schema, useOnline, outputMax, callback);
 
             // ========== 诊断：AI原始输出 ==========
             com.oilquiz.app.util.ImportDebugTracer.trace("【7】Agent-AI原始输出-round" + round,
@@ -290,9 +294,67 @@ public class AIImportAgent {
     }
 
     /**
+     * v6: 实时获取上下文窗口大小。
+     * 在线：读当前激活模型配置的 contextWindow；本地：读 LlamaHelper 实际 n_ctx 的安全参考值。
+     * 获取失败/未配置时返回兜底默认值。
+     */
+    private int resolveContextMax(boolean useOnline) {
+        try {
+            if (useOnline) {
+                OnlineModelManager.OnlineModelConfig config = onlineModelManager.getActiveModel();
+                if (config != null && config.contextWindow > 0) {
+                    return config.contextWindow;
+                }
+                return ONLINE_CONTEXT_FALLBACK;
+            }
+            int ctxSize = com.oilquiz.app.ai.jni.LlamaHelper.getContextSize();
+            if (ctxSize > 0) {
+                return com.oilquiz.app.ai.jni.LlamaHelper.getSafeContextReference(ctxSize);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "获取上下文窗口失败，使用默认值: " + t.getMessage());
+        }
+        return useOnline ? ONLINE_CONTEXT_FALLBACK : LOCAL_CONTEXT_FALLBACK;
+    }
+
+    /**
+     * v6: 实时获取输出长度上限。在线读 config.maxOutputTokens，并限制在 OUTPUT_TOKENS_CAP 内。
+     */
+    private int resolveOutputMax(boolean useOnline) {
+        try {
+            if (useOnline) {
+                OnlineModelManager.OnlineModelConfig config = onlineModelManager.getActiveModel();
+                if (config != null && config.maxOutputTokens > 0) {
+                    return Math.min(config.maxOutputTokens, OUTPUT_TOKENS_CAP);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return 2048;
+    }
+
+    /**
+     * v7: 上下文自适应分块预算（供 Orchestrator 在 PROFILE 阶段调用）。
+     * 在线模型按运行时实际上下文窗口的 40% 计算（限 600~2000 token），
+     * 本地模型保持 600 token 保守值。任何异常回退 600。
+     */
+    public int getRuntimeChunkBudget() {
+        try {
+            boolean useOnline = shouldUseOnline();
+            int ctx = resolveContextMax(useOnline);
+            if (useOnline && ctx > 0) {
+                int budget = Math.round(ctx * 0.4f);
+                return Math.min(2000, Math.max(600, budget));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "计算分块预算失败，回退默认值: " + t.getMessage());
+        }
+        return 600;
+    }
+
+    /**
      * 调用 LLM（在线优先，带流式输出）
      */
-    private String callLlm(String prompt, JSONObject schema, boolean useOnline, AgentCallback callback) {
+    private String callLlm(String prompt, JSONObject schema, boolean useOnline, int outputMax, AgentCallback callback) {
         if (useOnline) {
             try {
                 OnlineModelManager.OnlineModelConfig config = onlineModelManager.getActiveModel();
@@ -302,9 +364,9 @@ public class AIImportAgent {
                     return callLocalLlm(prompt, callback);
                 }
 
-                // 在线模型：优先用结构化输出
+                // 在线模型：优先用结构化输出（v6: 输出上限取模型配置的实时值，防止多题 JSON 被截断丢题）
                 try {
-                    String result = inferenceService.generateStructuredAsync(prompt, config, schema, 2048).join();
+                    String result = inferenceService.generateStructuredAsync(prompt, config, schema, outputMax).join();
                     if (result != null && !result.trim().isEmpty()) {
                         result = ToolResultInterpreter.cleanModelOutput(result);
                         if (result == null) {
@@ -321,7 +383,7 @@ public class AIImportAgent {
                     // 降级到普通异步生成
                     try {
                         java.util.List<com.oilquiz.app.ai.chat.ChatMessage> emptyHistory = new ArrayList<>();
-                        String result = inferenceService.generateAsync(prompt, config, emptyHistory, 2048, false).get();
+                        String result = inferenceService.generateAsync(prompt, config, emptyHistory, outputMax, false).get();
                         if (result != null && !result.trim().isEmpty()) {
                             result = ToolResultInterpreter.cleanModelOutput(result);
                             if (result == null) {

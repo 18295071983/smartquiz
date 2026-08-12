@@ -100,20 +100,8 @@
             android:layout_weight="1"
             android:text="@string/refresh_data"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="12dp"
-            android:layout_marginEnd="4dp"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_frontend_view"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/frontend_render"
-            android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_secondary"
+            app:backgroundTint="@color/secondary"
             app:cornerRadius="12dp"
             android:layout_marginEnd="4dp"/>
 
@@ -122,7 +110,7 @@
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
-            android:text="@string/delete"
+            android:text="清空全部"
             android:textAllCaps="false"
             android:textColor="@color/on_error"
             app:backgroundTint="@color/error"

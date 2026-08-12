@@ -35,8 +35,6 @@ public class StartQuizActivity extends AppCompatActivity {
     private Spinner spinnerQuestionType;
     private Spinner spinnerQuestionOrder;
     private MaterialButton buttonStartQuiz;
-    private MaterialButton buttonCancel;
-    private MaterialButton buttonFrontendView;
 
     private String selectedMode = "practice";
     private String selectedQuestionType = "全部";
@@ -177,8 +175,6 @@ public class StartQuizActivity extends AppCompatActivity {
         spinnerQuestionType = findViewById(R.id.spinnerQuestionType);
         spinnerQuestionOrder = findViewById(R.id.spinnerQuestionOrder);
         buttonStartQuiz = findViewById(R.id.buttonStartQuiz);
-        buttonCancel = findViewById(R.id.buttonCancel);
-        buttonFrontendView = findViewById(R.id.buttonFrontendView);
     }
 
     private void setupSpinners() {
@@ -197,8 +193,11 @@ public class StartQuizActivity extends AppCompatActivity {
             public void onSuccess(List<String> questionTypes) {
                 List<String> typeList = new ArrayList<>();
                 typeList.add("全部");
-                if (questionTypes != null) {
+                if (questionTypes != null && !questionTypes.isEmpty()) {
                     typeList.addAll(questionTypes);
+                } else {
+                    // 题库为空，提示用户
+                    Toast.makeText(StartQuizActivity.this, "题库为空，请先在题库管理中导入题目", Toast.LENGTH_LONG).show();
                 }
 
                 ArrayAdapter<String> adapter = new ArrayAdapter<>(StartQuizActivity.this,
@@ -209,19 +208,25 @@ public class StartQuizActivity extends AppCompatActivity {
 
             @Override
             public void onError(String error) {
-                Toast.makeText(StartQuizActivity.this, "加载题型失败: " + error, Toast.LENGTH_SHORT).show();
+                // 数据库异常时仍显示默认题型，避免界面空白
+                List<String> typeList = new ArrayList<>();
+                typeList.add("全部");
+                typeList.add("单选题");
+                typeList.add("多选题");
+                typeList.add("判断题");
+                typeList.add("填空题");
+                typeList.add("简答题");
+                ArrayAdapter<String> adapter = new ArrayAdapter<>(StartQuizActivity.this,
+                        android.R.layout.simple_spinner_item, typeList);
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spinnerQuestionType.setAdapter(adapter);
+                Toast.makeText(StartQuizActivity.this, "题库加载异常，请检查后重试", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     private void setupListeners() {
-        radioGroupMode.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(RadioGroup group, int checkedId) {
-                RadioButton radioButton = findViewById(checkedId);
-                selectedMode = (String) radioButton.getTag();
-            }
-        });
+        // 模式选择已通过卡片点击事件处理，无需额外监听器
 
         spinnerQuestionType.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -249,22 +254,6 @@ public class StartQuizActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 startQuiz();
-            }
-        });
-
-        buttonCancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                finish();
-            }
-        });
-        
-        buttonFrontendView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent(StartQuizActivity.this, com.oilquiz.app.WebViewActivity.class);
-                intent.putExtra("url", "file:///android_asset/pages/start-quiz.html");
-                startActivity(intent);
             }
         });
     }

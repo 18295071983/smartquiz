@@ -135,7 +135,7 @@ public class QuestionSchemaDictionary {
      */
     public static String getCorrectionPrompt(String previousOutput, java.util.List<String> errors) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你上次的输出存在以下问题，请修正后重新输出完整的JSON：\n\n");
+        sb.append("你上次的输出存在以下问题，请做【最小编辑修复】后重新输出完整的JSON：\n\n");
         sb.append("## 上次输出\n").append(previousOutput).append("\n\n");
         sb.append("## 错误列表\n");
         if (errors != null && !errors.isEmpty()) {
@@ -145,9 +145,40 @@ public class QuestionSchemaDictionary {
         } else {
             sb.append("输出格式不合法或无法解析为JSON\n");
         }
-        sb.append("\n## 要求\n");
-        sb.append("请修正以上问题，重新输出完整的 {\"questions\":[...]} JSON。");
-        sb.append("只输出JSON，不要输出任何其他文字。");
+        sb.append("\n## 修复要求\n");
+        sb.append("1. 只修正上述错误项，其余题目和字段内容必须逐字保持不变（禁止重新生成、改写或增删未出错的题目）\n");
+        sb.append("2. 重新输出完整的 {\"questions\":[...]} JSON，包含全部题目（含未修改的）\n");
+        sb.append("3. 只输出JSON，不要输出任何其他文字。确保字符串已正确转义、JSON合法。");
         return sb.toString();
+    }
+
+    /**
+     * v7: 抽样质检 Schema — AI 对规则解析结果做单题一致性核验。
+     */
+    public static JSONObject getQaCheckSchema() throws JSONException {
+        JSONObject p = new JSONObject();
+        p.put("verdict", enumStringProp("核验结论", new String[]{"pass", "fail"}));
+        p.put("reason", stringProp("结论理由，pass时填空字符串"));
+
+        JSONObject schema = new JSONObject();
+        schema.put("type", "object");
+        schema.put("properties", p);
+        JSONArray req = new JSONArray();
+        req.put("verdict");
+        schema.put("required", req);
+        return schema;
+    }
+
+    /**
+     * v7: 抽样质检 prompt — 校验一道规则解析出的题目字段是否自洽。
+     */
+    public static String getQaCheckPrompt(org.json.JSONObject questionJson) {
+        return "你是题库数据质检员。请核验下面这道从表格中解析出的题目是否自洽：\n"
+                + questionJson.toString() + "\n\n"
+                + "核验要点：\n"
+                + "1. questionText 非空且像一个完整的题目（不是表头、序号或无关文字）\n"
+                + "2. correctAnswer 非空；若为字母答案(如A/B/AB)，对应选项字段应非空\n"
+                + "3. 选项内容与题干主题相关，不存在选项与答案张冠李戴\n\n"
+                + "只输出JSON：{\"verdict\":\"pass\"或\"fail\",\"reason\":\"理由\"}";
     }
 }

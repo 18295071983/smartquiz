@@ -4,6 +4,7 @@ import android.util.Log;
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
+import com.oilquiz.app.ai.chat.ChatMessage;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -727,6 +728,90 @@ public class LlamaHelper {
 
     private static native void nativeRelease();
 
+    // ========== 多模态视觉支持 ==========
+
+    /**
+     * 加载多模态投影文件（mmproj）
+     * @param mmprojPath mmproj 文件路径
+     * @return true 成功，false 失败
+     */
+    public static boolean loadMultimodal(String mmprojPath) {
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "Library not loaded, cannot load multimodal");
+            return false;
+        }
+        try {
+            return nativeLoadMultimodal(mmprojPath);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error loading multimodal: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * 释放多模态上下文
+     */
+    public static void releaseMultimodal() {
+        if (!libraryLoaded) return;
+        try {
+            nativeReleaseMultimodal();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error releasing multimodal: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 检查多模态是否已加载
+     */
+    public static boolean isMultimodalLoaded() {
+        if (!libraryLoaded) return false;
+        try {
+            return nativeIsMultimodalLoaded();
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
+    }
+
+    /**
+     * 带图像的生成长文本（流式）
+     * @param history 历史消息列表（用于上下文）
+     * @param prompt 当前用户文本
+     * @param imagePath 图像文件路径
+     * @param maxTokens 最大生成 token 数
+     * @param temperature 温度
+     * @param topP top-p 采样
+     * @param topK top-k 采样
+     * @param enableThinking 是否启用思考
+     * @param callback 流式回调
+     */
+    public static void generateWithImage(List<ChatMessage> history, String prompt, String imagePath, int maxTokens,
+                                          float temperature, float topP, int topK,
+                                          boolean enableThinking, TokenCallback callback) {
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "Library not loaded, cannot generate with image");
+            if (callback != null) {
+                callback.onError("Library not loaded");
+            }
+            return;
+        }
+        try {
+            ChatMessage[] historyArray = history != null ? history.toArray(new ChatMessage[0]) : null;
+            nativeGenerateWithImage(historyArray, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking, callback);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error generating with image: " + e.getMessage(), e);
+            if (callback != null) {
+                callback.onError("Native method not found: " + e.getMessage());
+            }
+        }
+    }
+
+    private static native boolean nativeLoadMultimodal(String mmprojPath);
+    private static native void nativeReleaseMultimodal();
+    private static native boolean nativeIsMultimodalLoaded();
+    private static native void nativeGenerateWithImage(ChatMessage[] history, String prompt, String imagePath, int maxTokens,
+                                                        float temperature, float topP, int topK,
+                                                        boolean enableThinking, TokenCallback callback);
+
     // 获取模型信息
     public static String getModelInfo() {
         if (!libraryLoaded) {
@@ -847,6 +932,42 @@ public class LlamaHelper {
     }
 
     private static native int nativeGetGPULayers();
+
+    /**
+     * 降低 GPU 层数以减少设备卡顿
+     * 当模型运行时导致设备卡顿时，可降低 GPU 层数到 15-20 层
+     * @param targetLayers 目标层数（建议 15-20）
+     */
+    public static void reduceGPULayers(int targetLayers) {
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "Library not loaded, cannot reduce GPU layers");
+            return;
+        }
+        // 限制在合理范围内
+        int layers = Math.max(1, Math.min(targetLayers, 30));
+        AILogger.i(TAG, "Reducing GPU layers to " + layers + " to prevent device lag");
+        try {
+            nativeSetGPULayers(layers);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error reducing GPU layers: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 使用性能模式（降低 GPU 层数到 15 层）
+     * 适用于设备卡顿时快速降低负载
+     */
+    public static void enablePerformanceMode() {
+        reduceGPULayers(15);
+    }
+
+    /**
+     * 使用平衡模式（GPU 层数 20 层）
+     * 平衡性能和速度
+     */
+    public static void enableBalancedMode() {
+        reduceGPULayers(20);
+    }
 
     // 内存池设置
     public static void setMemoryPoolSize(int size) {
@@ -1154,6 +1275,17 @@ public class LlamaHelper {
         void onToken(String token);
         void onComplete(String fullText);
         void onError(String error);
+        /**
+         * C++ 层 common_chat_parse 解析出的工具调用（OpenAI 格式）。
+         * 在 onComplete 之前调用，包含解析后的 tool_calls 列表。
+         * 本地模型和在线模型使用相同的 ToolCallInfo 结构，工具调用互通。
+         */
+        default void onToolCalls(java.util.List<com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo> toolCalls) {}
+        /**
+         * C++ 层 common_chat_parse 解析出的推理/思考内容。
+         * 在 onComplete 之前调用，包含模型输出的 reasoning_content。
+         */
+        default void onReasoning(String reasoning) {}
     }
     
     // 基于 llama_tokenize 的精确 Token 计数
@@ -1307,6 +1439,27 @@ public class LlamaHelper {
             return true;
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "chatAddToolResult failed: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * 注入 assistant 消息到主对话上下文（不触发生成）。
+     * 用于将外部产物（如工具结果的 AI 解读）写入本地模型的多轮历史，
+     * 使后续追问能连续对话。下一轮 chatSend 会通过增量模板自动编入 KV。
+     */
+    public static boolean chatAddAssistant(String content) {
+        if (!libraryLoaded || chatContextHandle == 0) return false;
+        if (content == null || content.isEmpty()) {
+            AILogger.w(TAG, "chatAddAssistant: content is empty");
+            return false;
+        }
+        try {
+            nativeChatAddAssistant(chatContextHandle, content);
+            AILogger.i(TAG, "chatAddAssistant: added, len=" + content.length());
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "chatAddAssistant failed: " + e.getMessage(), e);
             return false;
         }
     }
@@ -1521,6 +1674,7 @@ public class LlamaHelper {
     private static native boolean nativeChatUpdatePrompts(long handle, String globalPrompt, String systemPrompt, String normalPrompt);
     private static native void nativeChatAddAssistantToolCall(long handle, String toolCallContent);
     private static native void nativeChatAddToolResult(long handle, String toolResultContent);
+    private static native void nativeChatAddAssistant(long handle, String content);
     private static native int nativeHandleMemoryPressure(int level);
     private static native int nativeGetContextSize(long handle);
     private static native int nativeGetContextUsedTokens(long handle);

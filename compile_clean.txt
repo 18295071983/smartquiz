@@ -1,0 +1,147 @@
+﻿.\gradlew.bat : Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+所在位置 行:1 字符: 49
++ ... ing=UTF-8'; .\gradlew.bat compileDebugJavaWithJavac -x lint --console ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Picked up JAVA_....encoding=UTF-8:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Starting a Gradle Daemon, 1 busy and 3 stopped Daemons could not be reused, use --status for details
+Configuration on demand is an incubating feature.
+> Task :preBuild UP-TO-DATE
+> Task :preDebugBuild UP-TO-DATE
+> Task :dataBindingMergeDependencyArtifactsDebug UP-TO-DATE
+> Task :generateDebugResValues UP-TO-DATE
+> Task :generateDebugResources UP-TO-DATE
+> Task :mergeDebugResources UP-TO-DATE
+> Task :packageDebugResources UP-TO-DATE
+> Task :parseDebugLocalResources UP-TO-DATE
+> Task :dataBindingGenBaseClassesDebug UP-TO-DATE
+> Task :extractDebugPythonBuildPackages UP-TO-DATE
+
+> Task :generateDebugPythonRequirements
+Chaquopy: Installing for arm64-v8a
+Looking in indexes: https://pypi.org/simple, https://chaquo.com/pypi-13.1, https://pypi.tuna.tsinghua.edu.cn/simple/, https://mirrors.aliyun.com/pypi/simple/
+Processing d:\qzq\smartquiz\python-wheels\jieba-0.42.1.tar.gz
+Processing d:\qzq\smartquiz\python-wheels\requests-2.34.2-py3-none-any.whl
+Processing d:\qzq\smartquiz\python-wheels\beautifulsoup4-4.15.0-py3-none-any.whl
+Collecting regex
+  Using cached https://chaquo.com/pypi-13.1/regex/regex-2023.10.3-0-cp310-cp310-android_21_arm64_v8a.whl (284 kB)
+Collecting Pillow
+  Using cached https://chaquo.com/pypi-13.1/pillow/pillow-11.0.0-0-cp310-cp310-android_24_arm64_v8a.whl (582 kB)
+Collecting numpy
+  Using cached https://chaquo.com/pypi-13.1/numpy/numpy-1.26.2-0-cp310-cp310-android_21_arm64_v8a.whl (5.0 MB)
+Collecting lxml
+  Using cached https://chaquo.com/pypi-13.1/lxml/lxml-5.3.0-0-cp310-cp310-android_24_arm64_v8a.whl (1.4 MB)
+Collecting openpyxl
+  Using cached openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Collecting pyyaml
+  Using cached https://chaquo.com/pypi-13.1/pyyaml/pyyaml-6.0.3-0-cp310-cp310-android_24_arm64_v8a.whl (137 kB)
+Collecting tabulate
+  Using cached tabulate-0.10.0-py3-none-any.whl (39 kB)
+Collecting python-dateutil
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Collecting chardet
+  Using cached chardet-7.5.1-py3-none-any.whl (655 kB)
+Collecting xlrd
+  Using cached xlrd-2.0.2-py2.py3-none-any.whl (96 kB)
+Collecting pandas
+  Using cached https://chaquo.com/pypi-13.1/pandas/pandas-2.1.3-1-cp310-cp310-android_24_arm64_v8a.whl (11.3 MB)
+Collecting urllib3<3,>=1.26
+  Using cached urllib3-2.7.0-py3-none-any.whl (131 kB)
+Collecting idna<4,>=2.5
+  Using cached idna-3.18-py3-none-any.whl (65 kB)
+Collecting certifi>=2023.5.7
+  Using cached certifi-2026.7.22-py3-none-any.whl (136 kB)
+Collecting charset_normalizer<4,>=2
+  Using cached charset_normalizer-3.4.9-py3-none-any.whl (64 kB)
+Collecting soupsieve>=1.6.1
+  Using cached soupsieve-2.9.2-py3-none-any.whl (37 kB)
+Collecting typing-extensions>=4.0.0
+  Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Collecting chaquopy-libjpeg>=1.5.3
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libjpeg/chaquopy_libjpeg-1.5.3-1-py3-none-android_21_arm64_v8a.whl (176 kB)
+Collecting chaquopy-freetype>=2.9.1
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-freetype/chaquopy_freetype-2.9.1-2-py3-none-android_21_arm64_v8a.whl (533 kB)
+Collecting chaquopy-libcxx>=11000
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libcxx/chaquopy_libcxx-180000-0-py3-none-android_24_arm64_v8a.whl (413 kB)
+Collecting chaquopy-openblas>=0.2.20
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-openblas/chaquopy_openblas-0.2.20-5-py3-none-android_21_arm64_v8a.whl (4.3 MB)
+Collecting chaquopy-libxslt>=1.1.32
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libxslt/chaquopy_libxslt-1.1.32-2-py3-none-android_21_arm64_v8a.whl (178 kB)
+Collecting chaquopy-libxml2>=2.9.8
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libxml2/chaquopy_libxml2-2.9.8-2-py3-none-android_21_arm64_v8a.whl (773 kB)
+Collecting et-xmlfile
+  Using cached et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Collecting chaquopy-libyaml>=0.2.5
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libyaml/chaquopy_libyaml-0.2.5-0-py3-none-android_24_arm64_v8a.whl (58 kB)
+Collecting six>=1.5
+  Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Collecting tzdata>=2022.1
+  Using cached tzdata-2026.3-py2.py3-none-any.whl (348 kB)
+Collecting pytz>=2020.1
+  Using cached pytz-2026.3.post1-py2.py3-none-any.whl (508 kB)
+Collecting chaquopy-libgfortran>=4.9
+  Using cached https://chaquo.com/pypi-13.1/chaquopy-libgfortran/chaquopy_libgfortran-4.9-0-py3-none-android_21_arm64_v8a.whl (495 kB)
+Building wheels for collected packages: jieba
+  Building wheel for jieba (setup.py): started
+  Building wheel for jieba (setup.py): finished with status 'done'
+  Created wheel for jieba: filename=jieba-0.42.1-py3-none-any.whl size=19314458 sha256=65cec0b7899b6af7643b6e595ab4fc4dab856867daca20d9b7598d945bc64e24
+  Stored in directory: c:\users\xiaocong\appdata\local\chaquopy\pip\cache\wheels\75\24\96\4639a4bcd625552dd6297def4b3ad789929d0b275c1eec8c21
+Successfully built jieba
+Installing collected packages: urllib3, idna, certifi, charset-normalizer, requests, soupsieve, typing-extensions, beautifulsoup4, regex, chaquopy-libjpeg, chaquopy-freetype, Pillow, chaquopy-libcxx, chaquopy-libgfortran, chaquopy-openblas, numpy, chaquopy-libxml2, chaquopy-libxslt, lxml, et-xmlfile, openpyxl, chaquopy-libyaml, pyyaml, tabulate, six, python-dateutil, chardet, xlrd, tzdata, pytz, pandas, jieba
+Successfully installed Pillow-11.0.0 beautifulsoup4-4.15.0 certifi-2026.7.22 chaquopy-freetype-2.9.1 chaquopy-libcxx-180000 chaquopy-libgfortran-4.9 chaquopy-libjpeg-1.5.3 chaquopy-libxml2-2.9.8 chaquopy-libxslt-1.1.32 chaquopy-libyaml-0.2.5 chaquopy-openblas-0.2.20 chardet-7.5.1 charset-normalizer-3.4.9 et-xmlfile-2.0.0 idna-3.18 jieba-0.42.1 lxml-5.3.0 numpy-1.26.2 openpyxl-3.1.5 pandas-2.1.3 python-dateutil-2.9.0.post0 pytz-2026.3.post1 pyyaml-6.0.3 regex-2023.10.3 requests-2.34.2 six-1.17.0 soupsieve-2.9.2 tabulate-0.10.0 typing-extensions-4.16.0 tzdata-2026.3 urllib3-2.7.0 xlrd-2.0.2
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\chaquopy already exists. Specify --upgrade 
+to force replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\lxml already exists. Specify --upgrade to f
+orce replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\numpy already exists. Specify --upgrade to 
+force replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\pandas already exists. Specify --upgrade to
+ force replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\PIL already exists. Specify --upgrade to fo
+rce replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\regex already exists. Specify --upgrade to 
+force replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\yaml already exists. Specify --upgrade to f
+orce replacement.
+WARNING: Target directory D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\_yaml already exists. Specify --upgrade to 
+force replacement.
+Chaquopy: Failed to process D:\qzq\smartquiz\build\python\pip\debug\arm64-v8a\chaquopy_freetype-2.9.1.dist-info
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\qzq\smartquiz\build\python\env\debug\Lib\site-packages\chaquopy\pip_install.py", line 362, in <module>
+  File "D:\qzq\smartquiz\build\python\env\debug\Lib\site-packages\chaquopy\pip_install.py", line 58, in main
+  File "D:\qzq\smartquiz\build\python\env\debug\Lib\site-packages\chaquopy\pip_install.py", line 146, in pip_install
+  File "D:\qzq\smartquiz\build\python\env\debug\Lib\site-packages\chaquopy\pip_install.py", line 287, in remove
+FileNotFoundError: [WinError 3] 系统锟揭诧拷锟斤拷指锟斤拷锟斤拷路锟斤拷锟斤拷: 'D:\\qzq\\smartquiz\\build\\python\\pip\\debug\\arm64-v8a\\cha
+quopy\\include\\freetype\\config\\ftconfig.h'
+
+> Task :generateDebugPythonRequirements FAILED
+
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/build/reports/problems/problems-report.html
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':generateDebugPythonRequirements'.
+> Process 'command 'D:\qzq\smartquiz\build\python\env\debug\Scripts\python.exe'' finished with non-zero exit value 1 
+  
+  To view full details in Android Studio:
+  * Click the 'Build: failed' caption to the left of this message.
+  * Then scroll up to see the full output.
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+9 actionable tasks: 1 executed, 8 up-to-date
+
+BUILD FAILED in 2m 51s

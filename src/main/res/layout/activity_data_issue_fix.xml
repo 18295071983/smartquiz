@@ -137,17 +137,11 @@
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
                         android:layout_marginBottom="12dp"/>
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/rvIssuesList"
+                    <LinearLayout
+                        android:id="@+id/issuesContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="200dp"/>
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/issuesRecyclerView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="200dp"
-                        android:visibility="gone"/>
+                        android:orientation="vertical"/>
                     <TextView
                         android:id="@+id/tvNoIssues"
                         android:layout_width="match_parent"
@@ -167,64 +161,74 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
+        android:orientation="vertical"
+        android:padding="12dp"
         android:background="@color/surface"
         android:elevation="8dp">
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnScanIssues"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="扫描问题"
-            app:backgroundTint="@color/primary"
-            android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnFixAll"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="全部修复"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonBatchFix"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="批量修复"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonSkipAndContinue"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="跳过"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonCompleteFix"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="完成"
-            app:backgroundTint="@color/primary"
-            android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"/>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnScanIssues"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="扫描问题"
+                app:backgroundTint="@color/primary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"
+                android:layout_marginEnd="8dp"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnFixAll"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="全部修复"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonBatchFix"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="批量修复"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"
+                android:layout_marginEnd="8dp"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonSkipAndContinue"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="跳过"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"
+                android:layout_marginEnd="8dp"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonCompleteFix"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="完成"
+                app:backgroundTint="@color/primary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"/>
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

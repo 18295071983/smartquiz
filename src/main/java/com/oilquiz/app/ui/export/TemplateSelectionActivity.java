@@ -52,9 +52,8 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_template_selection);
 
-        // 获取Intent中的questions参数
-        Intent intent = getIntent();
-        questions = (java.util.List<com.oilquiz.app.model.Question>) intent.getSerializableExtra("questions");
+        // 题目列表从内存持有器获取（Intent 序列化大列表会抛 TransactionTooLargeException）
+        questions = ExportQuestionsHolder.get();
 
         initViews();
         initTemplateManager();
@@ -73,25 +72,14 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         templateFields = findViewById(R.id.template_fields);
         templateTypeToggle = findViewById(R.id.template_type_toggle);
 
+        // 简化：隐藏内容模板切换（内容模板体系与导出模板分离，避免双模板流程混乱），
+        // 本页专注导出模板（场景化模板）选择
+        if (templateTypeToggle != null) {
+            templateTypeToggle.setVisibility(View.GONE);
+        }
+        isContentTemplateMode = false;
+
         nextButton.setOnClickListener(v -> proceedToFieldConfig());
-        templateTypeToggle.setOnCheckedChangeListener((group, checkedId) -> {
-            isContentTemplateMode = (checkedId == R.id.radio_content_template);
-            if (isContentTemplateMode) {
-                // 内容模板模式下，强制使用HTML格式
-                for (int i = 0; i < ExportManager.ExportFormat.values().length; i++) {
-                    if (ExportManager.ExportFormat.values()[i] == ExportManager.ExportFormat.HTML) {
-                        formatSpinner.setSelection(i);
-                        formatSpinner.setEnabled(false);
-                        break;
-                    }
-                }
-            } else {
-                // 导出模板模式下，启用格式选择器
-                formatSpinner.setEnabled(true);
-            }
-            updateUIForTemplateType();
-            updateTemplateList();
-        });
     }
 
     private void initTemplateManager() {
@@ -331,7 +319,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
             intent.putExtra("contentTemplateId", selectedContentTemplate.getId());
             intent.putExtra("contentTemplateName", selectedContentTemplate.getName());
             intent.putExtra("contentTemplateFilePath", selectedContentTemplate.getFilePath());
-            intent.putExtra("questions", (java.io.Serializable) questions);
+            // questions 继续由 ExportQuestionsHolder 持有，不再放入 Intent
             startActivity(intent);
         } else {
             // 处理导出模板
@@ -345,7 +333,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
                 Intent intent = new Intent(this, FieldConfigActivity.class);
                 intent.putExtra("format", selectedFormat.name());
                 intent.putExtra("templateId", selectedTemplate != null ? selectedTemplate.getId() : null);
-                intent.putExtra("questions", (java.io.Serializable) questions);
+                // questions 继续由 ExportQuestionsHolder 持有，不再放入 Intent
                 startActivity(intent);
         }
     }
