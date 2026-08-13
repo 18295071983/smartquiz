@@ -16,11 +16,13 @@ import java.util.Map;
  */
 public class ExportManager {
     private static final String TAG = "ExportManager";
+    private static final String LOG_PREFIX = "ExportManager";
     private static ExportManager instance;
     private Context context;
     private Map<String, ExportTask> exportTasks = new HashMap<>();
 
     private ExportManager() {
+        Log.i(LOG_PREFIX, "ExportManager initialized");
     }
 
     public static synchronized ExportManager getInstance() {
@@ -31,7 +33,11 @@ public class ExportManager {
     }
 
     public void init(Context context) {
+        if (this.context != null) {
+            Log.w(LOG_PREFIX, "Re-initializing ExportManager with new context");
+        }
         this.context = context;
+        Log.i(LOG_PREFIX, "ExportManager context initialized: " + (context != null ? context.getClass().getSimpleName() : "null"));
     }
 
     /**
@@ -290,10 +296,55 @@ public class ExportManager {
     }
 
     /**
+     * 根据导出格式获取对应的导出器
+     * 使用 Python (Chaquopy) 处理导出，避免 Apache POI/iText 等不兼容 Android 的库
+     */
+    private Exporter getExporter(Context context, String format) {
+        Log.i(LOG_PREFIX, "Getting exporter for format: " + format);
+        switch (format.toUpperCase()) {
+            case "EXCEL":
+            case "XLSX":
+                Log.i(LOG_PREFIX, "Using PythonExporter for Excel");
+                return new PythonExporter("excel");
+            case "CSV":
+                Log.i(LOG_PREFIX, "Using CSVExporter");
+                return new CSVExporter();
+            case "MARKDOWN":
+            case "MD":
+                Log.i(LOG_PREFIX, "Using MarkdownExporter");
+                return new MarkdownExporter();
+            case "JSON":
+                Log.i(LOG_PREFIX, "Using JSONExporter");
+                return new JSONExporter();
+            case "WORD":
+            case "DOCX":
+                Log.i(LOG_PREFIX, "Using WordExporter");
+                return new WordExporter();
+            case "PDF":
+                Log.i(LOG_PREFIX, "Using PDFExporter");
+                return new PDFExporter();
+            case "HTML":
+                Log.i(LOG_PREFIX, "Using HTMLExporter");
+                return new HTMLExporter();
+            case "LONGIMAGE":
+            case "LONGIMG":
+                Log.i(LOG_PREFIX, "Using LongImageExporter");
+                return new LongImageExporter();
+            default:
+                Log.e(LOG_PREFIX, "Unsupported format: " + format);
+                throw new IllegalArgumentException("不支持的导出格式: " + format);
+        }
+    }
+
+    /**
      * 开始导出任务
      */
     public void startExport(ExportTask task) {
+        Log.i(LOG_PREFIX, "=== Starting export task ===");
+        
         if (task == null || task.getQuestions() == null || task.getQuestions().isEmpty()) {
+            Log.e(LOG_PREFIX, "Invalid export task: task=" + (task == null ? "null" : "not null") + 
+                    ", questions=" + (task != null && task.getQuestions() != null ? task.getQuestions().size() : "null"));
             if (task != null && task.getCallback() != null) {
                 task.getCallback().onExportError("没有问题可导出");
             }
@@ -303,15 +354,24 @@ public class ExportManager {
         // 设置context
         if (task.getContext() == null) {
             task.setContext(context);
+            Log.i(LOG_PREFIX, "Set context from manager to task");
         }
 
         String taskId = "task_" + System.currentTimeMillis();
         exportTasks.put(taskId, task);
+        Log.i(LOG_PREFIX, "Task created: " + taskId + ", questions count: " + task.getQuestions().size());
+        Log.i(LOG_PREFIX, "Export config: format=" + (task.getConfig() != null ? task.getConfig().getFormat().name() : "null") +
+                ", includeAnswers=" + (task.getConfig() != null && task.getConfig().isIncludeAnswers()) +
+                ", includeExplanations=" + (task.getConfig() != null && task.getConfig().isIncludeExplanations()) +
+                ", selectedFields=" + (task.getConfig() != null && task.getConfig().getSelectedFields() != null ? task.getConfig().getSelectedFields().size() : 0));
+        Log.i(LOG_PREFIX, "Template info: contentTemplateMode=" + (task.getConfig() != null && task.getConfig().isContentTemplateMode()) +
+                ", templateId=" + (task.getConfig() != null ? task.getConfig().getTemplateId() : "null"));
 
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
+                    Log.i(LOG_PREFIX, "Export thread started for task: " + taskId);
                     if (task.getCallback() != null) {
                         task.getCallback().onExportStart();
                     }
@@ -319,85 +379,94 @@ public class ExportManager {
                     // 初始化模板管理器
                     com.oilquiz.app.util.export.template.TemplateManager templateManager = com.oilquiz.app.util.export.template.TemplateManager.getInstance();
                     templateManager.init(task.getContext());
+                    Log.i(LOG_PREFIX, "TemplateManager initialized");
 
                     // 根据格式选择导出器
                     Exporter selectedExporter = null;
                     // 检查是否使用内容模板
                     if (task.getConfig().isContentTemplateMode()) {
+                        Log.i(LOG_PREFIX, "Using ContentTemplateExporter for content template mode");
                         // 内容模板模式下，根据选择的格式使用对应的导出器
                         // 但保持内容模板的处理逻辑
                         selectedExporter = new ContentTemplateExporter();
                     } else {
                         // 根据格式选择导出器
+                        Log.i(LOG_PREFIX, "Determining exporter for format: " + task.getConfig().getFormat().name());
                         switch (task.getConfig().getFormat()) {
                             case CSV:
+                                Log.i(LOG_PREFIX, "Selected: CSVExporter");
                                 selectedExporter = new CSVExporter();
                                 break;
                             case EXCEL:
-                                selectedExporter = new ExcelExporter();
-                                break;
-                            case PDF:
-                                selectedExporter = new PDFExporter();
+                                Log.i(LOG_PREFIX, "Selected: PythonExporter for Excel (Android-compatible)");
+                                selectedExporter = new PythonExporter("excel");
                                 break;
                             case WORD:
+                                Log.i(LOG_PREFIX, "Selected: WordExporter");
                                 selectedExporter = new WordExporter();
                                 break;
                             case HTML:
-                                // 场景化模板（scene_*）/自定义字段模板统一走 HTMLExporter（按模板字段渲染）；
-                                // 仅旧版内容模板（无 scene 前缀）才走 TemplateHTMLExporter
-                                String templateId = task.getConfig().getTemplateId();
-                                if (templateId != null && !templateId.startsWith("scene_")) {
-                                    com.oilquiz.app.util.export.template.Template template = templateManager.getTemplateById(templateId);
-                                    if (template != null) {
-                                        selectedExporter = new TemplateHTMLExporter(template);
-                                    } else {
-                                        selectedExporter = new HTMLExporter();
-                                    }
-                                } else {
-                                    selectedExporter = new HTMLExporter();
-                                }
+                                // 学习查看版HTML导出，使用Python实现折叠功能
+                                Log.i(LOG_PREFIX, "Selected: PythonExporter for HTML (learning view)");
+                                selectedExporter = new PythonExporter("html");
                                 break;
                             case ENHANCED_HTML:
+                                Log.i(LOG_PREFIX, "Selected: EnhancedHTMLExporter");
                                 selectedExporter = new EnhancedHTMLExporter();
                                 break;
                             case MARKDOWN:
+                                Log.i(LOG_PREFIX, "Selected: MarkdownExporter");
                                 selectedExporter = new MarkdownExporter();
                                 break;
                             case JSON:
+                                Log.i(LOG_PREFIX, "Selected: JSONExporter");
                                 selectedExporter = new JSONExporter();
                                 break;
+                            case PDF:
+                                Log.i(LOG_PREFIX, "Selected: PythonExporter for PDF (Chinese support)");
+                                selectedExporter = new PythonExporter("pdf");
+                                break;
                             case LONG_IMAGE:
-                                selectedExporter = new LongImageExporter();
+                                Log.i(LOG_PREFIX, "Selected: PythonExporter for Long Image (Pillow)");
+                                selectedExporter = new PythonExporter("long_image");
                                 break;
 
                             default:
+                                Log.e(LOG_PREFIX, "Unsupported format: " + task.getConfig().getFormat());
                                 selectedExporter = null;
                                 break;
                         }
                     }
 
                     if (selectedExporter != null) {
+                        Log.i(LOG_PREFIX, "Exporter ready, starting export...");
+                        long startTime = System.currentTimeMillis();
                         // 执行导出
                         File file = selectedExporter.export(task);
+                        long endTime = System.currentTimeMillis();
+                        Log.i(LOG_PREFIX, "Export completed successfully: " + file.getAbsolutePath() + 
+                                ", file size: " + file.length() + " bytes, duration: " + (endTime - startTime) + "ms");
                         task.setStatus(ExportTaskStatus.COMPLETED);
                         if (task.getCallback() != null) {
                             task.getCallback().onExportComplete(file);
                         }
                     } else {
+                        Log.e(LOG_PREFIX, "No exporter found, export failed");
                         task.setStatus(ExportTaskStatus.FAILED);
                         if (task.getCallback() != null) {
                             task.getCallback().onExportError("不支持的导出格式");
                         }
                     }
                 } catch (Exception e) {
+                    Log.e(LOG_PREFIX, "Export error: " + e.getMessage(), e);
                     task.setStatus(ExportTaskStatus.FAILED);
-                    Log.e(TAG, "Export error: " + e.getMessage());
                     if (task.getCallback() != null) {
                         task.getCallback().onExportError("导出失败: " + e.getMessage());
                     }
                 } finally {
                     // 任务完成后从地图中移除
                     exportTasks.remove(taskId);
+                    Log.i(LOG_PREFIX, "Export task completed and removed: " + taskId);
                 }
             }
         }).start();

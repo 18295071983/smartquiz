@@ -136,12 +136,16 @@ public class OfficeGeneratorUtil {
             // 创建数据行
             if (data != null) {
                 int rowIndex = headers != null ? 1 : 0;
+                int expectedCols = headers != null ? headers.length : 0;
                 for (String[] rowData : data) {
                     Row row = sheet.createRow(rowIndex++);
                     if (rowData != null) {
-                        for (int i = 0; i < rowData.length; i++) {
+                        // 容错：rowData 长度可能与 headers 不一致
+                        int colsToWrite = Math.max(rowData.length, expectedCols);
+                        for (int i = 0; i < colsToWrite; i++) {
                             Cell cell = row.createCell(i);
-                            cell.setCellValue(rowData[i]);
+                            // 缺少该列，填空字符串
+                            cell.setCellValue(i < rowData.length && rowData[i] != null ? rowData[i] : "");
                         }
                     }
                 }
@@ -211,12 +215,16 @@ public class OfficeGeneratorUtil {
 
             // 创建数据行
             if (data != null) {
+                int expectedCols = headers != null ? headers.length : 0;
                 for (String[] rowData : data) {
                     Row row = sheet.createRow(currentRowIndex++);
                     if (rowData != null) {
-                        for (int i = 0; i < rowData.length; i++) {
+                        // 容错：rowData 长度可能与 headers 不一致
+                        int colsToWrite = Math.max(rowData.length, expectedCols);
+                        for (int i = 0; i < colsToWrite; i++) {
                             Cell cell = row.createCell(i);
-                            cell.setCellValue(rowData[i]);
+                            // 缺少该列，填空字符串
+                            cell.setCellValue(i < rowData.length && rowData[i] != null ? rowData[i] : "");
                         }
                     }
                 }

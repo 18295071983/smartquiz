@@ -499,9 +499,18 @@ public class FileReaderTool implements AITool {
                 org.apache.poi.ss.usermodel.Row row = sheet.getRow(r);
                 if (row == null) continue;
                 Map<String, String> rowData = new LinkedHashMap<>();
-                for (int c = 0; c < colCount; c++) {
+                // 容错：如果列数少于表头，用空字符串填充
+                int actualCols = Math.max(colCount, headers.size());
+                for (int c = 0; c < actualCols; c++) {
                     String key = c < headers.size() ? headers.get(c) : ("col_" + c);
-                    rowData.put(key, getCellValueAsString(row.getCell(c)));
+                    // 容错：行中的列数可能少于表头
+                    if (c < row.getLastCellNum()) {
+                        org.apache.poi.ss.usermodel.Cell cell = row.getCell(c);
+                        rowData.put(key, getCellValueAsString(cell));
+                    } else {
+                        // 缺少该列，填空字符串
+                        rowData.put(key, "");
+                    }
                 }
                 rows.add(rowData);
             }
@@ -559,6 +568,7 @@ public class FileReaderTool implements AITool {
                     for (String p : parts) headers.add(p.trim().replaceAll("^\"|\"$", ""));
                 } else {
                     Map<String, String> rowData = new LinkedHashMap<>();
+                    // 容错：行的列数可能少于表头，用空字符串填充
                     for (int i = 0; i < headers.size(); i++) {
                         String val = i < parts.length ? parts[i].trim().replaceAll("^\"|\"$", "") : "";
                         rowData.put(headers.get(i), val);

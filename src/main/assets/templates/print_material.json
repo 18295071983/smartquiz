@@ -1,18 +1,14 @@
 {
-  "name": "打印",
-  "description": "打印材料模板，适合打印使用",
+  "name": "打印材料（刷题训练版）",
+  "description": "打印练习、课堂测验，不含答案",
   "format": "HTML",
   "fields": [
+    "questionType",
     "questionText",
     "optionA",
     "optionB",
     "optionC",
-    "optionD",
-    "correctAnswer",
-    "explanation",
-    "questionType",
-    "difficulty",
-    "category"
+    "optionD"
   ],
   "fieldMappings": {
     "questionText": "题目",
@@ -20,15 +16,11 @@
     "optionB": "选项B",
     "optionC": "选项C",
     "optionD": "选项D",
-    "correctAnswer": "正确答案",
-    "explanation": "解析",
-    "questionType": "题型",
-    "difficulty": "难度",
-    "category": "分类"
+    "questionType": "题型"
   },
   "config": {
-    "includeAnswers": true,
-    "includeExplanations": true,
+    "includeAnswers": false,
+    "includeExplanations": false,
     "groupByCategory": true,
     "includeCategories": true
   },

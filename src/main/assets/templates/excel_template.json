@@ -1,8 +1,10 @@
 {
-  "name": "Excel模板",
-  "description": "Excel格式导出模板，适合表格编辑",
+  "name": "Excel模板（标准完整版）",
+  "description": "题库备份与跨端迁移，保留完整题目数据",
   "format": "EXCEL",
   "fields": [
+    "id",
+    "questionType",
     "questionText",
     "optionA",
     "optionB",
@@ -10,21 +12,22 @@
     "optionD",
     "correctAnswer",
     "explanation",
-    "questionType",
-    "difficulty",
-    "category"
+    "knowledgePoint",
+    "category",
+    "difficulty"
   ],
   "fieldMappings": {
-    "questionText": "题目",
+    "id": "序号",
+    "questionText": "题目内容",
     "optionA": "选项A",
     "optionB": "选项B",
     "optionC": "选项C",
     "optionD": "选项D",
     "correctAnswer": "正确答案",
     "explanation": "解析",
-    "questionType": "题型",
-    "difficulty": "难度",
-    "category": "分类"
+    "knowledgePoint": "知识点",
+    "category": "分类",
+    "difficulty": "难度"
   },
   "config": {
     "includeAnswers": true,
