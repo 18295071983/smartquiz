@@ -1,18 +1,20 @@
 {
-  "name": "讲义",
-  "description": "课程讲义模板，适合课堂使用",
+  "name": "讲义（备课版）",
+  "description": "老师备课、课堂材料，按分类分组",
   "format": "HTML",
   "fields": [
+    "questionType",
+    "category",
+    "subCategory",
+    "difficulty",
+    "knowledgePoint",
     "questionText",
     "optionA",
     "optionB",
     "optionC",
     "optionD",
     "correctAnswer",
-    "explanation",
-    "questionType",
-    "difficulty",
-    "category"
+    "explanation"
   ],
   "fieldMappings": {
     "questionText": "题目",
@@ -24,7 +26,9 @@
     "explanation": "解析",
     "questionType": "题型",
     "difficulty": "难度",
-    "category": "分类"
+    "category": "分类",
+    "subCategory": "子分类",
+    "knowledgePoint": "知识点"
   },
   "config": {
     "includeAnswers": true,

@@ -1,28 +1,20 @@
 {
-  "name": "PDF模板",
-  "description": "PDF格式导出模板，适合打印和分享",
+  "name": "PDF模板（答案解析版）",
+  "description": "复习备考、错题整理，突出答案和解析",
   "format": "PDF",
   "fields": [
+    "questionType",
     "questionText",
-    "optionA",
-    "optionB",
-    "optionC",
-    "optionD",
     "correctAnswer",
     "explanation",
-    "questionType",
-    "difficulty"
+    "knowledgePoint"
   ],
   "fieldMappings": {
-    "questionText": "题目",
-    "optionA": "选项A",
-    "optionB": "选项B",
-    "optionC": "选项C",
-    "optionD": "选项D",
+    "questionText": "题目内容",
     "correctAnswer": "正确答案",
     "explanation": "解析",
     "questionType": "题型",
-    "difficulty": "难度"
+    "knowledgePoint": "知识点"
   },
   "config": {
     "includeAnswers": true,

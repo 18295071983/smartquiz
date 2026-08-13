@@ -539,6 +539,9 @@ public class FileGeneratorTool implements AITool {
     }
     
     private String convertListToJson(List<?> list, boolean pretty) {
+        if (list == null) {
+            return "[]";
+        }
         StringBuilder json = new StringBuilder();
         json.append("[");
         
@@ -560,8 +563,10 @@ public class FileGeneratorTool implements AITool {
                 json.append("\"").append(escapeString((String) value)).append("\"");
             } else if (value instanceof Number || value instanceof Boolean) {
                 json.append(value.toString());
-            } else {
+            } else if (value == null) {
                 json.append("null");
+            } else {
+                json.append("\"").append(escapeString(value.toString())).append("\"");
             }
         }
         
