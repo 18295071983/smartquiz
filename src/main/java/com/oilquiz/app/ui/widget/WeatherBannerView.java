@@ -12,7 +12,6 @@ import android.net.NetworkInfo;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -55,11 +54,8 @@ public class WeatherBannerView extends LinearLayout {
     private TextView weatherDesc;
     private ImageView weatherArrow;
     private View weatherBanner;
-    // 介绍行 chips（类似天气详情页的介绍功能）
-    private TextView weatherFeelsLike;   // 体感温度
-    private TextView weatherHumidity;    // 湿度
-    private TextView weatherWind;        // 风向+风力
-    private TextView weatherVisibility;  // 能见度
+    // 天气详情总介绍（一句话汇总，与详情页天气介绍同数据源）
+    private TextView weatherSummary;
 
     private WeatherService weatherService;
     private String currentCity = "";
@@ -70,6 +66,10 @@ public class WeatherBannerView extends LinearLayout {
     private String cachedFxLink = "";
     private long lastRefreshTime = 0;
     private String cachedAddress = "";
+    /** 今日预报文本（用于拼接与详情页一致的完整总介绍，3小时缓存） */
+    private String forecastText = null;
+    /** 具体地址（区+路），总介绍末尾补充显示；无则为空 */
+    private String detailAddress = "";
 
     private android.content.BroadcastReceiver locationUpdateReceiver;
 
@@ -141,23 +141,17 @@ public class WeatherBannerView extends LinearLayout {
         weatherDesc = findViewById(R.id.weather_desc);
         weatherArrow = findViewById(R.id.weather_arrow);
         weatherBanner = findViewById(R.id.weather_banner);
-        // 介绍行 chips
-        weatherFeelsLike  = findViewById(R.id.weather_feels_like);
-        weatherHumidity   = findViewById(R.id.weather_humidity);
-        weatherWind       = findViewById(R.id.weather_wind);
-        weatherVisibility = findViewById(R.id.weather_visibility);
+        // 天气详情总介绍
+        weatherSummary = findViewById(R.id.weather_summary);
 
-        disableChildClicks(this);
+        // 让所有子 View 都响应点击（点击横幅任意位置都跳转详情页）。
+        // 每个子 View 自带 OnClick 监听：事件不会被内部控件吞掉导致"点了没反应"；
+        // 滑动由系统 slop 判定不触发点击，父容器滚动不受影响。
+        bindClickToAllChildren(this);
 
         setClickable(true);
         setFocusable(true);
         setOnClickListener(v -> onBannerClicked());
-
-        if (weatherBanner != null) {
-            weatherBanner.setClickable(false);
-            weatherBanner.setFocusable(false);
-            weatherBanner.setOnClickListener(null);
-        }
 
         Typeface iconTypeface = QWeatherIconFont.getTypeface(getContext());
         if (weatherIcon != null) {
@@ -252,31 +246,6 @@ public class WeatherBannerView extends LinearLayout {
         }
     }
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event) {
-        float x = event.getX();
-        float y = event.getY();
-        int action = event.getAction();
-        
-        if (action == MotionEvent.ACTION_UP) {
-            Log.d(TAG, "dispatchTouchEvent ACTION_UP at (" + x + ", " + y + ")");
-            post(this::onBannerClicked);
-            return true;
-        }
-        
-        if (action == MotionEvent.ACTION_DOWN) {
-            Log.d(TAG, "dispatchTouchEvent ACTION_DOWN at (" + x + ", " + y + ")");
-        }
-        
-        return super.dispatchTouchEvent(event);
-    }
-
-    private void setupListeners() {
-        if (weatherBanner != null) {
-            weatherBanner.setOnClickListener(v -> onBannerClicked());
-        }
-    }
-
     private void navigateToWeatherDetail() {
         String city = currentCity;
         if (weatherCity != null) {
@@ -302,6 +271,12 @@ public class WeatherBannerView extends LinearLayout {
             Log.d(TAG, "WeatherDetailActivity started successfully");
         } catch (Exception e) {
             Log.e(TAG, "Failed to start WeatherDetailActivity", e);
+            // 跳转失败时给出提示，避免"点击无反应"的假象
+            try {
+                android.widget.Toast.makeText(getContext(),
+                        "打开天气详情失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -378,7 +353,7 @@ public class WeatherBannerView extends LinearLayout {
 
         weatherService.getCurrentWeatherByLocation(lat, lon, cityName).thenAccept(weather -> {
             lastRefreshTime = System.currentTimeMillis();
-            post(() -> updateUI(weather));
+            post(() -> updateUIWithForecast(weather));
         }).exceptionally(e -> {
             Log.e(TAG, "Failed to load weather by location: " + e.getMessage(), e);
             post(() -> loadWeatherWithCity(cityName));
@@ -386,58 +361,59 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
-    /** 反解析坐标：按"区+路 > 区+市 > 市"的优先级取最具体的地址，不再冗余拼省名 */
+    /**
+     * 反解析坐标：返回城市名（locality）；无城市名时退化为具体地址。
+     * 天气横幅顶部显示城市名（如"北京"），具体地址由 resolveDetailAddress 单独取。
+     */
     private String getCityNameFromGeocoder(double lat, double lon) {
-        if (!Geocoder.isPresent()) return null;
+        String[] pair = resolveGeocoder(lat, lon);
+        if (pair == null) return null;
+        String city = pair[0];
+        if (city == null || city.isEmpty()) city = pair[1];
+        return city;
+    }
+
+    /** 反解析坐标：返回具体地址（区+路），用于总介绍末尾补充 */
+    private String resolveDetailAddress(double lat, double lon) {
+        String[] pair = resolveGeocoder(lat, lon);
+        return pair != null ? pair[1] : null;
+    }
+
+    /**
+     * 反解析坐标 → [城市名, 具体地址]。
+     * 城市名=locality（北京）；具体地址=区+路 > 路+地标 > 区 > 路。
+     */
+    private String[] resolveGeocoder(double lat, double lon) {
+        if (!Geocoder.isPresent()) return new String[]{null, null};
         try {
             Geocoder geocoder = new Geocoder(getContext(), Locale.CHINA);
             List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
-            if (addresses == null || addresses.isEmpty()) return null;
+            if (addresses == null || addresses.isEmpty()) return new String[]{null, null};
             Address a = addresses.get(0);
-            String province = a.getAdminArea();         // 省（用于去除重复，不拼到结果）
-            String city     = a.getLocality();          // 市
-            String district = a.getSubLocality();       // 区/县
-            String road     = a.getThoroughfare();      // 街道/路名（最关键）
-            String feature  = a.getFeatureName();       // 地标/小区名
-            String result = null;
-            // 1. 区 + 路（最优，最具体）
+            String city = a.getLocality();                  // 市
+            String district = a.getSubLocality();           // 区/县
+            String road = a.getThoroughfare();              // 街道/路名
+            String feature = a.getFeatureName();            // 地标/门牌
+            String detail = null;
             if (district != null && !district.isEmpty()
-                && road != null && !road.isEmpty()) {
-                result = district + road;
+                && road != null && !road.isEmpty()
+                && (district.length() + road.length() <= 12)) {
+                detail = district + road;
+            } else if (road != null && !road.isEmpty()
+                       && feature != null && !feature.isEmpty()
+                       && feature.length() <= 6
+                       && (road.length() + feature.length() <= 12)) {
+                detail = road + feature;
+            } else if (district != null && !district.isEmpty()) {
+                detail = district;
+            } else if (road != null && !road.isEmpty() && road.length() <= 10) {
+                detail = road;
             }
-            // 2. 路 + 地标
-            else if (road != null && !road.isEmpty()
-                     && feature != null && !feature.isEmpty()) {
-                result = road + feature;
-            }
-            // 3. 区 + 市
-            else if (district != null && !district.isEmpty()
-                     && city != null && !city.isEmpty()
-                     && !city.equals(district)
-                     && !city.equals(province)) {
-                result = district + city;
-            }
-            // 4. 单路名
-            else if (road != null && !road.isEmpty()) {
-                result = road;
-            }
-            // 5. 单区 / 单市 / 单地标
-            else {
-                if (district != null && !district.isEmpty()) result = district;
-                else if (city != null && !city.isEmpty())   result = city;
-                else if (feature != null && !feature.isEmpty()) result = feature;
-            }
-            if (result == null || result.isEmpty()) {
-                result = a.getFeatureName();
-            }
-            if (result != null && !result.isEmpty()) {
-                Log.i(TAG, "Geocoder反解析成功: " + result);
-                return result;
-            }
+            return new String[]{city, detail};
         } catch (Exception e) {
             Log.w(TAG, "Geocoder failed: " + e.getMessage());
         }
-        return null;
+        return new String[]{null, null};
     }
 
     /**
@@ -616,6 +592,7 @@ public class WeatherBannerView extends LinearLayout {
                     }
                     currentCity = cityName;
                     cachedAddress = cityName;
+                    detailAddress = resolveDetailAddress(lat, lon);
 
                     saveCachedLocation(lat, lon, cityName);
 
@@ -673,6 +650,7 @@ public class WeatherBannerView extends LinearLayout {
                     }
                     currentCity = cityName;
                     cachedAddress = cityName;
+                    detailAddress = resolveDetailAddress(lat, lon);
 
                     saveCachedLocation(lat, lon, cityName);
 
@@ -719,7 +697,7 @@ public class WeatherBannerView extends LinearLayout {
 
         weatherService.getCurrentWeather(city).thenAccept(weather -> {
             lastRefreshTime = System.currentTimeMillis();
-            post(() -> updateUI(weather));
+            post(() -> updateUIWithForecast(weather));
         }).exceptionally(e -> {
             Log.e(TAG, "Failed to load weather for city " + city + ": " + e.getMessage(), e);
             post(() -> {
@@ -743,7 +721,7 @@ public class WeatherBannerView extends LinearLayout {
         weatherService.clearCacheForCity(city);
         weatherService.getCurrentWeather(city).thenAccept(weather -> {
             lastRefreshTime = System.currentTimeMillis();
-            post(() -> updateUI(weather));
+            post(() -> updateUIWithForecast(weather));
         }).exceptionally(e -> {
             Log.e(TAG, "Failed to refresh weather for city " + city + ": " + e.getMessage(), e);
             post(() -> {
@@ -751,6 +729,35 @@ public class WeatherBannerView extends LinearLayout {
             });
             return null;
         });
+    }
+
+    /** 更新当前天气 + 异步拉取今日预报拼完整总介绍（预报走 3 小时缓存，不阻塞） */
+    private void updateUIWithForecast(String weatherText) {
+        if (forecastText == null) {
+            try {
+                if (cachedLat != 0 && cachedLon != 0) {
+                    weatherService.getForecastByLocation(cachedLat, cachedLon).thenAccept(fc -> {
+                        forecastText = fc;
+                        post(() -> updateUI(weatherText));
+                    }).exceptionally(e -> {
+                        post(() -> updateUI(weatherText));
+                        return null;
+                    });
+                    return;
+                }
+                weatherService.getForecast(currentCity).thenAccept(fc -> {
+                    forecastText = fc;
+                    post(() -> updateUI(weatherText));
+                }).exceptionally(e -> {
+                    post(() -> updateUI(weatherText));
+                    return null;
+                });
+                return;
+            } catch (Exception e) {
+                Log.w(TAG, "加载今日预报失败(不影响当前天气显示): " + e.getMessage());
+            }
+        }
+        updateUI(weatherText);
     }
 
     private void updateUI(String weatherText) {
@@ -783,41 +790,102 @@ public class WeatherBannerView extends LinearLayout {
             weatherDesc.setText(desc);
         }
 
-        // ========== 介绍行 chips：体感 / 湿度 / 风向风力 / 能见度（类似详情页）==========
-        if (weatherFeelsLike != null) {
-            String feels = (info.feelsLike == null || info.feelsLike.isEmpty() || "--".equals(info.feelsLike))
-                           ? "体感 --°" : "体感 " + info.feelsLike + "°";
-            weatherFeelsLike.setText(feels);
-        }
-        if (weatherHumidity != null) {
-            String h = (info.humidity == null || info.humidity.isEmpty() || "--".equals(info.humidity))
-                       ? "--" : info.humidity;
-            weatherHumidity.setText("💧 " + h + "%");
-        }
-        if (weatherWind != null) {
-            StringBuilder w = new StringBuilder("🌬 ");
-            boolean hasAny = false;
-            if (info.windDir != null && !info.windDir.isEmpty() && !"--".equals(info.windDir)) {
-                w.append(info.windDir);
-                hasAny = true;
+        // ========== 天气详情总介绍：完整一句话（今日预报段 + 当前实时段，与详情页同风格）==========
+        if (weatherSummary != null) {
+            StringBuilder s = new StringBuilder();
+
+            // ① 今日段：白天/夜间天气 + 温差（数据来自今日预报）
+            String[] today = parseForecastToday(forecastText);
+            String dayW = today[0], nightW = today[1], highT = today[2], lowT = today[3];
+            if (!dayW.isEmpty() || !nightW.isEmpty()) {
+                if (!dayW.isEmpty() && !nightW.isEmpty()) {
+                    if (dayW.equals(nightW)) {
+                        s.append("今天全天").append(dayW);
+                    } else {
+                        s.append("今天白天").append(dayW).append("，夜间").append(nightW);
+                    }
+                } else if (!dayW.isEmpty()) {
+                    s.append("今天白天").append(dayW);
+                } else {
+                    s.append("今天夜间").append(nightW);
+                }
+                if (!highT.isEmpty() && !lowT.isEmpty()) {
+                    s.append("，").append(lowT).append("~").append(highT).append("°");
+                    try {
+                        int diff = Integer.parseInt(highT) - Integer.parseInt(lowT);
+                        if (diff >= 10) s.append("，温差").append(diff).append("°注意添减衣物");
+                    } catch (NumberFormatException ignored) {}
+                }
+                s.append("。");
             }
+
+            // ② 当前段：温度/天气/体感/湿度/风/能见度/气压
+            s.append(" 当前");
+            String t = (info.temp == null || info.temp.isEmpty() || "--".equals(info.temp)) ? "" : info.temp;
+            if (!t.isEmpty()) s.append(t).append("°");
+            String desc = info.description;
+            if (desc != null && !desc.isEmpty() && !"暂无数据".equals(desc)) s.append("，").append(desc);
+            String feels = (info.feelsLike == null || info.feelsLike.isEmpty() || "--".equals(info.feelsLike)) ? "" : info.feelsLike;
+            if (!feels.isEmpty()) s.append("，体感").append(feels).append("°");
+            String h = (info.humidity == null || info.humidity.isEmpty() || "--".equals(info.humidity)) ? "" : info.humidity;
+            if (!h.isEmpty()) s.append("，湿度").append(h).append("%");
+            StringBuilder w = new StringBuilder();
+            if (info.windDir != null && !info.windDir.isEmpty() && !"--".equals(info.windDir)) w.append(info.windDir);
             if (info.wind != null && !info.wind.isEmpty() && !"--".equals(info.wind)) {
-                if (hasAny) w.append(" ");
+                if (w.length() > 0) w.append(" ");
                 w.append(info.wind);
-                hasAny = true;
             }
-            if (!hasAny) w.append("--");
-            weatherWind.setText(w.toString());
-        }
-        if (weatherVisibility != null) {
-            String vis = (info.visibility == null || info.visibility.isEmpty() || "--".equals(info.visibility))
-                         ? "--" : info.visibility;
-            if (vis.matches("-?\\d+(\\.\\d+)?")) {
-                weatherVisibility.setText("👁 " + vis + "km");
-            } else {
-                weatherVisibility.setText("👁 " + vis);
+            if (w.length() > 0) s.append("，").append(w);
+            String vis = (info.visibility == null || info.visibility.isEmpty() || "--".equals(info.visibility)) ? "" : info.visibility;
+            if (!vis.isEmpty()) {
+                if (vis.matches("-?\\d+(\\.\\d+)?")) s.append("，能见度").append(vis).append("km");
+                else s.append("，能见度").append(vis);
             }
+            String p = (info.pressure == null || info.pressure.isEmpty() || "--".equals(info.pressure)) ? "" : info.pressure;
+            if (!p.isEmpty()) s.append("，气压").append(p).append("hPa");
+            // 具体地址补充（如" · 海淀区中关村大街"）
+            if (detailAddress != null && !detailAddress.isEmpty()) {
+                s.append(" · ").append(detailAddress);
+            }
+            weatherSummary.setText(s.toString().trim());
         }
+    }
+
+    /** 解析今日预报文本：返回 [白天天气, 夜间天气, 最高温, 最低温] */
+    private String[] parseForecastToday(String forecast) {
+        String[] result = {"", "", "", ""};
+        if (forecast == null) return result;
+        try {
+            for (String line : forecast.split("\n")) {
+                line = line.trim();
+                if (line.startsWith("白天:") || line.startsWith("白天天气:")) {
+                    String rest = line.substring(line.indexOf(':') + 1).trim();
+                    result[0] = extractWeatherWord(rest);
+                } else if (line.startsWith("夜间:") || line.startsWith("夜间天气:")) {
+                    String rest = line.substring(line.indexOf(':') + 1).trim();
+                    result[1] = extractWeatherWord(rest);
+                } else if (line.startsWith("最高温度:")) {
+                    result[2] = line.substring(5).trim().replace("°C", "").replace("°", "");
+                } else if (line.startsWith("最低温度:")) {
+                    result[3] = line.substring(5).trim().replace("°C", "").replace("°", "");
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "解析今日预报失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /** 从"多云 12° / 24°"这类行提取天气词（跳过数字/度数） */
+    private static String extractWeatherWord(String rest) {
+        if (rest == null) return "";
+        for (String part : rest.split("\\s+")) {
+            if (part.isEmpty()) continue;
+            if (part.contains("°")) continue;
+            if (part.matches("-?\\d+(\\.\\d+)?")) continue;
+            return part;
+        }
+        return rest.length() > 0 ? rest.split("\\s+")[0] : "";
     }
 
     /**
@@ -910,14 +978,16 @@ public class WeatherBannerView extends LinearLayout {
         return locationPermissionGranted;
     }
 
-    private void disableChildClicks(ViewGroup viewGroup) {
+    /**
+     * 给所有子 View 绑定点击跳转：保证点击横幅任意位置（文字/图标/空白）都触发跳转，
+     * 避免子 View 拦截事件导致 onClickListener 不触发。
+     */
+    private void bindClickToAllChildren(ViewGroup viewGroup) {
         for (int i = 0; i < viewGroup.getChildCount(); i++) {
             View child = viewGroup.getChildAt(i);
+            child.setOnClickListener(v -> onBannerClicked());
             if (child instanceof ViewGroup) {
-                disableChildClicks((ViewGroup) child);
-            } else {
-                child.setClickable(false);
-                child.setFocusable(false);
+                bindClickToAllChildren((ViewGroup) child);
             }
         }
     }

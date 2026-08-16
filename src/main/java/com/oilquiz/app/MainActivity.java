@@ -382,6 +382,8 @@ public class MainActivity extends BaseActivity {
         if (weatherBanner != null) {
             weatherBanner.setClickable(true);
             weatherBanner.setFocusable(true);
+            // 显式绑定点击跳转（不依赖 View 内部 init 的监听，双保险）
+            weatherBanner.setOnClickListener(v -> weatherBanner.onBannerClicked());
         }
 
         setupButton(R.id.btn_question, QuestionActivity.class);

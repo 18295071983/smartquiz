@@ -1047,10 +1047,13 @@ public class QuizActivity extends BaseActivity {
     // 显示解析（加载数据 + 根据内容有无控制可见性）
     private void showExplanation(Question question) {
         if (textViewExplanation == null || linearLayoutExplanation == null) return;
-            
+
+        // 详细解析优先，回退到普通解析（与题库列表一致）
         String explanation = question.getExplanation();
-        if (explanation != null && !explanation.isEmpty()) {
-            textViewExplanation.setText(explanation);
+        String analysis = question.getAnalysis();
+        String text = (analysis != null && !analysis.isEmpty()) ? analysis : explanation;
+        if (text != null && !text.isEmpty()) {
+            textViewExplanation.setText(text);
             // 有解析内容：可见性由模式控制（controlAnswerVisibilityByMode）
         } else {
             // 无解析内容：直接隐藏解析区域

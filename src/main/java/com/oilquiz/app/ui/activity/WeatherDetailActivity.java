@@ -247,11 +247,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
             loadWeatherData();
         } else if (hasLocation) {
             // ---------- 场景2A：有坐标没城市名 → GPS/系统缓存定位成功 ----------
-            // 占位先，后台异步反解析具体地址（区+路），并同步给横幅
+            // 占位先，后台异步反解析：城市名（顶部）+ 具体地址（副行），并同步给横幅
             if (tvCity != null) tvCity.setText("当前位置");
-            asyncResolveFullAddress(lat, lon, addr -> {
-                city = addr;
-                if (tvCity != null) tvCity.setText(truncateCityName(addr));
+            asyncResolveFullAddress(lat, lon, (cityName, detail) -> {
+                city = cityName;
+                if (tvCity != null) tvCity.setText(truncateCityName(cityName));
+                // 副行：有具体地址显示地址（区+路），否则维持坐标显示
+                if (detail != null && !detail.isEmpty() && tvLocationInfo != null) {
+                    tvLocationInfo.setText(detail);
+                }
             });
             updateLocationInfo();
             loadWeatherData();
@@ -269,85 +273,6 @@ public class WeatherDetailActivity extends AppCompatActivity {
         } else {
             tvLocationInfo.setText("无GPS坐标，使用城市名查询");
         }
-    }
-
-    /**
-     * 参考小米天气策略：显示"最具体的地址"，优先级：
-     *   1. 区 + 路/街道名     （例：金凤区凤仪路）    ← 最优，用户一眼看出在哪条路
-     *   2. 区 + 市           （例：南山区深圳市）
-     *   3. 路/街道名         （例：科技园南路）
-     *   4. 市               （例：广州市）
-     *   5. 小区/学校/医院名   （featureName 具体地标）
-     * 最大长度控制在 12 字内
-     */
-    private String getFullAddressName(double lat, double lon) {
-        if (Geocoder.isPresent()) {
-            try {
-                Geocoder geocoder = new Geocoder(this, java.util.Locale.CHINA);
-                java.util.List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
-                if (addresses != null && !addresses.isEmpty()) {
-                    Address address = addresses.get(0);
-                    String district = address.getSubLocality();  // 区
-                    String cityName = address.getLocality();     // 市
-                    String road = address.getThoroughfare();     // 街道/路名（凤仪路、科技园南路）
-                    String feature = address.getFeatureName();   // 具体地标（小区、学校、医院、门牌号）
-
-                    String name = null;
-                    // 1. 区 + 路（最优，最具体）
-                    if (district != null && !district.isEmpty()
-                        && road != null && !road.isEmpty()
-                        && (district.length() + road.length() <= 12)) {
-                        name = district + road;
-                    }
-                    // 2. 路 + 具体地标（例：凤仪路123号 或 科技园南路腾讯大厦）
-                    if ((name == null || name.isEmpty())
-                        && road != null && !road.isEmpty()
-                        && feature != null && !feature.isEmpty()
-                        && feature.length() <= 6
-                        && (road.length() + feature.length() <= 12)) {
-                        name = road + feature;
-                    }
-                    // 3. 区 + 市
-                    if ((name == null || name.isEmpty())
-                        && district != null && !district.isEmpty()
-                        && cityName != null && !cityName.isEmpty()) {
-                        String combined = district + cityName;
-                        if (combined.length() <= 10) {
-                            name = combined;
-                        } else {
-                            name = district;
-                        }
-                    }
-                    // 4. 单独的路/街道名
-                    if ((name == null || name.isEmpty())
-                        && road != null && !road.isEmpty()
-                        && road.length() <= 10) {
-                        name = road;
-                    }
-                    // 5. 单独的区
-                    if ((name == null || name.isEmpty())
-                        && district != null && !district.isEmpty()) {
-                        name = district;
-                    }
-                    // 6. 单独的市
-                    if ((name == null || name.isEmpty())
-                        && cityName != null && !cityName.isEmpty()) {
-                        name = cityName;
-                    }
-                    // 7. 具体地标名（小区名等）
-                    if ((name == null || name.isEmpty())
-                        && feature != null && !feature.isEmpty()) {
-                        name = feature;
-                    }
-                    if (name != null && !name.isEmpty()) {
-                        return name;
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Geocoder failed: " + e.getMessage());
-            }
-        }
-        return city != null && !city.isEmpty() ? city : "当前位置";
     }
 
     /**
@@ -430,12 +355,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
             lon = lastKnown.getLongitude();
             hasLocation = true;
             Log.d(TAG, "Got last known location: " + lat + ", " + lon);
-            // 先刷新UI占位，后台异步反解析具体地址（区+路），并同步到横幅
+            // 先刷新UI占位，后台异步反解析：城市名（顶部）+ 具体地址（副行），并同步到横幅
             if (city == null || city.isEmpty()) city = "当前位置";
             if (tvCity != null) tvCity.setText(truncateCityName(city));
-            asyncResolveFullAddress(lat, lon, addr -> {
-                city = addr;
-                if (tvCity != null) tvCity.setText(truncateCityName(addr));
+            asyncResolveFullAddress(lat, lon, (cityName, detail) -> {
+                city = cityName;
+                if (tvCity != null) tvCity.setText(truncateCityName(cityName));
+                if (detail != null && !detail.isEmpty() && tvLocationInfo != null) {
+                    tvLocationInfo.setText(detail);
+                }
             });
             updateLocationInfo();
             if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
@@ -462,12 +390,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 lon = location.getLongitude();
                 hasLocation = true;
                 Log.d(TAG, "Got GPS location: " + lat + ", " + lon);
-                // 先显示占位，后台异步反解析"区+路"等具体地址，并同步到横幅（自动刷新）
+                // 先显示占位，后台异步反解析：城市名 + 具体地址，并同步到横幅（自动刷新）
                 if (city == null || city.isEmpty()) city = "当前位置";
                 if (tvCity != null) tvCity.setText(truncateCityName(city));
-                asyncResolveFullAddress(lat, lon, addr -> {
-                    city = addr;
-                    if (tvCity != null) tvCity.setText(truncateCityName(addr));
+                asyncResolveFullAddress(lat, lon, (cityName, detail) -> {
+                    city = cityName;
+                    if (tvCity != null) tvCity.setText(truncateCityName(cityName));
+                    if (detail != null && !detail.isEmpty() && tvLocationInfo != null) {
+                        tvLocationInfo.setText(detail);
+                    }
                 });
                 updateLocationInfo();
                 if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
@@ -889,37 +820,94 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 // 重置 UI 为加载状态
                 showMockData();
                 loadWeatherData();
+
+                // 联动：切换城市后同步到首页天气横幅（写共享缓存 + 发广播），
+                // 返回主页时横幅显示同一城市（与 GPS 定位后的同步行为一致）
+                try {
+                    com.oilquiz.app.ui.widget.WeatherBannerView
+                            .updateSharedLocationCacheAndNotify(
+                                    WeatherDetailActivity.this, city, lat, lon);
+                } catch (Exception e) {
+                    android.util.Log.w("WeatherDetail",
+                            "同步切城市到横幅失败: " + e.getMessage());
+                }
             }
         });
         dialog.show();
     }
 
     /**
-     * 异步反解析坐标，获取最具体的位置名（区+路等），避免在主线程调用 Geocoder。
-     * 解析成功后：①回调刷新详情页；②同步到天气横幅的共享缓存并发广播通知立即刷新。
+     * 反解析坐标，返回 [城市名, 具体地址]：
+     * - 城市名：locality（如"北京"），用于顶部标题与横幅联动
+     * - 具体地址：区+路 / 路+地标 / 区 / 路（如"海淀区中关村大街"），用于副行补充
+     */
+    private String[] resolveCityAndAddress(double lat, double lon) {
+        String cityName = null;
+        String detail = null;
+        if (Geocoder.isPresent()) {
+            try {
+                Geocoder geocoder = new Geocoder(this, java.util.Locale.CHINA);
+                java.util.List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address address = addresses.get(0);
+                    String district = address.getSubLocality();  // 区
+                    String locality = address.getLocality();     // 市
+                    String road = address.getThoroughfare();     // 街道/路名
+                    String feature = address.getFeatureName();   // 地标
+                    if (locality != null && !locality.isEmpty()) cityName = locality;
+
+                    // 具体地址（取最具体的，与地图 App 定位提示一致）
+                    if (district != null && !district.isEmpty()
+                        && road != null && !road.isEmpty()
+                        && (district.length() + road.length() <= 12)) {
+                        detail = district + road;
+                    } else if (road != null && !road.isEmpty()
+                               && feature != null && !feature.isEmpty()
+                               && feature.length() <= 6
+                               && (road.length() + feature.length() <= 12)) {
+                        detail = road + feature;
+                    } else if (district != null && !district.isEmpty()) {
+                        detail = district;
+                    } else if (road != null && !road.isEmpty() && road.length() <= 10) {
+                        detail = road;
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Geocoder failed: " + e.getMessage());
+            }
+        }
+        return new String[]{cityName, detail};
+    }
+
+    /**
+     * 异步反解析坐标：① 回调详情页设置城市名/具体地址；② 同步到天气横幅共享缓存并发广播。
      */
     private void asyncResolveFullAddress(double latitude, double longitude,
-                                         java.util.function.Consumer<String> onResolved) {
+                                         java.util.function.BiConsumer<String, String> onResolved) {
         if (onResolved == null) return;
         final double latF = latitude;
         final double lonF = longitude;
         new Thread(() -> {
-            String addr = getFullAddressName(latF, lonF);
-            if (addr != null && !addr.isEmpty()) {
-                final String finalAddr = addr;
-                runOnUiThread(() -> {
-                    onResolved.accept(finalAddr);
-                    // 同步到横幅：写 SP + 发广播，主页面正在显示的 Banner 会立即刷新
-                    try {
-                        com.oilquiz.app.ui.widget.WeatherBannerView
-                                .updateSharedLocationCacheAndNotify(
-                                        WeatherDetailActivity.this, finalAddr, latF, lonF);
-                    } catch (Exception e) {
-                        android.util.Log.w("WeatherDetail",
-                                "同步地址到横幅失败: " + e.getMessage());
-                    }
-                });
+            String[] pair = resolveCityAndAddress(latF, lonF);
+            String cityName = pair[0];
+            String detail = pair[1];
+            if (cityName == null || cityName.isEmpty()) {
+                cityName = (detail != null && !detail.isEmpty()) ? detail : "当前位置";
             }
+            final String finalCity = cityName;
+            final String finalDetail = detail;
+            runOnUiThread(() -> {
+                onResolved.accept(finalCity, finalDetail);
+                // 同步到横幅：写 SP + 发广播，主页面正在显示的 Banner 会立即刷新
+                try {
+                    com.oilquiz.app.ui.widget.WeatherBannerView
+                            .updateSharedLocationCacheAndNotify(
+                                    WeatherDetailActivity.this, finalCity, latF, lonF);
+                } catch (Exception e) {
+                    android.util.Log.w("WeatherDetail",
+                            "同步地址到横幅失败: " + e.getMessage());
+                }
+            });
         }, "addr-resolve").start();
     }
 
