@@ -30,7 +30,7 @@
                 android:id="@+id/thinking_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="💭 思考过程"
+                android:text="@string/chat_thinking_process"
                 android:textSize="11sp"
                 android:textColor="@color/thinking_text"
                 android:layout_marginBottom="2dp"
@@ -57,21 +57,7 @@
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
 
-            <!-- Agent执行视图 -->
-            <com.oilquiz.app.ai.chat.AgentExecutionView
-                android:id="@+id/agent_execution_view"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone" />
-
-            <!-- Agent执行面板（通用容器） -->
-            <com.oilquiz.app.ai.agent.AgentExecutionPanel
-                android:id="@+id/agent_execution_panel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:visibility="gone" />
-
+            <!-- 附件缩略图列表 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/attachments_recycler"
                 android:layout_width="match_parent"
@@ -80,18 +66,37 @@
                 android:visibility="gone"
                 android:clipToPadding="false" />
 
-            <TextView
-                android:id="@+id/message_text"
+            <!-- 插件式 UI 组件容器：Agent 执行过程（工具卡片等）与模型组件在此插入式显示 -->
+            <LinearLayout
+                android:id="@+id/component_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="start"
-                android:background="@drawable/ai_message_background"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="10dp"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="14sp"
-                android:lineSpacingMultiplier="1.3"
-                android:textIsSelectable="true" />
+                android:orientation="vertical"
+                android:visibility="gone" />
+
+            <!-- 内容宿主：纯文本只含 messageText；含组件标记时动态追加段落 TextView/组件 View -->
+            <LinearLayout
+                android:id="@+id/content_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/message_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
+                    android:background="@drawable/ai_message_background"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="10dp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="14sp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:textIsSelectable="true"
+                    android:breakStrategy="high_quality"
+                    android:hyphenationFrequency="none" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -101,7 +106,7 @@
         android:id="@+id/btn_expand"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="展开全文"
+        android:text="@string/chat_expand_full"
         android:textSize="11sp"
         android:textColor="@color/primary"
         android:padding="3dp"
@@ -122,7 +127,7 @@
             android:id="@+id/btn_copy"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="复制"
+            android:text="@string/chat_copy"
             android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:padding="3dp"
@@ -135,7 +140,7 @@
             android:id="@+id/btn_speak"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🔊 朗读"
+            android:text="@string/chat_speak"
             android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:padding="3dp"
@@ -148,7 +153,7 @@
             android:id="@+id/btn_share"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="分享"
+            android:text="@string/chat_share"
             android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:padding="3dp"
@@ -161,7 +166,7 @@
             android:id="@+id/btn_regenerate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="重新生成"
+            android:text="@string/chat_regenerate"
             android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:padding="3dp"
@@ -174,7 +179,7 @@
             android:id="@+id/btn_new_chat"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="新对话"
+            android:text="@string/chat_new_chat"
             android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:padding="3dp"

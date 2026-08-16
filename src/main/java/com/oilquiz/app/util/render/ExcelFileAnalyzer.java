@@ -62,6 +62,10 @@ public class ExcelFileAnalyzer {
                 String errorLog = "分析错误: " + message;
                 Log.e(TAG, errorLog);
                 analysisLogs.add("[错误] " + errorLog);
+                // 收尾：保证回调必达，避免调用方永久挂起
+                if (callback != null) {
+                    callback.onComplete(analysisLogs);
+                }
             }
 
             @Override

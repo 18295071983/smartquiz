@@ -80,6 +80,18 @@ public class TranslationTool implements AITool {
             switch (action) {
                 case "translate":
                     return translate(parameters);
+                case "translate_to_zh":
+                    // 声明过的 action：默认目标语言中文
+                    if (!parameters.containsKey("target_language") && !parameters.containsKey("target_lang")) {
+                        parameters.put("target_language", "中文");
+                    }
+                    return translate(parameters);
+                case "translate_to_en":
+                    // 声明过的 action：默认目标语言英文
+                    if (!parameters.containsKey("target_language") && !parameters.containsKey("target_lang")) {
+                        parameters.put("target_language", "英文");
+                    }
+                    return translate(parameters);
                 case "detect_language":
                     return detectLanguage(parameters);
                 case "translate_question":

@@ -33,6 +33,19 @@ public interface ContentRenderer {
      */
     Spanned render(String segment, Context context);
 
+    /**
+     * 渲染内容为 Spanned（支持指定可用宽度）。
+     * 默认实现委托给无宽度版本。
+     *
+     * @param segment 内容片段
+     * @param context Android Context
+     * @param availableWidth 实际可用宽度（像素），0表示不限制
+     * @return 渲染后的 Spanned 文本
+     */
+    default Spanned render(String segment, Context context, int availableWidth) {
+        return render(segment, context);
+    }
+
     /** 渲染器标识名称（用于日志和调试） */
     String getName();
 }

@@ -36,24 +36,28 @@ public class TemplateManager {
     private TemplateManager() {
         templates = new ArrayList<>();
         templateMap = new HashMap<>();
+        Log.i(TAG, "TemplateManager singleton created");
     }
 
     public static synchronized TemplateManager getInstance() {
         if (instance == null) {
+            Log.i(TAG, "TemplateManager.getInstance(): creating new instance");
             instance = new TemplateManager();
+        } else {
+            Log.d(TAG, "TemplateManager.getInstance(): returning existing instance");
         }
         return instance;
     }
 
     public void init(Context context) {
         this.context = context;
-        Log.d(TAG, "Initializing TemplateManager");
+        Log.i(TAG, "Initializing TemplateManager, context: " + (context != null ? context.getClass().getSimpleName() : "null"));
         loadTemplates();
-        Log.d(TAG, "Templates loaded, count: " + templates.size());
+        Log.i(TAG, "Templates loaded, count: " + templates.size());
         if (templates.isEmpty()) {
-            Log.d(TAG, "Creating default templates");
+            Log.i(TAG, "No templates found, creating default templates");
             createDefaultTemplates();
-            Log.d(TAG, "Default templates created, count: " + templates.size());
+            Log.i(TAG, "Default templates created, count: " + templates.size());
         }
     }
 
@@ -87,14 +91,15 @@ public class TemplateManager {
      * 保存模板
      */
     public void saveTemplates() {
+        Log.i(TAG, "saveTemplates called, templates count: " + templates.size());
         try {
             File templatesFile = getTemplatesFile();
             FileWriter writer = new FileWriter(templatesFile);
             new Gson().toJson(templates, writer);
             writer.close();
-            Log.d(TAG, "Saved " + templates.size() + " templates");
+            Log.i(TAG, "Saved " + templates.size() + " templates to: " + templatesFile.getAbsolutePath());
         } catch (IOException e) {
-            Log.e(TAG, "Failed to save templates: " + e.getMessage());
+            Log.e(TAG, "Failed to save templates: " + e.getMessage(), e);
         }
     }
 
@@ -104,6 +109,7 @@ public class TemplateManager {
      * - 若有场景模板但缺失部分（如升级后新增模板），只补齐缺失项，保留用户自定义模板。
      */
     private void migrateTemplatesIfNeeded() {
+        Log.i(TAG, "migrateTemplatesIfNeeded called, total templates: " + templates.size());
         boolean hasSceneTemplate = false;
         for (Template template : templates) {
             if (template.getId() != null && template.getId().startsWith(SCENE_PREFIX)) {
@@ -112,30 +118,52 @@ public class TemplateManager {
             }
         }
         if (!hasSceneTemplate) {
-            Log.i(TAG, "Schema v" + SCHEMA_VERSION + " templates missing, rebuilding default scene templates");
+            Log.i(TAG, "No scene templates found, removing old defaults and rebuilding all scene templates");
             templates.removeIf(Template::isDefault);
             createDefaultTemplates();
             return;
         }
+        Log.i(TAG, "Scene templates exist, checking for missing ones and updating appliesTo...");
         // 按 id 补齐缺失的场景模板（老用户升级后自动获得新增模板，不删除任何用户数据）
+        // 同时更新已有模板的 appliesTo 字段
         List<String> existingIds = new ArrayList<>();
+        boolean changed = false;
         for (Template template : templates) {
             if (template.getId() != null) {
                 existingIds.add(template.getId());
+                // 强制更新场景模板的 appliesTo 字段，确保支持所有导出格式
+                if (template.getId().startsWith(SCENE_PREFIX)) {
+                    List<String> allFormats = java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK");
+                    if (template.getAppliesTo() == null || template.getAppliesTo().isEmpty()) {
+                        template.setAppliesTo(allFormats);
+                        changed = true;
+                        Log.i(TAG, "  Initialized appliesTo for: " + template.getId());
+                    } else if (!template.getAppliesTo().contains("PDF") || !template.getAppliesTo().contains("LONG_IMAGE")) {
+                        template.setAppliesTo(allFormats);
+                        changed = true;
+                        Log.i(TAG, "  Updated appliesTo for: " + template.getId() + " (was: " + template.getAppliesTo() + ")");
+                    }
+                }
             }
         }
-        boolean changed = false;
-        if (!existingIds.contains("scene_standard")) { createSceneStandardTemplate(); changed = true; }
-        if (!existingIds.contains("scene_practice")) { createScenePracticeTemplate(); changed = true; }
-        if (!existingIds.contains("scene_answer")) { createSceneAnswerTemplate(); changed = true; }
-        if (!existingIds.contains("scene_teaching")) { createSceneTeachingTemplate(); changed = true; }
-        if (!existingIds.contains("scene_memory")) { createSceneMemoryTemplate(); changed = true; }
-        if (!existingIds.contains("scene_data")) { createSceneDataTemplate(); changed = true; }
-        if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; }
-        if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; }
+        Log.i(TAG, "Existing template IDs: " + existingIds);
         if (changed) {
-            Log.i(TAG, "Missing scene templates created, saving");
+            Log.i(TAG, "Scene templates updated, saving...");
             saveTemplates();
+        }
+        if (!existingIds.contains("scene_standard")) { createSceneStandardTemplate(); changed = true; Log.i(TAG, "  Added: scene_standard"); }
+        if (!existingIds.contains("scene_practice")) { createScenePracticeTemplate(); changed = true; Log.i(TAG, "  Added: scene_practice"); }
+        if (!existingIds.contains("scene_answer")) { createSceneAnswerTemplate(); changed = true; Log.i(TAG, "  Added: scene_answer"); }
+        if (!existingIds.contains("scene_teaching")) { createSceneTeachingTemplate(); changed = true; Log.i(TAG, "  Added: scene_teaching"); }
+        if (!existingIds.contains("scene_memory")) { createSceneMemoryTemplate(); changed = true; Log.i(TAG, "  Added: scene_memory"); }
+        if (!existingIds.contains("scene_data")) { createSceneDataTemplate(); changed = true; Log.i(TAG, "  Added: scene_data"); }
+        if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; Log.i(TAG, "  Added: scene_mistake"); }
+        if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; Log.i(TAG, "  Added: scene_exam"); }
+        if (changed) {
+            Log.i(TAG, "Missing scene templates created, saving updated templates");
+            saveTemplates();
+        } else {
+            Log.d(TAG, "All scene templates exist, no migration needed");
         }
     }
 
@@ -166,7 +194,7 @@ public class TemplateManager {
         template.setScene("standard");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "MARKDOWN", "WORD"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
         fields.add("id");
@@ -192,10 +220,14 @@ public class TemplateManager {
         fields.add("category");
         fields.add("subCategory");
         fields.add("difficulty");
+        fields.add("difficultyText");
+        fields.add("points");
         fields.add("tags");
         fields.add("hint");
-        fields.add("relatedQuestion");
         fields.add("source");
+        fields.add("author");
+        fields.add("comment");
+        fields.add("relatedQuestion");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -222,10 +254,9 @@ public class TemplateManager {
         template.setScene("practice");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
-        fields.add("id");
         fields.add("questionType");
         fields.add("questionText");
         fields.add("optionA");
@@ -266,12 +297,23 @@ public class TemplateManager {
         template.setScene("answer");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "HTML", "MARKDOWN", "WORD"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
-        fields.add("id");
         fields.add("questionType");
         fields.add("questionText");
+        fields.add("optionA");
+        fields.add("optionB");
+        fields.add("optionC");
+        fields.add("optionD");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         fields.add("correctAnswer");
         fields.add("answerText");
         fields.add("explanation");
@@ -303,14 +345,14 @@ public class TemplateManager {
         template.setScene("teaching");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "HTML", "WORD", "PDF"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
-        fields.add("id");
         fields.add("questionType");
         fields.add("category");
         fields.add("subCategory");
         fields.add("difficulty");
+        fields.add("difficultyText");
         fields.add("knowledgePoint");
         fields.add("questionText");
         fields.add("optionA");
@@ -329,6 +371,7 @@ public class TemplateManager {
         fields.add("answerText");
         fields.add("explanation");
         fields.add("analysis");
+        fields.add("points");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -355,12 +398,14 @@ public class TemplateManager {
         template.setScene("memory");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("CSV", "EXCEL", "HTML", "MARKDOWN"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
         fields.add("questionText");
         fields.add("correctAnswer");
         fields.add("answerText");
+        fields.add("explanation");
+        fields.add("analysis");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -387,18 +432,22 @@ public class TemplateManager {
         template.setScene("data");
         template.setVersion(2);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("CSV", "EXCEL"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
         fields.add("id");
         fields.add("questionType");
         fields.add("category");
+        fields.add("subCategory");
         fields.add("difficulty");
+        fields.add("difficultyText");
         fields.add("knowledgePoint");
         fields.add("favorite");
         fields.add("usageCount");
         fields.add("correctCount");
         fields.add("incorrectCount");
+        // isSelected 在 Question 上不存在（无 getter），导出恒为空列，移除
+        fields.add("points");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -422,19 +471,33 @@ public class TemplateManager {
         template.setScene("mistake");
         template.setVersion(1);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
-        fields.add("id");
-        fields.add("questionText");
         fields.add("questionType");
         fields.add("category");
+        fields.add("subCategory");
         fields.add("difficulty");
+        fields.add("difficultyText");
         fields.add("knowledgePoint");
-        fields.add("answerText");
+        fields.add("questionText");
+        fields.add("optionA");
+        fields.add("optionB");
+        fields.add("optionC");
+        fields.add("optionD");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         fields.add("correctAnswer");
+        fields.add("answerText");
         fields.add("explanation");
-        fields.add("incorrectCount");
+        fields.add("analysis");
+        fields.add("points");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -458,7 +521,7 @@ public class TemplateManager {
         template.setScene("exam");
         template.setVersion(1);
         template.setDefault(true);
-        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "PDF"));
+        template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 
         List<String> fields = new ArrayList<>();
         fields.add("id");
@@ -468,10 +531,24 @@ public class TemplateManager {
         fields.add("optionB");
         fields.add("optionC");
         fields.add("optionD");
+        fields.add("optionE");
+        fields.add("optionF");
+        fields.add("optionG");
+        fields.add("optionH");
+        fields.add("optionI");
+        fields.add("optionJ");
+        fields.add("optionK");
+        fields.add("optionL");
         fields.add("correctAnswer");
+        fields.add("answerText");
+        fields.add("explanation");
+        fields.add("analysis");
         fields.add("category");
+        fields.add("subCategory");
         fields.add("difficulty");
+        fields.add("difficultyText");
         fields.add("knowledgePoint");
+        fields.add("points");
         template.setFields(fields);
 
         template.setFieldMappings(buildMappings());
@@ -542,9 +619,11 @@ public class TemplateManager {
      * 重置模板数据（用于测试）
      */
     public void resetTemplates() {
+        Log.i(TAG, "resetTemplates called");
         templates.clear();
         templateMap.clear();
         createDefaultTemplates();
+        Log.i(TAG, "Templates reset, new count: " + templates.size());
     }
 
     /**
@@ -558,12 +637,15 @@ public class TemplateManager {
      * 根据格式获取模板（支持场景化模板的 appliesTo 匹配）
      */
     public List<Template> getTemplatesByFormat(String format) {
+        Log.d(TAG, "getTemplatesByFormat: format=" + format);
         List<Template> result = new ArrayList<>();
         for (Template template : templates) {
             if (template.supportsFormat(format)) {
                 result.add(template);
+                Log.d(TAG, "  Matched: " + template.getName() + " (id: " + template.getId() + ")");
             }
         }
+        Log.d(TAG, "Found " + result.size() + " templates for format: " + format);
         return result;
     }
 
@@ -577,6 +659,7 @@ public class TemplateManager {
                 result.add(template);
             }
         }
+        Log.i(TAG, "getDefaultTemplates: returning " + result.size() + " default templates");
         return result;
     }
 
@@ -584,24 +667,34 @@ public class TemplateManager {
      * 根据ID获取模板
      */
     public Template getTemplateById(String id) {
-        return templateMap.get(id);
+        Template template = templateMap.get(id);
+        if (template != null) {
+            Log.d(TAG, "getTemplateById: found template - " + template.getName() + " (id: " + template.getId() + ")");
+        } else {
+            Log.w(TAG, "getTemplateById: template not found - " + (id == null ? "null" : id));
+        }
+        return template;
     }
 
     /**
      * 获取默认模板
      */
     public Template getDefaultTemplate(String format) {
+        Log.d(TAG, "getDefaultTemplate: format=" + format);
         for (Template template : templates) {
             if (template.supportsFormat(format) && template.isDefault()) {
+                Log.i(TAG, "getDefaultTemplate: found default template - " + template.getName());
                 return template;
             }
         }
         // 如果没有默认模板，返回第一个支持该格式的模板
         for (Template template : templates) {
             if (template.supportsFormat(format)) {
+                Log.w(TAG, "getDefaultTemplate: no default template, returning first match - " + template.getName());
                 return template;
             }
         }
+        Log.w(TAG, "getDefaultTemplate: no template found for format " + format);
         return null;
     }
 

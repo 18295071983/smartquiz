@@ -19,121 +19,29 @@ public class LectureNotesTemplate implements HTMLTemplate {
         writer.write("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
         writer.write("<title>讲义</title>\n");
         writer.write("<style>\n");
-        writer.write("* {\n");
-        writer.write("  box-sizing: border-box;\n");
-        writer.write("  margin: 0;\n");
-        writer.write("  padding: 0;\n");
-        writer.write("}\n");
-        writer.write("body {\n");
-        writer.write("  font-family: 'Microsoft YaHei', Arial, sans-serif;\n");
-        writer.write("  line-height: 1.8;\n");
-        writer.write("  color: #333;\n");
-        writer.write("  background-color: #f9f9f9;\n");
-        writer.write("  padding: 20px;\n");
-        writer.write("}\n");
-        writer.write(".container {\n");
-        writer.write("  max-width: 1200px;\n");
-        writer.write("  margin: 0 auto;\n");
-        writer.write("  background-color: #fff;\n");
-        writer.write("  border-radius: 8px;\n");
-        writer.write("  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n");
-        writer.write("  padding: 40px;\n");
-        writer.write("}\n");
-        writer.write("h1 {\n");
-        writer.write("  color: #2c3e50;\n");
-        writer.write("  margin-bottom: 40px;\n");
-        writer.write("  text-align: center;\n");
-        writer.write("  padding-bottom: 20px;\n");
-        writer.write("  border-bottom: 3px solid #3498db;\n");
-        writer.write("  font-size: 28px;\n");
-        writer.write("}\n");
-        writer.write(".header-info {\n");
-        writer.write("  background-color: #f8f9fa;\n");
-        writer.write("  padding: 20px;\n");
-        writer.write("  border-radius: 8px;\n");
-        writer.write("  margin-bottom: 30px;\n");
-        writer.write("  border-left: 4px solid #3498db;\n");
-        writer.write("  font-size: 14px;\n");
-        writer.write("  color: #666;\n");
-        writer.write("}\n");
-        writer.write(".section {\n");
-        writer.write("  margin-bottom: 50px;\n");
-        writer.write("}\n");
-        writer.write(".section-title {\n");
-        writer.write("  background-color: #3498db;\n");
-        writer.write("  color: white;\n");
-        writer.write("  padding: 15px 20px;\n");
-        writer.write("  border-radius: 8px 8px 0 0;\n");
-        writer.write("  margin-bottom: 20px;\n");
-        writer.write("  font-size: 20px;\n");
-        writer.write("  font-weight: bold;\n");
-        writer.write("}\n");
-        writer.write(".topic {\n");
-        writer.write("  margin-bottom: 30px;\n");
-        writer.write("  padding: 25px;\n");
-        writer.write("  border: 1px solid #e0e0e0;\n");
-        writer.write("  border-radius: 8px;\n");
-        writer.write("  background-color: #fafafa;\n");
-        writer.write("}");
-        writer.write(".topic-title {\n");
-        writer.write("  font-size: 18px;\n");
-        writer.write("  font-weight: bold;\n");
-        writer.write("  margin-bottom: 15px;\n");
-        writer.write("  color: #2c3e50;\n");
-        writer.write("  border-bottom: 2px solid #e0e0e0;\n");
-        writer.write("  padding-bottom: 10px;\n");
-        writer.write("}");
-        writer.write(".content {\n");
-        writer.write("  margin-bottom: 20px;\n");
-        writer.write("  line-height: 1.8;\n");
-        writer.write("}");
-        writer.write(".explanation {\n");
-        writer.write("  background-color: #e3f2fd;\n");
-        writer.write("  padding: 20px;\n");
-        writer.write("  border-left: 4px solid #2196f3;\n");
-        writer.write("  border-radius: 4px;\n");
-        writer.write("  margin-top: 15px;\n");
-        writer.write("  color: #1565c0;\n");
-        writer.write("}");
-        writer.write(".explanation h4 {\n");
-        writer.write("  margin-bottom: 10px;\n");
-        writer.write("  color: #0d47a1;\n");
-        writer.write("  font-size: 16px;\n");
-        writer.write("}");
-        writer.write(".footer {\n");
-        writer.write("  margin-top: 50px;\n");
-        writer.write("  padding-top: 20px;\n");
-        writer.write("  border-top: 2px solid #e0e0e0;\n");
-        writer.write("  text-align: center;\n");
-        writer.write("  color: #666;\n");
-        writer.write("  font-size: 14px;\n");
-        writer.write("}");
-        writer.write("@media (max-width: 768px) {\n");
-        writer.write(".container {\n");
-        writer.write("  padding: 20px;\n");
-        writer.write("}");
-        writer.write("h1 {\n");
-        writer.write("  font-size: 24px;\n");
-        writer.write("}");
-        writer.write(".section-title {\n");
-        writer.write("  font-size: 18px;\n");
-        writer.write("}");
-        writer.write("}");
+        writer.write("  * { box-sizing: border-box; margin: 0; padding: 0; }\n");
+        writer.write("  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; line-height: 1.8; color: #1F2937; background: #F3F4F6; }\n");
+        writer.write("  .container { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }\n");
+        writer.write("  .header { text-align: center; margin-bottom: 40px; }\n");
+        writer.write("  .header h1 { font-size: 32px; font-weight: 700; color: #111827; margin-bottom: 8px; }\n");
+        writer.write("  .header .meta { color: #6B7280; font-size: 14px; }\n");
+        writer.write("  .section { margin-bottom: 40px; }\n");
+        writer.write("  .section-title { font-size: 20px; font-weight: 600; color: white; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; }\n");
+        writer.write("  .topic { background: white; border-radius: 12px; padding: 24px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }\n");
+        writer.write("  .topic-title { font-size: 17px; font-weight: 600; color: #111827; margin-bottom: 16px; line-height: 1.6; }\n");
+        writer.write("  .content { margin: 8px 0; padding: 8px 12px; color: #374151; }\n");
+        writer.write("  .explanation { background: #EFF6FF; border-left: 4px solid #3B82F6; padding: 16px; border-radius: 8px; margin-top: 16px; color: #1E40AF; font-size: 15px; line-height: 1.7; }\n");
+        writer.write("  .footer { text-align: center; color: #9CA3AF; font-size: 13px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB; }\n");
+        writer.write("  @media (max-width: 768px) { .container { padding: 20px 16px; } .header h1 { font-size: 24px; } .topic { padding: 16px; } }\n");
         writer.write("</style>\n");
         writer.write("</head>\n");
         writer.write("<body>\n");
         writer.write("<div class=\"container\">\n");
-        writer.write("<h1>讲义</h1>\n");
-        
-        // 头部信息
-        writer.write("<div class=\"header-info\">\n");
-        writer.write("<p><strong>说明：</strong>详细的学习讲义，包含完整的题目、选项、答案和解析</p>\n");
-        writer.write("<p><strong>导出时间：</strong>" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date()) + "</p>\n");
-        writer.write("<p><strong>内容数量：</strong>" + questions.size() + " 个题目</p>\n");
-        writer.write("<p><strong>题型数量：</strong>" + sortedTypes.size() + " 种题型</p>\n");
+        writer.write("<div class=\"header\">\n");
+        writer.write("<h1>📚 讲义</h1>\n");
+        writer.write("<div class=\"meta\">共 " + questions.size() + " 个题目 · " + sortedTypes.size() + " 种题型</div>\n");
         writer.write("</div>\n");
         
-        // 按题型分组显示
         int questionNumber = 1;
         for (Map.Entry<String, List<Question>> entry : sortedTypes) {
             String type = entry.getKey();
@@ -146,7 +54,6 @@ public class LectureNotesTemplate implements HTMLTemplate {
                 writer.write("<div class=\"topic\">\n");
                 writer.write("<div class=\"topic-title\">第 " + questionNumber++ + " 题：" + question.getQuestionText() + "</div>\n");
                 
-                // 选项
                 if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
                     writer.write("<div class=\"content\">A. " + question.getOptionA() + "</div>\n");
                 }
@@ -160,17 +67,12 @@ public class LectureNotesTemplate implements HTMLTemplate {
                     writer.write("<div class=\"content\">D. " + question.getOptionD() + "</div>\n");
                 }
                 
-                // 答案
                 if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                    writer.write("<div class=\"content\"><strong>正确答案：</strong>" + question.getCorrectAnswer() + "</div>\n");
+                    writer.write("<div class=\"content\"><strong>✅ 正确答案：</strong>" + question.getCorrectAnswer() + "</div>\n");
                 }
                 
-                // 解析
                 if (task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
-                    writer.write("<div class=\"explanation\">\n");
-                    writer.write("<h4>解析</h4>\n");
-                    writer.write(question.getExplanation() + "\n");
-                    writer.write("</div>\n");
+                    writer.write("<div class=\"explanation\">💡 <strong>解析</strong>: " + question.getExplanation() + "</div>\n");
                 }
                 
                 writer.write("</div>\n");
@@ -179,10 +81,8 @@ public class LectureNotesTemplate implements HTMLTemplate {
             writer.write("</div>\n");
         }
         
-        // 页脚
         writer.write("<div class=\"footer\">\n");
-        writer.write("<p>© " + new java.text.SimpleDateFormat("yyyy").format(new java.util.Date()) + " OilQuiz 系统</p>\n");
-        writer.write("<p>本讲义由系统自动生成，用于学习参考</p>\n");
+        writer.write("<p>共 " + questions.size() + " 道题目 · " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date()) + "</p>\n");
         writer.write("</div>\n");
         writer.write("</div>\n");
         writer.write("</body>\n");

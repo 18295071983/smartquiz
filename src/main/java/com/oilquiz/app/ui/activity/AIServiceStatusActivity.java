@@ -19,6 +19,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.model.ModelManager;
+import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
@@ -81,6 +82,19 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView modelTokens;
     private TextView modelFilename;
     private TextView modelParamsInfo;
+    
+    // 在线模型相关 UI
+    private TextView onlineApiStatus;
+    private View onlineApiLight;
+    private TextView onlineModelInfo;
+    private TextView onlineTokenTotal;
+    private TextView onlineTokenCompletion;
+    private TextView onlineLatency;
+    
+    // 卡片容器（用于在线/离线模式切换时显示/隐藏）
+    private View modelArchitectureCard;  // 模型架构卡片
+    private View offlineOnlyRow1;  // 仅离线模式显示的行（OpenCL/GPU）
+    private View offlineOnlyRow2;  // 仅离线模式显示的行（推理引擎/推理库）
 
     // 实时指标定时刷新
     private final Handler metricsHandler = new Handler(Looper.getMainLooper());
@@ -181,6 +195,17 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         modelTokens = findViewById(R.id.model_tokens);
         modelFilename = findViewById(R.id.model_filename);
         modelParamsInfo = findViewById(R.id.model_params_info);
+        
+        // 在线模型相关 UI
+        onlineApiStatus = findViewById(R.id.online_api_status);
+        onlineApiLight = findViewById(R.id.online_api_light);
+        onlineModelInfo = findViewById(R.id.online_model_info);
+        onlineTokenTotal = findViewById(R.id.online_token_total);
+        onlineTokenCompletion = findViewById(R.id.online_token_completion);
+        onlineLatency = findViewById(R.id.online_latency);
+        
+        // 卡片容器（用于在线/离线模式切换时显示/隐藏）
+        modelArchitectureCard = findViewById(R.id.online_model_card);
 
         // 按钮
         btnSelectModel = findViewById(R.id.btn_select_model);
@@ -317,18 +342,129 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     }
 
     private void refreshStatus() {
-        // 刷新服务状态
-        boolean isInitialized = aiService.isInitialized();
-        boolean modelLoaded = isInitialized && LlamaHelper.isModelInitialized();
+        // 判断当前使用的是在线还是离线模型
+        boolean usingOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
         
-        updateMainStatus(modelLoaded, isInitialized);
-        updateLibraryStatus();
-        updateModelStatus(aiService.getCurrentModelName(), modelLoaded);
-        updateModelArchitectureInfo();
-        updateContextStatus();
-        updateOpenCLStatus();
-        updateFunctionStatus(modelLoaded);
-        updateContextStats();
+        if (usingOnline) {
+            // 在线模式
+            updateOnlineModelStatus();
+            // 隐藏离线模型专属信息
+            if (modelArchitectureCard != null) {
+                // 模型架构卡片保持可见但显示离线状态
+            }
+            // 隐藏 GPU/OpenCL 等仅离线模式显示的元素
+            hideOfflineOnlyElements();
+        } else {
+            // 离线模式
+            // 刷新服务状态
+            boolean isInitialized = aiService.isInitialized();
+            boolean modelLoaded = isInitialized && LlamaHelper.isModelInitialized();
+            
+            updateMainStatus(modelLoaded, isInitialized);
+            updateLibraryStatus();
+            updateModelStatus(aiService.getCurrentModelName(), modelLoaded);
+            updateModelArchitectureInfo();
+            updateContextStatus();
+            updateOpenCLStatus();
+            updateFunctionStatus(modelLoaded);
+            updateContextStats();
+            
+            // 显示在线模型状态（如果有的话）
+            updateOnlineModelPreview();
+            // 显示离线模型专属元素
+            showOfflineOnlyElements();
+        }
+    }
+    
+    /** 更新在线模型详细状态 */
+    private void updateOnlineModelStatus() {
+        OnlineModelManager onlineManager = OnlineModelManager.getInstance(this);
+        OnlineModelManager.OnlineModelConfig activeConfig = onlineManager.getActiveModel();
+        
+        // 显示在线模型卡片
+        if (modelArchitectureCard != null) {
+            modelArchitectureCard.setVisibility(View.VISIBLE);
+        }
+        
+        if (activeConfig != null && activeConfig.enabled) {
+            // API 状态：绿色
+            if (onlineApiLight != null) {
+                onlineApiLight.setBackgroundResource(R.drawable.circle_green);
+            }
+            if (onlineApiStatus != null) {
+                onlineApiStatus.setText("已连接");
+                onlineApiStatus.setTextColor(getResources().getColor(R.color.success));
+            }
+            // 模型信息
+            String modelName = activeConfig.selectedModel != null && !activeConfig.selectedModel.isEmpty()
+                    ? activeConfig.selectedModel : activeConfig.modelName;
+            if (onlineModelInfo != null) {
+                onlineModelInfo.setText(modelName != null ? modelName : activeConfig.name);
+                onlineModelInfo.setTextColor(getResources().getColor(R.color.text_primary));
+            }
+            // Token 统计
+            TokenStatsManager.TokenStats stats = TokenStatsManager.getInstance().getCurrentSnapshot();
+            if (onlineTokenTotal != null) {
+                onlineTokenTotal.setText(stats != null && stats.sessionTotalTokens > 0
+                        ? String.valueOf(stats.sessionTotalTokens) : "-");
+            }
+            if (onlineTokenCompletion != null) {
+                onlineTokenCompletion.setText(stats != null && stats.sessionCompletionTokens > 0
+                        ? String.valueOf(stats.sessionCompletionTokens) : "-");
+            }
+            if (onlineLatency != null) {
+                onlineLatency.setText("-"); // API 延迟暂不显示
+            }
+        } else {
+            // 没有可用的在线模型
+            if (onlineApiLight != null) {
+                onlineApiLight.setBackgroundResource(R.drawable.circle_red);
+            }
+            if (onlineApiStatus != null) {
+                onlineApiStatus.setText("未配置");
+                onlineApiStatus.setTextColor(getResources().getColor(R.color.error));
+            }
+            if (onlineModelInfo != null) {
+                onlineModelInfo.setText("请在 AI 中心配置");
+                onlineModelInfo.setTextColor(getResources().getColor(R.color.text_tertiary));
+            }
+            if (onlineTokenTotal != null) onlineTokenTotal.setText("-");
+            if (onlineTokenCompletion != null) onlineTokenCompletion.setText("-");
+            if (onlineLatency != null) onlineLatency.setText("-");
+        }
+    }
+    
+    /** 更新在线模型预览（离线模式下简要显示） */
+    private void updateOnlineModelPreview() {
+        OnlineModelManager onlineManager = OnlineModelManager.getInstance(this);
+        OnlineModelManager.OnlineModelConfig activeConfig = onlineManager.getActiveModel();
+        
+        if (activeConfig != null && activeConfig.enabled) {
+            // 有可用的在线模型，简要提示
+            String modelName = activeConfig.selectedModel != null && !activeConfig.selectedModel.isEmpty()
+                    ? activeConfig.selectedModel : activeConfig.modelName;
+            // 可以在这里添加在线模型的简要提示
+        }
+    }
+    
+    /** 隐藏仅离线模式显示的元素 */
+    private void hideOfflineOnlyElements() {
+        if (openclLight != null) openclLight.setVisibility(View.GONE);
+        if (openclStatus != null) openclStatus.setVisibility(View.GONE);
+        if (gpuLight != null) gpuLight.setVisibility(View.GONE);
+        if (gpuStatus != null) gpuStatus.setVisibility(View.GONE);
+        if (libLight != null) libLight.setVisibility(View.GONE);
+        if (libStatus != null) libStatus.setVisibility(View.GONE);
+    }
+    
+    /** 显示仅离线模式显示的元素 */
+    private void showOfflineOnlyElements() {
+        if (openclLight != null) openclLight.setVisibility(View.VISIBLE);
+        if (openclStatus != null) openclStatus.setVisibility(View.VISIBLE);
+        if (gpuLight != null) gpuLight.setVisibility(View.VISIBLE);
+        if (gpuStatus != null) gpuStatus.setVisibility(View.VISIBLE);
+        if (libLight != null) libLight.setVisibility(View.VISIBLE);
+        if (libStatus != null) libStatus.setVisibility(View.VISIBLE);
     }
     
     private void updateOpenCLStatus() {

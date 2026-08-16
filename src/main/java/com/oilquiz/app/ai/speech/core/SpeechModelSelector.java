@@ -28,7 +28,7 @@ public final class SpeechModelSelector {
     private static final String TAG = "SpeechModelSelector";
 
     public enum Capability { ASR, TTS }
-    public enum EndpointType { DASHSCOPE, XFYUN, VOLCANO, BAIDU, OPENAI }
+    public enum EndpointType { DASHSCOPE, XFYUN, VOLCANO, BAIDU, MIMO, OPENAI }
 
     /** 端点域名 -> 端点类型映射（集中配置，非硬编码判断） */
     private static final Map<String, EndpointType> DOMAIN_TYPE_MAP = new HashMap<>();
@@ -42,6 +42,7 @@ public final class SpeechModelSelector {
         DOMAIN_TYPE_MAP.put("volcengine.com", EndpointType.VOLCANO);
         DOMAIN_TYPE_MAP.put("bytedance", EndpointType.VOLCANO);
         DOMAIN_TYPE_MAP.put("baidubce.com", EndpointType.BAIDU);
+        DOMAIN_TYPE_MAP.put("xiaomimimo.com", EndpointType.MIMO);
     }
 
     private static final String DEFAULT_ASR_MODEL = "whisper-1";
@@ -58,6 +59,9 @@ public final class SpeechModelSelector {
     /** 百度端点的兜底模型 */
     private static final String DEFAULT_BAIDU_ASR_MODEL = "1537";
     private static final String DEFAULT_BAIDU_TTS_MODEL = "4";
+    /** 小米 MiMo 端点的兜底模型 */
+    private static final String DEFAULT_MIMO_ASR_MODEL = "mimo-v2.5-asr";
+    private static final String DEFAULT_MIMO_TTS_MODEL = "mimo-v2.5-tts";
 
     private SpeechModelSelector() {
     }
@@ -94,9 +98,10 @@ public final class SpeechModelSelector {
                     : new String[]{"tts", "cosyvoice", "qwen-tts", "qwen3-tts", "sambert", "speech"};
             for (OnlineModelManager.OnlineModelConfig c : all) {
                 if (!c.enabled) continue;
-                // 检查端点是否为语音服务商（百炼/讯飞/火山/百度）
+                // 检查端点是否为语音服务商（百炼/讯飞/火山/百度/MiMo）
                 if (isDashScopeEndpoint(c.apiUrl) || isXfyunEndpoint(c.apiUrl) ||
-                    isVolcanoEndpoint(c.apiUrl) || isBaiduEndpoint(c.apiUrl)) {
+                    isVolcanoEndpoint(c.apiUrl) || isBaiduEndpoint(c.apiUrl) ||
+                    isMimoEndpoint(c.apiUrl)) {
                     // 语音服务商端点：只要专用模型未设置，就认为可用
                     return c;
                 }
@@ -150,6 +155,9 @@ public final class SpeechModelSelector {
         if (isBaiduEndpoint(config.apiUrl)) {
             return capability == Capability.ASR ? DEFAULT_BAIDU_ASR_MODEL : DEFAULT_BAIDU_TTS_MODEL;
         }
+        if (isMimoEndpoint(config.apiUrl)) {
+            return capability == Capability.ASR ? DEFAULT_MIMO_ASR_MODEL : DEFAULT_MIMO_TTS_MODEL;
+        }
         return capability == Capability.ASR ? DEFAULT_ASR_MODEL : DEFAULT_TTS_MODEL;
     }
 
@@ -190,9 +198,14 @@ public final class SpeechModelSelector {
         return getEndpointType(apiUrl) == EndpointType.BAIDU;
     }
 
+    /** 是否为小米 MiMo 端点 */
+    public static boolean isMimoEndpoint(String apiUrl) {
+        return getEndpointType(apiUrl) == EndpointType.MIMO;
+    }
+
     /**
      * 识别端点类型（供引擎路由使用）
-     * @return "dashscope" / "xfyun" / "volcano" / "baidu" / "openai"
+     * @return "dashscope" / "xfyun" / "volcano" / "baidu" / "mimo" / "openai"
      */
     public static String identifyEndpoint(String apiUrl) {
         EndpointType type = getEndpointType(apiUrl);

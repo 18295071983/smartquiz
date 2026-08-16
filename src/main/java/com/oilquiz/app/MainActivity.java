@@ -44,6 +44,8 @@ import com.oilquiz.app.ui.activity.AIServiceStatusActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;
+import com.oilquiz.app.ai.inference.InferenceRouter;
+import com.oilquiz.app.ai.model.OnlineModelManager;
 
 import java.io.File;
 
@@ -131,10 +133,16 @@ public class MainActivity extends BaseActivity {
     }
     
     private AIService.DetailedStatusObserver aiStatusObserver;
+    private InferenceRouter inferenceRouter;
     
     private void updateAiStatus() {
         new Thread(() -> {
             try {
+                // 初始化 InferenceRouter
+                if (inferenceRouter == null) {
+                    inferenceRouter = InferenceRouter.getInstance(this);
+                }
+                
                 AIService aiService = AIService.getInstance(this);
                 boolean isInitialized = aiService.isInitialized();
                 String modelName = aiService.getCurrentModelName();
@@ -144,7 +152,12 @@ public class MainActivity extends BaseActivity {
                 int progress = serviceState.getProgressPercent();
                 String errorMessage = serviceState.getErrorMessage();
                 
-                runOnUiThread(() -> updateAiStatusUI(stage, modelName, stageMessage, progress, errorMessage));
+                // 获取当前推理类型和模型名称
+                boolean usingOnline = inferenceRouter.isUsingOnlineModel();
+                String displayModelName = inferenceRouter.getCurrentModelName();
+                
+                runOnUiThread(() -> updateAiStatusUI(stage, displayModelName, modelName, 
+                       usingOnline, stageMessage, progress, errorMessage));
             } catch (Exception e) {
                 e.printStackTrace();
                 runOnUiThread(() -> {
@@ -158,47 +171,69 @@ public class MainActivity extends BaseActivity {
         }).start();
     }
     
-    private void updateAiStatusUI(AIServiceState.ServiceStage stage, String modelName, 
+    private void updateAiStatusUI(AIServiceState.ServiceStage stage, String displayModelName, 
+                                   String localModelName, boolean usingOnline,
                                    String stageMessage, int progress, String errorMessage) {
         android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
         if (tvAiStatus != null) {
             String statusText;
             int statusColor;
             
-            switch (stage) {
-                case INITIALIZED:
-                    if (modelName != null) {
-                        statusText = "AI运行中 · " + modelName;
-                    } else {
-                        statusText = "AI运行中";
-                    }
-                    statusColor = getResources().getColor(R.color.success);
-                    break;
-                case MODEL_FILE_PREPARING:
-                case MODEL_LOADING:
-                case GPU_INITIALIZATION:
-                case CHAT_CONTEXT_CREATING:
-                case NATIVE_LIBRARY_LOADING:
-                    statusText = "AI初始化中 " + progress + "% · " + stageMessage;
-                    statusColor = getResources().getColor(R.color.warning);
-                    break;
-                case CPU_FALLBACK:
-                    statusText = "CPU模式 " + progress + "% · " + stageMessage;
-                    statusColor = getResources().getColor(R.color.warning);
-                    break;
-                case ERROR:
-                    if (errorMessage != null && !errorMessage.isEmpty()) {
-                        statusText = "AI错误: " + errorMessage;
-                    } else {
-                        statusText = "AI初始化失败";
-                    }
-                    statusColor = getResources().getColor(R.color.error);
-                    break;
-                case UNINITIALIZED:
-                default:
-                    statusText = "AI未初始化";
-                    statusColor = getResources().getColor(R.color.error);
-                    break;
+            if (usingOnline) {
+                // 在线模式
+                switch (stage) {
+                    case INITIALIZED:
+                        statusText = "在线 · " + (displayModelName != null ? displayModelName : "API");
+                        statusColor = getResources().getColor(R.color.success);
+                        break;
+                    case ERROR:
+                        statusText = "在线服务异常";
+                        statusColor = getResources().getColor(R.color.error);
+                        break;
+                    default:
+                        statusText = "在线 · 就绪";
+                        statusColor = getResources().getColor(R.color.success);
+                        break;
+                }
+            } else {
+                // 离线本地模式
+                switch (stage) {
+                    case INITIALIZED:
+                        if (displayModelName != null) {
+                            statusText = "本地 · " + displayModelName;
+                        } else if (localModelName != null) {
+                            statusText = "本地 · " + localModelName;
+                        } else {
+                            statusText = "本地就绪";
+                        }
+                        statusColor = getResources().getColor(R.color.success);
+                        break;
+                    case MODEL_FILE_PREPARING:
+                    case MODEL_LOADING:
+                    case GPU_INITIALIZATION:
+                    case CHAT_CONTEXT_CREATING:
+                    case NATIVE_LIBRARY_LOADING:
+                        statusText = "加载中 " + progress + "%";
+                        statusColor = getResources().getColor(R.color.warning);
+                        break;
+                    case CPU_FALLBACK:
+                        statusText = "CPU模式 " + progress + "%";
+                        statusColor = getResources().getColor(R.color.warning);
+                        break;
+                    case ERROR:
+                        if (errorMessage != null && !errorMessage.isEmpty()) {
+                            statusText = "AI错误";
+                        } else {
+                            statusText = "初始化失败";
+                        }
+                        statusColor = getResources().getColor(R.color.error);
+                        break;
+                    case UNINITIALIZED:
+                    default:
+                        statusText = "未加载";
+                        statusColor = getResources().getColor(R.color.error);
+                        break;
+                }
             }
             
             tvAiStatus.setText(statusText);
@@ -211,21 +246,37 @@ public class MainActivity extends BaseActivity {
             return;
         }
         
+        // 确保 InferenceRouter 已初始化
+        if (inferenceRouter == null) {
+            inferenceRouter = InferenceRouter.getInstance(this);
+        }
+        
         aiStatusObserver = new AIService.DetailedStatusObserver() {
             @Override
             public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
-                updateAiStatusUI(stage, AIService.getInstance(MainActivity.this).getCurrentModelName(), 
-                               message, progress, null);
+                boolean usingOnline = inferenceRouter.isUsingOnlineModel();
+                String displayModelName = inferenceRouter.getCurrentModelName();
+                String localModelName = AIService.getInstance(MainActivity.this).getCurrentModelName();
+                updateAiStatusUI(stage, displayModelName, localModelName, 
+                               usingOnline, message, progress, null);
             }
             
             @Override
             public void onError(String errorMessage) {
-                updateAiStatusUI(AIServiceState.ServiceStage.ERROR, null, null, 0, errorMessage);
+                boolean usingOnline = inferenceRouter.isUsingOnlineModel();
+                String displayModelName = inferenceRouter.getCurrentModelName();
+                String localModelName = AIService.getInstance(MainActivity.this).getCurrentModelName();
+                updateAiStatusUI(AIServiceState.ServiceStage.ERROR, displayModelName, localModelName, 
+                               usingOnline, null, 0, errorMessage);
             }
             
             @Override
             public void onInitialized(String modelName, long loadTimeMs) {
-                updateAiStatusUI(AIServiceState.ServiceStage.INITIALIZED, modelName, "AI服务已就绪", 100, null);
+                boolean usingOnline = inferenceRouter.isUsingOnlineModel();
+                String displayModelName = inferenceRouter.getCurrentModelName();
+                String localModelName = AIService.getInstance(MainActivity.this).getCurrentModelName();
+                updateAiStatusUI(AIServiceState.ServiceStage.INITIALIZED, displayModelName, localModelName,
+                               usingOnline, "AI服务已就绪", 100, null);
             }
         };
         

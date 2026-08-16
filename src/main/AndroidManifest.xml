@@ -255,6 +255,13 @@
             android:theme="@style/Theme.OilQuizApp"
             android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
 
+        <!-- 简易 WebView Activity - 用于打开导出的 HTML -->
+        <activity
+            android:name=".SimpleWebViewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
         <activity
             android:name=".ui.activity.TBSFilePreviewActivity"
             android:exported="false"

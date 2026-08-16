@@ -32,8 +32,20 @@ public class JSONExporter implements Exporter {
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             
             List<String> selectedFields = task.getConfig().getSelectedFields();
+            boolean includeAnswers = task.getConfig().isIncludeAnswers();
+            boolean includeExplanations = task.getConfig().isIncludeExplanations();
+            boolean includeDifficulty = task.getConfig().isIncludeDifficulty();
             int total = questions.size();
-            
+
+            // 字段开关过滤：与 CSV/Excel/Markdown 等导出器口径一致
+            java.util.function.Predicate<String> fieldFilter = fieldName -> {
+                if ("favorite".equals(fieldName)) return false;
+                if (!includeAnswers && isAnswerField(fieldName)) return false;
+                if (!includeExplanations && isExplanationField(fieldName)) return false;
+                if (!includeDifficulty && isDifficultyField(fieldName)) return false;
+                return true;
+            };
+
             if (selectedFields == null || selectedFields.isEmpty()) {
                 // 默认导出所有非空字段（LinkedHashMap 保持字段顺序）
                 List<java.util.Map<String, Object>> filteredQuestions = new java.util.ArrayList<>();
@@ -41,6 +53,7 @@ public class JSONExporter implements Exporter {
                     Question question = questions.get(i);
                     java.util.Map<String, Object> filteredQuestion = new java.util.LinkedHashMap<>();
                     for (String fieldName : ExportUtils.getQuestionFields()) {
+                        if (!fieldFilter.test(fieldName)) continue;
                         Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         if (value != null && !value.toString().isEmpty()) {
                             filteredQuestion.put(fieldName, value);
@@ -62,6 +75,7 @@ public class JSONExporter implements Exporter {
                     Question question = questions.get(i);
                     java.util.Map<String, Object> filteredQuestion = new java.util.LinkedHashMap<>();
                     for (String fieldName : selectedFields) {
+                        if (!fieldFilter.test(fieldName)) continue;
                         Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         if (value != null && !value.toString().isEmpty()) {
                             filteredQuestion.put(fieldName, value);
@@ -85,6 +99,22 @@ public class JSONExporter implements Exporter {
             
             return exportFile;
         }
+    }
+
+    /** 答案类字段（受「包含答案」开关控制） */
+    private static boolean isAnswerField(String field) {
+        return "correctAnswer".equals(field) || "answerText".equals(field)
+                || (field != null && field.startsWith("blankAnswer"));
+    }
+
+    /** 解析类字段（受「包含解析」开关控制） */
+    private static boolean isExplanationField(String field) {
+        return "explanation".equals(field) || "analysis".equals(field);
+    }
+
+    /** 难度类字段（受「包含难度」开关控制） */
+    private static boolean isDifficultyField(String field) {
+        return "difficulty".equals(field) || "difficultyText".equals(field);
     }
 
     @Override

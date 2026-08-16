@@ -14,20 +14,21 @@
         android:layout_gravity="start">
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp"
-            android:maxWidth="300dp">
+            android:padding="12dp">
 
             <TextView
                 android:id="@+id/message_text"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="消息内容"
                 android:textSize="16sp"
                 android:textColor="@color/on_surface"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="8dp"
+                android:breakStrategy="high_quality"
+                android:hyphenationFrequency="none" />
 
             <TextView
                 android:id="@+id/timestamp_text"

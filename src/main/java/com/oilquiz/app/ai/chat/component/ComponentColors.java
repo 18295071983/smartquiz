@@ -1,0 +1,55 @@
+package com.oilquiz.app.ai.chat.component;
+
+import android.content.Context;
+
+import androidx.core.content.ContextCompat;
+
+import com.oilquiz.app.R;
+
+/**
+ * 组件色板：统一从 colors.xml 读取，避免代码中硬编码颜色。
+ */
+public final class ComponentColors {
+
+    private ComponentColors() {
+    }
+
+    /** 主文字色 */
+    public static int textPrimary(Context context) {
+        return ContextCompat.getColor(context, R.color.component_text_primary);
+    }
+
+    /** 次要文字色 */
+    public static int textSecondary(Context context) {
+        return ContextCompat.getColor(context, R.color.component_text_secondary);
+    }
+
+    /** 弱化文字色 */
+    public static int textTertiary(Context context) {
+        return ContextCompat.getColor(context, R.color.component_text_tertiary);
+    }
+
+    /** 强调色（按钮/链接） */
+    public static int accent(Context context) {
+        return ContextCompat.getColor(context, R.color.component_accent);
+    }
+
+    /** 卡片背景色 */
+    public static int background(Context context) {
+        return ContextCompat.getColor(context, R.color.component_bg);
+    }
+
+    /** 卡片边框色 */
+    public static int border(Context context) {
+        return ContextCompat.getColor(context, R.color.component_border);
+    }
+
+    /** 图表系列色（循环取色） */
+    public static int chartColor(Context context, int index) {
+        int[] chartColors = {
+                R.color.chart_1, R.color.chart_2, R.color.chart_3, R.color.chart_4,
+                R.color.chart_5, R.color.chart_6, R.color.chart_7, R.color.chart_8
+        };
+        return ContextCompat.getColor(context, chartColors[index % chartColors.length]);
+    }
+}

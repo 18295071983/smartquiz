@@ -43,22 +43,13 @@
 
         </LinearLayout>
 
-        <HorizontalScrollView
+        <TextView
+            android:id="@+id/summary_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:fillViewport="true"
-            android:scrollbars="horizontal"
-            android:overScrollMode="ifContentScrolls">
-
-            <TextView
-                android:id="@+id/summary_content"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:textColor="?attr/colorOnSurface" />
-
-        </HorizontalScrollView>
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurface" />
 
         <LinearLayout
             android:layout_width="wrap_content"

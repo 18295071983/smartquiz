@@ -96,7 +96,7 @@ public class AgentRouter {
     /**
      * 执行 Agent 任务。一个分支：
      * - 在线模型 → OnlineAgentEngine
-     * - 本地模型 → localEngine（UnifiedAgentEngine）
+     * - 本地模型 → 静默降级到普通对话（不调用本地 Agent）
      */
     public void execute(String message, int maxTokens, boolean enableThinking) {
         boolean isOnline = isOnlineModelActive();
@@ -107,9 +107,11 @@ public class AgentRouter {
             ensureOnlineEngineCreated();
             onlineEngine.execute(message, maxTokens);
         } else {
+            // 静默降级：Agent 模式下使用本地模型时，直接返回不执行
+            // 由 AIChatActivity.processChatMessage 降级到普通对话处理
             lastUsedEngine = EngineType.LOCAL;
-            AILogger.i(TAG, "Local model → UnifiedAgentEngine");
-            localEngine.execute(message, maxTokens, enableThinking);
+            AILogger.w(TAG, "Agent mode with local model → silent downgrade to normal chat");
+            // 不做任何操作，让上层处理普通对话
         }
     }
 

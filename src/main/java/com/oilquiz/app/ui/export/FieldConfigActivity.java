@@ -3,11 +3,10 @@ package com.oilquiz.app.ui.export;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
-import com.google.android.material.button.MaterialButton;
 import android.widget.ListView;
 import android.widget.TextView;
+import com.google.android.material.button.MaterialButton;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -92,17 +91,27 @@ public class FieldConfigActivity extends AppCompatActivity {
 
     private void initFieldList() {
         Map<String, String> allFields = FieldMapper.getAllAvailableFields();
-        List<String> templateFields = new ArrayList<>();
+        List<String> templateFields;
         
         if (!isContentTemplateMode && template != null && template.getFields() != null && !template.getFields().isEmpty()) {
-            templateFields = template.getFields();
+            // 从模板字段创建独立副本，避免修改原始数据
+            templateFields = new ArrayList<>(template.getFields());
         } else {
-            // 对于内容模板或APK格式，使用默认字段列表
+            // 默认核心字段（包含所有选项 A-L）
+            templateFields = new ArrayList<>();
             templateFields.add("questionText");
             templateFields.add("optionA");
             templateFields.add("optionB");
             templateFields.add("optionC");
             templateFields.add("optionD");
+            templateFields.add("optionE");
+            templateFields.add("optionF");
+            templateFields.add("optionG");
+            templateFields.add("optionH");
+            templateFields.add("optionI");
+            templateFields.add("optionJ");
+            templateFields.add("optionK");
+            templateFields.add("optionL");
             templateFields.add("correctAnswer");
             templateFields.add("explanation");
             templateFields.add("questionType");
@@ -111,15 +120,78 @@ public class FieldConfigActivity extends AppCompatActivity {
         }
 
         fieldItems = new ArrayList<>();
-        for (Map.Entry<String, String> entry : allFields.entrySet()) {
-            String fieldName = entry.getKey();
-            String displayName = entry.getValue();
-            boolean selected = templateFields.contains(fieldName);
-            fieldItems.add(new FieldItem(fieldName, displayName, selected));
+        // 字段列表与主导出流程（ExportUtils/FieldMapper）对齐：含解析/分类/知识点等全部可导出字段
+        String[] coreFieldNames = {
+            "questionType", "questionText",
+            "optionA", "optionB", "optionC", "optionD",
+            "optionE", "optionF", "optionG", "optionH",
+            "optionI", "optionJ", "optionK", "optionL",
+            "correctAnswer", "difficulty", "explanation", "analysis",
+            "category", "subCategory", "knowledgePoint", "tags", "hint",
+            "source", "author", "comment", "relatedQuestion",
+            "points", "timeLimit", "favorite",
+            "usageCount", "correctCount", "incorrectCount"
+        };
+        
+        for (String fieldName : coreFieldNames) {
+            if (allFields.containsKey(fieldName)) {
+                String displayName = allFields.get(fieldName);
+                boolean selected = templateFields.contains(fieldName);
+                fieldItems.add(new FieldItem(fieldName, displayName, selected));
+            }
         }
 
         FieldAdapter adapter = new FieldAdapter(this, fieldItems);
         fieldListView.setAdapter(adapter);
+    }
+
+    /**
+     * 字段适配器
+     */
+    private static class FieldAdapter extends ArrayAdapter<FieldItem> {
+
+        public FieldAdapter(FieldConfigActivity context, List<FieldItem> items) {
+            super(context, 0, items);
+        }
+
+        @Override
+        public View getView(int position, View convertView, android.view.ViewGroup parent) {
+            FieldItem item = getItem(position);
+            
+            if (convertView == null) {
+                convertView = new android.widget.LinearLayout(getContext());
+                android.widget.LinearLayout layout = (android.widget.LinearLayout) convertView;
+                layout.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                layout.setPadding(32, 16, 32, 16);
+                layout.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                
+                com.google.android.material.checkbox.MaterialCheckBox checkBox = 
+                    new com.google.android.material.checkbox.MaterialCheckBox(getContext());
+                checkBox.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ));
+                checkBox.setTextSize(15, android.util.TypedValue.COMPLEX_UNIT_SP);
+                checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff6200ee));
+                layout.addView(checkBox);
+                
+                convertView.setTag(checkBox);
+            }
+            
+            com.google.android.material.checkbox.MaterialCheckBox checkBox = 
+                (com.google.android.material.checkbox.MaterialCheckBox) convertView.getTag();
+            checkBox.setText(item.getDisplayName());
+            checkBox.setChecked(item.isSelected());
+            
+            checkBox.setOnCheckedChangeListener(null);
+            checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                FieldItem fieldItem = (FieldItem) buttonView.getTag();
+                fieldItem.setSelected(isChecked);
+            });
+            checkBox.setTag(item);
+            
+            return convertView;
+        }
     }
 
     private void startExport() {
@@ -183,33 +255,6 @@ public class FieldConfigActivity extends AppCompatActivity {
 
         public void setSelected(boolean selected) {
             this.selected = selected;
-        }
-    }
-
-    /**
-     * 字段适配器
-     */
-    private static class FieldAdapter extends ArrayAdapter<FieldItem> {
-
-        public FieldAdapter(FieldConfigActivity context, List<FieldItem> items) {
-            super(context, R.layout.item_field, R.id.field_name, items);
-        }
-
-        @Override
-        public View getView(int position, View convertView, android.view.ViewGroup parent) {
-            View view = super.getView(position, convertView, parent);
-            FieldItem item = getItem(position);
-            TextView fieldNameText = view.findViewById(R.id.field_name);
-            com.google.android.material.checkbox.MaterialCheckBox checkBox = view.findViewById(R.id.field_checkbox);
-            
-            fieldNameText.setText(item.getDisplayName());
-            checkBox.setChecked(item.isSelected());
-            
-            checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                item.setSelected(isChecked);
-            });
-            
-            return view;
         }
     }
 }

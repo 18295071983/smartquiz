@@ -1,0 +1,248 @@
+package com.oilquiz.app.ai.chat.component;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONObject;
+
+/**
+ * 文件卡片组件：图标 + 文件名 + 大小 + 打开按钮。
+ *
+ * 数据格式（ComponentData.props）：
+ * <pre>
+ * {
+ *   "name": "报告.pdf",
+ *   "size": "2.3 MB",           // 可选
+ *   "type": "pdf",              // 可选：用于图标
+ *   "uri": "content://...",     // 可选：可打开的 URI
+ *   "path": "/storage/..."      // 可选：本地路径
+ * }
+ * </pre>
+ */
+public class FileCardView implements ChatComponent {
+
+    @Override
+    public String getType() {
+        return "file_card";
+    }
+
+    @Override
+    public boolean canRender(ComponentData data) {
+        return data != null && data.props != null && !TextUtils.isEmpty(data.props.optString("name", ""));
+    }
+
+    @Override
+    public View createView(Context context, ComponentData data) {
+        JSONObject p = data.props;
+        String name = p.optString("name", "");
+        String size = p.optString("size", "");
+        String type = p.optString("type", "");
+        final String uri = p.optString("uri", "");
+        final String path = p.optString("path", "");
+
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 8), dp(context, 10));
+        card.setBackground(cardBackground(context));
+
+        // 图标（按类型）
+        TextView iconTv = new TextView(context);
+        iconTv.setTextSize(28);
+        iconTv.setText(fileIcon(type, name));
+        iconTv.setGravity(Gravity.CENTER);
+        card.addView(iconTv, new LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)));
+
+        // 名称 + 大小
+        LinearLayout infoCol = new LinearLayout(context);
+        infoCol.setOrientation(LinearLayout.VERTICAL);
+        infoCol.setPadding(dp(context, 10), 0, 0, 0);
+
+        TextView nameTv = new TextView(context);
+        nameTv.setText(name);
+        nameTv.setTextSize(14);
+        nameTv.setTextColor(ComponentColors.textPrimary(context));
+        nameTv.setSingleLine(true);
+        nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        infoCol.addView(nameTv);
+
+        if (!TextUtils.isEmpty(size)) {
+            TextView sizeTv = new TextView(context);
+            sizeTv.setText(size);
+            sizeTv.setTextSize(11);
+            sizeTv.setTextColor(ComponentColors.textTertiary(context));
+            infoCol.addView(sizeTv);
+        }
+        card.addView(infoCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        // 操作按钮区（打开 / 分享）
+        if (!TextUtils.isEmpty(uri) || !TextUtils.isEmpty(path)) {
+            LinearLayout actionCol = new LinearLayout(context);
+            actionCol.setOrientation(LinearLayout.VERTICAL);
+
+            TextView openBtn = new TextView(context);
+            openBtn.setText("打开");
+            openBtn.setTextSize(13);
+            openBtn.setTextColor(ComponentColors.accent(context));
+            openBtn.setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5));
+            openBtn.setBackground(buttonBackground(context));
+            openBtn.setGravity(Gravity.CENTER);
+            openBtn.setOnClickListener(v -> openFile(context, uri, path));
+            actionCol.addView(openBtn);
+
+            TextView shareBtn = new TextView(context);
+            shareBtn.setText("分享");
+            shareBtn.setTextSize(13);
+            shareBtn.setTextColor(ComponentColors.textPrimary(context));
+            shareBtn.setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5));
+            shareBtn.setBackground(buttonBackground(context));
+            shareBtn.setGravity(Gravity.CENTER);
+            shareBtn.setOnClickListener(v -> shareFile(context, uri, path));
+            actionCol.addView(shareBtn);
+
+            card.addView(actionCol);
+        }
+
+        return card;
+    }
+
+    private static void openFile(Context context, String uri, String path) {
+        try {
+            // 图片文件 → 应用内预览（不依赖系统图片查看器）
+            if (isImageFile(context, uri, path)) {
+                showImagePreview(context, !TextUtils.isEmpty(uri) ? uri : path);
+                return;
+            }
+            Intent intent = null;
+            if (!TextUtils.isEmpty(uri)) {
+                intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
+            } else if (!TextUtils.isEmpty(path)) {
+                // Android 7.0+ 必须用 FileProvider，直接 file:// 会抛 FileUriExposedException
+                java.io.File file = new java.io.File(path);
+                Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "com.oilquiz.app.fileprovider", file);
+                intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(fileUri, "*/*");
+            }
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                context.startActivity(intent);
+            }
+        } catch (Exception e) {
+            Toast.makeText(context, "无法打开文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 判断 uri/path 是否为图片（扩展名 + content:// MIME 双重判断） */
+    private static boolean isImageFile(Context context, String uri, String path) {
+        String target = !TextUtils.isEmpty(uri) ? uri : path;
+        if (TextUtils.isEmpty(target)) return false;
+        String lower = target.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp")) {
+            return true;
+        }
+        if (target.startsWith("content://")) {
+            try {
+                String mime = context.getContentResolver().getType(Uri.parse(target));
+                return mime != null && mime.startsWith("image/");
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    /** 应用内图片预览（PhotoView 双指缩放） */
+    private static void showImagePreview(Context context, String target) {
+        try {
+            if (!(context instanceof android.app.Activity)) return;
+            android.app.Dialog dialog = new android.app.Dialog(context);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(context);
+            photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            com.bumptech.glide.Glide.with(context).load(target)
+                    .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                    .into(photoView);
+            dialog.setContentView(photoView, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setOnClickListener(v -> dialog.dismiss());
+            dialog.show();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+            }
+        } catch (Exception e) {
+            Toast.makeText(context, "无法预览图片", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 分享文件（通过系统分享面板） */
+    private static void shareFile(Context context, String uri, String path) {
+        try {
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("*/*");
+            if (!TextUtils.isEmpty(uri)) {
+                share.putExtra(Intent.EXTRA_STREAM, Uri.parse(uri));
+            } else if (!TextUtils.isEmpty(path)) {
+                java.io.File file = new java.io.File(path);
+                Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "com.oilquiz.app.fileprovider", file);
+                share.putExtra(Intent.EXTRA_STREAM, fileUri);
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } else {
+                return;
+            }
+            share.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(Intent.createChooser(share, "分享文件"));
+        } catch (Exception e) {
+            Toast.makeText(context, "无法分享文件", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static String fileIcon(String type, String name) {
+        String lower = (type != null ? type : "").toLowerCase();
+        String n = (name != null ? name : "").toLowerCase();
+        if (lower.contains("pdf") || n.endsWith(".pdf")) return "📕";
+        if (lower.contains("image") || lower.contains("png") || lower.contains("jpg")
+                || lower.contains("jpeg") || lower.contains("webp") || lower.contains("gif")
+                || n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
+                || n.endsWith(".webp") || n.endsWith(".gif")) return "🖼";
+        if (lower.contains("excel") || lower.contains("xls") || n.endsWith(".xlsx") || n.endsWith(".xls")) return "📊";
+        if (lower.contains("word") || lower.contains("doc") || n.endsWith(".docx") || n.endsWith(".doc")) return "📄";
+        if (lower.contains("ppt") || lower.contains("powerpoint") || n.endsWith(".pptx") || n.endsWith(".ppt")) return "📽";
+        if (lower.contains("zip") || lower.contains("rar") || lower.contains("7z") || n.endsWith(".zip")
+                || n.endsWith(".rar") || n.endsWith(".7z")) return "🗜";
+        if (lower.contains("text") || lower.contains("txt") || lower.contains("md")
+                || n.endsWith(".txt") || n.endsWith(".md")) return "📝";
+        if (lower.contains("audio") || lower.contains("mp3") || lower.contains("wav") || n.endsWith(".mp3")) return "🎵";
+        if (lower.contains("video") || lower.contains("mp4") || n.endsWith(".mp4")) return "🎬";
+        return "📁";
+    }
+
+    private static android.graphics.drawable.Drawable cardBackground(Context context) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setColor(ComponentColors.background(context));
+        gd.setCornerRadius(dp(context, 10));
+        gd.setStroke(dp(context, 1), ComponentColors.border(context));
+        return gd;
+    }
+
+    private static android.graphics.drawable.Drawable buttonBackground(Context context) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setColor(0x1A4C8DFF);
+        gd.setCornerRadius(dp(context, 6));
+        return gd;
+    }
+
+    private static int dp(Context context, float value) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
+                context.getResources().getDisplayMetrics());
+    }
+}

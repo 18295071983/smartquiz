@@ -114,11 +114,23 @@ public class ImportLlmEngine {
     private Timer idleTimer;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private EngineListener listener;
+    /** 本地 AI 编排引擎引用（历史参数：仅用于展示模型信息/日志提示。
+     *  当前字段映射与填充推理仍直接走本地模型推理，未转发给 Orchestrator——
+     *  若需接入其 Agent 管线需为其补充细粒度 inferMapping/inferFills API） */
+    private com.oilquiz.app.ai.importing.AIImportOrchestrator localOrchestrator;
 
     public ImportLlmEngine(Context context) {
         this.context = context.getApplicationContext();
         this.modelManager = new ModelManager(this.context);
         this.toolManager = new ImportToolManager(this.context);
+    }
+
+    /** 使用本地 AI 引擎的构造方式（避免 sign6 错误） */
+    public ImportLlmEngine(Context context, com.oilquiz.app.ai.importing.AIImportOrchestrator orchestrator) {
+        this.context = context.getApplicationContext();
+        this.modelManager = new ModelManager(this.context);
+        this.toolManager = new ImportToolManager(this.context);
+        this.localOrchestrator = orchestrator;
     }
 
     public void setListener(EngineListener listener) {
@@ -298,6 +310,13 @@ public class ImportLlmEngine {
                                                String sampleText, String fixPrompt,
                                                java.util.Set<String> legalFields) {
         MappingResult result = new MappingResult();
+
+        // 说明：localOrchestrator 仅作模型信息展示（ImportLlmEngine 未转发推理，
+        // 映射推理直接走下方 ensureModel + inferOnce 本地模型路径）
+        if (localOrchestrator != null) {
+            log("使用本地模型进行字段映射推理");
+        }
+        
         if (!ensureModel()) {
             result.failReason = "模型不可用";
             return result;
@@ -446,7 +465,7 @@ public class ImportLlmEngine {
             if (round == 2) p = prompt + "\n" + FIX_ROUND2;
             if (round >= 3) p = prompt + "\n" + FIX_ROUND2 + "\n" + FIX_ROUND3;
 
-            String raw = inferOnce(p, Math.min(1000, 160 + n * 80));
+            String raw = inferOnce(p, Math.min(2048, 160 + n * 200));
             if (raw == null) continue;
 
             String block = ImportOutputSanitizer.trimToJsonBlock(raw);

@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.model.Question;
+import com.oilquiz.app.util.export.ExportFileSaver;
 import com.oilquiz.app.util.export.ExportManager;
 
 import java.io.File;
@@ -115,8 +116,15 @@ public class ExportProgressActivity extends AppCompatActivity {
                     public void onExportComplete(File file) {
                         exportedFile = file;
                         runOnUiThread(() -> {
+                            // 导出线程回调时页面可能已销毁：避免操作失效视图
+                            if (isFinishing() || isDestroyed()) return;
                             progressIndicator.setVisibility(View.GONE);
-                            progressText.setText("导出完成！文件已保存到：" + file.getAbsolutePath());
+                            // 复制到公共「下载/OilQuiz」目录，保证文件管理器可见可编辑
+                            String savedPath = ExportFileSaver.copyToDownloads(
+                                    ExportProgressActivity.this, file,
+                                    getMimeType(file.getAbsolutePath()));
+                            progressText.setText("导出完成！文件已保存到：\n"
+                                    + (savedPath != null ? savedPath : file.getAbsolutePath()));
                             finishButton.setVisibility(View.VISIBLE);
                             viewFileButton.setVisibility(View.VISIBLE);
                             shareFileButton.setVisibility(View.VISIBLE);
@@ -126,6 +134,7 @@ public class ExportProgressActivity extends AppCompatActivity {
                     @Override
                     public void onExportError(String error) {
                         runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
                             progressIndicator.setVisibility(View.GONE);
                             progressText.setText("导出失败：" + error);
                             finishButton.setVisibility(View.VISIBLE);

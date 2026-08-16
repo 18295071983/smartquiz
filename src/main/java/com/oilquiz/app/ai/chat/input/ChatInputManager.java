@@ -339,10 +339,44 @@ public class ChatInputManager {
     private void openUri(String url) {
         if (url != null) {
             try {
+                // 图片 → 应用内预览（避免系统无图片查看器时"没有可用打开图片的页面"）
+                if (isImage(url)) {
+                    showImagePreview(url);
+                    return;
+                }
                 activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
             } catch (Exception e) {
                 callback.onShowToast("无法打开");
             }
+        }
+    }
+
+    private boolean isImage(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp");
+    }
+
+    /** 应用内图片预览（PhotoView 双指缩放，点击关闭） */
+    private void showImagePreview(String url) {
+        try {
+            android.app.Dialog dialog = new android.app.Dialog(activity);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(activity);
+            photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            com.bumptech.glide.Glide.with(activity).load(url)
+                    .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                    .into(photoView);
+            dialog.setContentView(photoView, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setOnClickListener(v -> dialog.dismiss());
+            dialog.show();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+            }
+        } catch (Exception e) {
+            callback.onShowToast("无法预览图片");
         }
     }
 }

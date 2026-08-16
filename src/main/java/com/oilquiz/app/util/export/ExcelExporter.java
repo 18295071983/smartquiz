@@ -6,6 +6,7 @@ import com.oilquiz.app.model.Question;
 import com.oilquiz.app.util.export.ExportUtils;
 
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -17,12 +18,17 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Excel导出器
- * 导出问题为Excel格式
+ * Excel导出器（现代简洁样式）
+ * 导出问题为Excel格式，无框设计、浅灰底表头、清爽配色
  */
 public class ExcelExporter implements Exporter {
     private static final String TAG = "ExcelExporter";
     private static final int PROGRESS_UPDATE_INTERVAL = 10;
+
+    // 颜色常量 - 使用 IndexedColors
+    private static final short HEADER_BG_COLOR = IndexedColors.DARK_BLUE.getIndex();
+    private static final short HEADER_FONT_COLOR = IndexedColors.WHITE.getIndex();
+    private static final short DATA_ROW_EVEN_BG = IndexedColors.LIGHT_YELLOW.getIndex();
 
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
@@ -46,7 +52,7 @@ public class ExcelExporter implements Exporter {
 
         // 创建工作簿
         try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Questions");
+            Sheet sheet = workbook.createSheet("题目导出");
             
             int rowIndex = 0;
 
@@ -62,82 +68,56 @@ public class ExcelExporter implements Exporter {
             // 按指定顺序排序字段
             sortFieldsByPriority(nonEmptyFields);
             
-            // 创建样式
+            // 创建表头样式：现代蓝底白字，无边框
             org.apache.poi.ss.usermodel.CellStyle headerStyle = workbook.createCellStyle();
-            headerStyle.setFillForegroundColor(org.apache.poi.ss.usermodel.IndexedColors.LIGHT_BLUE.getIndex());
+            headerStyle.setFillForegroundColor(HEADER_BG_COLOR);
             headerStyle.setFillPattern(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
-            headerStyle.setBorderTop(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            headerStyle.setBorderBottom(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            headerStyle.setBorderLeft(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            headerStyle.setBorderRight(org.apache.poi.ss.usermodel.BorderStyle.THIN);
             org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
             headerFont.setBold(true);
-            headerFont.setColor(org.apache.poi.ss.usermodel.IndexedColors.WHITE.getIndex());
+            headerFont.setColor(HEADER_FONT_COLOR);
+            headerFont.setFontHeightInPoints((short) 11);
             headerStyle.setFont(headerFont);
             headerStyle.setAlignment(org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER);
             headerStyle.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
+            headerStyle.setWrapText(true);
             
+            // 创建数据样式：无边框，左对齐
             org.apache.poi.ss.usermodel.CellStyle dataStyle = workbook.createCellStyle();
-            dataStyle.setBorderTop(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            dataStyle.setBorderBottom(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            dataStyle.setBorderLeft(org.apache.poi.ss.usermodel.BorderStyle.THIN);
-            dataStyle.setBorderRight(org.apache.poi.ss.usermodel.BorderStyle.THIN);
             dataStyle.setAlignment(org.apache.poi.ss.usermodel.HorizontalAlignment.LEFT);
             dataStyle.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
             dataStyle.setWrapText(true);
+            org.apache.poi.ss.usermodel.Font dataFont = workbook.createFont();
+            dataFont.setFontHeightInPoints((short) 10);
+            dataStyle.setFont(dataFont);
             
-            // 添加标题
-            Row titleRow = sheet.createRow(rowIndex++);
-            org.apache.poi.ss.usermodel.Cell titleCell = titleRow.createCell(0);
-            titleCell.setCellValue("题目导出报告");
-            org.apache.poi.ss.usermodel.CellStyle titleStyle = workbook.createCellStyle();
-            org.apache.poi.ss.usermodel.Font titleFont = workbook.createFont();
-            titleFont.setBold(true);
-            titleFont.setFontHeightInPoints((short) 16);
-            titleStyle.setFont(titleFont);
-            titleStyle.setAlignment(org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER);
-            titleCell.setCellStyle(titleStyle);
-            // 只在有字段时合并单元格
-            if (!nonEmptyFields.isEmpty()) {
-                sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, nonEmptyFields.size() - 1));
-            }
-            rowIndex++;
+            // 创建偶数行样式：浅灰底
+            org.apache.poi.ss.usermodel.CellStyle evenRowStyle = workbook.createCellStyle();
+            evenRowStyle.cloneStyleFrom(dataStyle);
+            evenRowStyle.setFillForegroundColor(DATA_ROW_EVEN_BG);
+            evenRowStyle.setFillPattern(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
             
-            // 添加导出信息
-            Row infoRow1 = sheet.createRow(rowIndex++);
-            infoRow1.createCell(0).setCellValue("导出时间:");
-            infoRow1.createCell(1).setCellValue(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
-            
-            Row infoRow2 = sheet.createRow(rowIndex++);
-            infoRow2.createCell(0).setCellValue("导出题目数量:");
-            infoRow2.createCell(1).setCellValue(questions.size());
-            
-            Row infoRow3 = sheet.createRow(rowIndex++);
-            infoRow3.createCell(0).setCellValue("导出格式:");
-            infoRow3.createCell(1).setCellValue("Excel");
-            rowIndex++;
-            
-            // 添加表头
-            Row headerRow = sheet.createRow(rowIndex++);
+            // 填充数据（必须先创建第 0 行：空 sheet 上 getRow(0) 返回 null 会空指针）
+            org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
             for (int i = 0; i < nonEmptyFields.size(); i++) {
                 org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
                 cell.setCellValue(ExportUtils.getFieldDisplayName(nonEmptyFields.get(i)));
                 cell.setCellStyle(headerStyle);
             }
+            rowIndex++;
             
-            // 填充数据
+            // 填充数据行
             int total = questions.size();
             for (int i = 0; i < total; i++) {
                 Question question = questions.get(i);
                 if (question != null) {
                     Row dataRow = sheet.createRow(rowIndex++);
-                    dataRow.setHeightInPoints(30);
+                    dataRow.setHeightInPoints(24);
 
                     for (int j = 0; j < nonEmptyFields.size(); j++) {
                         String fieldName = nonEmptyFields.get(j);
                         Object value = ExportUtils.getFormattedFieldValue(question, fieldName);
                         org.apache.poi.ss.usermodel.Cell cell = dataRow.createCell(j);
-                        cell.setCellStyle(dataStyle);
+                        cell.setCellStyle((i % 2 == 0) ? evenRowStyle : dataStyle);
                         
                         // 如果是id字段，使用从1开始的序号
                         if (fieldName.equals("id")) {
@@ -167,9 +147,12 @@ public class ExcelExporter implements Exporter {
                 }
             }
             
-            // 设置固定列宽（禁用 POI autoSizeColumn：其依赖 java.awt 字体渲染，Android 上会抛 NoClassDefFoundError）
+            // 设置列宽（禁用 autoSizeColumn）
             if (!nonEmptyFields.isEmpty()) {
                 applyFixedColumnWidths(sheet, nonEmptyFields);
+                
+                // 冻结首行
+                sheet.createFreezePane(0, 1);
             }
             
             // 写入文件
@@ -191,12 +174,17 @@ public class ExcelExporter implements Exporter {
             selectedFields = ExportUtils.getQuestionFields();
         }
 
-        // 按选中顺序检查每个字段，跳过收藏字段，仅保留有值的字段
+        // 按选中顺序检查每个字段，跳过收藏字段与开关关闭的字段，仅保留有值的字段
         for (String fieldName : selectedFields) {
             // 跳过收藏字段
             if (fieldName.equals("favorite")) {
                 continue;
             }
+            // 导出选项开关：包含答案/解析/难度（与 Markdown/PDF/Word 等导出器口径一致）
+            ExportManager.ExportConfig cfg = task.getConfig();
+            if (!cfg.isIncludeAnswers() && isAnswerField(fieldName)) continue;
+            if (!cfg.isIncludeExplanations() && isExplanationField(fieldName)) continue;
+            if (!cfg.isIncludeDifficulty() && isDifficultyField(fieldName)) continue;
 
             boolean hasValue = false;
             for (Question question : questions) {
@@ -218,6 +206,22 @@ public class ExcelExporter implements Exporter {
         }
 
         return nonEmptyFields;
+    }
+
+    /** 答案类字段（受「包含答案」开关控制） */
+    private static boolean isAnswerField(String field) {
+        return "correctAnswer".equals(field) || "answerText".equals(field)
+                || (field != null && field.startsWith("blankAnswer"));
+    }
+
+    /** 解析类字段（受「包含解析」开关控制） */
+    private static boolean isExplanationField(String field) {
+        return "explanation".equals(field) || "analysis".equals(field);
+    }
+
+    /** 难度类字段（受「包含难度」开关控制） */
+    private static boolean isDifficultyField(String field) {
+        return "difficulty".equals(field) || "difficultyText".equals(field);
     }
 
     /**
@@ -271,7 +275,7 @@ public class ExcelExporter implements Exporter {
      * 按优先级排序字段
      */
     private void sortFieldsByPriority(List<String> fields) {
-        // 定义字段优先级顺序
+        // 定义字段优先级顺序（匹配 CORE_FIELDS）
         java.util.List<String> priorityOrder = new java.util.ArrayList<>();
         priorityOrder.add("id");
         priorityOrder.add("questionType");
@@ -280,11 +284,12 @@ public class ExcelExporter implements Exporter {
         priorityOrder.add("optionB");
         priorityOrder.add("optionC");
         priorityOrder.add("optionD");
+        priorityOrder.add("optionE");
         priorityOrder.add("correctAnswer");
         priorityOrder.add("explanation");
+        priorityOrder.add("knowledgePoint");
         priorityOrder.add("category");
         priorityOrder.add("difficulty");
-        priorityOrder.add("relatedQuestion");
         
         // 按优先级排序
         fields.sort((field1, field2) -> {

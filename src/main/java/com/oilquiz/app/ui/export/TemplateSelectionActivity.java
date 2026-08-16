@@ -87,10 +87,21 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         templateManager.init(this);
     }
 
+    /** 可用导出格式（与导出页 ConfigManager 的 9 种一致；删除无 UI 入口/无实际用途的
+     *  ENHANCED_HTML/PYTHON/JAVA） */
+    private static final ExportManager.ExportFormat[] AVAILABLE_FORMATS = {
+            ExportManager.ExportFormat.CSV, ExportManager.ExportFormat.EXCEL,
+            ExportManager.ExportFormat.PDF, ExportManager.ExportFormat.WORD,
+            ExportManager.ExportFormat.HTML, ExportManager.ExportFormat.MARKDOWN,
+            ExportManager.ExportFormat.JSON, ExportManager.ExportFormat.LONG_IMAGE,
+            ExportManager.ExportFormat.WEBVIEW_APK
+    };
+
     private void initFormatSpinner() {
+        // 中文标签展示（position 对应 AVAILABLE_FORMATS 下标）
         List<String> formats = new ArrayList<>();
-        for (ExportManager.ExportFormat format : ExportManager.ExportFormat.values()) {
-            formats.add(format.name());
+        for (ExportManager.ExportFormat format : AVAILABLE_FORMATS) {
+            formats.add(formatLabel(format));
         }
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, formats);
@@ -100,8 +111,10 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         formatSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                selectedFormat = ExportManager.ExportFormat.values()[position];
-                updateTemplateList();
+                if (position >= 0 && position < AVAILABLE_FORMATS.length) {
+                    selectedFormat = AVAILABLE_FORMATS[position];
+                    updateTemplateList();
+                }
             }
 
             @Override
@@ -110,8 +123,32 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         });
     }
 
+    /** 导出格式中文标签 */
+    private String formatLabel(ExportManager.ExportFormat format) {
+        switch (format) {
+            case CSV: return "CSV";
+            case EXCEL: return "Excel";
+            case PDF: return "PDF";
+            case WORD: return "Word";
+            case HTML: return "HTML";
+            case ENHANCED_HTML: return "增强HTML";
+            case MARKDOWN: return "Markdown";
+            case JSON: return "JSON";
+            case LONG_IMAGE: return "长图片";
+            case WEBVIEW_APK: return "WebView应用";
+            case PYTHON: return "Python";
+            case JAVA: return "Java";
+            default: return format.name();
+        }
+    }
+
     private void initTemplateList() {
-        selectedFormat = ExportManager.ExportFormat.HTML;
+        // 兜底：Spinner setAdapter 后不保证立即触发 onItemSelected
+        // （已有默认选中项时可能不回调），selectedFormat 为 null 会导致
+        // loadExportTemplates 里 selectedFormat.name() 空指针
+        if (selectedFormat == null) {
+            selectedFormat = AVAILABLE_FORMATS[0];
+        }
         updateTemplateList();
     }
 

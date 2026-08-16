@@ -365,11 +365,12 @@ public class DatabaseTool implements AITool {
     
     private AIToolResult getQuestions(Map<String, Object> parameters) {
         try {
-            Integer page = (Integer) parameters.get("page");
-            Integer pageSize = (Integer) parameters.get("page_size");
+            // org.json 解析整数可能是 Integer/Long/Double，需容错
+            Integer page = toInteger(parameters.get("page"));
+            Integer pageSize = toInteger(parameters.get("page_size"));
             String category = (String) parameters.get("category");
             String type = (String) parameters.get("type");
-            Integer difficulty = (Integer) parameters.get("difficulty");
+            Integer difficulty = toInteger(parameters.get("difficulty"));
             String keyword = (String) parameters.get("keyword");
             
             Future<List<Question>> future;
@@ -411,6 +412,21 @@ public class DatabaseTool implements AITool {
         } catch (Exception e) {
             return new AIToolResult("获取题目失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /** 容错解析整数参数（org.json 可能给 Integer/Long/Double/String） */
+    private static Integer toInteger(Object value) {
+        if (value == null) return null;
+        if (value instanceof Integer) return (Integer) value;
+        if (value instanceof Number) return ((Number) value).intValue();
+        if (value instanceof String) {
+            try {
+                return Integer.parseInt((String) value);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
     
     private AIToolResult searchQuestions(Map<String, Object> parameters) {

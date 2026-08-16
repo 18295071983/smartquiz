@@ -2,14 +2,20 @@ package com.oilquiz.app.ai.chat;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
+import com.oilquiz.app.ai.chat.component.ComponentContentSplitter;
+import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
+
+import io.noties.markwon.core.spans.TextViewSpan;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
@@ -24,8 +30,10 @@ import android.view.animation.Animation;
 import android.animation.ValueAnimator;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.util.DisplayMetrics;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -88,6 +96,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
         this.attachedRecyclerView = null;
+    }
+
+    /** 获取屏幕宽度（像素） */
+    private int getScreenWidth(Context context) {
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        return metrics.widthPixels;
     }
 
     public interface OnActionClickListener {
@@ -217,21 +231,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return VIEW_TYPE_THINKING;
             case TASK_BREAKDOWN:
             case TASK_PROGRESS:
-                return VIEW_TYPE_TASK;
+            case AGENT_SUMMARY:
+            case AGENT_REFLECTION:
+            case SUMMARY:
+                // 合并显示：这些类型无消息产生（遗留），统一用系统消息样式展示
+                return VIEW_TYPE_SYSTEM;
             case TOOL_CALL:
+            case TOOL_RESULT:
+                // 合并显示：工具调用与结果统一用工具卡片渲染
                 return VIEW_TYPE_TOOL_CALL;
             case AGENT_STEP:
                 return VIEW_TYPE_AGENT_STEP;
-            case AGENT_SUMMARY:
-                return VIEW_TYPE_AGENT_SUMMARY;
             case ERROR:
                 return VIEW_TYPE_ERROR;
-            case TOOL_RESULT:
-                return VIEW_TYPE_TOOL_RESULT;
-            case AGENT_REFLECTION:
-                return VIEW_TYPE_AGENT_REFLECTION;
-            case SUMMARY:
-                return VIEW_TYPE_SUMMARY;
             default:
                 return VIEW_TYPE_SYSTEM;
         }
@@ -344,7 +356,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (PAYLOAD_CONTENT_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
                     AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
-                    aiHolder.messageText.setText(formatMessageContent(message.content));
+                    aiHolder.itemView.post(() -> {
+                        int availableWidth = aiHolder.itemView.getWidth()
+                            - aiHolder.itemView.getPaddingLeft()
+                            - aiHolder.itemView.getPaddingRight()
+                            - dpToPx(2, aiHolder.itemView.getContext());
+                        if (availableWidth <= 0) availableWidth = getScreenWidth(aiHolder.itemView.getContext());
+                        // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
+                        bindMessageContent(aiHolder, message, availableWidth);
+                    });
                     updateThinkingContent(aiHolder, message);
                     handleLongContent(aiHolder, message);
                 } else if (holder instanceof UserMessageViewHolder) {
@@ -442,7 +462,31 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr) {
-        holder.messageText.setText(formatMessageContent(message.content));
+        // 获取 messageText 的实际宽度用于表格自动换行
+        // 使用 ViewTreeObserver 确保在测量完成后获取宽度
+        holder.messageText.getViewTreeObserver().addOnGlobalLayoutListener(
+            new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                private boolean hasRan = false;
+                @Override
+                public void onGlobalLayout() {
+                    if (hasRan) return;
+                    hasRan = true;
+                    if (holder.messageText.getViewTreeObserver().isAlive()) {
+                        holder.messageText.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    }
+                    // 实际可用宽度 = itemView宽度 - 左右padding - 2dp安全余量
+                    int availableWidth = holder.itemView.getWidth()
+                        - holder.itemView.getPaddingLeft()
+                        - holder.itemView.getPaddingRight()
+                        - dpToPx(2, holder.itemView.getContext());
+                    if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
+                    bindMessageContent(holder, message, availableWidth);
+                }
+            });
+        if (holder.messageText.getText().length() == 0) {
+            // 如果 onGlobalLayout 还没执行，先设置空文本
+            holder.messageText.setText("");
+        }
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
 
@@ -452,6 +496,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         bindAttachments(holder, message);
+        bindComponents(holder, message);
         updateThinkingContent(holder, message);
         updateMessageStatus(holder, message);
         bindModelInfo(holder, message);
@@ -524,7 +569,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
 
             // 设置思考内容：使用与正文一致的 Markdown 渲染，支持列表/代码块等格式
-            holder.thinkingContent.setText(formatMessageContent(cleanedContent));
+            holder.thinkingContent.post(() -> {
+                int width = holder.itemView.getWidth()
+                    - holder.itemView.getPaddingLeft()
+                    - holder.itemView.getPaddingRight()
+                    - dpToPx(2, holder.itemView.getContext());
+                setRenderedText(holder.thinkingContent, cleanedContent, width);
+            });
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
             // 根据 message.thinkingExpanded 决定展开/折叠
@@ -578,17 +629,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (isStreaming) {
             // 流式中：提示用户"思考中"，并告知可点击展开/折叠
             if (expanded) {
-                holder.thinkingLabel.setText("▼ 思考中...（点击折叠）");
+                holder.thinkingLabel.setText(R.string.chat_thinking_streaming_collapse);
             } else {
-                holder.thinkingLabel.setText("🤔 思考中...（点击展开）");
+                holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
             }
         } else {
             // 已完成：显示"思考过程"
             if (expanded) {
-                holder.thinkingLabel.setText("▼ 思考过程");
+                holder.thinkingLabel.setText(R.string.chat_thinking_expanded);
             } else {
                 // 折叠时附上内容长度，让用户知道不是空的
-                holder.thinkingLabel.setText("▶ 思考过程");
+                holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
             }
         }
     }
@@ -705,7 +756,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.statusText.setText(statusStr);
                 holder.statusText.setVisibility(View.VISIBLE);
             } else {
-                holder.statusText.setText("已完成");
+                holder.statusText.setText(R.string.chat_status_completed);
                 holder.statusText.setVisibility(View.VISIBLE);
             }
         } else if (message.status == ChatMessage.MessageStatus.GENERATING ||
@@ -829,10 +880,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
         boolean isLong = message.content != null && message.content.length() > 500;
+        // 有结构化组件（消息级组件或内容流组件标记）的消息不做折叠限制，完整展示
+        boolean hasComponents = (message.components != null && !message.components.isEmpty())
+                || com.oilquiz.app.ai.chat.component.ComponentContentSplitter.containsComponent(message.content);
 
-        // 长消息默认折叠，用户可点击展开
-        if (!isLong || !message.isCompleted()) {
-            // 短消息或未完成：不显示展开按钮，全部展开
+        // 短消息、未完成或带组件：不显示展开按钮，全部展开
+        if (hasComponents || !isLong || !message.isCompleted()) {
             holder.expandButton.setVisibility(View.GONE);
             holder.messageText.setMaxLines(Integer.MAX_VALUE);
             holder.messageText.setEllipsize(null);
@@ -852,11 +905,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 应用展开/收起状态到视图 */
     private void applyExpansionState(AIMessageViewHolder holder, ChatMessage message) {
         if (message.isExpanded) {
-            holder.expandButton.setText("收起");
+            holder.expandButton.setText(R.string.chat_collapse);
             holder.messageText.setMaxLines(Integer.MAX_VALUE);
             holder.messageText.setEllipsize(null);
         } else {
-            holder.expandButton.setText("展开全文");
+            holder.expandButton.setText(R.string.chat_expand_full);
             holder.messageText.setMaxLines(8);
             holder.messageText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }
@@ -864,14 +917,142 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void toggleMessageExpansion(AIMessageViewHolder holder, ChatMessage message) {
         handleLongContent(holder, message);
-        holder.messageText.setText(formatMessageContent(message.content));
+        holder.itemView.post(() -> {
+            int availableWidth = holder.itemView.getWidth()
+                - holder.itemView.getPaddingLeft()
+                - holder.itemView.getPaddingRight()
+                - dpToPx(2, holder.itemView.getContext());
+            if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
+            bindMessageContent(holder, message, availableWidth);
+        });
     }
 
-    private Spanned formatMessageContent(String content) {
+    private Spanned formatMessageContent(String content, int availableWidth) {
         // 使用 RenderExecutor 渲染执行器：自动检测内容类型（Markdown/LaTeX/Mermaid/HTML），
         // 分段渲染并拼接为最终 Spanned
         Context ctx = attachedRecyclerView != null ? attachedRecyclerView.getContext() : null;
-        return RenderExecutor.getInstance().execute(content, ctx);
+        return RenderExecutor.getInstance().execute(content, ctx, availableWidth);
+    }
+
+    /**
+     * 渲染 Markdown 并设置到 TextView。
+     * 复制 Spanned 后绑定 TextViewSpan：Markwon 表格（TableRowSpan）绘制时会用
+     * TextView 内容区域宽度（getWidth - padding）计算表格宽度；
+     * 若不绑定，则回落到 Canvas 全宽（含 padding），表格右侧会被裁掉。
+     * 复制是为了不污染 RenderExecutor 的渲染缓存。
+     */
+    private void setRenderedText(TextView textView, String content, int availableWidth) {
+        Spanned rendered = formatMessageContent(content, availableWidth);
+        Spannable spannable = new SpannableStringBuilder(rendered);
+        TextViewSpan.applyTo(spannable, textView);
+        textView.setText(spannable);
+    }
+
+    /**
+     * 渲染消息附带的插件式 UI 组件（ComponentRegistry 按类型匹配组件插件）。
+     * 通过 boundComponents 引用检测避免重复重建：流式/重复刷新时组件不闪烁。
+     */
+    private void bindComponents(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.componentContainer == null) return;
+        // 同一组件列表引用不重复重建（内容未变）
+        if (holder.boundComponents == message.components) return;
+        holder.componentContainer.removeAllViews();
+        holder.boundComponents = message.components;
+
+        if (message.components == null || message.components.isEmpty()) {
+            holder.componentContainer.setVisibility(View.GONE);
+            return;
+        }
+        Context ctx = holder.itemView.getContext();
+        holder.componentContainer.setVisibility(View.VISIBLE);
+        boolean first = true;
+        for (ComponentData data : message.components) {
+            View view = ComponentRegistry.getInstance().render(ctx, data);
+            if (view == null) {
+                view = ComponentRegistry.getInstance().renderFallback(ctx, data);
+            }
+            // 组件宽度撑满容器，组件之间留间距（首个组件与上方文本留间距）
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
+            holder.componentContainer.addView(view, lp);
+            first = false;
+        }
+    }
+
+    private Spanned formatMessageContent(String content) {
+        return formatMessageContent(content, 0);
+    }
+
+    /**
+     * 渲染消息内容（插入式组件渲染核心）。
+     *
+     * 内容含组件标记（```component:xxx {...}```）时按「文本段/组件段」交替渲染到 contentHost：
+     * 文本段 → Markdown TextView，组件段 → ComponentRegistry 组件 View（插入在标记所在位置）。
+     * 无标记时走纯文本模式（messageText 渲染全文 + 消息级组件容器）。
+     */
+    private void bindMessageContent(AIMessageViewHolder holder, ChatMessage message, int availableWidth) {
+        Context ctx = holder.itemView.getContext();
+        boolean hasMarkers = ComponentContentSplitter.containsComponent(message.content);
+
+        if (!hasMarkers) {
+            // 纯文本模式：宿主只保留 messageText
+            if (holder.contentHost != null
+                    && (holder.contentHost.getChildCount() != 1
+                        || holder.contentHost.getChildAt(0) != holder.messageText)) {
+                holder.contentHost.removeAllViews();
+                holder.contentHost.addView(holder.messageText);
+            }
+            setRenderedText(holder.messageText, message.content, availableWidth);
+            bindComponents(holder, message);
+            return;
+        }
+
+        // 宿主模式：文本段 / 组件段交替，组件插入在标记所在位置；
+        // 消息级组件（Agent 执行中的工具卡片等）统一由 component_container 显示，与纯文本模式一致
+        if (holder.contentHost != null) {
+            holder.contentHost.removeAllViews();
+            for (ComponentContentSplitter.Segment seg : ComponentContentSplitter.split(message.content)) {
+                if (seg.isComponent) {
+                    View view = ComponentRegistry.getInstance().render(ctx, seg.component);
+                    if (view == null) view = ComponentRegistry.getInstance().renderFallback(ctx, seg.component);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    lp.topMargin = dpToPx(8, ctx);
+                    holder.contentHost.addView(view, lp);
+                } else {
+                    TextView tv = createSegmentTextView(ctx, holder.messageText);
+                    setRenderedText(tv, seg.text, availableWidth);
+                    tv.setMovementMethod(LinkMovementMethod.getInstance());
+                    holder.contentHost.addView(tv);
+                }
+            }
+        }
+        // 消息级组件（Agent 工具卡片、工具 withComponent 组件）渲染到 component_container，
+        // 执行中与完成后的渲染路径保持一致
+        bindComponents(holder, message);
+    }
+
+    /** 按 messageText 模板创建段落 TextView（样式一致） */
+    private TextView createSegmentTextView(Context ctx, TextView template) {
+        TextView tv = new TextView(ctx);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, template.getTextSize());
+        tv.setTextColor(template.getCurrentTextColor());
+        tv.setBackground(template.getBackground());
+        tv.setPadding(template.getPaddingLeft(), template.getPaddingTop(),
+                template.getPaddingRight(), template.getPaddingBottom());
+        tv.setLineSpacing(template.getLineSpacingExtra(), template.getLineSpacingMultiplier());
+        tv.setTextIsSelectable(true);
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            tv.setBreakStrategy(template.getBreakStrategy());
+            tv.setHyphenationFrequency(template.getHyphenationFrequency());
+        }
+        return tv;
+    }
+
+    private int dpToPx(int dp, Context context) {
+        if (context == null) return dp;
+        return (int) (dp * context.getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private void bindMessageStatus(ImageView icon, TextView text, ChatMessage.MessageStatus status) {
@@ -888,19 +1069,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         switch (status) {
             case SENDING:
                 icon.setImageResource(R.drawable.ic_send);
-                text.setText("发送中...");
+                text.setText(R.string.chat_status_sending);
                 break;
             case SENT:
                 icon.setImageResource(R.drawable.ic_check);
-                text.setText("已发送");
+                text.setText(R.string.chat_status_sent);
                 break;
             case DELIVERED:
                 icon.setImageResource(R.drawable.ic_check_double);
-                text.setText("已送达");
+                text.setText(R.string.chat_status_delivered);
                 break;
             case READ:
                 icon.setImageResource(R.drawable.ic_check_double);
-                text.setText("已读");
+                text.setText(R.string.chat_status_read);
                 break;
             case GENERATING:
                 icon.setImageResource(R.drawable.ic_send);
@@ -909,7 +1090,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
                     text.setText(String.format("生成中... %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
                 } else {
-                    text.setText("生成中...");
+                    text.setText(R.string.chat_status_generating);
                 }
                 break;
             case COMPLETED:
@@ -919,24 +1100,24 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
                     text.setText(String.format("已完成 · %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
                 } else {
-                    text.setText("已完成");
+                    text.setText(R.string.chat_status_completed);
                 }
                 break;
             case IN_PROGRESS:
                 icon.setImageResource(R.drawable.ic_send);
-                text.setText("处理中...");
+                text.setText(R.string.chat_status_in_progress);
                 break;
             case FAILED:
                 icon.setImageResource(R.drawable.ic_error);
-                text.setText("执行失败");
+                text.setText(R.string.chat_status_failed);
                 break;
             case PAUSED:
                 icon.setImageResource(R.drawable.ic_check);
-                text.setText("已暂停");
+                text.setText(R.string.chat_status_paused);
                 break;
             case ERROR:
                 icon.setImageResource(R.drawable.ic_error);
-                text.setText("发送失败");
+                text.setText(R.string.chat_status_send_failed);
                 break;
             default:
                 icon.setVisibility(View.GONE);
@@ -1091,10 +1272,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void bindTaskMessage(TaskMessageViewHolder holder, ChatMessage message) {
         holder.messageText.setText(message.content);
         if (message.type == ChatMessage.MessageType.TASK_BREAKDOWN) {
-            holder.taskLabel.setText("📋 任务分解");
+            holder.taskLabel.setText(R.string.chat_task_breakdown);
             holder.taskLabel.setBackgroundColor(holder.itemView.getContext().getColor(R.color.task_background));
         } else {
-            holder.taskLabel.setText("📋 任务进度");
+            holder.taskLabel.setText(R.string.chat_task_progress);
             holder.taskLabel.setBackgroundColor(holder.itemView.getContext().getColor(R.color.task_background));
         }
         
@@ -1108,7 +1289,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void bindToolCallMessage(ToolCallViewHolder holder, ChatMessage message) {
         ChatMessage.ToolCallInfo info = message.toolCallInfo;
-        if (info == null) return;
+        if (info == null) {
+            // 兼容旧 TOOL_RESULT 消息（已与工具调用合并渲染）：无 ToolCallInfo，直接显示内容为结果
+            holder.toolName.setText(message.content != null && !message.content.isEmpty()
+                    ? message.content : "工具结果");
+            holder.toolStatus.setText(R.string.chat_status_completed);
+            if (holder.toolResultContainer != null) {
+                holder.toolResultContainer.setVisibility(View.VISIBLE);
+            }
+            if (message.content != null && holder.toolResult != null) {
+                holder.toolResult.setText(message.content);
+                holder.toolResult.setMovementMethod(LinkMovementMethod.getInstance());
+            }
+            if (holder.toolProgress != null) holder.toolProgress.setVisibility(View.GONE);
+            return;
+        }
 
         holder.toolIcon.setText(info.toolIcon);
         holder.toolName.setText(info.toolDisplayName);
@@ -1604,7 +1799,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void bindSummaryMessage(SummaryMessageViewHolder holder, ChatMessage message) {
         holder.summaryIcon.setText("📊");
         holder.summaryLabel.setText("总结");
-        holder.summaryContent.setText(formatMessageContent(message.content));
+        holder.summaryContent.post(() -> {
+            int availableWidth = holder.itemView.getWidth()
+                - holder.itemView.getPaddingLeft()
+                - holder.itemView.getPaddingRight()
+                - dpToPx(2, holder.itemView.getContext());
+            if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
+            setRenderedText(holder.summaryContent, message.content, availableWidth);
+        });
         holder.summaryContent.setMovementMethod(LinkMovementMethod.getInstance());
 
         if (message.summaryInfo != null) {
@@ -1942,6 +2144,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     static class AIMessageViewHolder extends RecyclerView.ViewHolder {
         TextView blockLabel;
         TextView messageText;
+        LinearLayout contentHost;
+        LinearLayout componentContainer;
+        /** 已绑定的组件列表引用：同一引用跳过重建（避免流式/重复刷新闪烁） */
+        List<ComponentData> boundComponents;
         TextView thinkingLabel;
         TextView thinkingContent;
         View actionButtons;
@@ -1969,6 +2175,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             super(itemView);
             blockLabel = itemView.findViewById(R.id.block_label);
             messageText = itemView.findViewById(R.id.message_text);
+            contentHost = itemView.findViewById(R.id.content_host);
+            componentContainer = itemView.findViewById(R.id.component_container);
             thinkingLabel = itemView.findViewById(R.id.thinking_label);
             thinkingContent = itemView.findViewById(R.id.thinking_content);
             actionButtons = itemView.findViewById(R.id.action_buttons);
@@ -1982,8 +2190,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             statusText = itemView.findViewById(R.id.status_text);
             expandButton = itemView.findViewById(R.id.btn_expand);
             inferenceProgressView = itemView.findViewById(R.id.inference_progress_view);
-            agentExecutionView = itemView.findViewById(R.id.agent_execution_view);
-            agentExecutionPanel = itemView.findViewById(R.id.agent_execution_panel);
+            // Agent 面板已解绑：布局中不再包含 agent_execution_view/agent_execution_panel，
+            // 字段保持 null，渲染逻辑通过 null 检查自然跳过
             attachmentsRecycler = itemView.findViewById(R.id.attachments_recycler);
             // 在线模型信息视图
             modelInfoContainer = itemView.findViewById(R.id.model_info_container);
@@ -2065,10 +2273,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 thinkingLabel.setVisibility(View.VISIBLE);
             }
 
-            // 处理进度条：思考进行中显示不确定进度动画
+            // 处理进度条：仅展开且思考进行中时显示（折叠时隐藏，精简视觉）
             if (thinkingProgress != null) {
-                if (message.status == ChatMessage.MessageStatus.GENERATING ||
-                    message.status == ChatMessage.MessageStatus.IN_PROGRESS) {
+                boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
+                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+                if (message.thinkingExpanded && processing) {
                     thinkingProgress.setVisibility(View.VISIBLE);
                     thinkingProgress.setIndeterminate(true);
                 } else {

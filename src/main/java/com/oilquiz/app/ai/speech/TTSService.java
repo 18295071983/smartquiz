@@ -16,6 +16,7 @@ import com.oilquiz.app.ai.speech.core.SpeechModelSelector;
 import com.oilquiz.app.ai.speech.tts.BaiduTtsEngine;
 import com.oilquiz.app.ai.speech.tts.DashScopeTtsEngine;
 import com.oilquiz.app.ai.speech.tts.IflytekTtsEngine;
+import com.oilquiz.app.ai.speech.tts.MimoTtsEngine;
 import com.oilquiz.app.ai.speech.tts.OpenAiTtsEngine;
 import com.oilquiz.app.ai.speech.tts.SystemTtsEngine;
 import com.oilquiz.app.ai.speech.tts.TtsEngine;
@@ -125,6 +126,7 @@ public class TTSService {
     private final IflytekTtsEngine iflytekEngine;
     private final VolcanoTtsEngine volcanoEngine;
     private final BaiduTtsEngine baiduEngine;
+    private final MimoTtsEngine mimoEngine;
     private final SystemTtsEngine systemEngine;
 
     private MediaPlayer mediaPlayer;
@@ -145,6 +147,7 @@ public class TTSService {
         this.iflytekEngine = new IflytekTtsEngine(this.context);
         this.volcanoEngine = new VolcanoTtsEngine(this.context);
         this.baiduEngine = new BaiduTtsEngine(this.context);
+        this.mimoEngine = new MimoTtsEngine(this.context);
         this.systemEngine = new SystemTtsEngine(this.context);
     }
 
@@ -262,6 +265,8 @@ public class TTSService {
         if (SpeechModelSelector.isXfyunEndpoint(apiUrl)) return iflytekEngine;
         if (SpeechModelSelector.isVolcanoEndpoint(apiUrl)) return volcanoEngine;
         if (SpeechModelSelector.isBaiduEndpoint(apiUrl)) return baiduEngine;
+        if (SpeechModelSelector.isMimoEndpoint(apiUrl)) return mimoEngine;
+        // 其他 OpenAI 兼容端点也走 openAiEngine
         return openAiEngine;
     }
 

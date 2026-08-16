@@ -203,7 +203,8 @@ public class SmartResearchTool implements AITool {
                                 processed.put("title", content.get("title"));
                                 processed.put("summary", content.get("summary"));
                                 processed.put("category", content.get("category"));
-                                processed.put("keywords", content.get("extractedKeywords"));
+                                // NetworkSearchTool.extractWebpageContent 写入的键名是 "keywords"
+                                processed.put("keywords", content.get("keywords"));
                                 processed.put("headings", content.get("headings"));
                             }
                             processedContents.add(processed);

@@ -183,28 +183,28 @@ public class DynamicToolManagerTool implements AITool {
             return createErrorResult("工具 " + toolName + " 不是动态工具，无法更新");
         }
         
-        toolManager.unregisterDynamicTool(toolName);
-        
         String description = getStringParam(parameters, "description", "用户自定义工具");
         Map<String, String> toolParams = parseParameters(parameters);
         String logic = getStringParam(parameters, "logic", null);
-        
+
+        // createAndRegisterDynamicTool 用同名注册会覆盖旧工具（即替换），
+        // 创建失败时旧工具仍保留，不会丢失
         DynamicAITool tool = toolManager.createAndRegisterDynamicTool(
             toolName,
             description,
             toolParams,
             logic
         );
-        
+
         if (tool != null) {
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("tool_name", toolName);
             additionalInfo.put("action", "update");
             additionalInfo.put("success", true);
-            
+
             return AIToolResult.success("✅ 动态工具更新成功: " + toolName, additionalInfo);
         } else {
-            return createErrorResult("工具更新失败");
+            return createErrorResult("工具更新失败（原工具已保留）");
         }
     }
     

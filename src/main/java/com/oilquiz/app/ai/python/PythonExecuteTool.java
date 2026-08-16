@@ -89,9 +89,27 @@ public class PythonExecuteTool extends BaseAITool {
             
             String code = (String) parameters.get("code");
             String task = (String) parameters.get("task");
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Object> contextData = (Map<String, Object>) parameters.get("context");
+
+            // 容错解析 context：可能为 Map 或 JSON 字符串
+            Map<String, Object> contextData = null;
+            Object ctxObj = parameters.get("context");
+            if (ctxObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) ctxObj;
+                contextData = m;
+            } else if (ctxObj instanceof String) {
+                try {
+                    org.json.JSONObject jo = new org.json.JSONObject((String) ctxObj);
+                    contextData = new java.util.HashMap<>();
+                    java.util.Iterator<String> keys = jo.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        contextData.put(key, jo.opt(key));
+                    }
+                } catch (Exception ignored) {
+                    Log.w(TAG, "context 参数解析失败，忽略");
+                }
+            }
             
             // 尝试 Python 执行
             AIToolResult pythonResult = tryPythonExecute(code, task, contextData);

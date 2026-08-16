@@ -92,6 +92,37 @@ public class PythonExportBridge {
     }
     
     /**
+     * 检查是否已初始化
+     */
+    public boolean isInitialized() {
+        return initialized;
+    }
+    
+    /**
+     * 获取 exportModule，如果为 null 则返回 null 并记录日志
+     */
+    private PyObject getExportModule(String method) {
+        if (exportModule == null) {
+            Log.e(TAG, "exportModule is null in method: " + method);
+            return null;
+        }
+        return exportModule;
+    }
+    
+    /**
+     * 调用 exportModule 属性，如果为 null 则初始化
+     */
+    private PyObject getOrInitModule(String method, Context context) {
+        if (exportModule == null) {
+            if (!initialize(context)) {
+                Log.e(TAG, "Failed to initialize Python in " + method);
+                return null;
+            }
+        }
+        return exportModule;
+    }
+    
+    /**
      * 导出为 Excel 格式
      */
     public File exportToExcel(File outputFile, List<Question> questions, 
@@ -101,10 +132,15 @@ public class PythonExportBridge {
             return null;
         }
         
+        PyObject module = getExportModule("exportToExcel");
+        if (module == null) {
+            return null;
+        }
+        
         try {
             // 先测试 openpyxl 是否可用
             Log.i(TAG, "Testing openpyxl availability...");
-            PyObject testResult = exportModule.callAttr("_test_openpyxl");
+            PyObject testResult = module.callAttr("_test_openpyxl");
             if (testResult != null) {
                 boolean testOk = testResult.toBoolean();
                 Log.i(TAG, "openpyxl test result: " + testOk);
@@ -123,7 +159,7 @@ public class PythonExportBridge {
             Log.i(TAG, "Calling Python export_to_excel, questions: " + questions.size());
             
             // 调用 Python 导出函数 - 传递 JSON 字符串，让 Python 解析
-            PyObject result = exportModule.callAttr(
+            PyObject result = module.callAttr(
                 "export_to_excel",
                 outputFile.getAbsolutePath(),
                 jsonQuestions,  // JSON 字符串
@@ -149,12 +185,17 @@ public class PythonExportBridge {
             return null;
         }
         
+        PyObject module = getExportModule("exportToCsv");
+        if (module == null) {
+            return null;
+        }
+        
         try {
             String jsonQuestions = convertQuestionsToJson(questions);
             JSONObject jsonConfig = new JSONObject(config);
             String jsonString = jsonConfig.toString();
             
-            PyObject result = exportModule.callAttr(
+            PyObject result = module.callAttr(
                 "export_to_csv",
                 outputFile.getAbsolutePath(),
                 jsonQuestions,
@@ -178,12 +219,17 @@ public class PythonExportBridge {
             return null;
         }
         
+        PyObject module = getExportModule("exportToMarkdown");
+        if (module == null) {
+            return null;
+        }
+        
         try {
             String jsonQuestions = convertQuestionsToJson(questions);
             JSONObject jsonConfig = new JSONObject(config);
             String jsonString = jsonConfig.toString();
             
-            PyObject result = exportModule.callAttr(
+            PyObject result = module.callAttr(
                 "export_to_markdown",
                 outputFile.getAbsolutePath(),
                 jsonQuestions,
@@ -207,12 +253,17 @@ public class PythonExportBridge {
             return null;
         }
         
+        PyObject module = getExportModule("exportToJson");
+        if (module == null) {
+            return null;
+        }
+        
         try {
             String jsonQuestions = convertQuestionsToJson(questions);
             JSONObject jsonConfig = new JSONObject(config);
             String jsonString = jsonConfig.toString();
             
-            PyObject result = exportModule.callAttr(
+            PyObject result = module.callAttr(
                 "export_to_json",
                 outputFile.getAbsolutePath(),
                 jsonQuestions,
@@ -299,13 +350,19 @@ public class PythonExportBridge {
      */
     public File exportToPdf(File outputFile, List<Question> questions, Map<String, Object> config, Context context) {
         Log.i(TAG, "=== Exporting to PDF ===");
+        
+        PyObject module = getOrInitModule("exportToPdf", context);
+        if (module == null) {
+            return null;
+        }
+        
         Log.i(TAG, "Output file: " + outputFile.getAbsolutePath());
         Log.i(TAG, "Questions count: " + questions.size());
         
         // 测试 reportlab 可用性
         try {
             Log.i(TAG, "Testing reportlab availability...");
-            PyObject testResult = exportModule.callAttr("_test_reportlab");
+            PyObject testResult = module.callAttr("_test_reportlab");
             Log.i(TAG, "reportlab test result: " + testResult.toString());
         } catch (Exception e) {
             Log.w(TAG, "WARNING: reportlab not available! " + e.getMessage());
@@ -323,7 +380,7 @@ public class PythonExportBridge {
         // 调用 Python 导出函数
         PyObject result = null;
         try {
-            result = exportModule.callAttr(
+            result = module.callAttr(
                 "export_to_pdf",
                 outputFile.getAbsolutePath(),
                 jsonQuestions,
@@ -354,6 +411,12 @@ public class PythonExportBridge {
      */
     public File exportToLongImage(File outputFile, List<Question> questions, Map<String, Object> config, Context context) {
         Log.i(TAG, "=== Exporting to Long Image ===");
+        
+        PyObject module = getOrInitModule("exportToLongImage", context);
+        if (module == null) {
+            return null;
+        }
+        
         Log.i(TAG, "Output file: " + outputFile.getAbsolutePath());
         Log.i(TAG, "Questions count: " + questions.size());
         
@@ -367,7 +430,7 @@ public class PythonExportBridge {
         Log.i(TAG, "Calling Python export_to_long_image...");
         
         // 调用 Python 导出函数
-        PyObject result = exportModule.callAttr(
+        PyObject result = module.callAttr(
             "export_to_long_image",
             outputFile.getAbsolutePath(),
             jsonQuestions,
@@ -385,6 +448,12 @@ public class PythonExportBridge {
      */
     public File exportToHtml(File outputFile, List<Question> questions, Map<String, Object> config, Context context) {
         Log.i(TAG, "=== Exporting to HTML ===");
+        
+        PyObject module = getOrInitModule("exportToHtml", context);
+        if (module == null) {
+            return null;
+        }
+        
         Log.i(TAG, "Output file: " + outputFile.getAbsolutePath());
         Log.i(TAG, "Questions count: " + questions.size());
         
@@ -398,7 +467,7 @@ public class PythonExportBridge {
         Log.i(TAG, "Calling Python export_to_html...");
         
         // 调用 Python 导出函数
-        PyObject result = exportModule.callAttr(
+        PyObject result = module.callAttr(
             "export_to_html",
             outputFile.getAbsolutePath(),
             jsonQuestions,
@@ -459,13 +528,6 @@ public class PythonExportBridge {
             Log.e(TAG, "Failed to parse export result: " + e.getMessage(), e);
             return null;
         }
-    }
-    
-    /**
-     * 检查 Python 导出功能是否已初始化
-     */
-    public boolean isInitialized() {
-        return initialized;
     }
     
     // ==================== Android UI 操作方法 ====================

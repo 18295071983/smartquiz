@@ -102,7 +102,7 @@ public class WordExporter implements Exporter {
                         typeQuestionNumber++;
                     }
                     
-                    // 题目元信息行（题型/难度/分类/知识点/分值等，按模板字段）
+                    // 题目元信息行（题型/难度/分类/子分类/知识点/分值等，按模板字段）
                     StringBuilder metaInfo = new StringBuilder();
                     if (ExportUtils.hasField(fields, "questionType") && question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
                         metaInfo.append("题型: ").append(question.getQuestionType()).append(" | ");
@@ -112,6 +112,9 @@ public class WordExporter implements Exporter {
                     }
                     if (ExportUtils.hasField(fields, "category") && question.getCategory() != null && !question.getCategory().isEmpty()) {
                         metaInfo.append("分类: ").append(question.getCategory()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "subCategory") && question.getSubCategory() != null && !question.getSubCategory().isEmpty()) {
+                        metaInfo.append("子分类: ").append(question.getSubCategory()).append(" | ");
                     }
                     if (ExportUtils.hasField(fields, "knowledgePoint") && question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
                         metaInfo.append("知识点: ").append(question.getKnowledgePoint()).append(" | ");

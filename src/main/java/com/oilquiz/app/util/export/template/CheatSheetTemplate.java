@@ -28,69 +28,118 @@ public class CheatSheetTemplate implements HTMLTemplate {
         writer.write("  font-family: 'Microsoft YaHei', Arial, sans-serif;\n");
         writer.write("  line-height: 1.4;\n");
         writer.write("  color: #333;\n");
-        writer.write("  background-color: #fff;\n");
+        writer.write("  background-color: #F3F4F6;\n");
         writer.write("  padding: 15px;\n");
         writer.write("}\n");
         writer.write(".container {\n");
-        writer.write("  max-width: 800px;\n");
+        writer.write("  max-width: 1200px;\n");
         writer.write("  margin: 0 auto;\n");
-        writer.write("}");
-        writer.write("h1 {\n");
-        writer.write("  color: #2c3e50;\n");
-        writer.write("  margin-bottom: 20px;\n");
+        writer.write("}\n");
+        writer.write(".header {\n");
+        writer.write("  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n");
+        writer.write("  color: white;\n");
+        writer.write("  padding: 20px 24px;\n");
+        writer.write("  border-radius: 12px;\n");
+        writer.write("  margin-bottom: 24px;\n");
         writer.write("  text-align: center;\n");
-        writer.write("  font-size: 20px;\n");
-        writer.write("  border-bottom: 1px solid #e0e0e0;\n");
-        writer.write("  padding-bottom: 10px;\n");
-        writer.write("}");
+        writer.write("}\n");
+        writer.write(".header h1 {\n");
+        writer.write("  font-size: 22px;\n");
+        writer.write("  margin-bottom: 8px;\n");
+        writer.write("}\n");
+        writer.write(".header p {\n");
+        writer.write("  font-size: 13px;\n");
+        writer.write("  opacity: 0.9;\n");
+        writer.write("}\n");
         writer.write(".cheat-grid {\n");
         writer.write("  display: grid;\n");
-        writer.write("  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\n");
-        writer.write("  gap: 15px;\n");
+        writer.write("  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));\n");
+        writer.write("  gap: 12px;\n");
         writer.write("  margin-bottom: 20px;\n");
-        writer.write("}");
+        writer.write("}\n");
         writer.write(".cheat-item {\n");
-        writer.write("  border: 1px solid #e0e0e0;\n");
-        writer.write("  border-radius: 4px;\n");
-        writer.write("  padding: 12px;\n");
-        writer.write("  background-color: #f9f9f9;\n");
-        writer.write("  font-size: 12px;\n");
-        writer.write("}");
-        writer.write(".cheat-question {\n");
-        writer.write("  font-weight: bold;\n");
-        writer.write("  margin-bottom: 8px;\n");
-        writer.write("  color: #2c3e50;\n");
-        writer.write("}");
-        writer.write(".cheat-answer {\n");
-        writer.write("  color: #e74c3c;\n");
-        writer.write("  font-weight: bold;\n");
-        writer.write("  margin-top: 5px;\n");
-        writer.write("}");
-        writer.write(".footer {\n");
-        writer.write("  margin-top: 20px;\n");
+        writer.write("  background: white;\n");
+        writer.write("  border-radius: 10px;\n");
+        writer.write("  padding: 16px;\n");
+        writer.write("  box-shadow: 0 2px 4px rgba(0,0,0,0.05);\n");
+        writer.write("  transition: all 0.2s ease;\n");
+        writer.write("}\n");
+        writer.write(".cheat-item:hover {\n");
+        writer.write("  box-shadow: 0 4px 12px rgba(0,0,0,0.1);\n");
+        writer.write("  transform: translateY(-2px);\n");
+        writer.write("}\n");
+        writer.write(".cheat-number {\n");
+        writer.write("  display: inline-block;\n");
+        writer.write("  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n");
+        writer.write("  color: white;\n");
+        writer.write("  width: 26px;\n");
+        writer.write("  height: 26px;\n");
+        writer.write("  border-radius: 50%;\n");
         writer.write("  text-align: center;\n");
-        writer.write("  font-size: 10px;\n");
-        writer.write("  color: #999;\n");
-        writer.write("  border-top: 1px solid #e0e0e0;\n");
-        writer.write("  padding-top: 10px;\n");
-        writer.write("}");
+        writer.write("  line-height: 26px;\n");
+        writer.write("  font-size: 13px;\n");
+        writer.write("  font-weight: bold;\n");
+        writer.write("  margin-right: 8px;\n");
+        writer.write("  vertical-align: middle;\n");
+        writer.write("}\n");
+        writer.write(".cheat-question {\n");
+        writer.write("  font-weight: 600;\n");
+        writer.write("  margin-bottom: 10px;\n");
+        writer.write("  color: #1f2937;\n");
+        writer.write("  font-size: 14px;\n");
+        writer.write("  line-height: 1.5;\n");
+        writer.write("}\n");
+        writer.write(".cheat-option {\n");
+        writer.write("  font-size: 13px;\n");
+        writer.write("  color: #6b7280;\n");
+        writer.write("  margin: 3px 0;\n");
+        writer.write("  padding-left: 4px;\n");
+        writer.write("}\n");
+        writer.write(".cheat-answer {\n");
+        writer.write("  background: #FEF3C7;\n");
+        writer.write("  color: #92400E;\n");
+        writer.write("  padding: 8px 12px;\n");
+        writer.write("  border-radius: 6px;\n");
+        writer.write("  font-weight: 600;\n");
+        writer.write("  margin-top: 10px;\n");
+        writer.write("  font-size: 13px;\n");
+        writer.write("  border-left: 3px solid #F59E0B;\n");
+        writer.write("}\n");
+        writer.write(".footer {\n");
+        writer.write("  margin-top: 24px;\n");
+        writer.write("  text-align: center;\n");
+        writer.write("  font-size: 12px;\n");
+        writer.write("  color: #9CA3AF;\n");
+        writer.write("  padding: 16px;\n");
+        writer.write("  background: white;\n");
+        writer.write("  border-radius: 10px;\n");
+        writer.write("}\n");
         writer.write("@media print {\n");
         writer.write("  body {\n");
+        writer.write("    background: white;\n");
         writer.write("    padding: 10px;\n");
         writer.write("  }\n");
+        writer.write(".header {\n");
+        writer.write("  background: #667eea;\n");
+        writer.write("  color: white;\n");
+        writer.write("  -webkit-print-color-adjust: exact;\n");
+        writer.write("}\n");
         writer.write(".cheat-grid {\n");
-        writer.write("  gap: 10px;\n");
-        writer.write("}");
+        writer.write("  gap: 8px;\n");
+        writer.write("}\n");
         writer.write(".cheat-item {\n");
-        writer.write("  padding: 8px;\n");
-        writer.write("  font-size: 10px;\n");
-        writer.write("}");
-        writer.write("}");
+        writer.write("  padding: 10px;\n");
+        writer.write("  break-inside: avoid;\n");
+        writer.write("}\n");
+        writer.write("}\n");
         writer.write("</style>\n");
         writer.write("</head>\n");
         writer.write("<body>\n");
         writer.write("<div class=\"container\">\n");
-        writer.write("<h1>小抄</h1>\n");
+        writer.write("<div class=\"header\">\n");
+        writer.write("<h1>📝 小抄</h1>\n");
+        writer.write("<p>共 " + questions.size() + " 个题目 | 生成时间：" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date()) + "</p>\n");
+        writer.write("</div>\n");
         
         writer.write("<div class=\"cheat-grid\">\n");
         
@@ -100,25 +149,25 @@ public class CheatSheetTemplate implements HTMLTemplate {
             
             for (Question question : typeQuestions) {
                 writer.write("<div class=\"cheat-item\">\n");
-                writer.write("<div class=\"cheat-question\">" + questionNumber++ + ". " + question.getQuestionText() + "</div>\n");
+                writer.write("<div class=\"cheat-question\"><span class=\"cheat-number\">" + questionNumber++ + "</span>" + question.getQuestionText() + "</div>\n");
                 
                 // 选项（简要显示）
                 if (question.getOptionA() != null && !question.getOptionA().isEmpty()) {
-                    writer.write("<div>A. " + truncateText(question.getOptionA(), 30) + "</div>\n");
+                    writer.write("<div class=\"cheat-option\">A. " + truncateText(question.getOptionA(), 35) + "</div>\n");
                 }
                 if (question.getOptionB() != null && !question.getOptionB().isEmpty()) {
-                    writer.write("<div>B. " + truncateText(question.getOptionB(), 30) + "</div>\n");
+                    writer.write("<div class=\"cheat-option\">B. " + truncateText(question.getOptionB(), 35) + "</div>\n");
                 }
                 if (question.getOptionC() != null && !question.getOptionC().isEmpty()) {
-                    writer.write("<div>C. " + truncateText(question.getOptionC(), 30) + "</div>\n");
+                    writer.write("<div class=\"cheat-option\">C. " + truncateText(question.getOptionC(), 35) + "</div>\n");
                 }
                 if (question.getOptionD() != null && !question.getOptionD().isEmpty()) {
-                    writer.write("<div>D. " + truncateText(question.getOptionD(), 30) + "</div>\n");
+                    writer.write("<div class=\"cheat-option\">D. " + truncateText(question.getOptionD(), 35) + "</div>\n");
                 }
                 
                 // 答案
                 if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                    writer.write("<div class=\"cheat-answer\">答案：" + question.getCorrectAnswer() + "</div>\n");
+                    writer.write("<div class=\"cheat-answer\">✅ 答案：" + question.getCorrectAnswer() + "</div>\n");
                 }
                 
                 writer.write("</div>\n");
@@ -128,8 +177,7 @@ public class CheatSheetTemplate implements HTMLTemplate {
         writer.write("</div>\n");
         
         writer.write("<div class=\"footer\">\n");
-        writer.write("<p>生成时间：" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date()) + "</p>\n");
-        writer.write("<p>共 " + questions.size() + " 个题目</p>\n");
+        writer.write("<p>© OilQuiz 系统 | 本材料由系统自动生成</p>\n");
         writer.write("</div>\n");
         writer.write("</div>\n");
         writer.write("</body>\n");

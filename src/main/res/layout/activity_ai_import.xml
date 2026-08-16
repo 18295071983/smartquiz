@@ -90,12 +90,11 @@
                         android:layout_width="0dp"
                         android:layout_height="48dp"
                         android:layout_weight="1"
-                        android:text="开始 AI 导入"
+                        android:text="智能导入"
                         app:backgroundTint="@color/primary"
                         android:textColor="@color/on_primary"
                         app:cornerRadius="12dp"
-                        android:textAllCaps="false"
-                        android:enabled="false" />
+                        android:textAllCaps="false" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -250,11 +249,13 @@
             android:layout_marginBottom="12dp">
 
             <LinearLayout
+                android:id="@+id/metricsTokCell"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:gravity="center">
+                android:gravity="center"
+                android:visibility="gone">
 
                 <TextView
                     android:id="@+id/tvTokPerSec"
@@ -274,11 +275,13 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/metricsTokenCell"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:gravity="center">
+                android:gravity="center"
+                android:visibility="gone">
 
                 <TextView
                     android:id="@+id/tvTokenCount"
@@ -298,11 +301,13 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/metricsQuestionCell"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:gravity="center">
+                android:gravity="center"
+                android:visibility="gone">
 
                 <TextView
                     android:id="@+id/tvQuestionCount"
@@ -362,14 +367,16 @@
                 android:visibility="gone" />
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 字段覆盖率区：最小实现用水平进度条，id 保留 coverageBar 以便后续升级为环形图 -->
+        <!-- 字段覆盖率区：v2 流程无覆盖率回调，隐藏 -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/coverageCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardElevation="2dp"
             app:cardBackgroundColor="@color/surface"
             app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -415,15 +422,17 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 预览区：RecyclerView 占用剩余空间 -->
+        <!-- 预览区：v2 流程无抽取预览回调，隐藏 -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/previewCard"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             app:cardElevation="2dp"
             app:cardBackgroundColor="@color/surface"
             app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"

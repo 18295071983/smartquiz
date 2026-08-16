@@ -114,9 +114,17 @@ public class ImportMain {
     private ImportLlmEngine engine;
     /** 批量模式标志：缺字段报告由批量入口统一生成一次，避免逐文件重复扫描 */
     private volatile boolean batchMode = false;
+    /** 本地 AI 引擎（可选，用于字段映射 + 智能填充） */
+    private volatile com.oilquiz.app.ai.importing.AIImportOrchestrator localOrchestrator;
 
     public ImportMain(Context context) {
         this.context = context.getApplicationContext();
+    }
+
+    /** 使用本地 AI 引擎的构造方式 */
+    public ImportMain(Context context, com.oilquiz.app.ai.importing.AIImportOrchestrator orchestrator) {
+        this.context = context.getApplicationContext();
+        this.localOrchestrator = orchestrator;
     }
 
     /** 取消导入 */
@@ -138,7 +146,10 @@ public class ImportMain {
         });
     }
 
-    /** 扫描公共 source 目录依次导入（结束时发出 all-done 阶段信号，供 UI 汇总展示） */
+    /**
+     * 扫描公共 source 目录依次导入（结束时发出 all-done 阶段信号，供 UI 汇总展示）。
+     * 后台线程执行 + 重置取消/批量标志：避免在调用线程（UI）同步阻塞，且上次取消后再次批量不空跑。
+     */
     public void runAllFromSourceDir(ImportListener listener) {
         cancelled = false;
         batchMode = true;
@@ -151,41 +162,61 @@ public class ImportMain {
                             + "，请先将题库文件放入该目录");
                     return;
                 }
-                int matched = 0;
-                for (File f : files) {
-                    if (cancelled) {
-                        emitLog(listener, "已取消，剩余文件未处理");
-                        break;
-                    }
-                    String lower = f.getName().toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".sql") || lower.endsWith(".db") || lower.endsWith(".sqlite")
-                            || lower.endsWith(".sqlite3") || lower.endsWith(".xlsx")
-                            || lower.endsWith(".xls") || lower.endsWith(".csv")
-                            || lower.endsWith(".json") || lower.endsWith(".txt")) {
-                        matched++;
-                        emitStage(listener, "batch", "批量导入(" + matched + "): " + f.getName());
-                        try {
-                            runSync(f, listener);
-                        } catch (Throwable t) {
-                            // 单文件失败不中断整批，继续处理后续文件
-                            emitError(listener, f.getName() + " 导入失败: " + t.getMessage());
-                        }
-                    }
-                }
-                if (matched == 0) {
-                    emitError(listener, "源目录无可识别的题库文件(支持 csv/xlsx/xls/json/sql/db/txt)");
-                } else {
-                    // 批量结束后统一生成缺字段报告，引导用户修复后重导
-                    String issues = exportIssuesReport(listener);
-                    if (issues != null) {
-                        emitStage(listener, "issues", issues);
-                    }
-                }
+                runAllFromSourceFilesInternalInner(java.util.Arrays.asList(files), listener);
             } finally {
-                // 无论成败/取消均发出结束信号，UI 层据此汇总展示
-                emitStage(listener, "all-done", "源目录批量导入结束");
+                // 所有路径（正常/取消/空目录）都必须发 all-done，否则 UI 永远等不到批量收尾
+                emitStage(listener, "all-done", "批量导入结束");
             }
         });
+    }
+
+    /** 批量导入指定文件列表（支持多文件） */
+    public void runAllFromSourceFiles(java.util.List<File> files, ImportListener listener) {
+        cancelled = false;
+        batchMode = true;
+        executor.execute(() -> {
+            try {
+                if (files == null || files.isEmpty()) {
+                    emitError(listener, "文件列表为空");
+                    return;
+                }
+                runAllFromSourceFilesInternalInner(files, listener);
+            } finally {
+                emitStage(listener, "all-done", "批量导入结束");
+            }
+        });
+    }
+
+    private void runAllFromSourceFilesInternalInner(java.util.List<File> files, ImportListener listener) {
+        int matched = 0;
+        for (File f : files) {
+            if (cancelled) {
+                emitLog(listener, "已取消，剩余文件未处理");
+                break;
+            }
+            String lower = f.getName().toLowerCase(java.util.Locale.ROOT);
+            if (lower.endsWith(".sql") || lower.endsWith(".db") || lower.endsWith(".sqlite")
+                    || lower.endsWith(".sqlite3") || lower.endsWith(".db3")
+                    || lower.endsWith(".xlsx")
+                    || lower.endsWith(".xls") || lower.endsWith(".csv")
+                    || lower.endsWith(".json") || lower.endsWith(".txt")) {
+                matched++;
+                emitStage(listener, "batch", "批量导入(" + matched + "): " + f.getName());
+                try {
+                    runSync(f, listener);
+                } catch (Throwable t) {
+                    emitError(listener, f.getName() + " 导入失败: " + t.getMessage());
+                }
+            }
+        }
+        if (matched == 0) {
+            emitError(listener, "无可识别的题库文件(支持 csv/xlsx/xls/json/sql/db/txt)");
+        } else {
+            String issues = exportIssuesReport(listener);
+            if (issues != null) {
+                emitStage(listener, "issues", issues);
+            }
+        }
     }
 
     // ==================== 主流程 ====================
@@ -201,7 +232,13 @@ public class ImportMain {
         emitStage(listener, "init", "初始化导入引擎: " + sourceFile.getName());
 
         // ========== 步骤0：初始化准备 ==========
-        engine = new ImportLlmEngine(context);
+        if (localOrchestrator != null) {
+            // 携带外部编排器（用于模型模式/信息展示；映射与填充推理仍由 ImportLlmEngine 本地模型完成）
+            emitLog(listener, "初始化导入引擎（本地模型推理）");
+            engine = new ImportLlmEngine(context, localOrchestrator);
+        } else {
+            engine = new ImportLlmEngine(context);
+        }
         engine.setListener(msg -> emitLog(listener, msg));
         ImportPythonBridge python = ImportPythonBridge.getInstance(context);
         if (!python.ensureReady()) {
@@ -243,10 +280,14 @@ public class ImportMain {
             summary.mappingSource = "breakpoint";
             emitStage(listener, "resume", "检测到入库断点，跳过解析直接续导入库");
             List<File> chunks = splitChunkFiles(bp.csvChunks);
-            if (chunks.isEmpty()) {
-                // 断点分片已丢失（如会话目录被清理）→ 清除断点，提示重新导入而非带伤入库
+            // 分片部分丢失（用户清理 temp/磁盘异常）：显式报错并清断点，
+            // 禁止静默带伤入库导致部分数据无声丢失
+            int declared = bp.csvChunks == null ? 0
+                    : bp.csvChunks.split("\u0001").length;
+            if (chunks.size() != declared || chunks.isEmpty()) {
                 ImportBreakpointStore.clear();
-                emitError(listener, "断点分片文件已丢失，请重新发起导入");
+                emitError(listener, "断点分片文件缺失(" + chunks.size() + "/" + declared
+                        + ")，请重新发起导入");
                 return;
             }
             IngestOutcome outcome = doIngest(chunks, bp.ingestOffset, sessionDir, listener, bp);
@@ -348,6 +389,9 @@ public class ImportMain {
                 buildPythonFieldSpec(legalFields).toString());
         String parseErr = extractError(parseResult);
         if (parseErr != null || !parseResult.optBoolean("success", false)) {
+            // 永久性失败（文件损坏/格式不符等）：清断点，避免下次重跑时
+            // 与已写分片叠加产生重复数据
+            ImportBreakpointStore.clear();
             emitError(listener, "Python 解析失败: "
                     + (parseErr != null ? parseErr : parseResult.optString("error", "未知错误")));
             return;
@@ -377,17 +421,24 @@ public class ImportMain {
         }
 
         // ========== 步骤4：独立会话 AI 智能补充缺失字段 ==========
-        JSONArray missing = parseResult.optJSONArray("missing");
-        if (missing != null && missing.length() > 0 && !cancelled) {
-            emitStage(listener, "fill", "AI 补充缺失字段(" + missing.length() + " 题)...");
-            fillMissingFields(missing, listener);
-        } else {
-            // 断点续导或无缺失清单时，对全部分片扫描补齐遗漏的可补充字段
+        // 循环分批填充直到扫不出缺失行：scanMissingFromChunks 每轮上限 500 条，
+        // 填充写回分片后下一轮不再收集，从而覆盖全量缺失（而非仅前 500 条落兜底值）。
+        // 同时自然覆盖断点续导后旧分片中的缺失行（Python missing 只含新分片）。
+        int filledTotal = 0;
+        final int FILL_TOTAL_CAP = 50000; // 安全上限，防异常死循环
+        int fillRounds = 0;
+        while (!cancelled && filledTotal < FILL_TOTAL_CAP) {
             JSONArray scanned = scanMissingFromChunks(chunks);
-            if (scanned.length() > 0 && !cancelled) {
-                emitStage(listener, "fill", "AI 补充缺失字段(" + scanned.length() + " 题)...");
-                fillMissingFields(scanned, listener);
-            }
+            if (scanned.length() == 0) break;
+            emitStage(listener, "fill", "AI 补充缺失字段(" + scanned.length() + " 题"
+                    + (filledTotal > 0 ? "，累计 " + filledTotal + ")" : ")") + "...");
+            fillMissingFields(scanned, listener);
+            filledTotal += scanned.length();
+            fillRounds++;
+            if (fillRounds > 100) break; // 单轮上限 500 条，100 轮=50000 条
+        }
+        if (filledTotal > 0) {
+            emitLog(listener, "字段填充完成: 共处理 " + filledTotal + " 题");
         }
         writeReadyFlag(sessionDir, sourceFile.getName(), processedRows);
 
