@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-08-14] 模板管理并入导出页（废弃独立三级流水线）
+- 「模板管理」按钮改为弹出全部 8 个场景模板选择对话框（名称+描述），选中即应用字段组合/开关并高亮对应 chip。
+- 模板、自定义字段、导出开关统一在同一页面双向联动（选模板→字段/开关联动；自定义字段→取消模板高亮、开关自动开启）。
+- 废弃独立模板三级流水线入口（TemplateSelectionActivity → FieldConfigActivity → ExportProgressActivity），类保留但不再导航，Manifest exported 改回 false。
+- 解决：字段配置页显示异常、模板流水线与导出页自定义字段不联动的问题。
+
 ## [2026-08-14] 导入/导出系统大整改（修复全部遗留问题 + 新增功能）
 
 ### 导入流程（ImportActivity / WebViewFilePreview / ExcelUtil）

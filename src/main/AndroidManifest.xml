@@ -242,7 +242,7 @@
             android:exported="false" />
         <activity
             android:name=".ui.export.TemplateSelectionActivity"
-            android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
+            android:exported="false" />
         <activity
             android:name=".ui.export.FieldConfigActivity"
             android:exported="false" />
