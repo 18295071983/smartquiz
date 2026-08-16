@@ -256,18 +256,21 @@ public class AIChatViewModel extends AndroidViewModel {
         try {
         executor.execute(() -> {
             try {
-                // 验证注入的依赖
-                if (aiService == null) {
-                    mainHandler.post(() -> {
-                        errorLiveData.setValue("AI服务初始化失败");
-                        setState(AIState.ERROR);
-                        aiErrorLiveData.postValue(new AIError("INIT", "AI服务初始化失败", false));
-                    });
-                    return;
-                }
-
-                // 同步在线模型
+                // 同步在线模型（可能在本地服务检查前就有可用的在线配置）
                 syncOnlineModels();
+
+                // 本地 AI 服务检查：在线模型可用时不视为失败（本地/在线解绑）
+                if (aiService == null) {
+                    boolean online = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+                    if (!online) {
+                        mainHandler.post(() -> {
+                            errorLiveData.setValue("未选择任何模型");
+                            setState(AIState.ERROR);
+                            aiErrorLiveData.postValue(new AIError("INIT", "未选择任何模型（本地或在线）", false));
+                        });
+                        return;
+                    }
+                }
 
                 // 更新模型状态
                 updateModelState();

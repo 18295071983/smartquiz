@@ -9,35 +9,8 @@ import java.util.List;
 public class ExportUtils {
 
     /**
-     * 有序的核心导出字段（决定导出列顺序，支持选项 A~L、知识点、答案文本等全部业务字段）
+     * 选项字段（A~L），供各导出器循环渲染
      */
-    private static final String[] CORE_FIELDS = {
-        "id",
-        "questionType",
-        "questionText",
-        "optionA", "optionB", "optionC", "optionD",
-        "optionE", "optionF", "optionG", "optionH",
-        "optionI", "optionJ", "optionK", "optionL",
-        "correctAnswer",
-        "answerText",
-        "explanation",
-        "analysis",
-        "knowledgePoint",
-        "category",
-        "subCategory",
-        "difficulty",
-        "tags",
-        "hint",
-        "relatedQuestion",
-        "source",
-        "favorite",
-        "points",
-        "timeLimit"
-    };
-
-    private static List<String> cachedFields = null;
-
-    /** 选项字段（A~L），供各导出器循环渲染 */
     public static final String[] OPTION_FIELDS = {
             "optionA", "optionB", "optionC", "optionD", "optionE", "optionF",
             "optionG", "optionH", "optionI", "optionJ", "optionK", "optionL"
@@ -102,40 +75,25 @@ public class ExportUtils {
     }
 
     /**
-     * 获取可导出的题目字段（固定有序列表，决定导出列顺序）
-     * @return 字段名称列表
+     * 可导出字段（有序，唯一来源）：
+     * 排除对题库文件无意义的技术字段（imageUri/audioUri/parentId/sortOrder/
+     * createdAt/updatedAt/lastUsedAt/status/isPublic 等），避免导出空列与列表冗长。
+     */
+    public static final String[] EXPORTABLE_FIELDS = {
+            "id", "questionType", "questionText",
+            "optionA", "optionB", "optionC", "optionD", "optionE", "optionF",
+            "optionG", "optionH", "optionI", "optionJ", "optionK", "optionL",
+            "correctAnswer", "answerText", "explanation", "analysis",
+            "difficulty", "difficultyText", "category", "subCategory", "knowledgePoint",
+            "tags", "hint", "source", "author", "comment", "relatedQuestion",
+            "points", "timeLimit", "favorite", "usageCount", "correctCount", "incorrectCount"
+    };
+
+    /**
+     * 获取可导出字段列表（默认全字段）
      */
     public static List<String> getQuestionFields() {
-        if (cachedFields == null) {
-            cachedFields = new ArrayList<>(java.util.Arrays.asList(CORE_FIELDS));
-        }
-        return new ArrayList<>(cachedFields);
-    }
-
-    /**
-     * 从数据库模型加载字段（保留旧逻辑，供需要全部字段的场景使用）
-     * @return 字段名称列表
-     */
-    private static List<String> loadQuestionFieldsFromDatabaseModel() {
-        List<String> fields = new ArrayList<>();
-
-        // 从Question实体类获取字段，这些字段对应数据库表结构
-        Field[] declaredFields = Question.class.getDeclaredFields();
-        for (Field field : declaredFields) {
-            // 跳过静态字段
-            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
-                fields.add(field.getName());
-            }
-        }
-
-        return fields;
-    }
-
-    /**
-     * 刷新字段列表（当数据库结构变化时调用）
-     */
-    public static void refreshQuestionFields() {
-        cachedFields = new ArrayList<>(java.util.Arrays.asList(CORE_FIELDS));
+        return new ArrayList<>(java.util.Arrays.asList(EXPORTABLE_FIELDS));
     }
 
     /**
@@ -226,6 +184,10 @@ public class ExportUtils {
                 return "创建时间";
             case "updatedAt":
                 return "更新时间";
+            case "lastAnsweredTime":
+                return "最后作答时间";
+            case "lastAnsweredScore":
+                return "最后作答得分";
             case "imageUri":
                 return "配图路径";
             case "audioUri":
@@ -270,41 +232,43 @@ public class ExportUtils {
     }
 
     /**
-     * 获取字段值
+     * 获取字段值（通过直接调用 getter 方法）
      * @param question Question对象
      * @param fieldName 字段名称
      * @return 字段值
      */
     public static Object getFieldValue(Question question, String fieldName) {
+        if (question == null || fieldName == null) return null;
+        
         try {
-            Field field = Question.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            Object value = field.get(question);
+            // 通过 getter 方法名调用获取字段值
+            String getterName = "get" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
+            java.lang.reflect.Method method = Question.class.getMethod(getterName);
+            Object value = method.invoke(question);
             
             // 处理原始类型的默认值
-            if (field.getType() == int.class || field.getType() == Integer.class) {
+            if (value instanceof Integer || value instanceof int[]) {
                 int intValue = (Integer) value;
-                // 对于统计类字段，如果值为0，可能是默认值，返回null
                 if (intValue == 0 && !isRequiredNumericField(fieldName)) {
                     return null;
                 }
-            } else if (field.getType() == long.class || field.getType() == Long.class) {
+            } else if (value instanceof Long || value instanceof long[]) {
                 long longValue = (Long) value;
-                // 对于时间戳字段，如果值为0，可能是默认值，返回null
                 if (longValue == 0 && !isRequiredNumericField(fieldName)) {
                     return null;
                 }
-            } else if (field.getType() == boolean.class || field.getType() == Boolean.class) {
+            } else if (value instanceof Boolean || value instanceof boolean[]) {
                 boolean boolValue = (Boolean) value;
-                // 对于收藏字段，如果值为false，可能是默认值，返回null
                 if (!boolValue && fieldName.equals("favorite")) {
                     return null;
                 }
             }
             
             return value;
+        } catch (NoSuchMethodException e) {
+            // getter 方法不存在
+            return null;
         } catch (Exception e) {
-            e.printStackTrace();
             return null;
         }
     }

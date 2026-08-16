@@ -110,12 +110,24 @@ public class RenderExecutor {
      * @return 渲染后的 Spanned
      */
     public Spanned execute(String content, Context context) {
+        return execute(content, context, 0);
+    }
+
+    /**
+     * 执行完整渲染流程：内容检测 → 分段 → 匹配渲染器 → 拼接结果。
+     *
+     * @param content 原始消息内容（Markdown + LaTeX + Mermaid + HTML 混合）
+     * @param context Android Context
+     * @param availableWidth 实际可用宽度（像素），0表示不限制
+     * @return 渲染后的 Spanned
+     */
+    public Spanned execute(String content, Context context, int availableWidth) {
         if (content == null || content.isEmpty()) {
             return new SpannableStringBuilder("");
         }
 
-        // 1. 检查缓存
-        String cacheKey = content;
+        // 1. 检查缓存（包含宽度作为缓存key的一部分）
+        String cacheKey = content + "_w" + availableWidth;
         Spanned cached = renderCache.get(cacheKey);
         if (cached != null) {
             return cached;
@@ -127,7 +139,7 @@ public class RenderExecutor {
         // 3. 分段渲染并拼接
         SpannableStringBuilder result = new SpannableStringBuilder();
         for (ContentSegment segment : segments) {
-            Spanned rendered = renderSegment(segment, context);
+            Spanned rendered = renderSegment(segment, context, availableWidth);
             if (rendered != null && rendered.length() > 0) {
                 result.append(rendered);
             }
@@ -143,13 +155,23 @@ public class RenderExecutor {
      * 渲染单个内容片段：匹配优先级最高的渲染器并执行渲染。
      */
     private Spanned renderSegment(ContentSegment segment, Context context) {
+        return renderSegment(segment, context, 0);
+    }
+
+    /**
+     * 渲染单个内容片段：匹配优先级最高的渲染器并执行渲染。
+     * @param segment 内容片段
+     * @param context Android Context
+     * @param availableWidth 实际可用宽度（像素），0表示不限制
+     */
+    private Spanned renderSegment(ContentSegment segment, Context context, int availableWidth) {
         List<ContentRenderer> renderers = rendererMap.get(segment.type);
 
         if (renderers != null) {
             for (ContentRenderer renderer : renderers) {
                 if (renderer.canRender(segment.text)) {
                     try {
-                        return renderer.render(segment.text, context);
+                        return renderer.render(segment.text, context, availableWidth);
                     } catch (Exception e) {
                         // 渲染失败，降级到 fallback
                         break;
@@ -160,7 +182,7 @@ public class RenderExecutor {
 
         // 降级：使用 Markdown 兜底渲染器
         try {
-            return fallbackRenderer.render(segment.text, context);
+            return fallbackRenderer.render(segment.text, context, availableWidth);
         } catch (Exception e) {
             return new SpannableStringBuilder(segment.text);
         }

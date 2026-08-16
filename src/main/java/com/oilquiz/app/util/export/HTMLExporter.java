@@ -1,5 +1,7 @@
 package com.oilquiz.app.util.export;
 
+import android.util.Log;
+
 import com.oilquiz.app.model.Question;
 
 import java.io.File;
@@ -9,14 +11,26 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public class HTMLExporter implements Exporter {
+    private static final String TAG = "HTMLExporter";
 
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
+        Log.i(TAG, "=== HTML Export started ===");
         validateParameters(task);
 
         List<Question> questions = task.getQuestions();
+        
+        // 安全处理：确保 questions 不为 null
+        if (questions == null) {
+            Log.w(TAG, "Questions list is null");
+            questions = java.util.Collections.emptyList();
+        }
+        Log.i(TAG, "Questions count: " + questions.size());
+        
         // 模板生效字段列表（场景模板/自定义字段），决定导出内容与顺序
         List<String> fields = ExportUtils.getEffectiveFields(task.getConfig());
+        Log.i(TAG, "Effective fields: " + fields.size() + " - " + fields);
+        
         String fileName = task.getConfig().getFileName();
         if (fileName == null || fileName.isEmpty()) {
             // 导出中文格式加导出日期和具体时间，精确到分钟
@@ -24,7 +38,10 @@ public class HTMLExporter implements Exporter {
             String timestamp = sdf.format(new java.util.Date());
             fileName = "导出题目_" + timestamp;
         }
+        Log.i(TAG, "Output file name: " + fileName);
+        
         File exportFile = new File(ExportManager.getExportDirectory(task.getContext()), fileName + "." + getFileExtension());
+        Log.i(TAG, "Export file path: " + exportFile.getAbsolutePath());
 
         try (OutputStreamWriter writer = new OutputStreamWriter(new java.io.FileOutputStream(exportFile), StandardCharsets.UTF_8)) {
             // 写入HTML头部
@@ -36,437 +53,325 @@ public class HTMLExporter implements Exporter {
             writer.write("<meta name=\"format-detection\" content=\"telephone=no, email=no, address=no\">\n");
             writer.write("<title>导出题目</title>\n");
             writer.write("<style>\n");
-            writer.write("* {\n");
-            writer.write("  box-sizing: border-box;\n");
-            writer.write("  margin: 0;\n");
-            writer.write("  padding: 0;\n");
-            writer.write("}\n");
-            writer.write("body {\n");
-            writer.write("  font-family: 'Microsoft YaHei', Arial, sans-serif;\n");
-            writer.write("  line-height: 1.6;\n");
-            writer.write("  color: #333;\n");
-            writer.write("  background-color: #f5f5f5;\n");
-            writer.write("  padding: 20px;\n");
-            writer.write("}\n");
-            writer.write(".container {\n");
-            writer.write("  max-width: 1000px;\n");
-            writer.write("  margin: 0 auto;\n");
-            writer.write("  background-color: #fff;\n");
-            writer.write("  border-radius: 8px;\n");
-            writer.write("  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n");
-            writer.write("  padding: 30px;\n");
-            writer.write("}\n");
-            writer.write("h1 {\n");
-            writer.write("  color: #2c3e50;\n");
-            writer.write("  margin-bottom: 30px;\n");
-            writer.write("  text-align: center;\n");
-            writer.write("  padding-bottom: 15px;\n");
-            writer.write("  border-bottom: 2px solid #3498db;\n");
-            writer.write("}\n");
-            writer.write(".filter-section {\n");
-            writer.write("  background-color: #f8f9fa;\n");
-            writer.write("  padding: 20px;\n");
-            writer.write("  border-radius: 8px;\n");
-            writer.write("  margin-bottom: 30px;\n");
-            writer.write("  border: 1px solid #e9ecef;\n");
-            writer.write("}\n");
-            writer.write(".filter-row {\n");
-            writer.write("  display: flex;\n");
-            writer.write("  gap: 20px;\n");
-            writer.write("  margin-bottom: 15px;\n");
-            writer.write("  flex-wrap: wrap;\n");
-            writer.write("}\n");
-            writer.write(".filter-group {\n");
-            writer.write("  display: flex;\n");
-            writer.write("  align-items: center;\n");
-            writer.write("  gap: 10px;\n");
-            writer.write("}\n");
-            writer.write(".filter-group label {\n");
-            writer.write("  font-weight: 500;\n");
-            writer.write("  color: #495057;\n");
-            writer.write("}\n");
-            writer.write(".filter-group select, .filter-group input[type=checkbox] {\n");
-            writer.write("  padding: 6px 12px;\n");
-            writer.write("  border: 1px solid #ced4da;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  font-size: 14px;\n");
-            writer.write("}");
-            writer.write(".filter-group select {\n");
-            writer.write("  min-width: 120px;\n");
-            writer.write("}");
-            writer.write(".filter-group button {\n");
-            writer.write("  padding: 6px 16px;\n");
-            writer.write("  background-color: #3498db;\n");
-            writer.write("  color: white;\n");
-            writer.write("  border: none;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  cursor: pointer;\n");
-            writer.write("  font-size: 14px;\n");
-            writer.write("  transition: background-color 0.3s ease;\n");
-            writer.write("}");
-            writer.write(".filter-group button:hover {\n");
-            writer.write("  background-color: #2980b9;\n");
-            writer.write("}");
-            writer.write(".question {\n");
-            writer.write("  margin-bottom: 30px;\n");
-            writer.write("  padding: 20px;\n");
-            writer.write("  border: 1px solid #e0e0e0;\n");
-            writer.write("  border-radius: 8px;\n");
-            writer.write("  background-color: #fafafa;\n");
-            writer.write("  transition: all 0.3s ease;\n");
-            writer.write("}\n");
-            writer.write(".question:hover {\n");
-            writer.write("  box-shadow: 0 2px 8px rgba(0,0,0,0.1);\n");
-            writer.write("  transform: translateY(-2px);\n");
-            writer.write("}\n");
-            writer.write(".question-header {\n");
-            writer.write("  margin-bottom: 15px;\n");
-            writer.write("  display: flex;\n");
-            writer.write("  align-items: center;\n");
-            writer.write("  flex-wrap: wrap;\n");
-            writer.write("  gap: 10px;\n");
-            writer.write("}\n");
-            writer.write(".question-number {\n");
-            writer.write("  display: inline-block;\n");
-            writer.write("  background-color: #3498db;\n");
-            writer.write("  color: white;\n");
-            writer.write("  width: 30px;\n");
-            writer.write("  height: 30px;\n");
-            writer.write("  border-radius: 50%;\n");
-            writer.write("  text-align: center;\n");
-            writer.write("  line-height: 30px;\n");
-            writer.write("  margin-right: 10px;\n");
-            writer.write("  font-weight: bold;\n");
-            writer.write("}\n");
-            writer.write(".question-text {\n");
-            writer.write("  font-size: 18px;\n");
-            writer.write("  font-weight: 600;\n");
-            writer.write("  margin-bottom: 10px;\n");
-            writer.write("  color: #2c3e50;\n");
-            writer.write("}\n");
-            writer.write(".question-type {\n");
-            writer.write("  display: inline-block;\n");
-            writer.write("  background-color: #95a5a6;\n");
-            writer.write("  color: white;\n");
-            writer.write("  padding: 2px 8px;\n");
-            writer.write("  border-radius: 12px;\n");
-            writer.write("  font-size: 12px;\n");
-            writer.write("  margin-left: 10px;\n");
-            writer.write("}\n");
-            writer.write(".options {\n");
-            writer.write("  margin: 15px 0;\n");
-            writer.write("  padding-left: 20px;\n");
-            writer.write("}\n");
-            writer.write(".option {\n");
-            writer.write("  margin: 10px 0;\n");
-            writer.write("  padding: 10px;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  transition: all 0.2s ease;\n");
-            writer.write("  cursor: pointer;\n");
-            writer.write("}\n");
-            writer.write(".option:hover {\n");
-            writer.write("  background-color: #f0f8ff;\n");
-            writer.write("}");
-            writer.write(".correct {\n");
-            writer.write("  margin-top: 15px;\n");
-            writer.write("  padding: 12px;\n");
-            writer.write("  background-color: #d4edda;\n");
-            writer.write("  border: 1px solid #c3e6cb;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  color: #155724;\n");
-            writer.write("  font-weight: 600;\n");
-            writer.write("  display: none;\n");
-            writer.write("}");
-            writer.write(".correct.visible {\n");
-            writer.write("  display: block;\n");
-            writer.write("}");
-            writer.write(".explanation {\n");
-            writer.write("  margin-top: 15px;\n");
-            writer.write("  padding: 15px;\n");
-            writer.write("  background-color: #e3f2fd;\n");
-            writer.write("  border-left: 4px solid #2196f3;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  color: #1565c0;\n");
-            writer.write("}");
-            writer.write(".explanation h4 {\n");
-            writer.write("  margin-bottom: 8px;\n");
-            writer.write("  color: #0d47a1;\n");
-            writer.write("}");
-            writer.write(".difficulty {\n");
-            writer.write("  display: inline-block;\n");
-            writer.write("  background-color: #ff9800;\n");
-            writer.write("  color: white;\n");
-            writer.write("  padding: 2px 8px;\n");
-            writer.write("  border-radius: 12px;\n");
-            writer.write("  font-size: 12px;\n");
-            writer.write("  margin-left: 10px;\n");
-            writer.write("}\n");
-            writer.write(".meta-chip {\n");
-            writer.write("  display: inline-block;\n");
-            writer.write("  background-color: #ecf0f1;\n");
-            writer.write("  color: #2c3e50;\n");
-            writer.write("  padding: 2px 10px;\n");
-            writer.write("  border-radius: 12px;\n");
-            writer.write("  font-size: 12px;\n");
-            writer.write("  margin-left: 10px;\n");
-            writer.write("}\n");
-            writer.write(".meta-line {\n");
-            writer.write("  margin-top: 10px;\n");
-            writer.write("  padding: 10px 12px;\n");
-            writer.write("  background-color: #f8f9fa;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  color: #666;\n");
-            writer.write("  font-size: 13px;\n");
-            writer.write("  line-height: 1.7;\n");
-            writer.write("}\n");
-            writer.write(".analysis {\n");
-            writer.write("  margin-top: 10px;\n");
-            writer.write("  padding: 15px;\n");
-            writer.write("  background-color: #f3e5f5;\n");
-            writer.write("  border-left: 4px solid #9c27b0;\n");
-            writer.write("  border-radius: 4px;\n");
-            writer.write("  color: #6a1b9a;\n");
-            writer.write("}\n");
-            writer.write(".footer {\n");
-            writer.write("  margin-top: 40px;\n");
-            writer.write("  padding-top: 20px;\n");
-            writer.write("  border-top: 1px solid #e0e0e0;\n");
-            writer.write("  text-align: center;\n");
-            writer.write("  color: #666;\n");
-            writer.write("  font-size: 14px;\n");
-            writer.write("}");
-            writer.write("#question-count {\n");
-            writer.write("  font-weight: bold;\n");
-            writer.write("  color: #3498db;\n");
-            writer.write("}");
-            writer.write("@media (max-width: 768px) {\n");
-            writer.write("body {\n");
-            writer.write("  padding: 10px;\n");
-            writer.write("  font-size: 14px;\n");
-            writer.write("}");
-            writer.write(".container {\n");
-            writer.write("  padding: 15px;\n");
-            writer.write("}");
-            writer.write("h1 {\n");
-            writer.write("  font-size: 20px;\n");
-            writer.write("  margin-bottom: 20px;\n");
-            writer.write("}");
-            writer.write(".filter-section {\n");
-            writer.write("  padding: 15px;\n");
-            writer.write("  margin-bottom: 20px;\n");
-            writer.write("}");
-            writer.write(".filter-row {\n");
-            writer.write("  flex-direction: column;\n");
-            writer.write("  align-items: flex-start;\n");
-            writer.write("  gap: 10px;\n");
-            writer.write("}");
-            writer.write(".filter-group {\n");
-            writer.write("  width: 100%;\n");
-            writer.write("  justify-content: space-between;\n");
-            writer.write("}");
-            writer.write(".filter-group select {\n");
-            writer.write("  flex: 1;\n");
-            writer.write("  font-size: 14px;\n");
-            writer.write("}");
-            writer.write(".question {\n");
-            writer.write("  padding: 15px;\n");
-            writer.write("  margin-bottom: 20px;\n");
-            writer.write("}");
-            writer.write(".question-text {\n");
-            writer.write("  font-size: 16px;\n");
-            writer.write("}");
-            writer.write(".options {\n");
-            writer.write("  padding-left: 15px;\n");
-            writer.write("}");
-            writer.write(".option {\n");
-            writer.write("  padding: 8px;\n");
-            writer.write("  margin: 8px 0;\n");
-            writer.write("}");
-            writer.write(".correct {\n");
-            writer.write("  padding: 10px;\n");
-            writer.write("}");
-            writer.write(".explanation {\n");
-            writer.write("  padding: 12px;\n");
-            writer.write("}");
-            writer.write("}");
-            writer.write("@media (max-width: 480px) {\n");
-            writer.write("body {\n");
-            writer.write("  font-size: 13px;\n");
-            writer.write("}");
-            writer.write(".container {\n");
-            writer.write("  padding: 10px;\n");
-            writer.write("}");
-            writer.write("h1 {\n");
-            writer.write("  font-size: 18px;\n");
-            writer.write("  margin-bottom: 15px;\n");
-            writer.write("}");
-            writer.write(".question-text {\n");
-            writer.write("  font-size: 15px;\n");
-            writer.write("}");
-            writer.write("}");
+            // 筛选和显示样式
+            writer.write("  * {\n");
+            writer.write("    box-sizing: border-box;\n");
+            writer.write("    margin: 0;\n");
+            writer.write("    padding: 0;\n");
+            writer.write("  }\n");
+            writer.write("  body {\n");
+            writer.write("    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;\n");
+            writer.write("    background: #F5F7FA;\n");
+            writer.write("    color: #1F2937;\n");
+            writer.write("    line-height: 1.6;\n");
+            writer.write("    padding: 12px;\n");
+            writer.write("    -webkit-text-size-adjust: 100%;\n");
+            writer.write("    -webkit-tap-highlight-color: transparent;\n");
+            writer.write("  }\n");
+            writer.write("  .container {\n");
+            writer.write("    max-width: 100%;\n");
+            writer.write("    margin: 0 auto;\n");
+            writer.write("    padding-bottom: 24px;\n");
+            writer.write("  }\n");
+            writer.write("  /* 筛选栏 */\n");
+            writer.write("  .filter-bar {\n");
+            writer.write("    display: flex;\n");
+            writer.write("    gap: 8px;\n");
+            writer.write("    margin-bottom: 16px;\n");
+            writer.write("    overflow-x: auto;\n");
+            writer.write("    padding: 4px 0;\n");
+            writer.write("    -webkit-overflow-scrolling: touch;\n");
+            writer.write("  }\n");
+            writer.write("  .filter-btn {\n");
+            writer.write("    padding: 8px 16px;\n");
+            writer.write("    border: 1px solid #E5E7EB;\n");
+            writer.write("    background: white;\n");
+            writer.write("    border-radius: 20px;\n");
+            writer.write("    font-size: 14px;\n");
+            writer.write("    cursor: pointer;\n");
+            writer.write("    white-space: nowrap;\n");
+            writer.write("    transition: all 0.2s;\n");
+            writer.write("  }\n");
+            writer.write("  .filter-btn:active {\n");
+            writer.write("    transform: scale(0.95);\n");
+            writer.write("  }\n");
+            writer.write("  .filter-btn.active {\n");
+            writer.write("    background: #4285F4;\n");
+            writer.write("    color: white;\n");
+            writer.write("    border-color: #4285F4;\n");
+            writer.write("  }\n");
+            writer.write("  /* 题目卡片 */\n");
+            writer.write("  .question {\n");
+            writer.write("    background: white;\n");
+            writer.write("    border-radius: 10px;\n");
+            writer.write("    margin-bottom: 12px;\n");
+            writer.write("    box-shadow: 0 1px 2px rgba(0,0,0,0.06);\n");
+            writer.write("    overflow: hidden;\n");
+            writer.write("    border: 1px solid #F0F2F5;\n");
+            writer.write("    transition: all 0.3s;\n");
+            writer.write("  }\n");
+            writer.write("  .question.hidden {\n");
+            writer.write("    display: none;\n");
+            writer.write("  }\n");
+            writer.write("  .question-header {\n");
+            writer.write("    padding: 14px 16px;\n");
+            writer.write("    cursor: pointer;\n");
+            writer.write("    display: flex;\n");
+            writer.write("    align-items: center;\n");
+            writer.write("    user-select: none;\n");
+            writer.write("    -webkit-tap-highlight-color: transparent;\n");
+            writer.write("  }\n");
+            writer.write("  .question-header:active {\n");
+            writer.write("    background: #F9FAFB;\n");
+            writer.write("  }\n");
+            writer.write("  .question-number {\n");
+            writer.write("    width: 24px;\n");
+            writer.write("    height: 24px;\n");
+            writer.write("    background: #4285F4;\n");
+            writer.write("    color: white;\n");
+            writer.write("    border-radius: 50%;\n");
+            writer.write("    display: flex;\n");
+            writer.write("    align-items: center;\n");
+            writer.write("    justify-content: center;\n");
+            writer.write("    font-size: 13px;\n");
+            writer.write("    font-weight: 600;\n");
+            writer.write("    margin-right: 10px;\n");
+            writer.write("    flex-shrink: 0;\n");
+            writer.write("  }\n");
+            writer.write("  .meta-tags {\n");
+            writer.write("    display: flex;\n");
+            writer.write("    flex-wrap: wrap;\n");
+            writer.write("    gap: 6px;\n");
+            writer.write("    flex: 1;\n");
+            writer.write("  }\n");
+            writer.write("  .badge {\n");
+            writer.write("    padding: 3px 10px;\n");
+            writer.write("    border-radius: 12px;\n");
+            writer.write("    font-size: 12px;\n");
+            writer.write("    font-weight: 500;\n");
+            writer.write("  }\n");
+            writer.write("  .badge-type {\n");
+            writer.write("    background: #E8F0FE;\n");
+            writer.write("    color: #1967D2;\n");
+            writer.write("  }\n");
+            writer.write("  .badge-difficulty {\n");
+            writer.write("    background: #FEF7E0;\n");
+            writer.write("    color: #F59E0B;\n");
+            writer.write("  }\n");
+            writer.write("  .badge-category {\n");
+            writer.write("    background: #F3F4F6;\n");
+            writer.write("    color: #6B7280;\n");
+            writer.write("  }\n");
+            writer.write("  .toggle-icon {\n");
+            writer.write("    color: #9CA3AF;\n");
+            writer.write("    font-size: 14px;\n");
+            writer.write("    margin-left: auto;\n");
+            writer.write("    transition: transform 0.2s;\n");
+            writer.write("  }\n");
+            writer.write("  .question.expanded .toggle-icon {\n");
+            writer.write("    transform: rotate(180deg);\n");
+            writer.write("  }\n");
+            writer.write("  .question-body {\n");
+            writer.write("    padding: 0 16px 16px;\n");
+            writer.write("    max-height: 3000px;\n");
+            writer.write("    overflow: visible;\n");
+            writer.write("  }\n");
+            writer.write("  .question-text {\n");
+            writer.write("    font-size: 15px;\n");
+            writer.write("    font-weight: 600;\n");
+            writer.write("    color: #111827;\n");
+            writer.write("    margin-bottom: 12px;\n");
+            writer.write("    line-height: 1.6;\n");
+            writer.write("  }\n");
+            writer.write("  .option {\n");
+            writer.write("    padding: 10px 14px;\n");
+            writer.write("    margin-bottom: 6px;\n");
+            writer.write("    background: #F9FAFB;\n");
+            writer.write("    border-radius: 8px;\n");
+            writer.write("    font-size: 14px;\n");
+            writer.write("    color: #374151;\n");
+            writer.write("  }\n");
+            writer.write("  .answer-box {\n");
+            writer.write("    background: #F0FDF4;\n");
+            writer.write("    border-left: 3px solid #22C55E;\n");
+            writer.write("    padding: 12px 14px;\n");
+            writer.write("    border-radius: 6px;\n");
+            writer.write("    margin-bottom: 10px;\n");
+            writer.write("    display: none;\n");
+            writer.write("    font-size: 14px;\n");
+            writer.write("    color: #15803D;\n");
+            writer.write("  }\n");
+            writer.write("  .answer-box.show {\n");
+            writer.write("    display: block;\n");
+            writer.write("  }\n");
+            writer.write("  .explanation-box {\n");
+            writer.write("    background: #EFF6FF;\n");
+            writer.write("    border-left: 3px solid #3B82F6;\n");
+            writer.write("    padding: 12px 14px;\n");
+            writer.write("    border-radius: 6px;\n");
+            writer.write("    display: none;\n");
+            writer.write("    font-size: 14px;\n");
+            writer.write("    color: #1E40AF;\n");
+            writer.write("  }\n");
+            writer.write("  .explanation-box.show {\n");
+            writer.write("    display: block;\n");
+            writer.write("  }\n");
+            writer.write("  .show-answer-btn {\n");
+            writer.write("    display: block;\n");
+            writer.write("    width: 100%;\n");
+            writer.write("    padding: 14px;\n");
+            writer.write("    background: #4285F4;\n");
+            writer.write("    color: white;\n");
+            writer.write("    border: none;\n");
+            writer.write("    border-radius: 10px;\n");
+            writer.write("    font-size: 16px;\n");
+            writer.write("    cursor: pointer;\n");
+            writer.write("    margin-bottom: 16px;\n");
+            writer.write("    text-align: center;\n");
+            writer.write("    font-weight: 600;\n");
+            writer.write("    box-shadow: 0 2px 6px rgba(66,133,244,0.25);\n");
+            writer.write("  }\n");
+            writer.write("  .show-answer-btn:active {\n");
+            writer.write("    background: #3367D6;\n");
+            writer.write("  }\n");
             writer.write("</style>\n");
             writer.write("<script>\n");
             writer.write("document.addEventListener('DOMContentLoaded', function() {\n");
-            writer.write("  // 筛选功能\n");
-            writer.write("  const typeFilter = document.getElementById('type-filter');\n");
-            writer.write("  const difficultyFilter = document.getElementById('difficulty-filter');\n");
-            writer.write("  const applyFilterBtn = document.getElementById('apply-filter');\n");
-            writer.write("  const showAnswersCheckbox = document.getElementById('show-answers');\n");
-            writer.write("  const questions = document.querySelectorAll('.question');\n");
-            writer.write("  const questionCount = document.getElementById('question-count');\n");
+            writer.write("  const showAnswerBtn = document.getElementById('show-answer-btn');\n");
+            writer.write("  const questionCards = document.querySelectorAll('.question');\n");
+            writer.write("  const filterBtns = document.querySelectorAll('.filter-btn');\n");
+            writer.write("  let allAnswerShown = true;\n");
             writer.write("\n");
-            writer.write("  // 应用筛选\n");
-            writer.write("  function applyFilters() {\n");
-            writer.write("    const selectedType = typeFilter.value;\n");
-            writer.write("    const selectedDifficulty = difficultyFilter.value;\n");
-            writer.write("    let visibleCount = 0;\n");
+            writer.write("  // 默认显示所有答案\n");
+            writer.write("  const answerBoxes = document.querySelectorAll('.answer-box');\n");
+            writer.write("  const explanationBoxes = document.querySelectorAll('.explanation-box');\n");
+            writer.write("  answerBoxes.forEach(box => box.classList.add('show'));\n");
+            writer.write("  explanationBoxes.forEach(box => box.classList.add('show'));\n");
+            writer.write("  if (showAnswerBtn) showAnswerBtn.textContent = '隐藏答案';\n");
             writer.write("\n");
-            writer.write("    questions.forEach(question => {\n");
-            writer.write("      const typeEl = question.querySelector('.question-type');\n");
-                        writer.write("      const questionType = typeEl ? typeEl.textContent.trim() : '未分类';\n");
-            writer.write("      const difficultyText = question.querySelector('.difficulty');\n");
-            writer.write("      const difficulty = difficultyText ? difficultyText.textContent.trim().replace('难度: ', '') : '未设置';\n");
-            writer.write("\n");
-            writer.write("      // 类型筛选\n");
-            writer.write("      const typeMatch = selectedType === 'all' || questionType === selectedType;\n");
-            writer.write("      // 难度筛选\n");
-            writer.write("      const difficultyMatch = selectedDifficulty === 'all' || difficulty === selectedDifficulty;\n");
-            writer.write("\n");
-            writer.write("      if (typeMatch && difficultyMatch) {\n");
-            writer.write("        question.style.display = 'block';\n");
-            writer.write("        visibleCount++;");
-            writer.write("      } else {\n");
-            writer.write("        question.style.display = 'none';\n");
-            writer.write("      }\n");
-            writer.write("    });\n");
-            writer.write("\n");
-            writer.write("    questionCount.textContent = visibleCount;\n");
-            writer.write("  }\n");
-            writer.write("\n");
-            writer.write("  // 显示/隐藏答案\n");
-            writer.write("  function toggleAnswers() {\n");
-            writer.write("    const correctElements = document.querySelectorAll('.correct');\n");
-            writer.write("    correctElements.forEach(element => {\n");
-            writer.write("      if (showAnswersCheckbox.checked) {\n");
-            writer.write("        element.classList.add('visible');\n");
-            writer.write("      } else {\n");
-            writer.write("        element.classList.remove('visible');\n");
-            writer.write("      }\n");
+            writer.write("  // 点击按钮切换所有答案显示/隐藏\n");
+            writer.write("  if (showAnswerBtn) {\n");
+            writer.write("    showAnswerBtn.addEventListener('click', function() {\n");
+            writer.write("      allAnswerShown = !allAnswerShown;\n");
+            writer.write("      answerBoxes.forEach(box => box.classList.toggle('show', allAnswerShown));\n");
+            writer.write("      explanationBoxes.forEach(box => box.classList.toggle('show', allAnswerShown));\n");
+            writer.write("      this.textContent = allAnswerShown ? '隐藏答案' : '显示答案';\n");
             writer.write("    });\n");
             writer.write("  }\n");
             writer.write("\n");
-            writer.write("  // 事件监听\n");
-            writer.write("  applyFilterBtn.addEventListener('click', applyFilters);\n");
-            writer.write("  showAnswersCheckbox.addEventListener('change', toggleAnswers);\n");
+            writer.write("  // 点击题目显示/隐藏该题答案\n");
+            writer.write("  questionCards.forEach(card => {\n");
+            writer.write("    const header = card.querySelector('.question-header');\n");
+            writer.write("    header.addEventListener('click', function() {\n");
+            writer.write("      const answerBox = card.querySelector('.answer-box');\n");
+            writer.write("      const explanationBox = card.querySelector('.explanation-box');\n");
+            writer.write("      if (answerBox && explanationBox) {\n");
+            writer.write("        const isHidden = !answerBox.classList.contains('show');\n");
+            writer.write("        answerBox.classList.toggle('show', isHidden);\n");
+            writer.write("        explanationBox.classList.toggle('show', isHidden);\n");
+            writer.write("      }\n");
+            writer.write("    });\n");
+            writer.write("  });\n");
             writer.write("\n");
-            writer.write("  // 初始化\n");
-            writer.write("  applyFilters();\n");
-            writer.write("  if (showAnswersCheckbox.checked) {\n");
-            writer.write("    toggleAnswers();\n");
-            writer.write("  }\n");
+            writer.write("  // 按题型筛选\n");
+            writer.write("  filterBtns.forEach(btn => {\n");
+            writer.write("    btn.addEventListener('click', function() {\n");
+            writer.write("      const type = this.dataset.type;\n");
+            writer.write("      const isActive = this.classList.contains('active');\n");
+            writer.write("\n");
+            writer.write("      // 取消所有按钮的选中状态\n");
+            writer.write("      filterBtns.forEach(b => b.classList.remove('active'));\n");
+            writer.write("\n");
+            writer.write("      if (!isActive) {\n");
+            writer.write("        this.classList.add('active');\n");
+            writer.write("        // 筛选显示该类型题目\n");
+            writer.write("        questionCards.forEach(card => {\n");
+            writer.write("          const badge = card.querySelector('.badge[data-question-type]');\n");
+            writer.write("          if (badge && badge.dataset.questionType === type) {\n");
+            writer.write("            card.classList.remove('hidden');\n");
+            writer.write("          } else if (badge) {\n");
+            writer.write("            card.classList.add('hidden');\n");
+            writer.write("          }\n");
+            writer.write("        });\n");
+            writer.write("      } else {\n");
+            writer.write("        // 显示所有题目\n");
+            writer.write("        questionCards.forEach(card => card.classList.remove('hidden'));\n");
+            writer.write("      }\n");
+            writer.write("    });\n");
+            writer.write("  });\n");
             writer.write("});\n");
             writer.write("</script>\n");
             writer.write("</head>\n");
             writer.write("<body>\n");
             writer.write("<div class=\"container\">\n");
-            writer.write("<h1>导出题目</h1>\n");
             
-            // 写入筛选区域
-            writer.write("<div class=\"filter-section\">\n");
-            writer.write("<div class=\"filter-row\">\n");
-            writer.write("<div class=\"filter-group\">\n");
-            writer.write("<label for=\"type-filter\">题目类型:</label>\n");
-            writer.write("<select id=\"type-filter\">\n");
-            writer.write("<option value=\"all\">全部</option>\n");
+            // 显示答案按钮
+            writer.write("<button class=\"show-answer-btn\" id=\"show-answer-btn\">隐藏答案</button>\n");
             
-            // 动态获取题型
-            java.util.Set<String> questionTypes = new java.util.HashSet<>();
-            for (Question question : questions) {
-                if (question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
-                    questionTypes.add(question.getQuestionType());
-                }
-            }
-            if (questionTypes.isEmpty()) {
-                writer.write("<option value=\"未分类\">未分类</option>\n");
-            } else {
-                for (String type : questionTypes) {
-                    writer.write("<option value=\"" + type + "\">" + type + "</option>\n");
-                }
-            }
+            // 筛选按钮容器
+            writer.write("<div class=\"filter-bar\" id=\"filter-bar\">\n");
             
-            writer.write("</select>\n");
-            writer.write("</div>\n");
-            writer.write("<div class=\"filter-group\">\n");
-            writer.write("<label for=\"difficulty-filter\">难度:</label>\n");
-            writer.write("<select id=\"difficulty-filter\">\n");
-            writer.write("<option value=\"all\">全部</option>\n");
-            writer.write("<option value=\"简单\">简单</option>\n");
-            writer.write("<option value=\"中等\">中等</option>\n");
-            writer.write("<option value=\"困难\">困难</option>\n");
-            writer.write("<option value=\"未设置\">未设置</option>\n");
-            writer.write("</select>\n");
-            writer.write("</div>\n");
-            writer.write("<div class=\"filter-group\">\n");
-            writer.write("<button id=\"apply-filter\">应用筛选</button>\n");
-            writer.write("</div>\n");
-            writer.write("<div class=\"filter-group\">\n");
-            writer.write("<label for=\"show-answers\">显示答案:</label>\n");
-            writer.write("<input type=\"checkbox\" id=\"show-answers\">\n");
-            writer.write("</div>\n");
-            writer.write("<div class=\"filter-group\">\n");
-            writer.write("<span>显示题目数: <span id=\"question-count\">0</span></span>\n");
-            writer.write("</div>\n");
-            writer.write("</div>\n");
-            writer.write("</div>\n");
-            
-            // 写入问题数据（按模板字段渲染）
+            // 写入问题数据
             int questionNumber = 1;
             int total = questions.size();
             boolean includeAnswers = task.getConfig().isIncludeAnswers();
             boolean includeExplanations = task.getConfig().isIncludeExplanations();
+            
+        // 收集所有题型（安全处理 null）
+        java.util.Set<String> questionTypes = new java.util.LinkedHashSet<>();
+        questionTypes.add("所有");
+        for (Question q : questions) {
+            if (q != null && ExportUtils.hasField(fields, "questionType")) {
+                String type = q.getQuestionType();
+                if (type != null && !type.isEmpty()) {
+                    questionTypes.add(type);
+                }
+            }
+        }
+            
+            // 输出筛选按钮
+            for (String type : questionTypes) {
+                writer.write("<button class=\"filter-btn\" data-type=\"" + ExportUtils.escapeHtml(type) + "\">" + ExportUtils.escapeHtml(type) + "</button>\n");
+            }
+            writer.write("</div>\n");
+            
             for (int i = 0; i < total; i++) {
                 Question question = questions.get(i);
-                writer.write("<div class=\"question\">\n");
+                
+                // 安全处理 null 题目
+                if (question == null) {
+                    Log.w(TAG, "Question at index " + i + " is null, skipping");
+                    questionNumber++;
+                    continue;
+                }
+                
+                String typeClass = ExportUtils.hasField(fields, "questionType") ? (question.getQuestionType() != null ? question.getQuestionType() : "") : "";
+                writer.write("<div class=\"question\" " + (typeClass.isEmpty() ? "" : "data-question-type=\"" + ExportUtils.escapeHtml(typeClass) + "\"") + ">\n");
+                
+                // 题目头部
                 writer.write("<div class=\"question-header\">\n");
-                writer.write("<span class=\"question-number\">" + questionNumber++ + "</span>\n");
-
-                // 按模板字段输出头部元信息（题型/难度/分类/知识点/分值等）
+                writer.write("<span class=\"question-number\">" + questionNumber + "</span>\n");
+                writer.write("<div class=\"meta-tags\">\n");
+                writer.write("<span class=\"badge badge-type\">第 " + questionNumber + " 题</span>\n");
                 if (ExportUtils.hasField(fields, "questionType")) {
                     String type = question.getQuestionType();
                     if (type != null && !type.isEmpty()) {
-                        writer.write("<span class=\"question-type\">" + ExportUtils.escapeHtml(type) + "</span>\n");
+                        writer.write("<span class=\"badge badge-type\" data-question-type=\"" + ExportUtils.escapeHtml(type) + "\">" + ExportUtils.escapeHtml(type) + "</span>\n");
                     }
                 }
                 if (ExportUtils.hasField(fields, "difficulty")) {
-                    writer.write("<span class=\"difficulty\">难度: " + ExportUtils.escapeHtml(question.getDifficultyText()) + "</span>\n");
-                }
-                if (ExportUtils.hasField(fields, "category")) {
-                    String category = question.getCategory();
-                    if (category != null && !category.isEmpty()) {
-                        writer.write("<span class=\"meta-chip\">分类: " + ExportUtils.escapeHtml(category) + "</span>\n");
+                    String diffText = question.getDifficultyText();
+                    if (diffText != null && !diffText.isEmpty()) {
+                        writer.write("<span class=\"badge badge-difficulty\">" + ExportUtils.escapeHtml(diffText) + "</span>\n");
                     }
                 }
-                if (ExportUtils.hasField(fields, "subCategory")) {
-                    String subCategory = question.getSubCategory();
-                    if (subCategory != null && !subCategory.isEmpty()) {
-                        writer.write("<span class=\"meta-chip\">子分类: " + ExportUtils.escapeHtml(subCategory) + "</span>\n");
-                    }
-                }
-                if (ExportUtils.hasField(fields, "knowledgePoint")) {
-                    String knowledgePoint = question.getKnowledgePoint();
-                    if (knowledgePoint != null && !knowledgePoint.isEmpty()) {
-                        writer.write("<span class=\"meta-chip\">知识点: " + ExportUtils.escapeHtml(knowledgePoint) + "</span>\n");
-                    }
-                }
-                if (ExportUtils.hasField(fields, "points")) {
-                    writer.write("<span class=\"meta-chip\">分值: " + question.getPoints() + "</span>\n");
-                }
-                if (ExportUtils.hasField(fields, "timeLimit")) {
-                    writer.write("<span class=\"meta-chip\">时限: " + question.getTimeLimit() + "秒</span>\n");
-                }
-
                 writer.write("</div>\n");
-
+                writer.write("<span class=\"toggle-icon\">▼</span>\n");
+                writer.write("</div>\n");
+                
+                // 题目详情（默认折叠）
+                writer.write("<div class=\"question-body\">\n");
+                
                 // 题目内容
                 if (ExportUtils.hasField(fields, "questionText")) {
                     String text = question.getQuestionText();
@@ -475,103 +380,105 @@ public class HTMLExporter implements Exporter {
                     }
                 }
 
-                // 选项（A~L 动态渲染，只输出模板选中且非空的选项）
+                // 选项（安全处理 null）
                 writer.write("<div class=\"options\">\n");
                 for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
                     if (!ExportUtils.hasField(fields, ExportUtils.OPTION_FIELDS[o])) continue;
                     Object optionValue = ExportUtils.getOptionValue(question, o);
-                    if (optionValue != null && !optionValue.toString().isEmpty()) {
-                        writer.write("<div class=\"option\">" + ExportUtils.OPTION_LABELS[o] + ". " + ExportUtils.escapeHtml(optionValue.toString()) + "</div>\n");
+                    if (optionValue != null) {
+                        String optionStr = optionValue.toString();
+                        if (optionStr != null && !optionStr.isEmpty()) {
+                            writer.write("<div class=\"option\">" + ExportUtils.OPTION_LABELS[o] + ". " + ExportUtils.escapeHtml(optionStr) + "</div>\n");
+                        }
                     }
                 }
                 writer.write("</div>\n");
 
-                // 正确答案 + 答案文本（受「包含答案」开关控制）
+                // 分类和子分类
+                if (ExportUtils.hasField(fields, "category") && question.getCategory() != null && !question.getCategory().isEmpty()) {
+                    writer.write("<div class=\"meta-info\">分类: " + ExportUtils.escapeHtml(question.getCategory()) + "</div>\n");
+                }
+                if (ExportUtils.hasField(fields, "subCategory") && question.getSubCategory() != null && !question.getSubCategory().isEmpty()) {
+                    writer.write("<div class=\"meta-info\">子分类: " + ExportUtils.escapeHtml(question.getSubCategory()) + "</div>\n");
+                }
+                if (ExportUtils.hasField(fields, "knowledgePoint") && question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
+                    writer.write("<div class=\"meta-info\">知识点: " + ExportUtils.escapeHtml(question.getKnowledgePoint()) + "</div>\n");
+                }
+                if (ExportUtils.hasField(fields, "points")) {
+                    Integer points = question.getPoints();
+                    if (points != null && points > 0) {
+                        writer.write("<div class=\"meta-info\">分值: " + points + "分</div>\n");
+                    }
+                }
+
+                // 正确答案
                 if (includeAnswers) {
                     StringBuilder answerText = new StringBuilder();
                     if (ExportUtils.hasField(fields, "correctAnswer")) {
                         String correctAnswer = question.getCorrectAnswer();
                         if (correctAnswer != null && !correctAnswer.isEmpty()) {
-                            answerText.append("正确答案: ").append(ExportUtils.escapeHtml(correctAnswer));
+                            answerText.append("✅ 正确答案: ").append(ExportUtils.escapeHtml(correctAnswer));
                         }
                     }
                     if (ExportUtils.hasField(fields, "answerText")) {
-                        String answerTextValue = question.getAnswerText();
-                        if (answerTextValue != null && !answerTextValue.isEmpty()) {
-                            if (answerText.length() > 0) answerText.append(" ");
-                            answerText.append(ExportUtils.escapeHtml(answerTextValue));
+                        String answerTxt = question.getAnswerText();
+                        if (answerTxt != null && !answerTxt.isEmpty()) {
+                            if (answerText.length() > 0) answerText.append("<br>");
+                            answerText.append("答案文本: ").append(ExportUtils.escapeHtml(answerTxt));
                         }
                     }
                     if (answerText.length() > 0) {
-                        writer.write("<div class=\"correct\">" + answerText + "</div>\n");
+                        writer.write("<div class=\"answer-box\">" + answerText + "</div>\n");
                     }
                 }
 
-                // 解析（受「包含解析」开关控制）
+                // 解析
                 if (includeExplanations && ExportUtils.hasField(fields, "explanation")) {
                     String explanation = question.getExplanation();
                     if (explanation != null && !explanation.isEmpty()) {
-                        writer.write("<div class=\"explanation\">\n");
-                        writer.write("<h4>解析</h4>\n");
-                        writer.write(ExportUtils.escapeHtml(explanation) + "\n");
-                        writer.write("</div>\n");
+                        writer.write("<div class=\"explanation-box\">💡 <strong>解析</strong>: " + ExportUtils.escapeHtml(explanation) + "</div>\n");
                     }
                 }
-
-                // 详细解析
                 if (includeExplanations && ExportUtils.hasField(fields, "analysis")) {
                     String analysis = question.getAnalysis();
                     if (analysis != null && !analysis.isEmpty()) {
-                        writer.write("<div class=\"explanation analysis\">\n");
-                        writer.write("<h4>详细解析</h4>\n");
-                        writer.write(ExportUtils.escapeHtml(analysis) + "\n");
-                        writer.write("</div>\n");
+                        writer.write("<div class=\"explanation-box\">📖 <strong>详细解析</strong>: " + ExportUtils.escapeHtml(analysis) + "</div>\n");
                     }
                 }
 
-                // 其他元信息字段（标签/提示/来源/作者/备注/相关题目等）
-                StringBuilder metaLine = new StringBuilder();
-                if (ExportUtils.hasField(fields, "tags")) {
-                    String tags = question.getTags();
-                    if (tags != null && !tags.isEmpty()) {
-                        metaLine.append("标签: ").append(ExportUtils.escapeHtml(tags)).append("&nbsp;&nbsp;");
-                    }
+                // 其他元信息
+                StringBuilder extraInfo = new StringBuilder();
+                if (ExportUtils.hasField(fields, "tags") && question.getTags() != null && !question.getTags().isEmpty()) {
+                    extraInfo.append("🏷️ 标签: ").append(ExportUtils.escapeHtml(question.getTags()));
                 }
-                if (ExportUtils.hasField(fields, "hint")) {
-                    String hint = question.getHint();
-                    if (hint != null && !hint.isEmpty()) {
-                        metaLine.append("提示: ").append(ExportUtils.escapeHtml(hint)).append("&nbsp;&nbsp;");
-                    }
+                if (ExportUtils.hasField(fields, "hint") && question.getHint() != null && !question.getHint().isEmpty()) {
+                    if (extraInfo.length() > 0) extraInfo.append("<br>");
+                    extraInfo.append("💡 提示: ").append(ExportUtils.escapeHtml(question.getHint()));
                 }
-                if (ExportUtils.hasField(fields, "source")) {
-                    String source = question.getSource();
-                    if (source != null && !source.isEmpty()) {
-                        metaLine.append("来源: ").append(ExportUtils.escapeHtml(source)).append("&nbsp;&nbsp;");
-                    }
+                if (ExportUtils.hasField(fields, "source") && question.getSource() != null && !question.getSource().isEmpty()) {
+                    if (extraInfo.length() > 0) extraInfo.append("<br>");
+                    extraInfo.append("📚 来源: ").append(ExportUtils.escapeHtml(question.getSource()));
                 }
-                if (ExportUtils.hasField(fields, "author")) {
-                    String author = question.getAuthor();
-                    if (author != null && !author.isEmpty()) {
-                        metaLine.append("作者: ").append(ExportUtils.escapeHtml(author)).append("&nbsp;&nbsp;");
-                    }
+                if (ExportUtils.hasField(fields, "author") && question.getAuthor() != null && !question.getAuthor().isEmpty()) {
+                    if (extraInfo.length() > 0) extraInfo.append("<br>");
+                    extraInfo.append("✍️ 作者: ").append(ExportUtils.escapeHtml(question.getAuthor()));
                 }
-                if (ExportUtils.hasField(fields, "comment")) {
-                    String comment = question.getComment();
-                    if (comment != null && !comment.isEmpty()) {
-                        metaLine.append("备注: ").append(ExportUtils.escapeHtml(comment)).append("&nbsp;&nbsp;");
-                    }
+                if (ExportUtils.hasField(fields, "comment") && question.getComment() != null && !question.getComment().isEmpty()) {
+                    if (extraInfo.length() > 0) extraInfo.append("<br>");
+                    extraInfo.append("📝 备注: ").append(ExportUtils.escapeHtml(question.getComment()));
                 }
-                if (ExportUtils.hasField(fields, "relatedQuestion")) {
-                    String relatedQuestion = question.getRelatedQuestion();
-                    if (relatedQuestion != null && !relatedQuestion.isEmpty()) {
-                        metaLine.append("相关题目: ").append(ExportUtils.escapeHtml(relatedQuestion)).append("&nbsp;&nbsp;");
-                    }
+                if (ExportUtils.hasField(fields, "relatedQuestion") && question.getRelatedQuestion() != null && !question.getRelatedQuestion().isEmpty()) {
+                    if (extraInfo.length() > 0) extraInfo.append("<br>");
+                    extraInfo.append("🔗 相关题目: ").append(ExportUtils.escapeHtml(question.getRelatedQuestion()));
                 }
-                if (metaLine.length() > 0) {
-                    writer.write("<div class=\"meta-line\">" + metaLine + "</div>\n");
+                if (extraInfo.length() > 0) {
+                    writer.write("<div class=\"extra-info\">" + extraInfo + "</div>\n");
                 }
-
-                writer.write("</div>\n");
+                
+                writer.write("</div>\n"); // question-body
+                writer.write("</div>\n"); // question
+                
+                questionNumber++;
 
                 // 更新进度
                 if (task.getCallback() != null && i % 10 == 0) {
@@ -585,14 +492,10 @@ public class HTMLExporter implements Exporter {
                 task.getCallback().onExportProgress(100);
             }
             
-            // 写入页脚
-            writer.write("<div class=\"footer\">\n");
-            writer.write("<p>导出时间: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date()) + "</p>\n");
-            writer.write("<p>导出题目数量: " + questions.size() + "</p>\n");
-            writer.write("</div>\n");
-            writer.write("</div>\n");
+            writer.write("</div>\n"); // container
             writer.write("</body>\n");
             writer.write("</html>\n");
+            Log.i(TAG, "HTML content written successfully");
             
             // 导出完成后发送广播通知
             try {

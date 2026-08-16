@@ -32,7 +32,7 @@
                 app:icon="@drawable/ic_back"
                 app:iconSize="22dp"
                 app:iconTint="@color/text_primary"
-                android:contentDescription="返回"/>
+                android:contentDescription="@string/chat_desc_back"/>
             <TextView
                 android:id="@+id/toolbar_title"
                 android:layout_width="wrap_content"
@@ -41,7 +41,6 @@
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
-                android:maxWidth="80dp"
                 android:ellipsize="end"
                 android:maxLines="1"/>
             <View
@@ -97,7 +96,7 @@
                 app:icon="@drawable/ic_chat_history"
                 app:iconSize="20dp"
                 app:iconTint="@color/text_primary"
-                android:contentDescription="历史"/>
+                android:contentDescription="@string/chat_desc_history"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_chat"
                 android:layout_width="36dp"
@@ -106,117 +105,99 @@
                 app:icon="@drawable/ic_delete_chat"
                 app:iconSize="20dp"
                 app:iconTint="@color/text_primary"
-                android:contentDescription="清空"/>
+                android:contentDescription="@string/chat_desc_clear"/>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="10dp"
-            android:background="@color/surface_variant">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp">
             <LinearLayout
-                android:layout_width="match_parent"
+                android:id="@+id/service_status_bar"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:padding="8dp"
+                android:background="@drawable/status_bar_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+                <TextView
+                    android:id="@+id/service_status_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⏳"
+                    android:textSize="16sp"
+                    android:layout_marginEnd="6dp"/>
                 <LinearLayout
-                    android:id="@+id/service_status_bar"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="6dp"
-                    android:background="@drawable/status_bar_background"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground">
+                    android:orientation="vertical">
                     <TextView
-                        android:id="@+id/service_status_icon"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/service_status_text"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="⏳"
-                        android:textSize="14sp"
-                        android:layout_marginEnd="6dp"/>
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-                        <TextView
-                            android:id="@+id/service_status_text"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="AI服务未初始化"
-                            android:textSize="11sp"
-                            android:textColor="@color/text_secondary"
-                            android:maxLines="1"
-                            android:ellipsize="end"/>
-                        <TextView
-                            android:id="@+id/model_name"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="未选择模型"
-                            android:textSize="10sp"
-                            android:textColor="@color/text_secondary"
-                            android:alpha="0.7"
-                            android:maxLines="1"
-                            android:ellipsize="end"/>
-                    </LinearLayout>
-                    <ProgressBar
-                        android:id="@+id/service_status_progress"
-                        android:layout_width="50dp"
-                        android:layout_height="4dp"
-                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                        android:progress="0"
-                        android:max="100"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="4dp"
-                        android:visibility="gone"/>
+                        android:text="@string/chat_service_not_initialized"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_primary"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
                     <TextView
-                        android:id="@+id/service_status_elapsed"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/model_name"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text=""
-                        android:textSize="10sp"
-                        android:textColor="@color/text_secondary"
-                        android:visibility="gone"/>
-                    <TextView
-                        android:id="@+id/tv_token_stats"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🔵 0 tokens"
+                        android:text="@string/chat_no_model_selected"
                         android:textSize="11sp"
-                        android:textColor="@color/primary"
-                        android:textStyle="bold"
-                        android:layout_marginStart="8dp"
-                        android:visibility="gone"/>
+                        android:textColor="@color/text_secondary"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
                 </LinearLayout>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_stop_generation"
+                <ProgressBar
+                    android:id="@+id/service_status_progress"
+                    android:layout_width="0dp"
+                    android:layout_height="4dp"
+                    android:layout_weight="0.35"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:progress="0"
+                    android:max="100"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp"
+                    android:visibility="gone"/>
+                <TextView
+                    android:id="@+id/service_status_elapsed"
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="停止"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="10sp"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone"/>
+                <TextView
+                    android:id="@+id/tv_token_stats"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔵 0 tokens"
                     android:textSize="12sp"
-                    app:backgroundTint="@color/error"
-                    android:textColor="@color/on_error"
-                    app:cornerRadius="18dp"
-                    android:textAllCaps="false"
-                    android:visibility="gone"
-                    android:layout_marginStart="8dp"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_log_viewer"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="4dp"
-                    style="@style/Widget.Material3.Button.IconButton"
-                    app:icon="@drawable/ic_log"
-                    app:iconSize="18dp"
-                    app:iconTint="@color/text_primary"
-                    android:contentDescription="日志"/>
+                    android:textColor="@color/primary"
+                    android:textStyle="bold"
+                    android:layout_marginStart="8dp"
+                    android:visibility="gone"/>
             </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_log_viewer"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                style="@style/Widget.Material3.Button.IconButton"
+                app:icon="@drawable/ic_log"
+                app:iconSize="18dp"
+                app:iconTint="@color/text_primary"
+                android:contentDescription="日志"/>
         </LinearLayout>
 
         <LinearLayout
@@ -407,27 +388,33 @@
             </LinearLayout>
         </LinearLayout>
 
-        <FrameLayout
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/message_list"
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:padding="16dp"
-                android:clipToPadding="false"/>
+                android:layout_height="0dp"
+                android:layout_weight="1">
 
-            <!-- 空状态视图 -->
-            <LinearLayout
-                android:id="@+id/empty_state_view"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:padding="32dp"
-                android:visibility="gone">
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/message_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="16dp"
+                    android:clipToPadding="false"/>
+
+                <!-- 空状态视图 -->
+                <LinearLayout
+                    android:id="@+id/empty_state_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="32dp"
+                    android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -497,6 +484,7 @@
         </com.google.android.material.chip.ChipGroup>
             </LinearLayout>
         </FrameLayout>
+        </LinearLayout>
 
         <View
             android:id="@+id/thinking_indicator"
@@ -894,6 +882,21 @@
                     app:iconSize="22dp"
                     app:iconTint="@color/on_primary"
                     android:contentDescription="发送"/>
+
+                <!-- 停止按钮：生成时与发送按钮切换显示（同位置） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_stop_generation"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/chat_stop"
+                    android:textSize="12sp"
+                    android:textColor="@color/on_error"
+                    app:backgroundTint="@color/error"
+                    app:cornerRadius="24dp"
+                    android:textAllCaps="false"
+                    android:contentDescription="停止生成"
+                    android:visibility="gone"/>
             </LinearLayout>
         </LinearLayout>
 

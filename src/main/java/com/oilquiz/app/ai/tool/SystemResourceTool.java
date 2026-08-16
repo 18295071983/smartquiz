@@ -930,12 +930,25 @@ public class SystemResourceTool implements AITool {
             return new AIToolResult("缺少参数: command", parameters);
         }
         
-        // 安全检查：禁止危险命令
+        // 安全检查：禁止危险命令（按命令片段匹配，防止 `echo a; rm -rf /`、`$(rm ...)` 绕过）
         String lowerCmd = command.toLowerCase().trim();
-        if (lowerCmd.startsWith("rm ") || lowerCmd.startsWith("rm -") ||
-            lowerCmd.startsWith("format") || lowerCmd.startsWith("factory") ||
-            lowerCmd.contains("reboot") || lowerCmd.contains("shutdown") ||
-            lowerCmd.contains("su ") || lowerCmd.contains("&& rm")) {
+        String normalized = lowerCmd.replaceAll("\\s+", " ");
+        String[] bannedCommands = {"rm", "format", "factory_reset", "reboot", "shutdown", "su",
+                "dd", "mkfs", "mount", "chmod", "chown", "mkfs.ext", "wipe", "erase"};
+        String[] parts = normalized.split("[;&|$()\\s]+");
+        for (String part : parts) {
+            for (String banned : bannedCommands) {
+                if (part.equals(banned) || part.startsWith(banned + " ")) {
+                    return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
+                }
+            }
+        }
+        // 拦截命令替换/反引号注入
+        if (normalized.contains("$(") || normalized.contains("`")) {
+            return new AIToolResult("安全限制：不允许命令替换: " + command, parameters);
+        }
+        if (lowerCmd.startsWith("rm ") || lowerCmd.startsWith("format ") || lowerCmd.contains("reboot")
+                || lowerCmd.contains("shutdown") || lowerCmd.contains("&& rm") || lowerCmd.contains("; rm")) {
             return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
         }
         
@@ -958,7 +971,8 @@ public class SystemResourceTool implements AITool {
      */
     private String executeShell(String command) {
         try {
-            Process process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command});
+            // 2>&1 合并 stderr 到 stdout，避免单独读取 stdout/stderr 时管道缓冲写满导致死锁
+            Process process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command + " 2>&1"});
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             StringBuilder output = new StringBuilder();
             String line;
@@ -967,21 +981,8 @@ public class SystemResourceTool implements AITool {
             }
             process.waitFor();
             reader.close();
-            
-            // 读取错误输出
-            BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-            StringBuilder errOutput = new StringBuilder();
-            while ((line = errReader.readLine()) != null) {
-                errOutput.append(line).append("\n");
-            }
-            errReader.close();
-            
+
             String out = output.toString().trim();
-            String err = errOutput.toString().trim();
-            
-            if (out.isEmpty() && !err.isEmpty()) {
-                return "错误: " + err;
-            }
             return out.isEmpty() ? "(无输出)" : out;
         } catch (Exception e) {
             return "执行失败: " + e.getMessage();

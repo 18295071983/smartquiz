@@ -3,24 +3,38 @@ package com.oilquiz.app.ai.chat.render;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.text.Spannable;
+import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.style.ScaleXSpan;
 import android.text.style.URLSpan;
+import android.util.DisplayMetrics;
 import android.view.View;
+
+import androidx.annotation.NonNull;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.RequestBuilder;
+import com.bumptech.glide.request.target.Target;
 
 import io.noties.markwon.Markwon;
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
 import io.noties.markwon.ext.tables.TablePlugin;
 import io.noties.markwon.ext.tables.TableTheme;
 import io.noties.markwon.ext.tasklist.TaskListPlugin;
-import io.noties.markwon.image.ImagesPlugin;
+import io.noties.markwon.html.HtmlPlugin;
+import io.noties.markwon.image.AsyncDrawable;
+import io.noties.markwon.image.ImageSize;
+import io.noties.markwon.image.glide.GlideImagesPlugin;
 import io.noties.markwon.linkify.LinkifyPlugin;
 
 /**
  * Markdown 渲染器（基于 Markwon 专业库）
  *
  * 支持：标准 Markdown、代码块、表格、删除线、任务列表、图片加载、自动链接。
+ * 表格单元格长文本自动换行。
  *
  * 使用前需调用 init(context) 初始化 Markwon 实例。
  */
@@ -36,7 +50,46 @@ public class MarkdownRenderer {
             if (initialized && markwon != null) return;
             Context appContext = context.getApplicationContext();
 
-            // 配置表格主题：清晰边框 + 合适内边距，确保文字在单元格内自动换行
+            // 图片最大显示尺寸：宽度 = 屏幕宽 88%，高度 = 屏幕高 60%（防止大图撑爆气泡）
+            DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+            final int maxImageWidth = (int) (dm.widthPixels * 0.88f);
+            final int maxImageHeight = (int) (dm.heightPixels * 0.6f);
+
+            // 自定义 Glide 加载：解码时限制图片尺寸，避免大图超出聊天气泡
+            GlideImagesPlugin.GlideStore glideStore = new GlideImagesPlugin.GlideStore() {
+                @Override
+                public RequestBuilder<Drawable> load(@NonNull AsyncDrawable drawable) {
+                    RequestBuilder<Drawable> builder = Glide.with(appContext)
+                            .asDrawable()
+                            .load(drawable.getDestination());
+                    // Markdown 里已指定尺寸（![](... =WxH)）→ 超限则按比例缩放
+                    if (drawable.hasKnownDimensions()) {
+                        ImageSize size = drawable.getImageSize();
+                        boolean pxUnit = (size.width.unit == null || "px".equals(size.width.unit))
+                                && (size.height.unit == null || "px".equals(size.height.unit));
+                        if (pxUnit) {
+                            int w = (int) size.width.value;
+                            int h = (int) size.height.value;
+                            if (w > 0 && h > 0) {
+                                if (w <= maxImageWidth && h <= maxImageHeight) {
+                                    return builder;
+                                }
+                                float scale = Math.min((float) maxImageWidth / w, (float) maxImageHeight / h);
+                                return builder.override((int) (w * scale), (int) (h * scale));
+                            }
+                        }
+                    }
+                    // 未指定尺寸 → 限制在最大范围内，保持宽高比
+                    return builder.override(maxImageWidth, maxImageHeight).centerInside();
+                }
+
+                @Override
+                public void cancel(@NonNull Target<?> target) {
+                    Glide.with(appContext).clear(target);
+                }
+            };
+
+            // 配置表格主题：支持自动换行 + 清晰边框 + 合适内边距
             TableTheme tableTheme = new TableTheme.Builder()
                     .tableCellPadding(8)
                     .tableBorderWidth(1)
@@ -47,7 +100,8 @@ public class MarkdownRenderer {
                     .build();
 
             markwon = Markwon.builder(appContext)
-                    .usePlugin(ImagesPlugin.create())
+                    .usePlugin(GlideImagesPlugin.create(glideStore))
+                    .usePlugin(HtmlPlugin.create())
                     .usePlugin(TablePlugin.create(tableTheme))
                     .usePlugin(StrikethroughPlugin.create())
                     .usePlugin(TaskListPlugin.create(appContext))
@@ -67,6 +121,26 @@ public class MarkdownRenderer {
     /**
      * 渲染 Markdown 文本为 Spanned（供 TextView.setText 使用）
      * 注意：调用方需确保已 init，否则回退到纯文本。
+     * @param markdown Markdown内容
+     * @param availableWidth 实际可用宽度（像素），当前保留用于兼容调用方
+     */
+    public static Spanned render(String markdown, int availableWidth) {
+        if (markdown == null || markdown.isEmpty()) {
+            return new android.text.SpannableStringBuilder("");
+        }
+        if (!initialized) {
+            return new android.text.SpannableStringBuilder(markdown);
+        }
+        // 表格单元格长文本换行由 TextView breakStrategy=high_quality 原生处理，
+        // 无需手工插入软连字符（旧实现会丢空单元格导致表格列错位）
+        Spanned result = markwon.toMarkdown(markdown);
+        // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
+        return replaceUrlSpans(result);
+    }
+
+    /**
+     * 渲染 Markdown 文本为 Spanned（供 TextView.setText 使用）
+     * 注意：调用方需确保已 init，否则回退到纯文本。
      */
     public static Spanned render(String markdown) {
         if (markdown == null || markdown.isEmpty()) {
@@ -78,6 +152,14 @@ public class MarkdownRenderer {
         Spanned result = markwon.toMarkdown(markdown);
         // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
         return replaceUrlSpans(result);
+    }
+
+    /**
+     * 带上下文的渲染（确保已初始化）
+     */
+    public static Spanned render(String markdown, Context context) {
+        ensureInit(context);
+        return render(markdown);
     }
 
     /**
@@ -120,6 +202,11 @@ public class MarkdownRenderer {
         public void onClick(View widget) {
             String url = getURL();
             try {
+                // 图片 URL/URI → 应用内预览（不依赖系统图片查看器，避免"没有可用打开图片的页面"）
+                if (isImageUrl(widget.getContext(), url)) {
+                    showImagePreview(widget.getContext(), url);
+                    return;
+                }
                 Uri uri = Uri.parse(url);
                 String scheme = uri.getScheme();
                 if ("content".equals(scheme)) {
@@ -140,6 +227,88 @@ public class MarkdownRenderer {
             } catch (Exception e) {
                 android.util.Log.w("MarkdownRenderer", "Error opening link: " + e.getMessage());
             }
+        }
+    }
+
+    /** 判断 URL/URI 是否为图片：扩展名 + content:// MIME 双重判断 */
+    private static boolean isImageUrl(Context context, String url) {
+        if (url == null) return false;
+        // 去掉查询参数和锚点后判断扩展名
+        String clean = url;
+        int q = clean.indexOf('?');
+        if (q >= 0) clean = clean.substring(0, q);
+        int h = clean.indexOf('#');
+        if (h >= 0) clean = clean.substring(0, h);
+        String lower = clean.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp")) {
+            return true;
+        }
+        // content:// 无扩展名时按 MIME 判断（如 content://media/.../images/123）
+        if (url.startsWith("content://") && context != null) {
+            try {
+                String mime = context.getContentResolver().getType(Uri.parse(url));
+                return mime != null && mime.startsWith("image/");
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    /** 应用内图片预览（PhotoView 双指缩放，点击关闭） */
+    private static void showImagePreview(Context context, String url) {
+        try {
+            if (!(context instanceof android.app.Activity)) return;
+            android.app.Dialog dialog = new android.app.Dialog(context);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+            android.widget.FrameLayout root = new android.widget.FrameLayout(context);
+            root.setBackgroundColor(android.graphics.Color.BLACK);
+
+            com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(context);
+            photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+
+            android.widget.ProgressBar loading = new android.widget.ProgressBar(context);
+            android.widget.FrameLayout.LayoutParams loadingLp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.CENTER);
+            root.addView(loading, loadingLp);
+
+            dialog.setContentView(root, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setOnClickListener(v -> dialog.dismiss());
+            dialog.show();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+            }
+
+            // show 之后再加载（View 已 attach），loading 占位 + 失败提示
+            com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
+                    new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                        @Override
+                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                            loading.setVisibility(View.GONE);
+                            android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
+                            return false;
+                        }
+
+                        @Override
+                        public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                       Object model,
+                                                       com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                       com.bumptech.glide.load.DataSource dataSource,
+                                                       boolean isFirstResource) {
+                            loading.setVisibility(View.GONE);
+                            return false;
+                        }
+                    };
+            com.bumptech.glide.Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+        } catch (Exception e) {
+            android.util.Log.w("MarkdownRenderer", "Image preview failed: " + e.getMessage());
         }
     }
 
@@ -270,14 +439,6 @@ public class MarkdownRenderer {
             }
         }
         return sb.toString();
-    }
-
-    /**
-     * 带上下文的渲染（确保已初始化）
-     */
-    public static Spanned render(String markdown, Context context) {
-        ensureInit(context);
-        return render(markdown);
     }
 
     /**

@@ -22,6 +22,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import com.oilquiz.app.R;
 import com.oilquiz.app.adapter.QuestionAdapter;
 import com.oilquiz.app.ui.base.BaseActivity;
+import com.oilquiz.app.util.export.ExportFileSaver;
 import com.oilquiz.app.util.export.ExportManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.util.render.ExcelUtil;
@@ -739,8 +740,14 @@ public class QuestionBankActivity extends BaseActivity {
                             
                             runOnUiThread(() -> {
                                 progressDialog.dismiss();
+                                // 导出线程回调时页面可能已销毁：避免弹窗崩溃
+                                if (isFinishing() || isDestroyed()) return;
                                 if (finalFile != null && finalFile.exists()) {
-                                    showExportSuccessDialog(finalFile, finalExportType);
+                                    // 复制到公共「下载/OilQuiz」目录，保证文件管理器可见可编辑
+                                    String savedPath = ExportFileSaver.copyToDownloads(
+                                            QuestionBankActivity.this, finalFile,
+                                            getMimeType(finalFile.getAbsolutePath()));
+                                    showExportSuccessDialog(finalFile, finalExportType, savedPath);
                                 } else {
                                     Toast.makeText(QuestionBankActivity.this, "导出失败: 无法创建文件", Toast.LENGTH_SHORT).show();
                                 }
@@ -766,10 +773,12 @@ public class QuestionBankActivity extends BaseActivity {
     }
     
     // 显示导出成功对话框
-    private void showExportSuccessDialog(File file, String exportType) {
+    private void showExportSuccessDialog(File file, String exportType, String savedPath) {
         new AlertDialog.Builder(this)
                 .setTitle("导出成功")
-                .setMessage("文件类型: " + exportType + "\n文件路径: " + file.getAbsolutePath() + "\n文件大小: " + (file.length() / 1024) + " KB")
+                .setMessage("文件类型: " + exportType + "\n保存位置: "
+                        + (savedPath != null ? savedPath : file.getAbsolutePath())
+                        + "\n文件大小: " + (file.length() / 1024) + " KB")
                 .setPositiveButton("查看文件", (dialog, which) -> openExportFile(file))
                 .setNegativeButton("分享文件", (dialog, which) -> shareExportFile(file))
                 .setNeutralButton("确定", null)

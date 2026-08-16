@@ -182,7 +182,9 @@ public class FileGeneratorTool implements AITool {
             // 为所有文件类型生成可点击链接提示
             if (contentUri != null) {
                 String fileName = file.getName();
-                String ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+                // 无扩展名文件容错（lastIndexOf 返回 -1 时 substring 会崩溃）
+                int dotIndex = fileName.lastIndexOf('.');
+                String ext = dotIndex > 0 ? fileName.substring(dotIndex).toLowerCase() : "";
                 String desc;
                 switch (ext) {
                     case ".html": case ".htm":

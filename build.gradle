@@ -73,16 +73,22 @@ android {
                 install "lxml"
                 
                 // ===== Agent 实用第三方库 =====
-                // 纯Python包 - 直接从PyPI/镜像安装
-                install "openpyxl"          // Excel .xlsx 读写
+                // 纯Python包 - 直接从PyPI/镜像安装（依赖Chaquopy源获取native轮子）
+                install "openpyxl"          // Excel .xlsx 读写（依赖：et_xmlfile, jdcal）
+                install "et_xmlfile"        // openpyxl 依赖
+                install "jdcal"             // openpyxl 依赖（日期计算）
                 install "pyyaml"            // YAML 解析
                 install "tabulate"          // 数据表格美观输出
-                install "python-dateutil"   // 灵活日期解析
+                install "python-dateutil"   // 灵活日期解析（依赖six）
+                install "six"               // python-dateutil 依赖
                 install "chardet"           // 文件编码自动检测
                 install "xlrd"              // 旧版 .xls Excel 读取
+                install "reportlab"          // PDF 生成（支持中文）
                 
-                // C扩展包 - Chaquopy提供预编译wheel
-                install "pandas"            // 数据分析（依赖numpy）
+                // Android 预编译 native 包 - Chaquopy 自动从 PyPI 获取 Android wheel
+                install "pandas"            // 数据分析（依赖：numpy, python-dateutil, pytz, tzdata）
+                install "pytz"              // pandas 依赖（时区处理）
+                install "tzdata"            // pandas 依赖（Windows 时区支持）
             }
         }
     }
@@ -286,6 +292,8 @@ dependencies {
     implementation 'com.google.guava:guava:32.1.2-android'
     implementation "io.noties.markwon:core:4.6.2"
     implementation "io.noties.markwon:image:4.6.2"
+    implementation "io.noties.markwon:image-glide:4.6.2"
+    implementation "io.noties.markwon:html:4.6.2"
     implementation "io.noties.markwon:ext-tables:4.6.2"
     implementation "io.noties.markwon:ext-strikethrough:4.6.2"
     implementation "io.noties.markwon:ext-tasklist:4.6.2"

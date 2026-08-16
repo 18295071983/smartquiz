@@ -1,5 +1,6 @@
 package com.oilquiz.app.util.export;
 
+import android.util.Log;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.layout.Document;
@@ -65,20 +66,30 @@ public class PDFExporter implements Exporter {
             
             // 加载中文字体
             PdfFont font = null;
+            boolean fontLoaded = false;
             try {
-                // 尝试从assets目录加载字体
-                InputStream fontStream = task.getContext().getAssets().open("fonts/simkai.ttf");
-                // 使用 Android 兼容的方式读取输入流
-                byte[] fontBytes = toByteArray(fontStream);
-                font = PdfFontFactory.createFont(fontBytes, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
-            } catch (Exception e) {
-                // 如果字体加载失败，尝试使用系统字体
-                try {
-                    font = PdfFontFactory.createFont("C:/Windows/Fonts/simkai.ttf");
-                } catch (Exception ex) {
-                    // 如果系统字体也不可用，使用默认字体
-                    font = PdfFontFactory.createFont();
+                // 尝试从assets目录加载字体（优先使用simhei.ttf）
+                String[] fontFiles = {"fonts/simhei.ttf", "fonts/simkai.ttf"};
+                for (String fontFile : fontFiles) {
+                    try {
+                        InputStream fontStream = task.getContext().getAssets().open(fontFile);
+                        byte[] fontBytes = toByteArray(fontStream);
+                        font = PdfFontFactory.createFont(fontBytes, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+                        fontLoaded = true;
+                        Log.i("PDFExporter", "Loaded font: " + fontFile);
+                        break;
+                    } catch (Exception e) {
+                        Log.w("PDFExporter", "Failed to load font: " + fontFile, e);
+                    }
                 }
+            } catch (Exception e) {
+                Log.e("PDFExporter", "Failed to load font from assets", e);
+            }
+            
+            // 如果字体加载失败，使用默认字体
+            if (!fontLoaded) {
+                Log.w("PDFExporter", "Using default font (no Chinese font available)");
+                font = PdfFontFactory.createFont();
             }
             
             // 设置文档默认字体
@@ -130,16 +141,20 @@ public class PDFExporter implements Exporter {
                         typeQuestionNumber++;
                     }
                     
-                    // 题目元信息行（题型/难度/分类/知识点/分值等，按模板字段）
+                    // 题目元信息行（题型/难度/分类/子分类/知识点/分值等，按模板字段）
                     StringBuilder metaInfo = new StringBuilder();
                     if (ExportUtils.hasField(fields, "questionType") && question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
                         metaInfo.append("题型: ").append(question.getQuestionType()).append(" | ");
                     }
                     if (ExportUtils.hasField(fields, "difficulty")) {
-                        metaInfo.append("难度: ").append(question.getDifficultyText()).append(" | ");
+                        String diffText = question.getDifficultyText();
+                        metaInfo.append("难度: ").append(diffText != null ? diffText : "未知").append(" | ");
                     }
                     if (ExportUtils.hasField(fields, "category") && question.getCategory() != null && !question.getCategory().isEmpty()) {
                         metaInfo.append("分类: ").append(question.getCategory()).append(" | ");
+                    }
+                    if (ExportUtils.hasField(fields, "subCategory") && question.getSubCategory() != null && !question.getSubCategory().isEmpty()) {
+                        metaInfo.append("子分类: ").append(question.getSubCategory()).append(" | ");
                     }
                     if (ExportUtils.hasField(fields, "knowledgePoint") && question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
                         metaInfo.append("知识点: ").append(question.getKnowledgePoint()).append(" | ");

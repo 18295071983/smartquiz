@@ -3138,6 +3138,37 @@ public class AIWeatherManager implements AITool {
             }
             
             boolean useLocation = lat != null && lon != null;
+
+            // 需要城市或坐标的 action：两者都缺失时明确报错，不再静默回退"北京"
+            switch (action) {
+                case "current":
+                case "forecast":
+                case "hourly":
+                case "air_quality":
+                case "alerts":
+                case "indices":
+                case "all": {
+                    boolean hasCity = city != null && !city.trim().isEmpty();
+                    if (!hasCity && !useLocation) {
+                        Map<String, Object> err = new HashMap<>();
+                        err.put("status", "error");
+                        err.put("error", "缺少城市参数(city)或坐标(lat/lon)");
+                        return new AIToolResult("缺少城市参数: 请提供 city 或 lat/lon", err);
+                    }
+                    break;
+                }
+                case "one_call": {
+                    if (!useLocation) {
+                        Map<String, Object> err = new HashMap<>();
+                        err.put("status", "error");
+                        err.put("error", "one_call 需要坐标参数 lat/lon");
+                        return new AIToolResult("缺少坐标参数: one_call 需要 lat/lon", err);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
             
             switch (action) {
                 case "current":

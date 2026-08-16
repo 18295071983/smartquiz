@@ -28,6 +28,11 @@ public class MarkdownContentRenderer implements ContentRenderer {
     }
 
     @Override
+    public Spanned render(String segment, Context context, int availableWidth) {
+        return MarkdownRenderer.render(segment, availableWidth);
+    }
+
+    @Override
     public String getName() {
         return "Markdown";
     }

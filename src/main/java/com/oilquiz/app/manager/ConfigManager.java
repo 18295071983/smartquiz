@@ -96,6 +96,7 @@ public class ConfigManager {
             exportFormats.add(createExportFormatItem("JSON", "JSON"));
             exportFormats.add(createExportFormatItem("CSV", "CSV"));
             exportFormats.add(createExportFormatItem("HTML", "HTML"));
+            exportFormats.add(createExportFormatItem("WEBVIEW_APK", "WebView应用"));
             exportFormats.add(createExportFormatItem("MARKDOWN", "Markdown"));
             exportFormats.add(createExportFormatItem("WORD", "Word"));
             exportFormats.add(createExportFormatItem("LONG_IMAGE", "长图片"));
@@ -171,15 +172,23 @@ public class ConfigManager {
         Type type = new TypeToken<List<Map<String, String>>>() {}.getType();
         List<Map<String, String>> formats = getConfig(KEY_EXPORT_FORMATS, type, new ArrayList<>());
         
-        // 过滤掉APK格式
-        List<Map<String, String>> filteredFormats = new ArrayList<>();
+        // 检查是否需要添加 WEBVIEW_APK 格式
+        boolean hasWebViewAPK = false;
         for (Map<String, String> format : formats) {
-            if (!"APK".equals(format.get("value"))) {
-                filteredFormats.add(format);
+            if ("WEBVIEW_APK".equals(format.get("value"))) {
+                hasWebViewAPK = true;
+                break;
             }
         }
         
-        return filteredFormats;
+        // 如果配置已存在但缺少 WEBVIEW_APK，则添加
+        if (!hasWebViewAPK && !formats.isEmpty()) {
+            Log.i(TAG, "Adding missing WEBVIEW_APK export format");
+            formats.add(createExportFormatItem("WEBVIEW_APK", "WebView应用"));
+            saveConfig(KEY_EXPORT_FORMATS, formats);
+        }
+        
+        return formats;
     }
 
     // 更新配置

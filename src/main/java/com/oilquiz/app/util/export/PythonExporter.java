@@ -35,6 +35,13 @@ public class PythonExporter implements Exporter {
         Context context = task.getContext();
         List<Question> questions = task.getQuestions();
         ExportManager.ExportConfig config = task.getConfig();
+        
+        // 初始化 Python 环境
+        if (!pythonBridge.isInitialized() && !pythonBridge.initialize(context)) {
+            Log.e(TAG, "Failed to initialize Python environment");
+            throw new RuntimeException("初始化 Python 环境失败");
+        }
+        
         Log.i(TAG, "Questions count: " + questions.size() +
                 ", includeAnswers: " + config.isIncludeAnswers() +
                 ", includeExplanations: " + config.isIncludeExplanations() +

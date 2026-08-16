@@ -262,7 +262,9 @@ public class ExcelUtil {
         public long importTime;
         public int skippedQuestions;
         public String summary;
-        
+        /** 用户是否取消了导入（取消时不保存任何部分数据） */
+        public boolean cancelled;
+
         public ImportResult() {
             totalQuestions = 0;
             validQuestions = 0;
@@ -273,6 +275,7 @@ public class ExcelUtil {
             importTime = 0;
             skippedQuestions = 0;
             summary = "";
+            cancelled = false;
         }
     }
     
@@ -293,15 +296,12 @@ public class ExcelUtil {
     }
     
     public static void importExcel(File file, ImportCallback callback) {
-        if (callback != null) {
-            callback.onError("Excel导入功能暂时不可用");
-        }
+        // 委托完整导入逻辑（无字段映射时仍可分析文件结构/统计）
+        importExcel(file, 0, null, new ImportSettings(), null, null, null, null, callback);
     }
     
     public static void importExcel(File file, ImportSettings finalSettings, ImportCallback callback) {
-        if (callback != null) {
-            callback.onError("Excel导入功能暂时不可用");
-        }
+        importExcel(file, 0, null, finalSettings, null, null, null, null, callback);
     }
     
     public static void setDatabaseValidator(DatabaseValidator validator) {
@@ -487,31 +487,46 @@ public class ExcelUtil {
                 if (DateUtil.isCellDateFormatted(cell)) {
                     return cell.getDateCellValue().toString();
                 } else {
-                    // 处理数字，避免科学计数法
-                    double value = cell.getNumericCellValue();
-                    if (value == (long) value) {
-                        return String.valueOf((long) value);
-                    } else {
-                        return String.valueOf(value);
-                    }
+                    return formatNumericValue(cell.getNumericCellValue());
                 }
             case BOOLEAN:
                 return String.valueOf(cell.getBooleanCellValue());
             case FORMULA:
+                // 公式单元格：读取文件内缓存的计算结果（Excel 保存时通常带缓存值）。
+                // 不能直接用 getStringCellValue/getNumericCellValue —— 对 FORMULA 类型一律抛异常，
+                // 必须按 getCachedFormulaResultType() 分派取值，否则公式列导入/预览恒为空。
                 try {
-                    return cell.getStringCellValue();
-                } catch (Exception e) {
-                    try {
-                        return String.valueOf(cell.getNumericCellValue());
-                    } catch (Exception ex) {
-                        return "";
+                    switch (cell.getCachedFormulaResultType()) {
+                        case STRING:
+                            return cell.getRichStringCellValue().getString().trim();
+                        case NUMERIC:
+                            return formatNumericValue(cell.getNumericCellValue());
+                        case BOOLEAN:
+                            return String.valueOf(cell.getBooleanCellValue());
+                        default:
+                            return "";
                     }
+                } catch (Exception e) {
+                    return "";
                 }
             case BLANK:
                 return "";
             default:
                 return "";
         }
+    }
+
+    /**
+     * 数字格式化：整数值不带小数点；小数用 BigDecimal 十进制化，
+     * 避免科学计数法（如 1.0E-7）和二进制浮点尾巴（如 0.30000000000000004）。
+     */
+    private static String formatNumericValue(double value) {
+        if (!Double.isFinite(value)) return "";
+        long l = (long) value;
+        if (l == value) {
+            return String.valueOf(l);
+        }
+        return java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
     }
     
     public static List<List<String>> readExcelData(File file, int sheetIndex, int maxRows) {
@@ -601,6 +616,64 @@ public class ExcelUtil {
         
         return data;
     }
+
+    /**
+     * 带行号读取（用于数据检测/修正）：
+     * 返回 [行号(显示), List&lt;String&gt;] 列表。
+     * - Excel：物理行号 + 1（空行保留占位，与 importExcel 的修正行号一致）
+     * - CSV/JSON：序号 + 1（无空行概念）
+     */
+    private static List<Object[]> readExcelRowsWithRowNumbers(File file, int sheetIndex) {
+        List<Object[]> rows = new ArrayList<>();
+        if (file == null || !file.exists()) return rows;
+
+        FileFormat fmt = detectFileFormat(file);
+        if (fmt == FileFormat.CSV) {
+            List<List<String>> data = readCsvData(file, 0);
+            // CSV：readCsvData 含表头，数据从序号 1 开始；行号 = 序号+1（与 importCsv 的修正行号一致）
+            for (int i = 0; i < data.size(); i++) {
+                rows.add(new Object[]{i + 1, data.get(i)});
+            }
+            return rows;
+        } else if (fmt == FileFormat.JSON) {
+            List<List<String>> data = readExcelData(file, sheetIndex, 0);
+            // JSON：无表头，序号+1（与 importJson 的修正行号一致）
+            for (int i = 0; i < data.size(); i++) {
+                rows.add(new Object[]{i + 1, data.get(i)});
+            }
+            return rows;
+        }
+
+        FileInputStream fis = null;
+        Workbook workbook = null;
+        try {
+            fis = new FileInputStream(file);
+            workbook = WorkbookFactory.create(fis);
+            Sheet sheet = workbook.getSheetAt(sheetIndex);
+            if (sheet == null) return rows;
+            // 物理行号遍历（空行也占位，保持行号 = 物理行号+1）
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                List<String> rowData = new ArrayList<>();
+                if (row != null) {
+                    for (int j = 0; j < row.getLastCellNum(); j++) {
+                        rowData.add(getCellValueAsString(row.getCell(j)));
+                    }
+                }
+                rows.add(new Object[]{i + 1, rowData});
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading rows with row numbers: " + e.getMessage(), e);
+        } finally {
+            try {
+                if (workbook != null) workbook.close();
+                if (fis != null) fis.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Error closing resources: " + e.getMessage(), e);
+            }
+        }
+        return rows;
+    }
     
     // 缺失的方法实现
     public static void generateImportConfirmation(File file, int sheetIndex, Map<String, Integer> fieldMapping, ImportSettings settings, ImportConfirmationCallback callback) {
@@ -633,9 +706,8 @@ public class ExcelUtil {
                 confirmation.invalidItems = 0;
                 confirmation.duplicateItems = 0;
                 
-                // 获取关键列索引
-                Integer questionColumn = finalFieldMapping.get("题目");
-                if (questionColumn == null) questionColumn = finalFieldMapping.get("question");
+                // 获取关键列索引（统一用 resolveColumn，兼容 canonical/中英文别名）
+                Integer questionColumn = resolveColumn(finalFieldMapping, "questionText");
                 
                 for (int i = 0; i < data.size(); i++) {
                     List<String> row = data.get(i);
@@ -666,8 +738,8 @@ public class ExcelUtil {
                     
                     confirmation.previewItems.add(item);
                     
-                    // 更新进度
-                    if (callback != null) {
+                    // 更新进度（节流：每 100 行回调一次）
+                    if (callback != null && (i % 100 == 0 || i == data.size() - 1)) {
                         callback.onProgress(i + 1, data.size());
                     }
                 }
@@ -699,11 +771,13 @@ public class ExcelUtil {
         Integer answerColumn = resolveColumn(finalFieldMapping, "correctAnswer");
         Integer typeColumn = resolveColumn(finalFieldMapping, "questionType");
         
-        // 读取数据并检测问题
-        List<List<String>> data = readExcelData(file, sheetIndex, 0); // 读取所有行
-        for (int i = 0; i < data.size(); i++) {
-            List<String> row = data.get(i);
-            int rowNumber = i + 2; // 行号从2开始（1是表头）
+        // 读取数据并检测问题（带物理行号：Excel 空行不跳过，行号 = 物理行号+1，
+        // 与 importExcel 的 applyCorrectionsToQuestion 行号约定一致，修正不再错位）
+        List<Object[]> rows = readExcelRowsWithRowNumbers(file, sheetIndex);
+        for (Object[] entry : rows) {
+            int rowNumber = (Integer) entry[0];
+            @SuppressWarnings("unchecked")
+            List<String> row = (List<String>) entry[1];
             
             // 检测题目内容是否为空
             if (questionColumn != null && questionColumn < row.size()) {
@@ -1093,6 +1167,7 @@ public class ExcelUtil {
                     // 检查是否取消导入
                     if (isImportCancelled) {
                         result.summary = "导入已取消";
+                        result.cancelled = true;
                         if (callback != null) {
                             callback.onComplete(questions, result);
                         }
@@ -1295,8 +1370,8 @@ public class ExcelUtil {
                         result.errorInfos.add(errorInfo);
                     }
                     
-                    // 更新进度
-                    if (callback != null) {
+                    // 更新进度（节流：每 100 行回调一次，避免万行导入刷爆主线程）
+                    if (callback != null && (i % 100 == 0 || i == totalRows)) {
                         callback.onProgress(i, totalRows);
                     }
                 }
@@ -1308,10 +1383,15 @@ public class ExcelUtil {
                     callback.onComplete(questions, result);
                 }
                 
-            } catch (IOException e) {
+            } catch (Exception e) {
                 Log.e(TAG, "Error importing Excel file: " + e.getMessage(), e);
                 if (callback != null) {
-                    callback.onError("导入失败: " + e.getMessage());
+                    // Word/其他非 Excel 文档会抛 POIXMLException（RuntimeException），需友好提示
+                    if (e instanceof org.apache.poi.ooxml.POIXMLException) {
+                        callback.onError("文件不是有效的 Excel 表格文件（请选择 .xlsx/.xls/.csv/.json）");
+                    } else {
+                        callback.onError("导入失败: " + e.getMessage());
+                    }
                 }
             } finally {
                 try {
@@ -1513,6 +1593,7 @@ public class ExcelUtil {
                 for (int i = 1; i < rows.size(); i++) {
                     if (isImportCancelled) {
                         result.summary = "导入已取消";
+                        result.cancelled = true;
                         if (finalCallback != null) finalCallback.onComplete(questions, result);
                         return;
                     }
@@ -1576,7 +1657,7 @@ public class ExcelUtil {
                         ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "解析错误: " + e.getMessage();
                         result.errorInfos.add(ei);
                     }
-                    if (finalCallback != null) finalCallback.onProgress(i, totalRows);
+                    if (finalCallback != null && (i % 100 == 0 || i == totalRows)) finalCallback.onProgress(i, totalRows);
                 }
 
                 result.importTime = System.currentTimeMillis() - startTime;
@@ -1626,6 +1707,7 @@ public class ExcelUtil {
                 for (int i = 0; i < arr.length(); i++) {
                     if (isImportCancelled) {
                         result.summary = "导入已取消";
+                        result.cancelled = true;
                         if (finalCallback != null) finalCallback.onComplete(questions, result);
                         return;
                     }
@@ -1682,7 +1764,7 @@ public class ExcelUtil {
                         ErrorInfo ei = new ErrorInfo(); ei.rowNumber = i + 1; ei.errorMessage = "解析错误: " + e.getMessage();
                         result.errorInfos.add(ei);
                     }
-                    if (finalCallback != null) finalCallback.onProgress(i, total);
+                    if (finalCallback != null && (i % 100 == 0 || i == total - 1)) finalCallback.onProgress(i, total);
                 }
                 result.importTime = System.currentTimeMillis() - startTime;
                 result.summary = "JSON导入完成，成功: " + result.validQuestions + ", 失败: " + result.invalidQuestions;

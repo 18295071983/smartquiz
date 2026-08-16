@@ -397,6 +397,7 @@ public class AppToolkitAITool implements AITool {
             
             final java.util.List<ImageLabelManager.ImageLabelResult>[] resultWrapper = new java.util.List[1];
             final String[] error = new String[1];
+            final boolean[] notified = new boolean[1];
             final Object lock = new Object();
             
             synchronized (lock) {
@@ -404,6 +405,7 @@ public class AppToolkitAITool implements AITool {
                     @Override
                     public void onSuccess(java.util.List<ImageLabelManager.ImageLabelResult> results) {
                         synchronized (lock) {
+                            notified[0] = true;
                             resultWrapper[0] = results;
                             lock.notify();
                         }
@@ -412,6 +414,7 @@ public class AppToolkitAITool implements AITool {
                     @Override
                     public void onFailure(String err) {
                         synchronized (lock) {
+                            notified[0] = true;
                             error[0] = err;
                             lock.notify();
                         }
@@ -425,6 +428,11 @@ public class AppToolkitAITool implements AITool {
                 }
             }
             
+            // 超时（30s 内未收到回调）→ 明确报错，不再伪装成"未识别到标签"
+            if (!notified[0]) {
+                return new AIToolResult("图像标签识别超时(30秒)，请重试", parameters);
+            }
+
             if (error[0] != null) {
                 return new AIToolResult("图像标签识别失败: " + error[0], parameters);
             }
@@ -514,9 +522,9 @@ public class AppToolkitAITool implements AITool {
         Object thresholdObj = parameters.get("threshold");
         Float threshold = thresholdObj != null ? ((Number) thresholdObj).floatValue() : null;
         Object multipleObj = parameters.get("multiple_objects");
-        Boolean multipleObjects = multipleObj != null ? (Boolean) multipleObj : null;
+        Boolean multipleObjects = parseBooleanParam(parameters, "multiple_objects");
         Object classificationObj = parameters.get("enable_classification");
-        Boolean enableClassification = classificationObj != null ? (Boolean) classificationObj : null;
+        Boolean enableClassification = parseBooleanParam(parameters, "enable_classification");
         
         if (imagePath == null) {
             return new AIToolResult("缺少参数: image_path", parameters);
@@ -545,6 +553,7 @@ public class AppToolkitAITool implements AITool {
             
             final java.util.List<ObjectDetectionManager.DetectedObjectResult>[] resultWrapper = new java.util.List[1];
             final String[] error = new String[1];
+            final boolean[] notified = new boolean[1];
             final Object lock = new Object();
             
             synchronized (lock) {
@@ -552,6 +561,7 @@ public class AppToolkitAITool implements AITool {
                     @Override
                     public void onSuccess(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
                         synchronized (lock) {
+                            notified[0] = true;
                             resultWrapper[0] = results;
                             lock.notify();
                         }
@@ -560,6 +570,7 @@ public class AppToolkitAITool implements AITool {
                     @Override
                     public void onFailure(String err) {
                         synchronized (lock) {
+                            notified[0] = true;
                             error[0] = err;
                             lock.notify();
                         }
@@ -573,6 +584,11 @@ public class AppToolkitAITool implements AITool {
                 }
             }
             
+            // 超时（30s 内未收到回调）→ 明确报错，不再伪装成"未检测到"
+            if (!notified[0]) {
+                return new AIToolResult("目标检测超时(30秒)，请重试", parameters);
+            }
+
             if (error[0] != null) {
                 return new AIToolResult("目标检测失败: " + error[0], parameters);
             }
@@ -638,7 +654,7 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: enable", parameters);
         }
         
-        boolean enable = (Boolean) enableObj;
+        boolean enable = Boolean.TRUE.equals(parseBooleanParam(parameters, "enable"));
         toolkit.setObjectDetectionMultipleObjects(enable);
         
         Map<String, Object> resultMap = new HashMap<>();
@@ -655,7 +671,7 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: enable", parameters);
         }
         
-        boolean enable = (Boolean) enableObj;
+        boolean enable = Boolean.TRUE.equals(parseBooleanParam(parameters, "enable"));
         toolkit.setObjectDetectionClassification(enable);
         
         Map<String, Object> resultMap = new HashMap<>();
@@ -822,7 +838,7 @@ public class AppToolkitAITool implements AITool {
     
     private AIToolResult imageRotate(Map<String, Object> parameters) {
         String imagePath = (String) parameters.get("image_path");
-        Float degrees = (Float) parameters.get("degrees");
+        Float degrees = parseFloatParam(parameters, "degrees");
         String outputPath = (String) parameters.get("output_path");
         
         if (imagePath == null) {
@@ -929,7 +945,7 @@ public class AppToolkitAITool implements AITool {
         String backgroundColor = (String) parameters.get("background_color");
         String text = (String) parameters.get("text");
         String textColor = (String) parameters.get("text_color");
-        Float textSize = (Float) parameters.get("text_size");
+        Float textSize = parseFloatParam(parameters, "text_size");
         String outputPath = (String) parameters.get("output_path");
         String format = (String) parameters.get("format");
         
@@ -1101,12 +1117,14 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("读取文件失败", parameters);
         }
         
-        // 截取指定范围
+        // 截取指定范围（clamp 防止越界：start_line 超过总行数时 start > end 会抛异常）
         int start = startLine != null ? startLine - 1 : 0;
         int end = endLine != null ? endLine : lines.size();
-        
+
         if (start < 0) start = 0;
+        if (start > lines.size()) start = lines.size();
         if (end > lines.size()) end = lines.size();
+        if (start > end) start = end;
         
         List<String> resultLines = lines.subList(start, end);
         
@@ -1519,13 +1537,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting current weather", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1546,13 +1565,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather forecast", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1573,13 +1593,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting hourly weather", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1600,13 +1621,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting air quality", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1627,13 +1649,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather alerts", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1654,13 +1677,14 @@ public class AppToolkitAITool implements AITool {
             resultMap.put("attempts", result.attempt);
             resultMap.put("error_message", result.errorMessage);
             
-            return new AIToolResult(resultMap, parameters);
+            return result.success ? new AIToolResult(resultMap, parameters)
+                    : AIToolResult.fail(String.valueOf(result.errorMessage), resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error getting weather indices", e);
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1719,7 +1743,7 @@ public class AppToolkitAITool implements AITool {
             Map<String, Object> errorMap = new HashMap<>();
             errorMap.put("status", "failed");
             errorMap.put("error", e.getMessage());
-            return new AIToolResult(errorMap, parameters);
+            return AIToolResult.fail(String.valueOf(errorMap.get("error")), errorMap);
         }
     }
     
@@ -1735,6 +1759,22 @@ public class AppToolkitAITool implements AITool {
                 return null;
             }
         }
+        return null;
+    }
+
+    /** 容错解析 Float 参数（org.json 可能给 Integer/Double/Long） */
+    private Float parseFloatParam(Map<String, Object> parameters, String key) {
+        Double d = parseDoubleParam(parameters, key);
+        return d != null ? d.floatValue() : null;
+    }
+
+    /** 容错解析 Boolean 参数（org.json 可能给字符串 "true"/"false" 或数字） */
+    private Boolean parseBooleanParam(Map<String, Object> parameters, String key) {
+        Object value = parameters != null ? parameters.get(key) : null;
+        if (value == null) return null;
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof String) return "true".equalsIgnoreCase((String) value);
+        if (value instanceof Number) return ((Number) value).intValue() != 0;
         return null;
     }
     
@@ -1806,12 +1846,15 @@ public class AppToolkitAITool implements AITool {
         double left = parsePower(expr, pos);
         while (pos[0] < expr.length()) {
             char op = expr.charAt(pos[0]);
-            if (op == '*' || op == '/') {
+            if (op == '*' || op == '/' || op == '%') {
                 pos[0]++;
                 double right = parsePower(expr, pos);
                 if (op == '/') {
                     if (right == 0) throw new ArithmeticException("除数不能为零");
                     left /= right;
+                } else if (op == '%') {
+                    if (right == 0) throw new ArithmeticException("除数不能为零");
+                    left %= right;
                 } else {
                     left *= right;
                 }
@@ -1835,8 +1878,17 @@ public class AppToolkitAITool implements AITool {
 
     private double parseFactor(String expr, int[] pos) {
         if (pos[0] >= expr.length()) throw new ArithmeticException("表达式不完整");
-        
+
         char c = expr.charAt(pos[0]);
+        // 一元正负号：-5、+5、2*(-3)
+        if (c == '-') {
+            pos[0]++;
+            return -parseFactor(expr, pos);
+        }
+        if (c == '+') {
+            pos[0]++;
+            return parseFactor(expr, pos);
+        }
         if (c == '(') {
             pos[0]++;
             double result = parseExpression(expr, pos);

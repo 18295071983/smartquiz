@@ -225,7 +225,8 @@ public class LocationTool implements AITool {
             
             AILogger.i(TAG, "Location permission check passed, executing location operation");
             
-            String action = (String) parameters.getOrDefault("action", "get_current");
+            Object actionObj = parameters != null ? parameters.getOrDefault("action", "get_current") : "get_current";
+            String action = String.valueOf(actionObj);
             switch (action) {
                 case "get_current":
                     return getCurrentLocation();
@@ -250,7 +251,7 @@ public class LocationTool implements AITool {
             info.put("status", "error");
             info.put("error", smartResult.errorMessage != null ? smartResult.errorMessage : "无法获取位置信息，请检查定位权限是否已授予");
             info.put("permission_required", !hasLocationPermission(context));
-            return new AIToolResult(info, new HashMap<>());
+            return AIToolResult.fail(String.valueOf(info.get("error")), info);
         }
 
         LocationInfo locationInfo = smartResult.location;
@@ -277,7 +278,7 @@ public class LocationTool implements AITool {
             info.put("status", "error");
             info.put("error", "无法获取位置信息");
             info.put("permission_required", !hasLocationPermission(context));
-            return new AIToolResult(info, new HashMap<>());
+            return AIToolResult.fail(String.valueOf(info.get("error")), info);
         }
 
         LocationInfo locationInfo = smartResult.location;
@@ -300,7 +301,7 @@ public class LocationTool implements AITool {
             info.put("status", "error");
             info.put("error", "无法获取位置信息");
             info.put("permission_required", !hasLocationPermission(context));
-            return new AIToolResult(info, new HashMap<>());
+            return AIToolResult.fail(String.valueOf(info.get("error")), info);
         }
 
         LocationInfo locationInfo = smartResult.location;
@@ -608,7 +609,8 @@ public class LocationTool implements AITool {
             }
         }
 
-        String errorMsg = "所有定位方式均失败\n尝试次数: " + attempt + "\n最后错误: " + lastError;
+        String errorMsg = "所有定位方式均失败\n尝试次数: " + attempt
+                + "\n最后错误: " + (lastError != null ? lastError : "无具体错误");
         AILogger.e(TAG, "Smart location retrieval failed: " + errorMsg);
         attemptsLog.add("Failed: " + errorMsg);
         return new SmartLocationResult(false, null, null, attempt, errorMsg, attemptsLog);

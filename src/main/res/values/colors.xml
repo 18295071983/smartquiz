@@ -302,4 +302,20 @@
     <color name="tempbar_warm">#FB923C</color>
     <color name="tempbar_hot">#EF4444</color>
 
+    <!-- ========== 对话组件色板（ChartCard / InfoCard / FileCard 等） ========== -->
+    <color name="component_text_primary">#1F2937</color>
+    <color name="component_text_secondary">#64748B</color>
+    <color name="component_text_tertiary">#94A3B8</color>
+    <color name="component_accent">#4C8DFF</color>
+    <color name="component_bg">#F8FAFC</color>
+    <color name="component_border">#E2E8F0</color>
+    <color name="chart_1">#4C8DFF</color>
+    <color name="chart_2">#FF8C42</color>
+    <color name="chart_3">#2ECC71</color>
+    <color name="chart_4">#9B59B6</color>
+    <color name="chart_5">#E74C3C</color>
+    <color name="chart_6">#1ABC9C</color>
+    <color name="chart_7">#F1C40F</color>
+    <color name="chart_8">#E67E22</color>
+
 </resources>

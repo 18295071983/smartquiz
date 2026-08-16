@@ -113,7 +113,8 @@ class PythonToolEngine:
     
     def execute_code(self, code: str, timeout: int = 30,
                      capture_output: bool = True,
-                     variables: dict[str, object] | None = None) -> dict[str, str | bool | float | None | list[str] | dict[str, str] | object]:
+                     variables: dict[str, object] | None = None,
+                     ui_callback=None) -> dict[str, str | bool | float | None | list[str] | dict[str, str] | object]:
         """
         执行 Python 代码
         
@@ -122,6 +123,7 @@ class PythonToolEngine:
             timeout: 超时时间（秒）
             capture_output: 是否捕获输出
             variables: 传入的变量字典
+            ui_callback: UI 操作回调函数，接收 action dict，返回结果 dict
             
         Returns:
             {
@@ -130,7 +132,8 @@ class PythonToolEngine:
                 "stdout": str,
                 "stderr": str,
                 "error": str,
-                "execution_time": float
+                "execution_time": float,
+                "ui_actions": list[dict]  # UI 操作记录
             }
         """
         start_time = time.time()
@@ -140,14 +143,13 @@ class PythonToolEngine:
             "stdout": "",
             "stderr": "",
             "error": "",
-            "execution_time": 0.0
+            "execution_time": 0.0,
+            "ui_actions": []
         }
         
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
         
-        # 使用同一个 namespace 作为 globals 和 locals
-        # 避免 f-string 在分离 globals/locals 时的兼容性问题
         namespace = {
             "__name__": "__main__",
             "__builtins__": __builtins__,
@@ -156,6 +158,18 @@ class PythonToolEngine:
         
         if variables:
             namespace.update(variables)
+        
+        # UI 操作记录
+        ui_action_log = []
+        
+        def ui_wrapper(action):
+            ui_action_log.append(action)
+            if ui_callback:
+                try:
+                    return ui_callback(action)
+                except Exception as e:
+                    return {'success': False, 'message': str(e)}
+            return {'success': False, 'message': 'UI callback not set'}
         
         def run_code():
             nonlocal result
@@ -180,6 +194,7 @@ class PythonToolEngine:
                 if capture_output:
                     result["stdout"] = stdout_buffer.getvalue()
                     result["stderr"] = stderr_buffer.getvalue()
+                result["ui_actions"] = ui_action_log
         
         thread = threading.Thread(target=run_code)
         thread.daemon = True

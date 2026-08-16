@@ -107,9 +107,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     /** 独立拆分列索引（通过"拆分选项"按钮设置，不依赖fieldMapping） */
     private int independentSplitCol = -1;
 
-    // 映射字段选项（从 QuestionField 动态生成，支持 A~L 选项和 12 个空答案字段）
+    // 映射字段选项（与 WebView 下拉及 v1 导入实际支持的字段严格一致，单一数据源）
     private java.util.ArrayList<String> fieldOptions = new java.util.ArrayList<>(
-            com.oilquiz.app.model.QuestionField.getFieldOptions());
+            com.oilquiz.app.util.render.WebViewRenderer.getFieldOptions());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -246,6 +246,8 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             @Override
             public void onRenderComplete(String htmlContent) {
                 runOnUiThread(() -> {
+                    // 渲染线程回调时页面可能已销毁：不再操作视图/弹 Toast
+                    if (isFinishing() || isDestroyed()) return;
                     loadingContainer.setVisibility(View.GONE);
                     previewWebView.setVisibility(View.VISIBLE);
                     
@@ -1051,12 +1053,12 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             }
         }
         
-        // 生成下一个字母
+        // 生成下一个字母（导入仅支持到选项L，超出提示已达上限）
         char nextChar = (char) (maxChar + 1);
-        if (nextChar <= 'Z') { // 最多支持到选项Z
+        if (nextChar <= 'L') { // A~L 全部支持
             return nextChar;
         } else {
-            return 0; // 超过Z，返回0表示无法添加
+            return 0; // 超过L，返回0表示无法添加
         }
     }
     

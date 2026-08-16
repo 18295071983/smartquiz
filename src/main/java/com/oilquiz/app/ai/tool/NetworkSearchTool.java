@@ -284,9 +284,11 @@ public class NetworkSearchTool implements AITool {
             JSONObject responseJson = new JSONObject(jsonResponse);
 
             // 秘塔可能返回业务错误码 {code:5000,message:...}，code非0表示失败
+            // 必须抛异常让上层感知真实错误（余额/限流），而不是吞掉当"未找到结果"
             if (responseJson.has("code") && responseJson.optInt("code", 0) != 0) {
-                AILogger.w(TAG, "秘塔搜索返回业务错误: " + responseJson.optString("message", "未知错误"));
-                return results;
+                String msg = responseJson.optString("message", "未知错误");
+                AILogger.w(TAG, "秘塔搜索返回业务错误: " + msg);
+                throw new IllegalStateException("搜索服务错误(" + responseJson.optInt("code") + "): " + msg);
             }
 
             // 秘塔搜索结果在 "webpages" 数组中（实测响应结构）
@@ -1324,9 +1326,14 @@ public class NetworkSearchTool implements AITool {
     }
     
     private String removeHtmlTags(String html) {
-        String text = html.replaceAll("<[^>]+>", "");
-        text = text.replaceAll("\\s+", " ").trim();
-        return text;
+        // 块级标签替换为换行，保留段落结构（否则整页折叠成一段，切片失效）
+        String text = html.replaceAll("(?i)<(p|div|br|li|h[1-6]|tr|section|article|blockquote|table)[^>]*>", "\n");
+        text = text.replaceAll("<[^>]+>", "");
+        // 水平空白折叠为单个空格，但保留 \n
+        text = text.replaceAll("[ \\t\\x0B\\f\\r]+", " ");
+        // 压缩多余空行
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
     
     private String cleanText(String text) {

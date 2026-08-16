@@ -151,12 +151,85 @@ public class ImportActivity extends BaseActivity {
             }
         });
 
+        // 底部「开始导入」按钮：重新打开文件选择器（此前为无监听死按钮）
+        MaterialButton startBtn = findViewById(R.id.btnStartImport);
+        if (startBtn != null) {
+            startBtn.setOnClickListener(v -> {
+                if (v2Finished) {
+                    finish();
+                    return;
+                }
+                importQuestions();
+            });
+        }
+
+        // 「AI解析」按钮：对当前文件走 v2 智能管线（AI 字段映射+解析+填充+入库）；
+        // 无文件时先引导选择文件
+        if (buttonAIParse != null) {
+            buttonAIParse.setOnClickListener(v -> {
+                if (v2Finished) return;
+                if (currentFile == null || !currentFile.exists()) {
+                    Toast.makeText(this, "请先选择要导入的文件", Toast.LENGTH_SHORT).show();
+                    importQuestions();
+                    return;
+                }
+                if (tryV2PipelineImport(currentFile)) {
+                    // v2 管线已接管（source 目录内文件）
+                } else {
+                    // 目录外文件：同样可直接走 v2 智能管线
+                    resetImportLogState();
+                    updateProgressDisplay("AI 解析启动...", 0, 0);
+                    v2ImportMain = new ImportMain(this);
+                    v2ImportMain.run(currentFile, new ImportMain.ImportListener() {
+                        @Override
+                        public void onStage(String stage, String message) {
+                            appendLog(message);
+                            updateProgressDisplay(message, 0, 0);
+                        }
+
+                        @Override
+                        public void onLog(String message) {
+                            appendLog(message);
+                            updateProgressDisplay(message, 0, 0);
+                        }
+
+                        @Override
+                        public void onProgress(long current, long total, String detail) {
+                            int c = (int) Math.min(current, Integer.MAX_VALUE);
+                            int t = total > Integer.MAX_VALUE ? 0 : (int) Math.max(total, 1);
+                            appendProgressLog(detail, current, total);
+                            updateProgressDisplay(detail + " " + current + "/" + total, c, t);
+                        }
+
+                        @Override
+                        public void onComplete(ImportMain.ImportSummary summary) {
+                            String msg = "✅ 新增 " + summary.imported + " 题\n"
+                                    + "重复跳过 " + summary.duplicated + " 题\n"
+                                    + "失败 " + summary.failed + " 题\n"
+                                    + "映射来源: " + summary.mappingSource
+                                    + (summary.resumed ? "（断点续导）" : "") + "\n"
+                                    + "耗时 " + (summary.elapsedMs / 1000) + " 秒";
+                            appendLog("══ AI 解析完成：新增 " + summary.imported + " / 重复 "
+                                    + summary.duplicated + " / 失败 " + summary.failed + " ══");
+                            showImportResultSummary("✅ AI 解析完成", msg);
+                        }
+
+                        @Override
+                        public void onError(String message) {
+                            showErrorDialog("导入失败", message);
+                        }
+                    });
+                }
+            });
+        }
+
         // source 目录一键批量导入模式（由导入引导页携带 EXTRA 启动）
         if (getIntent().getBooleanExtra(EXTRA_SOURCE_DIR_MODE, false)) {
             // 立即消费 EXTRA：Activity 因配置变化重建时 onCreate 会携带同一 Intent 重走，
             // 移除后避免同一次启动请求被重复执行两遍批量导入
             getIntent().removeExtra(EXTRA_SOURCE_DIR_MODE);
-            startSourceDirImport();
+            // 新功能：批量导入前先检查是否有未完成的导入进度，可续导或删除断点重来
+            confirmBreakpointBeforeImport(this::startSourceDirImport);
             return;
         }
 
@@ -177,16 +250,67 @@ public class ImportActivity extends BaseActivity {
     private String batchIssuesMessage;
 
     /**
-     * source 目录一键导入：扫描 /storage/emulated/0/OilQuiz/source/ 下全部题库文件
-     * 依次走 v2 管线，实时展示进度，结束后弹窗汇总；单文件失败不中断整批。
+     * source 目录一键导入：先扫描可导入文件清单供用户确认（新功能），
+     * 确认后依次走 v2 管线，实时展示进度，结束后弹窗汇总；单文件失败不中断整批。
      */
     private void startSourceDirImport() {
+        File dir = ImportDirs.sourceDir();
+        File[] all = dir.listFiles();
+        if (all == null || all.length == 0) {
+            showErrorDialog("源目录为空", "请先将题库文件放入:\n" + dir.getAbsolutePath());
+            return;
+        }
+        java.util.List<File> files = new ArrayList<>();
+        for (File f : all) {
+            if (!f.isFile()) continue;
+            String lower = f.getName().toLowerCase(java.util.Locale.ROOT);
+            if (lower.endsWith(".sql") || lower.endsWith(".db") || lower.endsWith(".sqlite")
+                    || lower.endsWith(".sqlite3") || lower.endsWith(".db3")
+                    || lower.endsWith(".xlsx") || lower.endsWith(".xls")
+                    || lower.endsWith(".csv") || lower.endsWith(".json") || lower.endsWith(".txt")) {
+                files.add(f);
+            }
+        }
+        if (files.isEmpty()) {
+            showErrorDialog("没有可导入的文件",
+                    "source 目录内没有识别到题库文件（支持 csv/xlsx/xls/json/sql/db/txt）");
+            return;
+        }
+        // 文件清单确认：避免误触批量导入所有文件
+        StringBuilder sb = new StringBuilder("将批量导入 " + files.size() + " 个文件：\n\n");
+        int shown = 0;
+        for (File f : files) {
+            if (shown++ >= 8) {
+                sb.append("…等共 ").append(files.size()).append(" 个\n");
+                break;
+            }
+            sb.append("• ").append(f.getName()).append('\n');
+        }
+        sb.append("\n已导入过的题目会自动去重跳过，可放心重复导入。");
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("确认批量导入")
+                .setMessage(sb.toString())
+                .setPositiveButton("开始导入", (d, w) -> runSourceDirBatch())
+                .setNegativeButton("取消", (d, w) -> {
+                    appendLog("已取消批量导入");
+                    finish();
+                })
+                .show();
+    }
+
+    /** source 目录批量导入实际执行体（清单确认通过后调用） */
+    private void runSourceDirBatch() {
         batchImported = 0;
         batchDuplicated = 0;
         batchFailed = 0;
         batchFilesDone = 0;
         batchFileErrors = 0;
         batchIssuesMessage = null;
+
+        // 批量模式只保留「取消」：隐藏「开始导入/AI解析」，避免与批量流程冲突
+        MaterialButton batchStartBtn = findViewById(R.id.btnStartImport);
+        if (batchStartBtn != null) batchStartBtn.setVisibility(View.GONE);
+        if (buttonAIParse != null) buttonAIParse.setVisibility(View.GONE);
 
         resetImportLogState();
         updateProgressDisplay("扫描 source 目录: " + ImportDirs.sourceDir().getAbsolutePath(), 0, 0);
@@ -454,6 +578,15 @@ public class ImportActivity extends BaseActivity {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
+            // 只允许可导入格式：xlsx/xls/csv/json/txt/db
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel",
+                    "text/csv", "text/comma-separated-values", "text/plain",
+                    "application/json",
+                    "application/x-sqlite3", "application/octet-stream",
+                    "application/x-sqlite", "application/vnd.sqlite3"
+            });
             startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
         } catch (Exception e) {
             android.util.Log.w(TAG, "ACTION_OPEN_DOCUMENT 启动失败，降级为 ACTION_GET_CONTENT: " + e.getMessage());
@@ -461,6 +594,13 @@ public class ImportActivity extends BaseActivity {
                 Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
                 fallback.addCategory(Intent.CATEGORY_OPENABLE);
                 fallback.setType("*/*");
+                fallback.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-excel",
+                        "text/csv", "text/comma-separated-values", "text/plain",
+                        "application/json",
+                        "application/x-sqlite3", "application/octet-stream"
+                });
                 startActivityForResult(fallback, REQUEST_CODE_PICK_FILE);
             } catch (Exception ex) {
                 Toast.makeText(this, "无法打开文件选择器: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
@@ -545,13 +685,18 @@ public class ImportActivity extends BaseActivity {
     
     private void showErrorDialog(String title, String message) {
         appendLog("⚠ " + title + ": " + message);
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage("❌ " + message)
-            .setPositiveButton("继续查看", null)
-            .setNegativeButton("关闭页面", (dialog, which) -> finish())
-            .setCancelable(false)
-            .show();
+        // 回调可能来自后台线程（mainHandler.post），页面销毁后弹窗会 BadTokenException：
+        // 切主线程 + 生命周期保护
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage("❌ " + message)
+                .setPositiveButton("继续查看", null)
+                .setNegativeButton("关闭页面", (dialog, which) -> finish())
+                .setCancelable(false)
+                .show();
+        });
     }
     
     private void proceedWithTraditionalImport(File file) {
@@ -598,20 +743,27 @@ public class ImportActivity extends BaseActivity {
                         });
                     }
                 } else if (format == ExcelUtil.FileFormat.CSV) {
-                    // CSV文件直接导入
-                    updateProgressDisplay("检测到CSV文件，准备导入...", 0, 0);
+                    // CSV文件直接导入（自动检测字段映射，避免 fieldMapping=null 时题目全判无效）
+                    updateProgressDisplay("检测到CSV文件，自动识别字段...", 0, 0);
                     currentSheetIndex = 0;
-                    performImport(file, 0, null);
+                    Map<String, Integer> autoMap = ExcelUtil.buildDefaultCsvFieldMapping(file);
+                    if (autoMap != null && !autoMap.isEmpty()) {
+                        this.fieldMapping = autoMap;
+                        performImport(file, 0, autoMap);
+                    } else {
+                        performImport(file, 0, null);
+                    }
                 } else if (format == ExcelUtil.FileFormat.JSON) {
-                    // JSON文件直接导入
+                    // JSON文件直接导入（importJson 用 FieldMappingRegistry 自动别名提取，fieldMapping 可空）
                     updateProgressDisplay("检测到JSON文件，准备导入...", 0, 0);
                     currentSheetIndex = 0;
                     performImport(file, 0, null);
                 } else {
-                    // 其他格式
-                    updateProgressDisplay("检测到文件，准备导入...", 0, 0);
-                    currentSheetIndex = 0;
-                    performImport(file, 0, null);
+                    // 不支持的格式（Word/PDF/Markdown 等）：提前拦截，避免进入 Excel 解析报错
+                    updateProgressDisplay("不支持的文件格式", 0, 0);
+                    runOnUiThread(() -> showErrorDialog("不支持的文件格式",
+                            "当前仅支持导入 Excel(.xlsx/.xls)、CSV、JSON 或 SQL 题库文件"));
+                    return;
                 }
             } catch (Exception e) {
                 runOnUiThread(new Runnable() {
@@ -636,6 +788,41 @@ public class ImportActivity extends BaseActivity {
     private ImportMain v2ImportMain;
 
     /**
+     * 新功能：导入启动前检查未完成的导入进度（断点）。
+     * 存在断点 → 弹窗让用户选择「继续续导」或「删除断点重新开始」；
+     * 不存在 → 直接继续。
+     */
+    private void confirmBreakpointBeforeImport(Runnable proceed) {
+        try {
+            com.oilquiz.app.ai.importing.v2.ImportBreakpointStore.State bp =
+                    com.oilquiz.app.ai.importing.v2.ImportBreakpointStore.load();
+            if (bp == null) {
+                proceed.run();
+                return;
+            }
+            String srcName = bp.sourceName != null && !bp.sourceName.isEmpty()
+                    ? bp.sourceName : "（未知文件）";
+            String detail = bp.ingestOffset > 0
+                    ? "已入库 " + bp.ingestOffset + " 行" : "解析到第 " + bp.parseRowIndex + " 行";
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("检测到未完成的导入")
+                    .setMessage("上次导入「" + srcName + "」未完成（" + detail + "）。\n\n"
+                            + "「继续续导」：从上次进度继续，已导入题目不会重复；\n"
+                            + "「删除断点重来」：清除进度后从头导入。")
+                    .setPositiveButton("继续续导", (d, w) -> proceed.run())
+                    .setNegativeButton("删除断点重来", (d, w) -> {
+                        com.oilquiz.app.ai.importing.v2.ImportBreakpointStore.clear();
+                        appendLog("已清除导入断点，重新开始导入");
+                        proceed.run();
+                    })
+                    .show();
+        } catch (Exception e) {
+            // 断点读取异常不阻断导入
+            proceed.run();
+        }
+    }
+
+    /**
      * 尝试使用 v2 专用离线导入管线：仅接管公共 source 目录
      * （/storage/emulated/0/OilQuiz/source/）内的题库文件，其余文件维持传统流程。
      */
@@ -643,13 +830,21 @@ public class ImportActivity extends BaseActivity {
         try {
             String srcRoot = ImportDirs.sourceDir().getCanonicalPath();
             String filePath = file.getCanonicalPath();
-            if (!filePath.startsWith(srcRoot)) {
+            // 目录边界：必须是 srcRoot 内（排除 source_backup/source_old 等兄弟目录）
+            if (!filePath.startsWith(srcRoot + File.separator)) {
                 return false;
             }
         } catch (Exception e) {
             return false;
         }
 
+        // 新功能：启动前检查未完成进度（续导或删除断点重来）
+        confirmBreakpointBeforeImport(() -> startV2SingleImport(file));
+        return true;
+    }
+
+    /** 单文件 v2 离线导入启动（tryV2PipelineImport 的实际执行体） */
+    private void startV2SingleImport(File file) {
         resetImportLogState();
         updateProgressDisplay("专用离线导入管线启动...", 0, 0);
         appendLog("专用离线导入管线启动: " + file.getName());
@@ -695,12 +890,13 @@ public class ImportActivity extends BaseActivity {
                 showErrorDialog("导入失败", message);
             }
         });
-        return true;
     }
     
     private Map<String, String> difficultyMapping;
     private Map<String, String> categoryMapping;
     private Map<String, Integer> fieldMapping;
+    /** 预览阶段配置的导入设置（智能映射回程复用，避免默认值丢失） */
+    private ExcelUtil.ImportSettings pendingImportSettings;
     /** 选项分隔符（用于"选项(拆分)"拆分模式） */
     private String optionsDelimiter;
     /** 拆分部分自定义映射：拆分部分索引(0-based) → 选项字段名（如"选项A"） */
@@ -817,11 +1013,12 @@ public class ImportActivity extends BaseActivity {
                         .setTitle("导入确认")
                         .setMessage(message.toString())
                         .setPositiveButton("开始导入", (dialog, which) -> {
-                            // 先检测数据问题，再进行题型映射
-                            detectDataIssuesAndProceed(file, sheetIndex, confirmation);
+                            // 快速路径：字段映射已确认，直接导入（不再强制跳题型映射/数据修复，
+                            // 简单文件一键导入；需要高级处理用"高级处理"）
+                            performImport(file, sheetIndex, confirmation.fieldMapping);
                         })
                         .setNeutralButton("编辑映射", (dialog, which) -> {
-                            // 编辑映射
+                            // 编辑映射（含 AI 自动映射）
                             editMapping(file, sheetIndex, confirmation);
                         })
                         .setNegativeButton("取消", (dialog, which) -> finish())
@@ -894,14 +1091,17 @@ public class ImportActivity extends BaseActivity {
     }
 
     private void editQuestionTypeMapping(File file, int sheetIndex, ExcelUtil.ImportConfirmation confirmation) {
-        // 检测文件中的题型
-        List<String> detectedQuestionTypes = ExcelUtil.detectQuestionTypes(file, sheetIndex, confirmation.fieldMapping);
-        
-        // 即使没有检测到题型，也启动题型映射编辑界面
-        Intent intent = new Intent(this, QuestionTypeMapperActivity.class);
-        intent.putExtra(QuestionTypeMapperActivity.EXTRA_DETECTED_QUESTION_TYPES, new ArrayList<>(detectedQuestionTypes));
-        intent.putExtra(QuestionTypeMapperActivity.EXTRA_QUESTION_TYPE_MAPPING, (java.io.Serializable) questionTypeMapping);
-        startActivityForResult(intent, REQUEST_CODE_QUESTION_TYPE_MAPPING);
+        // 后台线程检测题型（整表解析耗时，避免主线程 ANR）
+        new Thread(() -> {
+            final List<String> detectedQuestionTypes = ExcelUtil.detectQuestionTypes(file, sheetIndex, confirmation.fieldMapping);
+            runOnUiThread(() -> {
+                // 即使没有检测到题型，也启动题型映射编辑界面
+                Intent intent = new Intent(this, QuestionTypeMapperActivity.class);
+                intent.putExtra(QuestionTypeMapperActivity.EXTRA_DETECTED_QUESTION_TYPES, new ArrayList<>(detectedQuestionTypes));
+                intent.putExtra(QuestionTypeMapperActivity.EXTRA_QUESTION_TYPE_MAPPING, (java.io.Serializable) questionTypeMapping);
+                startActivityForResult(intent, REQUEST_CODE_QUESTION_TYPE_MAPPING);
+            });
+        }).start();
     }
 
     @Override
@@ -1034,7 +1234,8 @@ public class ImportActivity extends BaseActivity {
                             + ", 自定义部分映射=" + (partMapping != null ? partMapping.size() : 0) + "项");
                 }
                 
-                // 跳转到智能映射界面
+                // 跳转到智能映射界面（保存预览配置的设置，回程复用，避免配置丢失）
+                pendingImportSettings = settings;
                 startSmartMapping(currentFile, currentSheetIndex, this.fieldMapping, settings);
             }
         } else if (requestCode == REQUEST_CODE_SMART_MAPPING && resultCode == RESULT_OK && data != null) {
@@ -1047,11 +1248,10 @@ public class ImportActivity extends BaseActivity {
                 fieldMapping = newFieldMapping;
             }
             
-            // 生成导入确认信息
+            // 生成导入确认信息（复用预览阶段配置的 ImportSettings，不再重建丢失配置）
             if (currentFile != null && fieldMapping != null) {
-                // 创建并配置 ImportSettings
-                ImportSettings settings = new ImportSettings();
-                // 这里可以从 data 中获取设置，或者使用默认设置
+                ImportSettings settings = pendingImportSettings != null
+                        ? pendingImportSettings : new ImportSettings();
                 generateImportConfirmation(currentFile, currentSheetIndex, fieldMapping, settings);
             }
         } else if (requestCode == REQUEST_CODE_EDIT_MAPPING && resultCode == RESULT_OK && data != null) {
@@ -1086,7 +1286,8 @@ public class ImportActivity extends BaseActivity {
             setResult(resultCode);
             finish();
         } else {
-            finish();
+            // 取消或未处理的返回：不关闭导入页，保留当前文件/映射状态（用户可重新操作）
+            Log.d(TAG, "未处理的返回: requestCode=" + requestCode + ", resultCode=" + resultCode);
         }
     }
 
@@ -1193,18 +1394,26 @@ public class ImportActivity extends BaseActivity {
 
             @Override
             public void onComplete(List<Question> questions, ExcelUtil.ImportResult result) {
-                // 数据修正已在 importExcel 内部循环中应用，无需此处再处理
-                
-                // 更新统计信息
-                updateStatsDisplay(result.validQuestions, result.invalidQuestions, result.totalQuestions);
-                
-                if (questions != null && !questions.isEmpty()) {
-                    // 直接保存题目
-                    saveQuestionsToDatabase(questions, result);
-                } else {
-                    // 没有题目需要保存，直接显示结果
-                    showImportCompleteDialog(result);
-                }
+                // 回调来自后台线程，需切回主线程操作 UI
+                runOnUiThread(() -> {
+                    // 用户取消：丢弃已解析的部分数据，不保存任何内容
+                    if (result != null && result.cancelled) {
+                        showErrorDialog("导入已取消", "已取消导入，未保存任何数据");
+                        return;
+                    }
+
+                    // 数据修正已在 importExcel 内部循环中应用，无需此处再处理
+                    // 更新统计信息
+                    updateStatsDisplay(result.validQuestions, result.invalidQuestions, result.totalQuestions);
+
+                    if (questions != null && !questions.isEmpty()) {
+                        // 直接保存题目
+                        saveQuestionsToDatabase(questions, result);
+                    } else {
+                        // 没有题目需要保存，直接显示结果
+                        showImportCompleteDialog(result);
+                    }
+                });
             }
         });
     }
@@ -1270,6 +1479,11 @@ public class ImportActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // 页面退出时终止后台 v2 导入任务（取消标志由 ImportMain 各阶段检查，
+        // 避免销毁后仍向已失效页面回调/继续占用资源）
+        if (v2ImportMain != null) {
+            v2ImportMain.cancel();
+        }
         // 注意：DatabaseManager 是全局单例，不能在此关闭线程池，
         // 否则会导致 AI 工具（get_question_count 等）报 RejectedExecutionException。
         // DatabaseManager 内部已支持 shutdown 后自动重建，但最佳实践是不主动关闭。

@@ -142,11 +142,16 @@ public class CSVExporter implements Exporter {
             selectedFields = ExportUtils.getQuestionFields();
         }
 
-        // 按选中顺序检查每个字段，跳过收藏字段，仅保留有值的字段
+        // 按选中顺序检查每个字段，跳过收藏字段与开关关闭的字段，仅保留有值的字段
         for (String fieldName : selectedFields) {
             if (fieldName.equals("favorite")) {
                 continue;
             }
+            // 导出选项开关：包含答案/解析/难度（与 Markdown/PDF/Word 等导出器口径一致）
+            ExportManager.ExportConfig cfg = task.getConfig();
+            if (!cfg.isIncludeAnswers() && isAnswerField(fieldName)) continue;
+            if (!cfg.isIncludeExplanations() && isExplanationField(fieldName)) continue;
+            if (!cfg.isIncludeDifficulty() && isDifficultyField(fieldName)) continue;
 
             boolean hasValue = false;
             for (Question question : questions) {
@@ -168,6 +173,22 @@ public class CSVExporter implements Exporter {
         }
 
         return new java.util.ArrayList<>(nonEmptyFields);
+    }
+
+    /** 答案类字段（受「包含答案」开关控制） */
+    private static boolean isAnswerField(String field) {
+        return "correctAnswer".equals(field) || "answerText".equals(field)
+                || (field != null && field.startsWith("blankAnswer"));
+    }
+
+    /** 解析类字段（受「包含解析」开关控制） */
+    private static boolean isExplanationField(String field) {
+        return "explanation".equals(field) || "analysis".equals(field);
+    }
+
+    /** 难度类字段（受「包含难度」开关控制） */
+    private static boolean isDifficultyField(String field) {
+        return "difficulty".equals(field) || "difficultyText".equals(field);
     }
 
     /**

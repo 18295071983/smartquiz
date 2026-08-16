@@ -8,6 +8,7 @@ import com.oilquiz.app.ai.speech.asr.AsrEngine;
 import com.oilquiz.app.ai.speech.asr.BaiduAsrEngine;
 import com.oilquiz.app.ai.speech.asr.DashScopeAsrEngine;
 import com.oilquiz.app.ai.speech.asr.IflytekAsrEngine;
+import com.oilquiz.app.ai.speech.asr.MimoAsrEngine;
 import com.oilquiz.app.ai.speech.asr.OpenAiAsrEngine;
 import com.oilquiz.app.ai.speech.asr.VolcanoAsrEngine;
 import com.oilquiz.app.ai.speech.core.SpeechModelSelector;
@@ -63,6 +64,7 @@ public class SpeechRecognitionService {
     private final IflytekAsrEngine iflytekEngine;
     private final VolcanoAsrEngine volcanoEngine;
     private final BaiduAsrEngine baiduEngine;
+    private final MimoAsrEngine mimoEngine;
 
     /** 用户指定的 ASR 模型名覆盖（为 null 时自动选择） */
     private volatile String asrModelOverride = null;
@@ -82,6 +84,7 @@ public class SpeechRecognitionService {
         this.iflytekEngine = new IflytekAsrEngine();
         this.volcanoEngine = new VolcanoAsrEngine();
         this.baiduEngine = new BaiduAsrEngine();
+        this.mimoEngine = new MimoAsrEngine();
     }
 
     public static SpeechRecognitionService getInstance(Context context) {
@@ -109,16 +112,28 @@ public class SpeechRecognitionService {
 
     /** 是否有可用的在线 ASR 模型配置 */
     public boolean isAvailable() {
+        // 优先检查是否有语音识别专用模型
+        try {
+            OnlineModelManager mm = OnlineModelManager.getInstance(context);
+            if (mm.hasFeatureModel(OnlineModelManager.FEATURE_ASR)) {
+                AILogger.d(TAG, "isAvailable: true (has FEATURE_ASR)");
+                return true;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "FEATURE_ASR check failed: " + e.getMessage(), e);
+        }
+        
         // 快速路径：检查是否有语音服务商的端点配置
         try {
-            com.oilquiz.app.ai.model.OnlineModelManager mm = com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context);
-            for (com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config : mm.getModelList()) {
+            OnlineModelManager mm = OnlineModelManager.getInstance(context);
+            for (OnlineModelManager.OnlineModelConfig config : mm.getModelList()) {
                 if (!config.enabled) continue;
                 if (config.apiUrl != null && (
-                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(config.apiUrl) ||
-                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isXfyunEndpoint(config.apiUrl) ||
-                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isVolcanoEndpoint(config.apiUrl) ||
-                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.isBaiduEndpoint(config.apiUrl))) {
+                    SpeechModelSelector.isDashScopeEndpoint(config.apiUrl) ||
+                    SpeechModelSelector.isXfyunEndpoint(config.apiUrl) ||
+                    SpeechModelSelector.isVolcanoEndpoint(config.apiUrl) ||
+                    SpeechModelSelector.isBaiduEndpoint(config.apiUrl) ||
+                    SpeechModelSelector.isMimoEndpoint(config.apiUrl))) {
                     AILogger.d(TAG, "isAvailable: true (endpoint=" + config.name + ")");
                     return true;
                 }
@@ -206,6 +221,7 @@ public class SpeechRecognitionService {
         if (SpeechModelSelector.isXfyunEndpoint(config.apiUrl)) return iflytekEngine;
         if (SpeechModelSelector.isVolcanoEndpoint(config.apiUrl)) return volcanoEngine;
         if (SpeechModelSelector.isBaiduEndpoint(config.apiUrl)) return baiduEngine;
+        if (SpeechModelSelector.isMimoEndpoint(config.apiUrl)) return mimoEngine;
         return openAiEngine;
     }
 

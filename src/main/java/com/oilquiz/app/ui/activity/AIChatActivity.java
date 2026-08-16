@@ -64,6 +64,7 @@ import com.oilquiz.app.ai.agent.ToolErrorRecovery;
 import com.oilquiz.app.ai.agent.ToolPreChecker;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.chat.ChatOrchestrator;
+import com.oilquiz.app.ai.chat.MessageAttachmentAdapter;
 import com.oilquiz.app.ai.chat.NativeEventBridge;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.jni.LlamaHelper;
@@ -205,6 +206,7 @@ public class AIChatActivity extends BaseActivity {
     private AIEntertainmentManager aiEntertainmentManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
+    /** 独立 Agent 执行面板已移除：Agent 过程改为组件插入式显示在 AI 消息内 */
     private ModelExecutionBridge modelBridge;
     private SkillManager skillManager;
     private AIConfig aiConfig;
@@ -237,8 +239,12 @@ public class AIChatActivity extends BaseActivity {
     private volatile boolean isInTag = false;
     private volatile StringBuilder tagBuffer = null;
     // 流式 UI 更新节流：避免高频 token 导致主线程过载卡顿
-    private static final long UI_UPDATE_THROTTLE_MS = 80;
+    private static final long UI_UPDATE_THROTTLE_MS = 120;
     private volatile long lastTokenUiUpdateTime = 0;
+    /** 流式 token 统计（onToken 实时累计，节流刷新状态栏） */
+    private volatile long streamingTokenCount = 0;
+    private volatile long streamingStartTime = 0;
+    private volatile long lastTokenStatsUiUpdateTime = 0;
     private volatile long lastThinkingUiUpdateTime = 0;
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
@@ -392,10 +398,13 @@ public class AIChatActivity extends BaseActivity {
             quickActionsChipGroup = findViewById(R.id.quick_actions_chip_group);
             ivQuickExpand = findViewById(R.id.iv_quick_expand);
 
-            // 快捷工具栏折叠/展开功能（默认展开）
-            quickBarExpanded = true;
+            // 快捷工具栏折叠/展开功能（默认折叠，节省底部空间；14 个快捷入口展开查看）
+            quickBarExpanded = false;
             if (ivQuickExpand != null) {
-                ivQuickExpand.setImageResource(R.drawable.ic_collapse);
+                ivQuickExpand.setImageResource(R.drawable.ic_expand);
+            }
+            if (quickActionsChipGroup != null) {
+                quickActionsChipGroup.setVisibility(View.GONE);
             }
             if (quickBarHeader != null) {
                 quickBarHeader.setOnClickListener(v -> {
@@ -453,6 +462,27 @@ public class AIChatActivity extends BaseActivity {
                     showMessageSpeechOptions(message);
                 }
             });
+            // 附件图片/文件点击：应用内预览（不依赖系统图片查看器）
+            chatAdapter.setOnAttachmentClickListener(new MessageAttachmentAdapter.OnAttachmentClickListener() {
+                @Override
+                public void onPreview(ChatMessage.Attachment attachment) {
+                    if (attachment != null && attachment.url != null) {
+                        showImagePreview(attachment.url);
+                    }
+                }
+
+                @Override
+                public void onSave(ChatMessage.Attachment attachment) {
+                }
+
+                @Override
+                public void onShare(ChatMessage.Attachment attachment) {
+                }
+
+                @Override
+                public void onModelLinkClick(String modelName, String apiUrl) {
+                }
+            });
             messageList.setAdapter(chatAdapter);
 
             setupKeyboardListener();
@@ -507,7 +537,7 @@ public class AIChatActivity extends BaseActivity {
             // 创建模型执行桥接器 - UI与模型之间的唯一通道
             modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
 
-            if (aiService == null) {
+            if (aiService == null && !shouldUseOnlineModel()) {
                 showToast("AI服务初始化失败");
                 return;
             }
@@ -809,6 +839,18 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 停止/发送按钮切换：生成中显示停止、隐藏发送；空闲反之（同位置切换）
+     */
+    private void toggleStopButton(boolean show) {
+        if (btnStopGeneration != null) {
+            btnStopGeneration.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        if (btnSend != null) {
+            btnSend.setVisibility(show ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    /**
      * 更新 loading 文本（通过 thinkingIndicator 或 loading view）
      */
     private void updateLoadingText(String text) {
@@ -1107,8 +1149,8 @@ public class AIChatActivity extends BaseActivity {
         lifecycleManager = new GenerationLifecycleManager(this, uiHandler, new GenerationLifecycleManager.Callback() {
             @Override public void onShowThinkingIndicator() { showLoading("正在思考...", null); }
             @Override public void onHideThinkingIndicator() { hideLoading(); }
-            @Override public void onShowStopButton() { if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.VISIBLE); }
-            @Override public void onHideStopButton() { if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.GONE); }
+            @Override public void onShowStopButton() { toggleStopButton(true); }
+            @Override public void onHideStopButton() { toggleStopButton(false); }
             @Override public void onUpdateMessageContent(int index, String content) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatHistory.get(index).content = content; chatAdapter.notifyItemChanged(index, ChatAdapter.PAYLOAD_CONTENT_UPDATE); } }
             @Override public void onUpdateMessageThinking(int index, String thinkingContent) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatAdapter.updateMessageThinkingContent(index, thinkingContent); } }
             @Override public void onAddAIMessage(ChatMessage message) { chatHistory.add(message); if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1); scrollToBottom(true); }
@@ -3154,6 +3196,8 @@ public class AIChatActivity extends BaseActivity {
 
     private void sendMessage() {
         if (isGenerating) { showToast("AI正在生成中，请稍候"); return; }
+        // 新一轮对话开始：清空上一轮残留的工具组件收集，避免串轮
+        com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
         String message = inputMessage.getText().toString().trim();
 
         List<ChatMessage.Attachment> savedAttachments = new ArrayList<>(currentAttachments);
@@ -3956,8 +4000,9 @@ public class AIChatActivity extends BaseActivity {
                     // 在线模型：先显示友好引导，再走ReAct
                     showOnlineAgentFriendlyGuide(message);
                 } else {
-                    // 本地模型：显示回退提示
-                    addSystemMessage("🔄 当前使用本地模型，Agent功能将通过本地推理提供支持\n\n提示：在线模型支持更丰富的工具调用和推理能力，建议切换到在线模型获得最佳体验。", ChatMessage.SystemMessageType.INFO);
+                    // 本地模型：静默降级到普通对话（不显示提示）
+                    processChatMessageNormal(message);
+                    return;
                 }
                 
                 // 统一走 Agent 路由（在线引擎会自动处理本地回退）
@@ -3972,86 +4017,91 @@ public class AIChatActivity extends BaseActivity {
             }
 
             // 其他模式：使用普通聊天
-            // 使用本地模型
-            if (aiService == null) { addSystemMessage("AI服务未初始化"); return; }
-            
-            synchronized (streamingLock) {
-                if (isGenerating) {
-                    AppLogger.aiW(TAG, "processChatMessage skipped, already generating");
-                    showToast("AI正在生成中，请稍候");
-                    return;
-                }
-            }
-            
-            // 检查 Native 层状态，如果无效则自动恢复
-            if (!modelBridge.isNativeStateValid()) {
-                AppLogger.aiW(TAG, "Native state invalid, triggering auto-recovery");
-                addSystemMessage("⚠️ 检测到AI模型状态异常，正在自动恢复...", ChatMessage.SystemMessageType.WARNING);
-                if (recoveryHandler != null) {
-                    recoveryHandler.setPendingMessage(message);
-                    recoveryHandler.triggerAutoRecovery();
-                }
-                return;
-            }
-
-            if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled()) {
-                String cached = cacheManager.getCachedResponse(message);
-                if (cached != null) { addAIMessage(cached); addSystemMessage("(来自缓存)"); return; }
-            }
-
-            if (skillManager != null) {
-                List<SkillManager.Skill> matchedSkills = skillManager.matchSkills(message);
-                if (!matchedSkills.isEmpty()) {
-                    message = skillManager.buildSkillPrompt(matchedSkills.get(0).id, message);
-                }
-            }
-
-            synchronized (streamingLock) {
-                agentToolLoopCount = 0;
-                thinkingRoundEnded = false;
-                thinkingRoundCount = 1;
-                currentThinkingMessageIndex = -1;
-                currentStreamingContent = new StringBuilder();
-                currentThinkingContent = new StringBuilder();
-                currentStreamingMessageId = java.util.UUID.randomUUID().toString();
-                resetStreamingTts();
-                resetStreamingState();
-
-                ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
-                initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
-                initialMessage.status = ChatMessage.MessageStatus.GENERATING;
-                chatHistory.add(initialMessage);
-                currentStreamingMessageIndex = chatHistory.size() - 1;
-                if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
-                scrollToBottom();
-            }
-
-            beginGeneration();
-
-            final String prompt = message;
-            final int streamingIndex = currentStreamingMessageIndex;
-            final String streamingId = currentStreamingMessageId;
-
-            runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
-
-            int actualMaxTokens = aiConfig.getMaxTokens();
-            boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
-            if (outputRouter != null) {
-                outputRouter.reset();
-                outputRouter.setThinkingEnabled(enableThinking);
-            }
-            isInThinking = enableThinking;
-
-            // Agent模式已由processChatMessageWithAgent()处理（见4064-4078行），
-            // 这里只处理普通对话模式
-            AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
-            modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
-                createBridgeCallback(streamingIndex, streamingId));
+            processChatMessageNormal(message);
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessage: " + e.getMessage());
             endGeneration();
             addSystemMessage("处理消息时出错: " + e.getMessage());
         }
+    }
+
+    /**
+     * 处理普通对话（本地模型，无 Agent 工具调用）
+     * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
+     */
+    private void processChatMessageNormal(String message) {
+        if (aiService == null) { addSystemMessage("未选择本地模型，请切换到在线模型"); return; }
+        
+        synchronized (streamingLock) {
+            if (isGenerating) {
+                AppLogger.aiW(TAG, "processChatMessageNormal skipped, already generating");
+                showToast("AI正在生成中，请稍候");
+                return;
+            }
+        }
+        
+        // 检查 Native 层状态，如果无效则自动恢复
+        if (!modelBridge.isNativeStateValid()) {
+            AppLogger.aiW(TAG, "Native state invalid, triggering auto-recovery");
+            addSystemMessage("⚠️ 检测到AI模型状态异常，正在自动恢复...", ChatMessage.SystemMessageType.WARNING);
+            if (recoveryHandler != null) {
+                recoveryHandler.setPendingMessage(message);
+                recoveryHandler.triggerAutoRecovery();
+            }
+            return;
+        }
+
+        if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled()) {
+            String cached = cacheManager.getCachedResponse(message);
+            if (cached != null) { addAIMessage(cached); addSystemMessage("(来自缓存)"); return; }
+        }
+
+        if (skillManager != null) {
+            List<SkillManager.Skill> matchedSkills = skillManager.matchSkills(message);
+            if (!matchedSkills.isEmpty()) {
+                message = skillManager.buildSkillPrompt(matchedSkills.get(0).id, message);
+            }
+        }
+
+        synchronized (streamingLock) {
+            agentToolLoopCount = 0;
+            thinkingRoundEnded = false;
+            thinkingRoundCount = 1;
+            currentThinkingMessageIndex = -1;
+            currentStreamingContent = new StringBuilder();
+            currentThinkingContent = new StringBuilder();
+            currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+            resetStreamingTts();
+            resetStreamingState();
+
+            ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
+            initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
+            initialMessage.status = ChatMessage.MessageStatus.GENERATING;
+            chatHistory.add(initialMessage);
+            currentStreamingMessageIndex = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
+            scrollToBottom();
+        }
+
+        beginGeneration();
+
+        final String prompt = message;
+        final int streamingIndex = currentStreamingMessageIndex;
+        final String streamingId = currentStreamingMessageId;
+
+        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
+
+        int actualMaxTokens = aiConfig.getMaxTokens();
+        boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+        if (outputRouter != null) {
+            outputRouter.reset();
+            outputRouter.setThinkingEnabled(enableThinking);
+        }
+        isInThinking = enableThinking;
+
+        AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+        modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
+            createBridgeCallback(streamingIndex, streamingId));
     }
 
     /**
@@ -4198,56 +4248,21 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
 
+            // 检测是否使用在线模型
+            boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+            
+            // 本地模型 Agent 模式 → 静默降级到普通对话
+            if (!useOnlineModel) {
+                AppLogger.aiW(TAG, "Agent mode with local model → downgrade to normal chat");
+                processChatMessageNormal(message);
+                return;
+            }
+
             // 显示 Agent 模式激活提示
             addSystemMessage("🤖 Agent模式已激活，正在处理您的请求...");
 
-            // 检查AI服务是否已初始化，如果没有则等待初始化
-            boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-            if (!useOnlineModel) {
-                if (modelBridge == null || !modelBridge.isModelInitialized()) {
-                    addSystemMessage("⏳ AI服务正在初始化，请稍候...");
-                    // 在后台线程等待 AI 服务初始化（无限等待）
-                    new Thread(() -> {
-                        int waitCount = 0;
-                        
-                        while (true) {
-                            if (modelBridge != null && modelBridge.isModelInitialized()) {
-                                // AI 服务已初始化，继续处理
-                                runOnUiThread(() -> {
-                                    initAgentChatHandler();
-                                    processChatMessageWithAgent(message);
-                                });
-                                return;
-                            }
-                            
-                            try {
-                                Thread.sleep(1000); // 每秒检查一次
-                                waitCount++;
-                                
-                                // 更新等待提示
-                                final int currentWait = waitCount;
-                                runOnUiThread(() -> {
-                                    // 更新最后一条系统消息
-                                    if (!chatHistory.isEmpty()) {
-                                        ChatMessage lastMsg = chatHistory.get(chatHistory.size() - 1);
-                                        if (lastMsg.type == ChatMessage.MessageType.SYSTEM) {
-                                            lastMsg.content = "⏳ AI服务正在初始化... (" + currentWait + "秒)";
-                                            if (chatAdapter != null) {
-                                                chatAdapter.notifyItemChanged(chatHistory.size() - 1);
-                                            }
-                                        }
-                                    }
-                                });
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                runOnUiThread(() -> addErrorMessage("初始化被中断", "用户取消了等待", false));
-                                return;
-                            }
-                        }
-                    }).start();
-                    return;
-                }
-            }
+            // 在线模型模式：无需等待本地模型初始化（本地/在线已解绑，避免"AI服务初始化"提示与无限等待拖慢进程）
+            // 已确认 useOnlineModel=true 才走到这里
 
             // AI 服务已初始化，继续处理
             initAgentChatHandlerIfNeeded();
@@ -4274,22 +4289,11 @@ public class AIChatActivity extends BaseActivity {
 
             beginGeneration();
 
-            // 创建Agent执行组header（默认折叠，包裹所有中间消息）
+            // Agent 执行组 ID（用于标记过程消息；执行过程已由独立面板展示，
+            // 不再创建"🤖 Agent执行过程"组 header 系统消息，避免消息流冗余）
             currentAgentGroupId = java.util.UUID.randomUUID().toString();
             agentGroupStepCount = 0;
             agentGroupToolCount = 0;
-            ChatMessage groupHeader = ChatMessage.createSystemMessage(
-                java.util.UUID.randomUUID().toString(), "🤖 Agent执行过程",
-                ChatMessage.SystemMessageType.INFO, System.currentTimeMillis());
-            groupHeader.isAgentGroupHeader = true;
-            groupHeader.agentGroupId = currentAgentGroupId;
-            groupHeader.agentGroupCollapsed = true;
-            // 插入到流式AI消息前面
-            int headerPos = currentStreamingMessageIndex;
-            if (headerPos < 0 || headerPos >= chatHistory.size()) headerPos = chatHistory.size();
-            chatHistory.add(headerPos, groupHeader);
-            if (currentStreamingMessageIndex >= 0) currentStreamingMessageIndex++;
-            if (chatAdapter != null) chatAdapter.notifyItemInserted(headerPos);
 
             int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 4096;
             // 深度思考模式启用模型思考链
@@ -4701,16 +4705,16 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onToolCallStart(String messageId, String toolName, String args) {
-                runOnUiThread(() -> appendToolCallInProgress(toolName));
+                // 工具调用：创建工具卡片消息（不污染 AI 回答文本）
+                runOnUiThread(() -> addToolCallMessage(toolName, args != null ? args : "{}"));
             }
 
             @Override
             public void onToolCallComplete(String messageId, String toolName, boolean success, String result) {
+                // 工具结果：更新工具卡片（不再把结果追加进 AI 回答文本）
                 runOnUiThread(() -> {
-                    if (currentStreamingContent != null) {
-                        currentStreamingContent.append("\n" + (success ? "✅" : "❌") + " 工具结果\n");
-                        safeUpdateMessage();
-                    }
+                    int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
+                    updateToolCallResult(pos >= 0 ? pos : -1, success, result);
                 });
             }
 
@@ -4798,7 +4802,8 @@ public class AIChatActivity extends BaseActivity {
                 if (!toolCalls.isEmpty()) {
                     AgentService.ToolCall call = toolCalls.get(0);
                     agentToolLoopCount++;
-                    runOnUiThread(() -> appendToolCallInProgress(call.name));
+                    // 工具调用：创建工具卡片消息（不污染 AI 回答文本）
+                    runOnUiThread(() -> addToolCallMessage(call.name, call.arguments != null ? call.arguments : "{}"));
 
                     new Thread(() -> {
                         try {
@@ -4807,10 +4812,9 @@ public class AIChatActivity extends BaseActivity {
                             String toolResultMsg = agentService.formatToolResultForContext(result);
 
                             runOnUiThread(() -> {
-                                if (currentStreamingContent != null) {
-                                    currentStreamingContent.append("\n" + (success ? "✅" : "❌") + " 工具结果\n");
-                                    safeUpdateMessage();
-                                }
+                                // 工具结果：更新工具卡片（不再追加进 AI 回答文本）
+                                int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
+                                updateToolCallResult(pos >= 0 ? pos : -1, success, toolResultMsg);
                             });
 
                             aiService.chatSend(toolResultMsg, aiConfig.getMaxTokens(), false, new ProtectedTokenCallback("工具调用", text -> completeGeneration(text)));
@@ -5022,13 +5026,26 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
                 finalMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                // 工具侧桥接：取走本轮工具执行产生的结构化 UI 组件，**合并**到 AI 消息
+                // （不覆盖执行中已插入的工具卡片组件，保证执行中与完成后渲染一致）
+                java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> drained =
+                        com.oilquiz.app.ai.chat.component.ComponentCollector.drain();
+                if (drained != null && !drained.isEmpty()) {
+                    if (finalMsg.components == null) {
+                        finalMsg.components = new java.util.ArrayList<>();
+                    }
+                    finalMsg.components.addAll(drained);
+                }
                 
                 int finalTokenCount = tokenCount;
-                // 优先使用 native 层 token 计数
-                int nativeTokens = LlamaHelper.getTokenCount();
-                if (nativeTokens > 0) {
-                    finalTokenCount = nativeTokens;
-                } else if (finalTokenCount <= 0 && finalContent != null && !finalContent.isEmpty()) {
+                // 优先使用 native 层 token 计数（仅本地模型；在线模式不调用 native，避免未初始化崩溃）
+                if (!shouldUseOnlineModel()) {
+                    int nativeTokens = LlamaHelper.getTokenCount();
+                    if (nativeTokens > 0) {
+                        finalTokenCount = nativeTokens;
+                    }
+                }
+                if (finalTokenCount <= 0 && finalContent != null && !finalContent.isEmpty()) {
                     if (statsTokens > 0) {
                         finalTokenCount = statsTokens;
                     } else {
@@ -5051,14 +5068,16 @@ public class AIChatActivity extends BaseActivity {
                     finalMsg.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
                 }
 
-                // 设置 GPU 加速信息
-                try {
-                    int gpuLayers = LlamaHelper.getGPULayers();
-                    finalMsg.gpuLayers = gpuLayers;
-                    finalMsg.usingGPU = gpuLayers > 0 && LlamaHelper.isGPUWorking();
-                } catch (Exception e) {
-                    finalMsg.gpuLayers = 0;
-                    finalMsg.usingGPU = false;
+                // 设置 GPU 加速信息（仅本地模型；在线模式跳过 native 调用）
+                if (!shouldUseOnlineModel()) {
+                    try {
+                        int gpuLayers = LlamaHelper.getGPULayers();
+                        finalMsg.gpuLayers = gpuLayers;
+                        finalMsg.usingGPU = gpuLayers > 0 && LlamaHelper.isGPUWorking();
+                    } catch (Exception e) {
+                        finalMsg.gpuLayers = 0;
+                        finalMsg.usingGPU = false;
+                    }
                 }
 
                 synchronized (streamingLock) {
@@ -5081,7 +5100,10 @@ public class AIChatActivity extends BaseActivity {
                     if (messageIndex >= 1 && chatHistory.get(messageIndex - 1) != null) {
                         String promptText = chatHistory.get(messageIndex - 1).content;
                         if (promptText != null && !promptText.isEmpty()) {
-                            inputTokens = LlamaHelper.countTokens(promptText);
+                            // 仅本地模型走 native 分词；在线模型用长度估算，避免 native 崩溃
+                            inputTokens = shouldUseOnlineModel()
+                                    ? Math.max(1, promptText.length() / 4)
+                                    : LlamaHelper.countTokens(promptText);
                         }
                     }
                     TokenStatsManager.getInstance().updateRequestStats(inputTokens, finalTokenCount);
@@ -5109,25 +5131,6 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
-    private void appendToolCallInProgress(String toolName) {
-        if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size()) return;
-        String contentSnapshot, thinkingSnapshot = null;
-        synchronized (streamingLock) {
-            if (currentStreamingContent == null) return;
-            currentStreamingContent.append("\n🔧 调用: " + toolName + " ...");
-            contentSnapshot = currentStreamingContent.toString();
-            if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
-                thinkingSnapshot = currentThinkingContent.toString();
-            }
-        }
-        ChatMessage toolMsg = chatHistory.get(currentStreamingMessageIndex);
-        toolMsg.content = contentSnapshot;
-        toolMsg.status = ChatMessage.MessageStatus.GENERATING;
-        if (thinkingSnapshot != null) toolMsg.thinkingContent = thinkingSnapshot;
-        if (chatAdapter != null) chatAdapter.notifyItemChanged(currentStreamingMessageIndex);
-        scrollToBottom();
-    }
-
     private void processTagBuffer(String tagContent) {
         if (tagContent == null) return;
         if (tagContent.contains("think")) {
@@ -5142,8 +5145,10 @@ public class AIChatActivity extends BaseActivity {
     private class AgentCallbackImpl implements AgentChatHandler.AgentChatCallback {
         @Override
         public void onToolCallStart(String toolName, String args) {
-            // 工具调用开始：添加工具调用消息到聊天
+            // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
             runOnUiThread(() -> {
+                appendAgentToolCall(toolName, "running", args, null);
+                updateAgentStatusBar("🔧 调用 " + toolName + "...", true);
                 addToolCallMessage(toolName, args);
                 scrollToBottom();
             });
@@ -5151,12 +5156,20 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onToolCallComplete(String toolName, OnlineToolResult result) {
-            // 工具调用完成：更新工具调用结果
+            // 工具调用完成：更新插入式卡片为成功/失败 + 状态栏恢复
             runOnUiThread(() -> {
-                int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
                 boolean success = result != null && result.success;
                 String resultStr = result != null ? result.result : "无结果";
-                updateToolCallResult(pos >= 0 ? pos : chatHistory.size() - 1, success, resultStr);
+                // 完成时传简略摘要（如"北京 26℃ 晴"），执行后的工具行不再空白
+                appendAgentToolCall(toolName, success ? "success" : "failed", null,
+                        com.oilquiz.app.ai.chat.component.ToolCallCardView.summarize(resultStr));
+                updateAgentStatusBar("✅ " + toolName + " 完成", false);
+                // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新
+                // （否则 findLastSpecialMessage 返回 -1 时回退到最后一条消息，结果会写到错误消息上）
+                if (currentAgentGroupId == null) {
+                    int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
+                    updateToolCallResult(pos >= 0 ? pos : chatHistory.size() - 1, success, resultStr);
+                }
                 scrollToBottom();
             });
         }
@@ -5171,8 +5184,20 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             feedStreamingTts(token);
-            // 节流：距上次 UI 更新 ≥ 80ms 才刷新，避免高频 token 卡顿主线程
+            // 流式 token 统计：实时累计 + 节流刷新状态栏（解决 tokens 显示不及时）
+            streamingTokenCount++;
             long now = System.currentTimeMillis();
+            if (streamingStartTime <= 0) streamingStartTime = now;
+            if (now - lastTokenStatsUiUpdateTime >= 300) {
+                lastTokenStatsUiUpdateTime = now;
+                final long elapsed = now - streamingStartTime;
+                final int tokens = (int) streamingTokenCount;
+                runOnUiThread(() -> {
+                    float tps = elapsed > 0 ? tokens * 1000f / elapsed : 0;
+                    updateStreamingTokenStats(tokens, tps);
+                });
+            }
+            // 节流：距上次 UI 更新 ≥ 80ms 才刷新，避免高频 token 卡顿主线程
             if (now - lastTokenUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
                 lastTokenUiUpdateTime = now;
                 runOnUiThread(() -> {
@@ -5188,10 +5213,15 @@ public class AIChatActivity extends BaseActivity {
             // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用，
             // 内部不能再 runOnUiThread（否则会post到队列，导致下一轮token先于addThinkingMessage执行）
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
-            // 新一轮思考开始：上一轮已结束或还没有思考消息时，创建新消息
+            // 新一轮思考开始：状态栏显示思考中
             if (thinkingRoundEnded || currentThinkingMessageIndex < 0) {
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
+                if (onUi) {
+                    updateAgentStatusBar("🧠 思考中...", true);
+                } else {
+                    runOnUiThread(() -> updateAgentStatusBar("🧠 思考中...", true));
+                }
                 synchronized (streamingLock) {
                     currentThinkingContent = new StringBuilder();
                 }
@@ -5222,6 +5252,7 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onThinkingEnd() {
             isInThinking = false;
+            // 思考内容不再单独显示（精简视觉；Agent 过程仅工具卡片插入式展示）
             // 标记本轮思考结束，下一轮 onThinkingToken 时创建新的思考消息
             thinkingRoundEnded = true;
             // 思考结束：强制最终更新 + 折叠当前思考消息
@@ -5238,13 +5269,14 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onComplete(String fullText) {
             completeGeneration(fullText);
-            // Agent执行完成：更新header计数并清理组ID
+            // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
+                // 状态栏恢复（执行完成）
+                updateAgentStatusBar("✅ 执行完成", false);
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
                 }
                 currentAgentGroupId = null;
-                addSystemMessage("✅ Agent执行完成");
                 scrollToBottom();
             });
         }
@@ -5267,16 +5299,12 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onAgentStep(ChatMessage.AgentStepInfo stepInfo) {
-            // Agent 步骤：添加步骤消息到聊天
-            runOnUiThread(() -> {
-                addAgentStepMessage(stepInfo);
-                scrollToBottom();
-            });
+            // Agent 步骤：执行过程已由独立 Agent 面板展示，消息流不再插入步骤消息（精简视觉）
         }
 
         @Override
         public void onToolCallUI(String toolName, String args, int position) {
-            // 工具调用 UI：添加工具调用消息
+            // 工具调用 UI：添加工具调用消息（Agent 模式下过程已由独立面板展示，跳过）
             runOnUiThread(() -> {
                 addToolCallMessage(toolName, args);
                 scrollToBottom();
@@ -5285,8 +5313,9 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onToolCallResultUI(int position, boolean success, String result) {
-            // 工具调用结果 UI：更新工具调用结果
+            // 工具调用结果 UI：更新工具调用结果（Agent 模式下跳过，避免回退写错消息）
             runOnUiThread(() -> {
+                if (currentAgentGroupId != null) return;
                 int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
                 updateToolCallResult(pos >= 0 ? pos : chatHistory.size() - 1, success, result);
                 scrollToBottom();
@@ -5401,6 +5430,10 @@ public class AIChatActivity extends BaseActivity {
         isDirectStreaming = true;
         totalTokensGenerated = 0;
         generationStartTime = System.currentTimeMillis();
+        // 重置流式 token 统计
+        streamingTokenCount = 0;
+        streamingStartTime = 0;
+        lastTokenStatsUiUpdateTime = 0;
         
         streamingUpdateManager = new StreamingUpdateManager(new StreamingUpdateManager.UpdateCallback() {
             @Override
@@ -5414,7 +5447,7 @@ public class AIChatActivity extends BaseActivity {
             }
         }, 50, 200, 5);
 
-        if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.VISIBLE);
+        toggleStopButton(true);
         if (serviceStatusManager != null) serviceStatusManager.showThinkingIndicator();
 
         // 显示 Token 统计
@@ -5467,6 +5500,12 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+            // 节流：内容与思考均无变化时跳过刷新，避免重复渲染相同内容
+            boolean thinkingSame = (thinkingSnapshot == null)
+                    || (msg.thinkingContent != null && thinkingSnapshot.equals(msg.thinkingContent));
+            if (contentSnapshot.equals(msg.content) && thinkingSame) {
+                return;
+            }
             msg.content = contentSnapshot;
             msg.status = ChatMessage.MessageStatus.GENERATING;
             if (thinkingSnapshot != null) msg.thinkingContent = thinkingSnapshot;
@@ -5489,6 +5528,12 @@ public class AIChatActivity extends BaseActivity {
             }
             ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
             if (msg != null) {
+                // 节流：内容与思考均无变化时跳过刷新
+                boolean thinkingSame = (thinkingSnapshot == null)
+                        || (msg.thinkingContent != null && thinkingSnapshot.equals(msg.thinkingContent));
+                if (contentSnapshot.equals(msg.content) && thinkingSame) {
+                    return;
+                }
                 msg.status = ChatMessage.MessageStatus.GENERATING;
                 msg.content = contentSnapshot;
                 if (thinkingSnapshot != null) msg.thinkingContent = thinkingSnapshot;
@@ -5573,17 +5618,29 @@ public class AIChatActivity extends BaseActivity {
 
         try {
             if (shouldUseOnlineModel()) {
+                String modelName = "";
                 if (inferenceRouter != null) {
-                    String modelName = inferenceRouter.getCurrentModelName();
-                    modelNameText.setText("☁️ " + (modelName != null && !modelName.isEmpty() ? modelName : "在线模型"));
-                } else {
-                    modelNameText.setText("☁️ 在线模型");
+                    modelName = inferenceRouter.getCurrentModelName();
+                }
+                String display = "☁️ " + (modelName != null && !modelName.isEmpty() ? modelName : "在线模型");
+                modelNameText.setText(display);
+                // 异步查询 API 余额并显示（仅 DeepSeek 官方 API 支持）
+                OnlineModelManager.OnlineModelConfig active =
+                        onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+                if (active != null) {
+                    com.oilquiz.app.ai.util.ApiBalanceChecker.checkAsync(active, (balance, error) ->
+                            runOnUiThread(() -> {
+                                if (modelNameText != null && balance != null && !balance.isEmpty()) {
+                                    modelNameText.setText(display + " · " + balance);
+                                }
+                            }));
                 }
             } else if (aiService != null) {
                 String name = modelBridge != null ? modelBridge.getCurrentModelName() : "";
                 modelNameText.setText("📱 " + (name != null && !name.isEmpty() ? name : "未选择模型"));
             } else {
-                modelNameText.setText("AI服务未初始化");
+                // 本地服务未初始化 ≠ "AI服务未初始化"：可能只是未选择模型，避免误导（在线模型仍可用）
+                modelNameText.setText("未选择模型");
             }
         } catch (Exception e) {
             AppLogger.aiW(TAG, "Error updating model name display: " + e.getMessage());
@@ -6030,8 +6087,13 @@ public class AIChatActivity extends BaseActivity {
                 displayTokens = onlineCompletionTokens;
                 displayTps = tokensPerSecond; // 已基于 API completion tokens 计算的速度
                 sourceTag = "🌐"; // 云端 API
+            } else if (useOnline) {
+                // 在线模式但 API 未返回统计：用估算值（不调用 native，避免未初始化崩溃）
+                displayTokens = totalTokens > 0 ? totalTokens : (int) streamingTokenCount;
+                displayTps = tokensPerSecond;
+                sourceTag = "🌐";
             } else {
-                // 本地模式 或 API 未返回统计：优先使用 native 层
+                // 本地模式：优先使用 native 层
                 float nativeTps = LlamaHelper.getInferenceSpeed();
                 int nativeTokens = LlamaHelper.getTokenCount();
                 displayTps = nativeTps > 0 ? nativeTps : tokensPerSecond;
@@ -6103,7 +6165,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void hideLoadingUI() {
-        if (btnStopGeneration != null) btnStopGeneration.setVisibility(View.GONE);
+        toggleStopButton(false);
         if (serviceStatusManager != null) serviceStatusManager.hideThinkingIndicator();
     }
 
@@ -6120,7 +6182,7 @@ public class AIChatActivity extends BaseActivity {
         if (shouldUseOnlineModel()) {
             return true;
         }
-        if (aiService == null) { showToast("AI服务未初始化"); return false; }
+        if (aiService == null) { showToast("未选择本地模型，请切换到在线模型"); return false; }
         boolean modelInMemory = modelBridge != null && modelBridge.isModelInMemory();
         if (!modelInMemory || !modelBridge.isModelInitialized()) {
             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(true);
@@ -6297,6 +6359,8 @@ public class AIChatActivity extends BaseActivity {
      */
     private int addThinkingMessage(int round) {
         if (chatHistory == null) return -1;
+        // Agent 模式：思考过程已由独立 Agent 面板展示，消息流不再插入思考消息（避免双通道渲染）
+        if (currentAgentGroupId != null) return -1;
 
         ChatMessage msg = ChatMessage.createThinkingRoundMessage(round);
         // 标记所属agent组
@@ -6357,6 +6421,8 @@ public class AIChatActivity extends BaseActivity {
 
     private int addToolCallMessage(String toolName, String parameters) {
         if (chatHistory == null) return -1;
+        // Agent 模式：执行过程已由独立 Agent 面板展示，消息流不再插入工具卡片（避免双通道渲染）
+        if (currentAgentGroupId != null) return -1;
 
         ChatMessage msg = ChatMessage.createToolCallMessage(toolName, parameters);
         // 标记所属agent组
@@ -6641,6 +6707,130 @@ public class AIChatActivity extends BaseActivity {
 
     private void openUri(String url) {
         if (url != null) { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); } catch (Exception e) { showToast("无法打开"); } }
+    }
+
+    /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——避免依赖系统图片查看器 */
+    private void showImagePreview(String url) {
+        try {
+            if (url == null || url.isEmpty()) return;
+            android.app.Dialog dialog = new android.app.Dialog(this);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+            android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+            root.setBackgroundColor(android.graphics.Color.BLACK);
+
+            com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(this);
+            photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+
+            android.widget.ProgressBar loading = new android.widget.ProgressBar(this);
+            android.widget.FrameLayout.LayoutParams loadingLp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.CENTER);
+            root.addView(loading, loadingLp);
+
+            dialog.setContentView(root, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setOnClickListener(v -> dialog.dismiss());
+            dialog.show();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+            }
+
+            // show 之后再加载（View 已 attach），loading 占位 + 失败提示
+            com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
+                    new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                        @Override
+                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                            loading.setVisibility(android.view.View.GONE);
+                            showToast("图片加载失败");
+                            return false;
+                        }
+
+                        @Override
+                        public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                       Object model,
+                                                       com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                       com.bumptech.glide.load.DataSource dataSource,
+                                                       boolean isFirstResource) {
+                            loading.setVisibility(android.view.View.GONE);
+                            return false;
+                        }
+                    };
+            com.bumptech.glide.Glide.with(this).load(url).timeout(15000).listener(listener).into(photoView);
+        } catch (Exception e) {
+            android.util.Log.w("AIChatActivity", "Image preview failed: " + e.getMessage());
+        }
+    }
+
+    // ===================== Agent 执行过程（插入式组件显示） =====================
+
+    /**
+     * 将工具执行过程以组件形式插入到当前流式 AI 消息内（组件容器在回答文本上方）。
+     * 工具开始 → running 卡片；工具完成 → 更新为 success/failed 卡片。
+     */
+    private void appendAgentToolCall(String toolName, String status, String args, String result) {
+        if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatHistory.size()) return;
+        ChatMessage msg = chatHistory.get(currentStreamingMessageIndex);
+        if (msg == null) return;
+
+        try {
+            java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> comps =
+                    msg.components != null ? new java.util.ArrayList<>(msg.components) : new java.util.ArrayList<>();
+
+            // 工具完成：更新最后一张 running 卡片
+            if ("success".equals(status) || "failed".equals(status)) {
+                for (int i = comps.size() - 1; i >= 0; i--) {
+                    com.oilquiz.app.ai.chat.component.ComponentData c = comps.get(i);
+                    if (c != null && "tool_call".equals(c.type)
+                            && "running".equals(c.props != null ? c.props.optString("status", "") : "")) {
+                        if (c.props == null) c.props = new org.json.JSONObject();
+                        c.props.put("status", status);
+                        if (result != null) c.props.put("result", result);
+                        // 新引用触发 ChatAdapter 组件容器重建
+                        msg.components = new java.util.ArrayList<>(comps);
+                        if (chatAdapter != null) {
+                            chatAdapter.notifyItemChanged(currentStreamingMessageIndex,
+                                    ChatAdapter.PAYLOAD_CONTENT_UPDATE);
+                        }
+                        scrollToBottom();
+                        return;
+                    }
+                }
+            }
+
+            // 新工具调用：追加 running 卡片
+            org.json.JSONObject props = new org.json.JSONObject();
+            props.put("toolName", toolName != null ? toolName : "工具");
+            props.put("status", status != null ? status : "running");
+            if (args != null) props.put("args", args);
+            if (result != null) props.put("result", result);
+            comps.add(com.oilquiz.app.ai.chat.component.ComponentData.of("tool_call", props));
+            msg.components = new java.util.ArrayList<>(comps);
+            if (chatAdapter != null) {
+                chatAdapter.notifyItemChanged(currentStreamingMessageIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);
+            }
+            scrollToBottom();
+        } catch (Exception e) {
+            AppLogger.aiW(TAG, "appendAgentToolCall failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 更新状态栏：Agent 执行状态（工具调用/思考）实时反映，busy=true 显示不确定进度。
+     * Agent 执行中服务状态不变，ServiceStatusManager 不会覆盖。
+     */
+    private void updateAgentStatusBar(String text, boolean busy) {
+        if (serviceStatusText != null && text != null) {
+            serviceStatusText.setText(text);
+        }
+        if (serviceStatusProgress != null) {
+            serviceStatusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
+            if (busy) serviceStatusProgress.setIndeterminate(true);
+        }
     }
 
     // ===================== Weather Banner =====================
@@ -7727,8 +7917,9 @@ public class AIChatActivity extends BaseActivity {
                 inputManager.addAttachment(attachment);
             }
         }
-        showToast("已添加 " + uris.size() + " 个附件");
-        sendMessageWithAttachments();
+        showToast("已添加 " + uris.size() + " 个附件，可预览后发送");
+        // 附件已添加到输入区（attachmentList 预览），由用户确认后点发送，
+        // 不再自动发送（sendMessage 发送时会携带 currentAttachments）
     }
 
     /**

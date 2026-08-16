@@ -539,9 +539,14 @@ public class WebPageReaderTool implements AITool {
     }
     
     private String removeHtmlTags(String html) {
-        String text = html.replaceAll("<[^>]+>", "");
-        text = text.replaceAll("\\s+", " ").trim();
-        return text;
+        // 块级标签替换为换行，保留段落结构（否则整页折叠成一段，正文提取/切片失效）
+        String text = html.replaceAll("(?i)<(p|div|br|li|h[1-6]|tr|section|article|blockquote|table)[^>]*>", "\n");
+        text = text.replaceAll("<[^>]+>", "");
+        // 水平空白折叠为单个空格，但保留 \n
+        text = text.replaceAll("[ \\t\\x0B\\f\\r]+", " ");
+        // 压缩多余空行
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
     
     private String cleanText(String text) {

@@ -362,7 +362,9 @@ public class ImportCsvIngestor {
         return updated;
     }
 
-    /** 批量探测库内已存在的题干（归一化比较） */
+    /** 批量探测库内已存在的题干（归一化比较）。
+     *  查询失败抛出异常，由上层拆半重试最终降级为单条失败，
+     *  绝不允许"静默跳过去重"导致整批重复入库。 */
     private Set<String> queryExisting(List<String> texts) {
         Set<String> result = new HashSet<>();
         if (texts.isEmpty()) return result;
@@ -385,7 +387,8 @@ public class ImportCsvIngestor {
                 c.close();
             }
         } catch (Exception e) {
-            Log.w(TAG, "去重查询失败(跳过去重): " + e.getMessage());
+            Log.e(TAG, "库内去重查询失败，整批拆半重试以避免重复入库: " + e.getMessage());
+            throw new IllegalStateException("去重查询失败", e);
         }
         return result;
     }
@@ -473,7 +476,9 @@ public class ImportCsvIngestor {
 
     private static String normalizeKey(String s) {
         if (s == null) return "";
-        return s.replaceAll("\\s+", "").trim();
+        // 与 Python 侧 \s（含全角空格 U+3000）语义一致：统一剔除所有空白后比较，
+        // 避免"全角/半角空格变体"绕过批内/库内去重造成重复入库
+        return s.replaceAll("[\\s\\u3000]+", "");
     }
 
     private static void closeQuiet(java.io.Closeable c) {

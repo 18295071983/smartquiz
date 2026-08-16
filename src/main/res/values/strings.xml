@@ -12,6 +12,8 @@
     <string name="start_learning_today">开始今天的学习吧</string>
     <string name="question_bank_info">题库信息</string>
     <string name="status">状态</string>
+    <string name="default_question_count">0</string>
+    <string name="default_ai_status">-</string>
     <string name="core_features">核心功能</string>
     <string name="smart_features">智能功能</string>
     <string name="more_features">更多功能</string>
@@ -33,6 +35,8 @@
     <string name="about_app">关于应用</string>
     <string name="system_logs">系统日志</string>
     <string name="native_detection">原生检测</string>
+    <string name="toolkit">工具集</string>
+    <string name="database_management">数据库管理</string>
     <string name="compose_example">Compose示例</string>
     <string name="pure_compose">纯Compose</string>
     <string name="hybrid_usage">混合使用</string>
@@ -560,17 +564,70 @@
     <!-- 在线模型配置 - 服务类型 -->
     <string name="service_type_openai">OpenAI 兼容</string>
     <string name="service_type_dashscope">百炼 DashScope</string>
+    <string name="service_type_glm">智谱 GLM</string>
+    <string name="service_type_hunyuan">腾讯混元</string>
     <string name="service_type_xfyun">讯飞</string>
     <string name="service_type_volcano">火山引擎</string>
     <string name="service_type_baidu">百度</string>
+    <string name="service_type_mimo">小米 MiMo</string>
+    <string name="service_type_kimi">月之暗面 Kimi</string>
+    <string name="service_type_siliconflow">硅基流动 SiliconFlow</string>
+    <string name="service_type_baichuan">百川智能</string>
+    <string name="service_type_deepseek">DeepSeek</string>
 
     <!-- 服务类型下拉列表 -->
     <string-array name="service_types_default">
         <item>@string/service_type_openai</item>
         <item>@string/service_type_dashscope</item>
+        <item>@string/service_type_glm</item>
+        <item>@string/service_type_hunyuan</item>
         <item>@string/service_type_xfyun</item>
         <item>@string/service_type_volcano</item>
         <item>@string/service_type_baidu</item>
+        <item>@string/service_type_mimo</item>
+        <item>@string/service_type_kimi</item>
+        <item>@string/service_type_siliconflow</item>
+        <item>@string/service_type_baichuan</item>
+        <item>@string/service_type_deepseek</item>
     </string-array>
+
+    <!-- ========== AI 对话界面 ========== -->
+    <string name="chat_expand_full">展开全文</string>
+    <string name="chat_collapse">收起</string>
+    <string name="chat_copy">复制</string>
+    <string name="chat_speak">🔊 朗读</string>
+    <string name="chat_share">分享</string>
+    <string name="chat_regenerate">重新生成</string>
+    <string name="chat_new_chat">新对话</string>
+    <string name="chat_thinking_process">💭 思考过程</string>
+    <string name="chat_thinking_expanded">▼ 思考过程</string>
+    <string name="chat_thinking_collapsed">▶ 思考过程</string>
+    <string name="chat_thinking_streaming_expand">🤔 思考中...（点击展开）</string>
+    <string name="chat_thinking_streaming_collapse">▼ 思考中...（点击折叠）</string>
+    <string name="chat_status_sending">发送中...</string>
+    <string name="chat_status_sent">已发送</string>
+    <string name="chat_status_delivered">已送达</string>
+    <string name="chat_status_read">已读</string>
+    <string name="chat_status_generating">生成中...</string>
+    <string name="chat_status_in_progress">处理中...</string>
+    <string name="chat_status_completed">已完成</string>
+    <string name="chat_status_failed">执行失败</string>
+    <string name="chat_status_paused">已暂停</string>
+    <string name="chat_status_send_failed">发送失败</string>
+    <string name="chat_task_breakdown">📋 任务分解</string>
+    <string name="chat_task_progress">📋 任务进度</string>
+    <string name="chat_stop">停止</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_loading">加载中...</string>
+    <string name="chat_service_not_initialized">AI服务未初始化</string>
+    <string name="chat_no_model_selected">未选择模型</string>
+    <string name="chat_tokens_format">⚡ %1$d tokens</string>
+    <string name="chat_model_loading">模型加载中...</string>
+    <string name="chat_toolbar_auto">🔊 自动</string>
+    <string name="chat_toolbar_mode">📱 智能</string>
+    <string name="chat_toolbar_model">🤖 模型</string>
+    <string name="chat_desc_back">返回</string>
+    <string name="chat_desc_history">历史</string>
+    <string name="chat_desc_clear">清空</string>
 
 </resources>

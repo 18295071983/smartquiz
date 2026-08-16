@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.tool;
 
+import com.oilquiz.app.ai.chat.component.ComponentData;
+
 import java.util.Map;
 
 /**
@@ -10,6 +12,8 @@ public class AIToolResult {
     private final Object result;
     private final String errorMessage;
     private final Map<String, Object> additionalInfo;
+    /** 可选：结构化 UI 组件数据（工具侧桥接，对话界面按类型渲染） */
+    private ComponentData component;
     
     /**
      * 创建成功结果
@@ -99,5 +103,20 @@ public class AIToolResult {
      */
     public Map<String, Object> getAdditionalInfo() {
         return additionalInfo;
+    }
+
+    /**
+     * 设置结构化 UI 组件数据（工具侧桥接）。
+     */
+    public AIToolResult withComponent(ComponentData component) {
+        this.component = component;
+        return this;
+    }
+
+    /**
+     * 获取结构化 UI 组件数据，无则返回 null。
+     */
+    public ComponentData getComponent() {
+        return component;
     }
 }

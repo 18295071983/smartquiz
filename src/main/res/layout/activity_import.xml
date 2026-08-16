@@ -82,7 +82,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="导入选项"
+                        android:text="导入统计"
                         android:textSize="18sp"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
@@ -322,7 +322,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="• 导入前请确保文件格式正确\n• 大批量导入可能需要较长时间\n• 导入过程中请勿关闭应用"
+                        android:text="• 导入前请确保文件格式正确\n• 大批量导入可能需要较长时间\n• 导入在后台执行，可随时点「取消」停止\n• 中断后可重新导入，自动从断点续导"
                         android:textSize="12sp"
                         android:textColor="@color/on_surface_variant"
                         android:lineSpacingExtra="4dp" />

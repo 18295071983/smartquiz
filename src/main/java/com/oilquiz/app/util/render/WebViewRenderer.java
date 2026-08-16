@@ -15,7 +15,6 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,17 +31,74 @@ public class WebViewRenderer {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /**
-     * 精简的映射字段列表
-     * 包含选项E/F用于独立列映射，"选项(拆分)"用于单列拆分模式
+     * 映射字段下拉选项 —— 与 v1 导入管线（ExcelUtil.importExcel）实际消费的字段严格一致。
+     * 只暴露导入真正支持的字段，避免出现"选了但被静默丢弃"的选项
+     * （如 分值/时限/提示/知识点/标签/作者/来源/备注 等 v1 未处理字段不列入）。
      */
-    private static final String[] SIMPLE_FIELDS = {
-        "不映射",
-        "题目", "题型", "难度", "分值",
-        "选项A", "选项B", "选项C", "选项D", "选项E", "选项F",
-        "选项(拆分)",
-        "正确答案", "解析",
-        "分类", "知识点"
-    };
+    private static final String[] GROUP_BASIC = {"题目", "题型", "难度"};
+    /** 独立选项列 A~L（v1 导入支持 E~L 扩展列，自动映射也可能建议 G~L） */
+    private static final String[] GROUP_OPTION_LETTERS = buildOptionLetters();
+    /** 选项组：独立选项列 + "选项(拆分)"（单列拆分模式） */
+    private static final String[] GROUP_OPTIONS = buildOptions();
+    /** 答案组：正确答案 + 空1~12答案（合并进 correctAnswer）+ 解析 */
+    private static final String[] GROUP_ANSWERS = buildAnswers();
+    private static final String[] GROUP_CATS = {"分类"};
+
+    private static String[] buildOptionLetters() {
+        String[] arr = new String[12];
+        for (int i = 0; i < 12; i++) arr[i] = "选项" + (char) ('A' + i);
+        return arr;
+    }
+
+    private static String[] buildOptions() {
+        String[] arr = new String[GROUP_OPTION_LETTERS.length + 1];
+        System.arraycopy(GROUP_OPTION_LETTERS, 0, arr, 0, GROUP_OPTION_LETTERS.length);
+        arr[GROUP_OPTION_LETTERS.length] = "选项(拆分)";
+        return arr;
+    }
+
+    private static String[] buildAnswers() {
+        String[] arr = new String[14];
+        arr[0] = "正确答案";
+        for (int i = 0; i < 12; i++) arr[i + 1] = "空" + (i + 1) + "答案";
+        arr[13] = "解析";
+        return arr;
+    }
+
+    /**
+     * 获取与 WebView 下拉完全一致的字段选项列表（不映射 + 各组），
+     * 供 WebViewFilePreviewActivity 等外部使用，保证唯一数据源。
+     */
+    public static java.util.List<String> getFieldOptions() {
+        java.util.List<String> list = new java.util.ArrayList<>();
+        list.add("不映射");
+        list.addAll(java.util.Arrays.asList(GROUP_BASIC));
+        list.addAll(java.util.Arrays.asList(GROUP_OPTIONS));
+        list.addAll(java.util.Arrays.asList(GROUP_ANSWERS));
+        list.addAll(java.util.Arrays.asList(GROUP_CATS));
+        return list;
+    }
+
+    /** 追加一组下拉选项 */
+    private static void appendFieldGroup(StringBuilder sb, String sep, String[] fields, String current) {
+        sb.append("<div class=\"mdd-sep\">").append(sep).append("</div>");
+        for (String f : fields) {
+            sb.append("<div class=\"mdd-item").append(f.equals(current) ? " sel" : "")
+              .append("\" data-v=\"").append(f).append("\">").append(f).append("</div>");
+        }
+    }
+
+    /** 判断字段名是否在标准下拉选项中 */
+    private static boolean isKnownField(String f) {
+        if (f == null || f.isEmpty()) return false;
+        if ("不映射".equals(f)) return true;
+        for (String[] group : new String[][]{GROUP_BASIC, GROUP_OPTIONS, GROUP_ANSWERS, GROUP_CATS}) {
+            for (String x : group) {
+                if (x.equals(f)) return true;
+            }
+        }
+        return false;
+    }
     
     /**
      * 渲染回调接口
@@ -59,7 +115,7 @@ public class WebViewRenderer {
      * @param file Excel文件
      * @param sheetIndex 工作表索引
      * @param fieldMapping 字段映射
-     * @param fieldOptions 字段选项列表（忽略，使用精简列表）
+     * @param fieldOptions 字段选项列表（兼容保留，下拉选项以本类内置的导入支持列表为准）
      * @param callback 渲染回调
      */
     public static void renderExcelToHtml(File file, int sheetIndex, Map<String, Integer> fieldMapping, java.util.List<String> fieldOptions, RenderCallback callback) {
@@ -102,10 +158,6 @@ public class WebViewRenderer {
                 try (Workbook workbook = WorkbookFactory.create(file)) {
                     Sheet sheet = workbook.getSheetAt(sheetIndex);
                     int rowCount = sheet.getLastRowNum();
-                    
-                    // 使用精简字段列表
-                    List<String> simpleOptions = new ArrayList<>();
-                    for (String f : SIMPLE_FIELDS) simpleOptions.add(f);
 
                     // ── 拆分预览：扫描数据确定拆分后的虚拟列数 ──
                     boolean hasSplitPreview = splitColIdx >= 0 && splitDelimiter != null;
@@ -245,48 +297,29 @@ public class WebViewRenderer {
                                        .append("</div>")
                                        .append("<div class=\"mdd-panel\">");
 
-                            // 精简选项列表，按分组显示
-                            // 第1组：不映射
+                            // 下拉选项：与 v1 导入实际支持的字段严格一致
+                            // 第1项：不映射
                             htmlBuilder.append("<div class=\"mdd-item").append("不映射".equals(currentField) ? " sel" : "")
                                        .append("\" data-v=\"不映射\">不映射</div>");
-                            // 分隔：基础信息
-                            htmlBuilder.append("<div class=\"mdd-sep\">基础</div>");
-                            String[] basics = {"题目", "题型", "难度", "分值"};
-                            for (String b : basics) {
-                                htmlBuilder.append("<div class=\"mdd-item").append(b.equals(currentField) ? " sel" : "")
-                                           .append("\" data-v=\"").append(b).append("\">").append(b).append("</div>");
-                            }
-                            // 分隔：选项
-                            htmlBuilder.append("<div class=\"mdd-sep\">选项</div>");
-                            String[] opts = {"选项A", "选项B", "选项C", "选项D", "选项E", "选项F", "选项(拆分)"};
-                            for (String o : opts) {
-                                htmlBuilder.append("<div class=\"mdd-item").append(o.equals(currentField) ? " sel" : "")
-                                           .append("\" data-v=\"").append(o).append("\">").append(o).append("</div>");
-                            }
-                            // 分隔：答案
-                            htmlBuilder.append("<div class=\"mdd-sep\">答案</div>");
-                            String[] answers = {"正确答案", "解析"};
-                            for (String a : answers) {
-                                htmlBuilder.append("<div class=\"mdd-item").append(a.equals(currentField) ? " sel" : "")
-                                           .append("\" data-v=\"").append(a).append("\">").append(a).append("</div>");
-                            }
-                            // 分隔：分类
-                            htmlBuilder.append("<div class=\"mdd-sep\">分类</div>");
-                            String[] cats = {"分类", "知识点"};
-                            for (String c : cats) {
-                                htmlBuilder.append("<div class=\"mdd-item").append(c.equals(currentField) ? " sel" : "")
-                                           .append("\" data-v=\"").append(c).append("\">").append(c).append("</div>");
+                            appendFieldGroup(htmlBuilder, "基础", GROUP_BASIC, currentField);
+                            appendFieldGroup(htmlBuilder, "选项", GROUP_OPTIONS, currentField);
+                            appendFieldGroup(htmlBuilder, "答案", GROUP_ANSWERS, currentField);
+                            appendFieldGroup(htmlBuilder, "分类", GROUP_CATS, currentField);
+                            // 当前映射字段不在标准列表中（如旧版本遗留映射/自动映射的非常规字段），
+                            // 追加一项并选中，保证"按钮显示值"在下拉面板中始终有对应可选项
+                            if (!isKnownField(currentField)) {
+                                htmlBuilder.append("<div class=\"mdd-item sel\" data-v=\"")
+                                           .append(escapeHtml(currentField)).append("\">")
+                                           .append(escapeHtml(currentField)).append("</div>");
                             }
 
                             htmlBuilder.append("</div></div></th>");
 
                             // ── 拆分预览：在拆分列后渲染虚拟选项列 ──
                             if (hasSplitPreview && i == splitColIdx) {
-                                char[] vLetters = {'A','B','C','D','E','F','G','H','I','J','K','L'};
-                                String[] optNames = {"选项A","选项B","选项C","选项D","选项E","选项F"};
-                                for (int vi = 0; vi < virtualColCount && vi < vLetters.length; vi++) {
+                                for (int vi = 0; vi < virtualColCount && vi < GROUP_OPTION_LETTERS.length; vi++) {
                                     int virtualColId = 1000 + vi;
-                                    String vField = vi < optNames.length ? optNames[vi] : "选项" + vLetters[vi];
+                                    String vField = GROUP_OPTION_LETTERS[vi];
                                     htmlBuilder.append("<th id=\"col-").append(virtualColId)
                                                .append("\" class=\"mapped split-col-header\">")
                                                .append("↗ ").append(vField)
@@ -295,11 +328,12 @@ public class WebViewRenderer {
                                                .append(vField).append(" ")
                                                .append("</div>")
                                                .append("<div class=\"mdd-panel\">");
-                                    String[] vOpts = {"选项A","选项B","选项C","选项D","选项E","选项F","不映射"};
-                                    for (String vo : vOpts) {
+                                    // 虚拟列支持 A~L 全部选项映射（拆分出 7+ 个选项时 G~L 也可选）
+                                    for (String vo : GROUP_OPTION_LETTERS) {
                                         htmlBuilder.append("<div class=\"mdd-item").append(vo.equals(vField) ? " sel" : "")
                                                    .append("\" data-v=\"").append(vo).append("\">").append(vo).append("</div>");
                                     }
+                                    htmlBuilder.append("<div class=\"mdd-item\" data-v=\"不映射\">不映射</div>");
                                     htmlBuilder.append("</div></div></th>");
                                 }
                             }

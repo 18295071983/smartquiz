@@ -5,6 +5,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.StaticLayout;
@@ -17,7 +19,22 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * 长图片导出器（现代卡片式设计）
+ * 导出为带卡片样式的长图，美化排版、清晰层次
+ */
 public class LongImageExporter implements Exporter {
+
+    // 颜色常量
+    private static final int BG_COLOR = 0xFFF8FAFC; // 浅灰背景
+    private static final int CARD_BG = 0xFFFFFFFF; // 卡片白底
+    private static final int CARD_BORDER = 0xFFE2E8F0; // 卡片边框
+    private static final int TITLE_COLOR = 0xFF1E293B; // 深蓝标题
+    private static final int TEXT_COLOR = 0xFF334155; // 正文灰
+    private static final int TYPE_COLOR = 0xFF6366F1; // 题型紫色
+    private static final int ANSWER_COLOR = 0xFF10B981; // 答案绿色
+    private static final int EXPLANATION_COLOR = 0xFF0EA5E9; // 解析蓝色
+    private static final int FOOTER_COLOR = 0xFF94A3B8; // 页脚浅灰
 
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
@@ -26,7 +43,6 @@ public class LongImageExporter implements Exporter {
         List<Question> questions = task.getQuestions();
         String fileName = task.getConfig().getFileName();
         if (fileName == null || fileName.isEmpty()) {
-            // 导出中文格式加导出日期和具体时间，精确到分钟
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyyMMdd_HHmm");
             String timestamp = sdf.format(new java.util.Date());
             fileName = "导出题目_" + timestamp;
@@ -48,136 +64,220 @@ public class LongImageExporter implements Exporter {
         Context context = task.getContext();
         ExportManager.ExportConfig config = task.getConfig();
 
-        // 使用默认配置参数
-        int imageWidth = 3840; // 4K图片宽度
-        int textSize = 32; // 相应调整文本大小以保持可读性
-        String backgroundColor = "#FFFFFF";
-        int padding = 40; // 增加内边距以适应更大的图片
+        // 尺寸参数
+        int imageWidth = 1080; // 高清宽度
+        int cardRadius = 24; // 圆角
+        int cardPadding = 36; // 卡片内边距
+        int cardMargin = 24; // 卡片外边距
+        int cardSpacing = 20; // 卡片间距
 
-        // 计算图片高度
-        int imageHeight = calculateImageHeight(questions, imageWidth, textSize, padding);
+        // 计算图片高度（与绘制共用同一含答案/解析的高度口径，避免内容截断重叠）
+        int imageHeight = calculateImageHeight(questions, task, imageWidth, cardPadding, cardMargin, cardSpacing);
 
         // 创建 bitmap
         Bitmap bitmap = Bitmap.createBitmap(imageWidth, imageHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
 
-        // 设置背景颜色
-        canvas.drawColor(Color.parseColor(backgroundColor));
+        // 绘制背景
+        canvas.drawColor(BG_COLOR);
 
-        // 创建画笔
+        // 画笔配置
+        TextPaint titlePaint = new TextPaint();
+        titlePaint.setColor(TITLE_COLOR);
+        titlePaint.setTextSize(40);
+        titlePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        titlePaint.setAntiAlias(true);
+
+        TextPaint typePaint = new TextPaint();
+        typePaint.setColor(TYPE_COLOR);
+        typePaint.setTextSize(24);
+        typePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        typePaint.setAntiAlias(true);
+
         TextPaint textPaint = new TextPaint();
-        textPaint.setColor(Color.BLACK);
-        textPaint.setTextSize(textSize);
-        textPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
+        textPaint.setColor(TEXT_COLOR);
+        textPaint.setTextSize(30);
+        textPaint.setAntiAlias(true);
+        textPaint.setLetterSpacing(0.05f);
 
-        // 绘制内容
-        int y = padding;
+        TextPaint answerPaint = new TextPaint();
+        answerPaint.setColor(ANSWER_COLOR);
+        answerPaint.setTextSize(28);
+        answerPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        answerPaint.setAntiAlias(true);
+
+        TextPaint explanationPaint = new TextPaint();
+        explanationPaint.setColor(EXPLANATION_COLOR);
+        explanationPaint.setTextSize(26);
+        explanationPaint.setAntiAlias(true);
+
+        Paint linePaint = new Paint();
+        linePaint.setColor(CARD_BORDER);
+        linePaint.setStrokeWidth(2);
+
+        int y = cardMargin + 60; // 顶部留白
 
         // 绘制标题
-        TextPaint titlePaint = new TextPaint();
-        titlePaint.setColor(Color.BLACK);
-        titlePaint.setTextSize(textSize * 2);
-        titlePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
-        StaticLayout titleLayout = new StaticLayout("导出题目", titlePaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        StaticLayout titleLayout = new StaticLayout("题目导出", titlePaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
-        canvas.translate(padding, y);
+        canvas.translate(cardMargin, y);
         titleLayout.draw(canvas);
         canvas.restore();
-        y += titleLayout.getHeight() + padding;
+        y += titleLayout.getHeight() + 20;
 
         // 绘制导出信息
         TextPaint infoPaint = new TextPaint();
-        infoPaint.setColor(Color.GRAY);
-        infoPaint.setTextSize(textSize * 0.8f);
+        infoPaint.setColor(FOOTER_COLOR);
+        infoPaint.setTextSize(22);
         String exportTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date());
-        String infoText = "导出时间: " + exportTime + " | 题目数量: " + questions.size();
-        StaticLayout infoLayout = new StaticLayout(infoText, infoPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        String infoText = "共 " + questions.size() + " 道题目 · " + exportTime;
+        StaticLayout infoLayout = new StaticLayout(infoText, infoPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
-        canvas.translate(padding, y);
+        canvas.translate(cardMargin, y);
         infoLayout.draw(canvas);
         canvas.restore();
-        y += infoLayout.getHeight() + padding;
+        y += infoLayout.getHeight() + 40;
 
-        // 绘制分割线
-        Paint linePaint = new Paint();
-        linePaint.setColor(Color.LTGRAY);
-        linePaint.setStrokeWidth(2);
-        canvas.drawLine(padding, y, imageWidth - padding, y, linePaint);
-        y += padding;
-
-        // 绘制题目
+        // 绘制题目卡片
         for (int i = 0; i < questions.size(); i++) {
             Question question = questions.get(i);
 
-            // 绘制题目编号
-            String questionNumberText = "第" + (i + 1) + "题";
+            // 绘制卡片背景
+            RectF cardRect = new RectF(cardMargin, y - cardRadius, imageWidth - cardMargin, y + 0);
+            // 先计算卡片高度
+            int cardHeight = calculateCardHeight(question, task, imageWidth - 2 * cardPadding);
+            canvas.drawRoundRect(
+                new RectF(cardMargin, y, imageWidth - cardMargin, y + cardHeight),
+                cardRadius, cardRadius,
+                new Paint(Paint.ANTI_ALIAS_FLAG) {{ setColor(CARD_BG); }}
+            );
+
+            int cardY = y + cardPadding;
+
+            // 绘制题目编号、类型和元信息
+            StringBuilder metaText = new StringBuilder();
             if (question.getQuestionType() != null && !question.getQuestionType().isEmpty()) {
-                questionNumberText += " (" + question.getQuestionType() + ")";
+                metaText.append(question.getQuestionType());
             }
-            StaticLayout questionNumberLayout = new StaticLayout(questionNumberText, titlePaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            if (question.getDifficultyText() != null) {
+                if (metaText.length() > 0) metaText.append(" · ");
+                metaText.append("难度: ").append(question.getDifficultyText());
+            }
+            if (question.getCategory() != null && !question.getCategory().isEmpty()) {
+                if (metaText.length() > 0) metaText.append(" · ");
+                metaText.append(question.getCategory());
+            }
+            if (question.getSubCategory() != null && !question.getSubCategory().isEmpty()) {
+                if (metaText.length() > 0) metaText.append(" · ");
+                metaText.append(question.getSubCategory());
+            }
+            if (question.getKnowledgePoint() != null && !question.getKnowledgePoint().isEmpty()) {
+                if (metaText.length() > 0) metaText.append(" · ");
+                metaText.append("知识点: ").append(question.getKnowledgePoint());
+            }
+            
+            String typeLabel = (metaText.length() > 0)
+                ? "第" + (i + 1) + "题 · " + metaText.toString()
+                : "第" + (i + 1) + "题";
+            StaticLayout typeLayout = new StaticLayout(typeLabel, typePaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
             canvas.save();
-            canvas.translate(padding, y);
-            questionNumberLayout.draw(canvas);
+            canvas.translate(cardMargin + cardPadding, cardY);
+            typeLayout.draw(canvas);
             canvas.restore();
-            y += questionNumberLayout.getHeight() + padding / 2;
+            cardY += typeLayout.getHeight() + 20;
 
             // 绘制题目内容
             if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
-                StaticLayout questionTextLayout = new StaticLayout(question.getQuestionText(), textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+                StaticLayout questionLayout = new StaticLayout(question.getQuestionText(), textPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false);
                 canvas.save();
-                canvas.translate(padding, y);
-                questionTextLayout.draw(canvas);
+                canvas.translate(cardMargin + cardPadding, cardY);
+                questionLayout.draw(canvas);
                 canvas.restore();
-                y += questionTextLayout.getHeight() + padding / 2;
+                cardY += questionLayout.getHeight() + 20;
             }
 
-            // 绘制选项（A~L 动态渲染）
+            // 绘制选项
             if (question.hasOptions()) {
                 for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
                     Object optionValue = ExportUtils.getOptionValue(question, o);
                     if (optionValue == null || optionValue.toString().isEmpty()) continue;
-                    StaticLayout optionLayout = new StaticLayout(ExportUtils.OPTION_LABELS[o] + ". " + optionValue, textPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+                    
+                    TextPaint optionPaint = new TextPaint(textPaint);
+                    optionPaint.setColor(0xFF475569);
+                    StaticLayout optionLayout = new StaticLayout(
+                        ExportUtils.OPTION_LABELS[o] + ". " + optionValue,
+                        optionPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false
+                    );
                     canvas.save();
-                    canvas.translate(padding + 20, y);
+                    canvas.translate(cardMargin + cardPadding + 16, cardY);
                     optionLayout.draw(canvas);
                     canvas.restore();
-                    y += optionLayout.getHeight() + padding / 4;
+                    cardY += optionLayout.getHeight() + 8;
                 }
             }
 
+            // 绘制分割线
+            if (question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                Paint dividerPaint = new Paint();
+                dividerPaint.setColor(0xFFE2E8F0);
+                dividerPaint.setStrokeWidth(1);
+                canvas.drawLine(cardMargin + cardPadding, cardY, imageWidth - cardMargin - cardPadding, cardY, dividerPaint);
+                cardY += 20;
+            }
+
             // 绘制正确答案
-            if (task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                TextPaint answerPaint = new TextPaint();
-                answerPaint.setColor(Color.GREEN);
-                answerPaint.setTextSize(textSize);
-                answerPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
-                StaticLayout answerLayout = new StaticLayout("正确答案: " + question.getCorrectAnswer(), answerPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            if (config.isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                StaticLayout answerLayout = new StaticLayout(
+                    "正确答案：" + question.getCorrectAnswer(),
+                    answerPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
+                );
                 canvas.save();
-                canvas.translate(padding, y);
+                canvas.translate(cardMargin + cardPadding, cardY);
                 answerLayout.draw(canvas);
                 canvas.restore();
-                y += answerLayout.getHeight() + padding / 2;
+                cardY += answerLayout.getHeight() + 12;
+            }
+
+            // 绘制答案文本（填空题/简答题）
+            if (config.isIncludeAnswers() && question.getAnswerText() != null && !question.getAnswerText().isEmpty()) {
+                StaticLayout answerTextLayout = new StaticLayout(
+                    "答案文本：" + question.getAnswerText(),
+                    answerPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
+                );
+                canvas.save();
+                canvas.translate(cardMargin + cardPadding, cardY);
+                answerTextLayout.draw(canvas);
+                canvas.restore();
+                cardY += answerTextLayout.getHeight() + 12;
             }
 
             // 绘制解析
-            if (task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
-                TextPaint explanationPaint = new TextPaint();
-                explanationPaint.setColor(Color.BLUE);
-                explanationPaint.setTextSize(textSize);
-                explanationPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC));
-                StaticLayout explanationLayout = new StaticLayout("解析: " + question.getExplanation(), explanationPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            if (config.isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
+                StaticLayout explanationLayout = new StaticLayout(
+                    "解析：" + question.getExplanation(),
+                    explanationPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
+                );
                 canvas.save();
-                canvas.translate(padding, y);
+                canvas.translate(cardMargin + cardPadding, cardY);
                 explanationLayout.draw(canvas);
                 canvas.restore();
-                y += explanationLayout.getHeight() + padding / 2;
+                cardY += explanationLayout.getHeight() + 12;
             }
 
-            // 绘制题目之间的分割线
-            if (i < questions.size() - 1) {
-                canvas.drawLine(padding, y, imageWidth - padding, y, linePaint);
-                y += padding;
+            // 绘制详细解析
+            if (config.isIncludeExplanations() && question.getAnalysis() != null && !question.getAnalysis().isEmpty()) {
+                StaticLayout analysisLayout = new StaticLayout(
+                    "详细解析：" + question.getAnalysis(),
+                    explanationPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
+                );
+                canvas.save();
+                canvas.translate(cardMargin + cardPadding, cardY);
+                analysisLayout.draw(canvas);
+                canvas.restore();
+                cardY += analysisLayout.getHeight() + 12;
             }
+
+            y += cardHeight + cardSpacing;
 
             // 更新进度
             if (task.getCallback() != null && i % 10 == 0) {
@@ -187,63 +287,66 @@ public class LongImageExporter implements Exporter {
         }
 
         // 绘制页脚
-        StaticLayout footerLayout = new StaticLayout("导出完成", infoPaint, imageWidth - 2 * padding, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        TextPaint footerPaint = new TextPaint();
+        footerPaint.setColor(FOOTER_COLOR);
+        footerPaint.setTextSize(20);
+        StaticLayout footerLayout = new StaticLayout("导出完成", footerPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
-        canvas.translate(padding, y);
+        canvas.translate(cardMargin, y + 40);
         footerLayout.draw(canvas);
         canvas.restore();
 
         return bitmap;
     }
 
-    private int calculateImageHeight(List<Question> questions, int imageWidth, int textSize, int padding) {
-        int height = 0;
+    private int calculateCardHeight(Question question, ExportManager.ExportTask task, int availableWidth) {
+        return calculateCardHeight(question, task, availableWidth, true, true);
+    }
 
-        // 标题高度
-        height += padding * 3;
+    private int calculateCardHeight(Question question, ExportManager.ExportTask task, int availableWidth, boolean includeAnswers, boolean includeExplanations) {
+        int height = 80; // 基础高度（编号 + 类型）
+        int textSize = 30;
 
-        // 导出信息高度
-        height += padding * 2;
-
-        // 分割线高度
-        height += padding * 2;
-
-        // 题目高度
-        for (Question question : questions) {
-            // 题目编号高度
-            height += textSize * 3;
-
-            // 题目内容高度
-            if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
-                int lines = (int) Math.ceil((float) question.getQuestionText().length() * textSize / (imageWidth - 2 * padding));
-                height += lines * textSize * 1.5;
-            }
-
-            // 选项高度（A~L 动态计算）
-            if (question.hasOptions()) {
-                for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
-                    Object optionValue = ExportUtils.getOptionValue(question, o);
-                    if (optionValue == null || optionValue.toString().isEmpty()) continue;
-                    int lines = (int) Math.ceil((float) (optionValue.toString().length() + 3) * textSize / (imageWidth - 2 * padding - 20));
-                    height += lines * textSize * 1.2;
-                }
-            }
-
-            // 正确答案高度
-            height += textSize * 2;
-
-            // 解析高度
-            if (question.getExplanation() != null && !question.getExplanation().isEmpty()) {
-                int lines = (int) Math.ceil((float) (question.getExplanation().length() + 4) * textSize / (imageWidth - 2 * padding));
-                height += lines * textSize * 1.5;
-            }
-
-            // 题目之间的间距
-            height += padding * 2;
+        // 题目内容高度
+        if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
+            int lines = (int) Math.ceil((float) question.getQuestionText().length() * textSize / (availableWidth));
+            height += lines * 36 + 20;
         }
 
-        // 页脚高度
-        height += padding * 3;
+        // 选项高度
+        if (question.hasOptions()) {
+            for (int o = 0; o < ExportUtils.OPTION_FIELDS.length; o++) {
+                Object optionValue = ExportUtils.getOptionValue(question, o);
+                if (optionValue == null || optionValue.toString().isEmpty()) continue;
+                int lines = (int) Math.ceil((float) (optionValue.toString().length() + 3) * 30 / (availableWidth - 16));
+                height += lines * 36 + 8;
+            }
+        }
+
+        // 答案和解析（只在 task 不为 null 且配置为 true 时计算）
+        if (task != null && includeAnswers && task.getConfig().isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+            height += 60;
+        }
+        if (task != null && includeExplanations && task.getConfig().isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
+            int lines = (int) Math.ceil((float) (question.getExplanation().length() + 2) * 26 / availableWidth);
+            height += lines * 32 + 32;
+        }
+
+        return height;
+    }
+
+    private int calculateImageHeight(List<Question> questions, ExportManager.ExportTask task,
+                                     int imageWidth, int cardPadding, int cardMargin, int cardSpacing) {
+        // 顶部：标题 + 信息 + 间距
+        int height = cardMargin * 2 + 160;
+
+        // 每道卡片及间距（与绘制共用同一高度口径，保证答案/解析不被截断）
+        for (int i = 0; i < questions.size(); i++) {
+            height += calculateCardHeight(questions.get(i), task, imageWidth - 2 * cardPadding) + cardSpacing;
+        }
+
+        // 底部页脚
+        height += 100;
 
         return height;
     }
@@ -263,15 +366,12 @@ public class LongImageExporter implements Exporter {
         if (task == null) {
             throw new IllegalArgumentException("导出任务不能为空");
         }
-
         if (task.getConfig() == null) {
             throw new IllegalArgumentException("导出配置不能为空");
         }
-
         if (task.getQuestions() == null || task.getQuestions().isEmpty()) {
             throw new IllegalArgumentException("没有问题可导出");
         }
-
         if (task.getContext() == null) {
             throw new IllegalArgumentException("上下文不能为空");
         }

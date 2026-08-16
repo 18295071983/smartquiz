@@ -41,6 +41,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildKnowledgeStrategySection());
 
+        sb.append(buildComponentGuideSection());
+
         sb.append("【输出要求】\n");
         sb.append("- 用中文回答用户问题\n");
         sb.append("- 回答要简洁、准确、有条理\n");
@@ -89,6 +91,32 @@ public class OnlinePromptBuilder {
         sb.append("- 回答要简洁、准确、有条理\n");
         sb.append("- 如果使用了工具，在回答中自然地融入工具结果\n");
 
+        sb.append(buildComponentGuideSection());
+
+        return sb.toString();
+    }
+
+    /**
+     * 构建富内容组件渲染指引。
+     *
+     * 告知模型可用的 UI 组件及内容流标记格式（```component:xxx {json}```），
+     * 界面会将标记渲染为对应组件并插入到标记所在位置（插入式、流式生效）。
+     */
+    private String buildComponentGuideSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n【富内容组件渲染】\n");
+        sb.append("当需要展示结构化数据时，在回复中输出组件标记块，界面会自动渲染为对应组件并插入到标记所在位置：\n");
+        sb.append("- 图表: ```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
+        sb.append("- 信息卡: ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
+        sb.append("- 表格: ```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
+        sb.append("- 题目卡: ```component:quiz_card\\n{\"type\":\"single|multiple|judge\",\"question\":\"题干\",\"options\":[\"A. 选项\"],\"answer\":\"A\",\"analysis\":\"解析\"}```\n");
+        sb.append("- 文件卡: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"可打开URI\"}```\n");
+        sb.append("- 图片网格: ```component:image_grid\\n{\"columns\":3,\"images\":[\"图片URL\"]}```\n");
+        sb.append("- 天气卡: ```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
+        sb.append("- 代码卡: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码内容\",\"title\":\"标题\"}```\n");
+        sb.append("- 进度卡: ```component:progress_card\\n{\"title\":\"进度\",\"progress\":68,\"description\":\"说明\",\"status\":\"状态\"}```\n");
+        sb.append("- 链接卡: ```component:link_card\\n{\"title\":\"标题\",\"description\":\"摘要\",\"url\":\"https://...\"}```\n");
+        sb.append("规则：标记必须单独成段；JSON 属性用双引号；适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接）优先使用组件，不要把 JSON 原文直接展示给用户。\n\n");
         return sb.toString();
     }
 

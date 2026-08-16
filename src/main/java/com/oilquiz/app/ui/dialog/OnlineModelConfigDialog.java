@@ -229,20 +229,27 @@ public class OnlineModelConfigDialog {
         String[] types = context.getResources().getStringArray(
             com.oilquiz.app.R.array.service_types_default);
         
-        // 默认值和端点 URL 映射
+        // 默认值和端点 URL 映射（不自动设置模型名）
         final String[][] mappings = {
             {"OpenAI 兼容", "https://api.openai.com/v1"},
             {"百炼 DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+            {"智谱 GLM", "https://open.bigmodel.cn/api/paas/v4"},
+            {"腾讯混元", "https://api.hunyuan.cloud.tencent.com/v1"},
             {"讯飞", "https://api.xfyun.cn"},
             {"火山引擎", "https://openspeech.bytedance.com"},
-            {"百度", "https://aip.baidubce.com"}
+            {"百度", "https://aip.baidubce.com"},
+            {"小米 MiMo", "https://api.xiaomimimo.com/v1"},
+            {"月之暗面 Kimi", "https://api.moonshot.cn/v1"},
+            {"硅基流动 SiliconFlow", "https://api.siliconflow.cn/v1"},
+            {"百川智能", "https://api.baichuan-ai.com/v1"},
+            {"DeepSeek", "https://api.deepseek.com"}
         };
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(
             context, android.R.layout.simple_dropdown_item_1line, types);
         serviceTypeSpinner.setAdapter(adapter);
 
-        // 选择后自动填充 URL 和 API Key 占位符
+        // 选择后自动填充 URL，不自动设置默认模型
         serviceTypeSpinner.setOnItemClickListener((parent, view, position, id) -> {
             String selectedType = parent.getItemAtPosition(position).toString();
             for (String[] mapping : mappings) {
@@ -252,7 +259,11 @@ public class OnlineModelConfigDialog {
                     }
                     // 设置 API Key 占位符
                     if (keyInput.getText().toString().trim().isEmpty()) {
-                        keyInput.setHint(mapping[0] + " API Key（sk-...）");
+                        if ("小米 MiMo".equals(mapping[0]) || "DeepSeek".equals(mapping[0])) {
+                            keyInput.setHint(mapping[0] + " API Key");
+                        } else {
+                            keyInput.setHint(mapping[0] + " API Key（sk-...）");
+                        }
                     }
                     break;
                 }

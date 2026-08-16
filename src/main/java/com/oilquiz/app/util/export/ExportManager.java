@@ -6,9 +6,7 @@ import android.util.Log;
 import com.oilquiz.app.model.Question;
 
 import java.io.File;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 导出管理器
@@ -19,7 +17,6 @@ public class ExportManager {
     private static final String LOG_PREFIX = "ExportManager";
     private static ExportManager instance;
     private Context context;
-    private Map<String, ExportTask> exportTasks = new HashMap<>();
 
     private ExportManager() {
         Log.i(LOG_PREFIX, "ExportManager initialized");
@@ -44,7 +41,7 @@ public class ExportManager {
      * 导出格式枚举
      */
     public enum ExportFormat {
-        CSV, EXCEL, PDF, WORD, HTML, ENHANCED_HTML, MARKDOWN, JSON, LONG_IMAGE
+        CSV, EXCEL, PDF, WORD, HTML, ENHANCED_HTML, MARKDOWN, JSON, LONG_IMAGE, WEBVIEW_APK, PYTHON, JAVA
     }
 
     /**
@@ -296,50 +293,10 @@ public class ExportManager {
     }
 
     /**
-     * 根据导出格式获取对应的导出器
-     * 使用 Python (Chaquopy) 处理导出，避免 Apache POI/iText 等不兼容 Android 的库
-     */
-    private Exporter getExporter(Context context, String format) {
-        Log.i(LOG_PREFIX, "Getting exporter for format: " + format);
-        switch (format.toUpperCase()) {
-            case "EXCEL":
-            case "XLSX":
-                Log.i(LOG_PREFIX, "Using PythonExporter for Excel");
-                return new PythonExporter("excel");
-            case "CSV":
-                Log.i(LOG_PREFIX, "Using CSVExporter");
-                return new CSVExporter();
-            case "MARKDOWN":
-            case "MD":
-                Log.i(LOG_PREFIX, "Using MarkdownExporter");
-                return new MarkdownExporter();
-            case "JSON":
-                Log.i(LOG_PREFIX, "Using JSONExporter");
-                return new JSONExporter();
-            case "WORD":
-            case "DOCX":
-                Log.i(LOG_PREFIX, "Using WordExporter");
-                return new WordExporter();
-            case "PDF":
-                Log.i(LOG_PREFIX, "Using PDFExporter");
-                return new PDFExporter();
-            case "HTML":
-                Log.i(LOG_PREFIX, "Using HTMLExporter");
-                return new HTMLExporter();
-            case "LONGIMAGE":
-            case "LONGIMG":
-                Log.i(LOG_PREFIX, "Using LongImageExporter");
-                return new LongImageExporter();
-            default:
-                Log.e(LOG_PREFIX, "Unsupported format: " + format);
-                throw new IllegalArgumentException("不支持的导出格式: " + format);
-        }
-    }
-
-    /**
      * 开始导出任务
+     * synchronized：同一时间只允许一个导出任务（避免并发写同一文件名互相覆盖）
      */
-    public void startExport(ExportTask task) {
+    public synchronized void startExport(ExportTask task) {
         Log.i(LOG_PREFIX, "=== Starting export task ===");
         
         if (task == null || task.getQuestions() == null || task.getQuestions().isEmpty()) {
@@ -358,7 +315,6 @@ public class ExportManager {
         }
 
         String taskId = "task_" + System.currentTimeMillis();
-        exportTasks.put(taskId, task);
         Log.i(LOG_PREFIX, "Task created: " + taskId + ", questions count: " + task.getQuestions().size());
         Log.i(LOG_PREFIX, "Export config: format=" + (task.getConfig() != null ? task.getConfig().getFormat().name() : "null") +
                 ", includeAnswers=" + (task.getConfig() != null && task.getConfig().isIncludeAnswers()) +
@@ -398,17 +354,19 @@ public class ExportManager {
                                 selectedExporter = new CSVExporter();
                                 break;
                             case EXCEL:
-                                Log.i(LOG_PREFIX, "Selected: PythonExporter for Excel (Android-compatible)");
-                                selectedExporter = new PythonExporter("excel");
+                                // Java POI 实现：不依赖 Chaquopy Python 环境（openpyxl 未打包进 APK，
+                                // 且 Python 序列化缺失 optionG~L 等字段），保证默认 Excel 导出稳定完整
+                                Log.i(LOG_PREFIX, "Selected: ExcelExporter (Java POI)");
+                                selectedExporter = new ExcelExporter();
                                 break;
                             case WORD:
                                 Log.i(LOG_PREFIX, "Selected: WordExporter");
                                 selectedExporter = new WordExporter();
                                 break;
                             case HTML:
-                                // 学习查看版HTML导出，使用Python实现折叠功能
-                                Log.i(LOG_PREFIX, "Selected: PythonExporter for HTML (learning view)");
-                                selectedExporter = new PythonExporter("html");
+                                // Java HTML 实现：不依赖 Python 环境，字段过滤/HTML 转义行为与其余格式一致
+                                Log.i(LOG_PREFIX, "Selected: HTMLExporter (Java)");
+                                selectedExporter = new HTMLExporter();
                                 break;
                             case ENHANCED_HTML:
                                 Log.i(LOG_PREFIX, "Selected: EnhancedHTMLExporter");
@@ -423,12 +381,24 @@ public class ExportManager {
                                 selectedExporter = new JSONExporter();
                                 break;
                             case PDF:
-                                Log.i(LOG_PREFIX, "Selected: PythonExporter for PDF (Chinese support)");
-                                selectedExporter = new PythonExporter("pdf");
+                                Log.i(LOG_PREFIX, "Selected: PDFExporter (Java native)");
+                                selectedExporter = new PDFExporter();
                                 break;
                             case LONG_IMAGE:
-                                Log.i(LOG_PREFIX, "Selected: PythonExporter for Long Image (Pillow)");
-                                selectedExporter = new PythonExporter("long_image");
+                                Log.i(LOG_PREFIX, "Selected: LongImageExporter (Java native)");
+                                selectedExporter = new LongImageExporter();
+                                break;
+                            case WEBVIEW_APK:
+                                Log.i(LOG_PREFIX, "Selected: WebViewAPKExporter");
+                                selectedExporter = new WebViewAPKExporter();
+                                break;
+                            case PYTHON:
+                                Log.i(LOG_PREFIX, "Selected: PythonExporter for Python");
+                                selectedExporter = new PythonExporter("excel");
+                                break;
+                            case JAVA:
+                                Log.i(LOG_PREFIX, "Selected: JavaExporter for Java");
+                                selectedExporter = new JavaExporter();
                                 break;
 
                             default:
@@ -464,9 +434,7 @@ public class ExportManager {
                         task.getCallback().onExportError("导出失败: " + e.getMessage());
                     }
                 } finally {
-                    // 任务完成后从地图中移除
-                    exportTasks.remove(taskId);
-                    Log.i(LOG_PREFIX, "Export task completed and removed: " + taskId);
+                    Log.i(LOG_PREFIX, "Export task completed: " + taskId);
                 }
             }
         }).start();
@@ -490,58 +458,7 @@ public class ExportManager {
     }
 
     /**
-     * 获取导出任务状态
-     */
-    public static ExportTaskStatus getExportTaskStatus(String taskId) {
-        ExportManager manager = getInstance();
-        ExportTask task = manager.exportTasks.get(taskId);
-        return task != null ? task.getStatus() : ExportTaskStatus.FAILED;
-    }
-
-    /**
-     * 暂停导出任务
-     */
-    public static void pauseExport(String taskId) {
-        ExportManager manager = getInstance();
-        ExportTask task = manager.exportTasks.get(taskId);
-        if (task != null) {
-            task.setStatus(ExportTaskStatus.PAUSED);
-        }
-    }
-
-    /**
-     * 恢复导出任务
-     */
-    public static void resumeExport(String taskId) {
-        ExportManager manager = getInstance();
-        ExportTask task = manager.exportTasks.get(taskId);
-        if (task != null) {
-            task.setStatus(ExportTaskStatus.RUNNING);
-        }
-    }
-
-    /**
-     * 取消导出任务
-     */
-    public static void cancelExport(String taskId) {
-        ExportManager manager = getInstance();
-        ExportTask task = manager.exportTasks.get(taskId);
-        if (task != null) {
-            task.setStatus(ExportTaskStatus.CANCELLED);
-            manager.exportTasks.remove(taskId);
-        }
-    }
-
-    /**
-     * 初始化导出模块
-     */
-    public static void initExportTemplates(Context context) {
-        // 简化处理，实际应该初始化导出模板
-        Log.d(TAG, "Export templates initialized");
-    }
-
-    /**
-     * 获取导出文件路径
+     * 获取导出文件路径（静态，各 Exporter 使用）
      */
     public static File getExportDirectory(Context context) {
         if (context == null) {
@@ -561,26 +478,6 @@ public class ExportManager {
      */
     public File getExportDirectory() {
         return getExportDirectory(context);
-    }
-
-    /**
-     * 清理过期的导出文件
-     */
-    public void cleanupOldExports() {
-        File exportDir = getExportDirectory();
-        if (exportDir == null || !exportDir.exists()) {
-            return;
-        }
-
-        long cutoffTime = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000; // 7天前
-        File[] files = exportDir.listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.lastModified() < cutoffTime) {
-                    file.delete();
-                }
-            }
-        }
     }
 
     /**
@@ -762,29 +659,6 @@ public class ExportManager {
             return exporter.export(task);
         } catch (Exception e) {
             Log.e(TAG, "Export to CSV error: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 导出到长图片
-     */
-    public File exportToLongImage(Context context, List<Question> questions) {
-        ExportConfig config = new ExportConfig();
-        config.setFormat(ExportFormat.LONG_IMAGE);
-        config.setIncludeAnswers(true);
-        config.setIncludeExplanations(true);
-        
-        ExportTask task = new ExportTask();
-        task.setConfig(config);
-        task.setQuestions(questions);
-        task.setContext(context);
-        
-        try {
-            Exporter exporter = new LongImageExporter();
-            return exporter.export(task);
-        } catch (Exception e) {
-            Log.e(TAG, "Export to Long Image error: " + e.getMessage());
             return null;
         }
     }

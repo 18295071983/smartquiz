@@ -3,6 +3,7 @@ package com.oilquiz.app.ui.activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
+import android.util.Log;
 import android.view.View;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -44,6 +45,8 @@ import java.util.Map;
  * 导出文件保存到公共「下载/OilQuiz」目录（文件管理器可见可编辑）。
  */
 public class ExportActivity extends AppCompatActivity {
+    private static final String TAG = "ExportActivity";
+    private static final String LOG_PREFIX = "ExportActivity";
 
     private QuestionViewModel questionViewModel;
 
@@ -74,6 +77,7 @@ public class ExportActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(android.os.Bundle savedInstanceState) {
+        Log.i(LOG_PREFIX, "onCreate called");
         super.onCreate(savedInstanceState);
 
         // 应用系统UI主题
@@ -81,8 +85,10 @@ public class ExportActivity extends AppCompatActivity {
         uiAdapter.applySystemTheme(this);
 
         setContentView(R.layout.activity_export);
+        Log.i(LOG_PREFIX, "Layout inflated");
 
         questionViewModel = new ViewModelProvider(this).get(QuestionViewModel.class);
+        Log.i(LOG_PREFIX, "QuestionViewModel initialized");
 
         // 初始化UI组件
         btnSelectFields = findViewById(R.id.btn_select_fields);
@@ -97,14 +103,17 @@ public class ExportActivity extends AppCompatActivity {
         tvTemplateDesc = findViewById(R.id.tv_template_desc);
         llTemplateScenes = findViewById(R.id.ll_template_scenes);
         llFormatOptions = findViewById(R.id.ll_format_options);
+        Log.i(LOG_PREFIX, "UI components initialized");
 
         // 初始化模板管理器与场景模板
         TemplateManager.getInstance().init(this);
         sceneTemplates = TemplateManager.getInstance().getDefaultTemplates();
+        Log.i(LOG_PREFIX, "Scene templates loaded: " + sceneTemplates.size() + " templates");
         initSceneTemplateChips();
 
         // 初始化导出格式 chips
         initFormatChips();
+        Log.i(LOG_PREFIX, "Format chips initialized: " + exportFormats.size() + " formats");
 
         // 默认选中第一个场景模板
         if (!sceneTemplates.isEmpty()) {
@@ -164,25 +173,30 @@ public class ExportActivity extends AppCompatActivity {
      * 动态生成场景模板 chips
      */
     private void initSceneTemplateChips() {
+        Log.i(LOG_PREFIX, "initSceneTemplateChips called");
         llTemplateScenes.removeAllViews();
         for (int i = 0; i < sceneTemplates.size(); i++) {
             Template template = sceneTemplates.get(i);
+            Log.i(LOG_PREFIX, "Adding scene chip: " + template.getName() + " (id: " + template.getId() + ")");
             final int index = i;
             MaterialButton chip = createChip(template.getName());
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    Log.i(LOG_PREFIX, "Scene chip clicked: " + sceneTemplates.get(index).getName());
                     selectSceneTemplate(sceneTemplates.get(index), chip);
                 }
             });
             llTemplateScenes.addView(chip);
         }
+        Log.i(LOG_PREFIX, "Scene chips added: " + llTemplateScenes.getChildCount());
     }
 
     /**
      * 选中场景模板：应用其字段组合与选项状态
      */
     private void selectSceneTemplate(Template template, MaterialButton chip) {
+        Log.i(LOG_PREFIX, "selectSceneTemplate: " + template.getName() + " (id: " + template.getId() + ")");
         selectedTemplate = template;
 
         // 高亮当前 chip
@@ -197,8 +211,10 @@ public class ExportActivity extends AppCompatActivity {
         // 应用模板字段
         if (template.getFields() != null && !template.getFields().isEmpty()) {
             selectedFields = new ArrayList<>(template.getFields());
+            Log.i(LOG_PREFIX, "Applied template fields: " + selectedFields.size() + " fields");
         } else {
             selectedFields = ExportUtils.getQuestionFields();
+            Log.i(LOG_PREFIX, "Applied default fields: " + selectedFields.size() + " fields");
         }
         updateSelectedFieldsText();
 
@@ -206,28 +222,36 @@ public class ExportActivity extends AppCompatActivity {
         String desc = template.getDescription();
         if (desc != null && !desc.isEmpty()) {
             tvTemplateDesc.setText(desc);
+            Log.i(LOG_PREFIX, "Template description set");
         }
 
         // 应用模板选项状态（config 中存在时才覆盖）
         Map<String, Object> config = template.getConfig();
         if (config != null) {
+            Log.i(LOG_PREFIX, "Applying template config: " + config.keySet());
             if (config.containsKey("includeAnswers")) {
                 cbIncludeAnswers.setChecked(Boolean.TRUE.equals(config.get("includeAnswers")));
+                Log.i(LOG_PREFIX, "  includeAnswers: " + cbIncludeAnswers.isChecked());
             }
             if (config.containsKey("includeExplanations")) {
                 cbIncludeExplanations.setChecked(Boolean.TRUE.equals(config.get("includeExplanations")));
+                Log.i(LOG_PREFIX, "  includeExplanations: " + cbIncludeExplanations.isChecked());
             }
             if (config.containsKey("includeDifficulty")) {
                 cbIncludeDifficulty.setChecked(Boolean.TRUE.equals(config.get("includeDifficulty")));
+                Log.i(LOG_PREFIX, "  includeDifficulty: " + cbIncludeDifficulty.isChecked());
             }
             // 错题本版：仅导出答错过的题目
             onlyIncorrect = Boolean.TRUE.equals(config.get("onlyIncorrect"));
+            Log.i(LOG_PREFIX, "  onlyIncorrect: " + onlyIncorrect);
             // 试卷版/讲义版：导出时按难度排序
             sortByDifficulty = Boolean.TRUE.equals(config.get("sortByDifficulty"));
+            Log.i(LOG_PREFIX, "  sortByDifficulty: " + sortByDifficulty);
         }
 
         // 模板不支持当前格式时，自动切到第一个支持的格式
         if (selectedFormat != null && !template.supportsFormat(selectedFormat.name())) {
+            Log.i(LOG_PREFIX, "Current format " + selectedFormat.name() + " not supported by template, switching...");
             switchToFirstSupportedFormat(template);
         }
     }
@@ -261,12 +285,15 @@ public class ExportActivity extends AppCompatActivity {
     }
 
     private void selectFormat(String value, String label, MaterialButton chip) {
+        Log.i(LOG_PREFIX, "selectFormat: value=" + value + ", label=" + label);
         try {
             selectedFormat = ExportManager.ExportFormat.valueOf(value);
         } catch (Exception e) {
+            Log.e(LOG_PREFIX, "Failed to parse format: " + value + ", error: " + e.getMessage());
             Toast.makeText(this, "不支持的导出格式：" + label, Toast.LENGTH_SHORT).show();
             return;
         }
+        Log.i(LOG_PREFIX, "Selected format: " + selectedFormat);
         if (currentFormatChip != null) {
             setChipSelected(currentFormatChip, false);
         }
@@ -275,10 +302,13 @@ public class ExportActivity extends AppCompatActivity {
 
         // 当前模板不支持该格式时，提示并切换模板
         if (selectedTemplate != null && !selectedTemplate.supportsFormat(value)) {
+            Log.w(LOG_PREFIX, "Template does not support format " + value + ", finding alternative...");
             Template supported = findTemplateForFormat(value);
             if (supported != null) {
                 Toast.makeText(this, "当前模板不支持" + label + "，已切换到「" + supported.getName() + "」", Toast.LENGTH_SHORT).show();
                 selectSceneTemplate(supported, findSceneChip(supported));
+            } else {
+                Log.w(LOG_PREFIX, "No template supports format " + value);
             }
         }
     }
@@ -363,12 +393,14 @@ public class ExportActivity extends AppCompatActivity {
 
     /**
      * 显示字段选择对话框
+     * 字段列表与主流程统一（ExportUtils.EXPORTABLE_FIELDS，去无功能项）；
+     * 外层 ScrollView 保证字段多时全部可见可滚动。
      */
     private void showFieldSelectionDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("选择导出字段");
 
-        // 获取所有字段
+        // 获取所有字段（与模板/导出器共用同一来源）
         List<String> fields = ExportUtils.getQuestionFields();
         boolean[] checkedItems = new boolean[fields.size()];
 
@@ -377,7 +409,7 @@ public class ExportActivity extends AppCompatActivity {
             checkedItems[i] = selectedFields.contains(fields.get(i));
         }
 
-        // 创建复选框列表
+        // 创建复选框列表（外层 ScrollView 支持滚动，避免字段多时底部不可见）
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(20, 20, 20, 20);
@@ -392,7 +424,9 @@ public class ExportActivity extends AppCompatActivity {
             layout.addView(checkBox);
         }
 
-        builder.setView(layout);
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+        scrollView.addView(layout);
+        builder.setView(scrollView);
 
         builder.setPositiveButton("确定", (dialog, which) -> {
             // 收集选中的字段
@@ -411,11 +445,40 @@ public class ExportActivity extends AppCompatActivity {
 
             selectedFields = tempSelectedFields;
             updateSelectedFieldsText();
+            // 联动：勾选的答案/解析/难度字段自动启用对应导出开关，保证开关与字段一致
+            syncTogglesWithFields(selectedFields);
+            // 联动：使用自定义字段后取消模板高亮（不再跟随模板字段）
+            if (currentSceneChip != null) {
+                setChipSelected(currentSceneChip, false);
+                currentSceneChip = null;
+            }
+            if (tvTemplateDesc != null) {
+                tvTemplateDesc.setText("已使用自定义字段；重新选择模板可恢复模板字段组合");
+            }
         });
 
         builder.setNegativeButton("取消", (dialog, which) -> dialog.dismiss());
 
         builder.show();
+    }
+
+    /** 字段与导出开关联动：勾选答案/解析/难度类字段时自动开启对应开关 */
+    private void syncTogglesWithFields(List<String> fields) {
+        if (fields == null) return;
+        boolean hasAnswer = false, hasExplanation = false, hasDifficulty = false;
+        for (String f : fields) {
+            if (f == null) continue;
+            if ("correctAnswer".equals(f) || "answerText".equals(f) || f.startsWith("blankAnswer")) {
+                hasAnswer = true;
+            } else if ("explanation".equals(f) || "analysis".equals(f)) {
+                hasExplanation = true;
+            } else if ("difficulty".equals(f) || "difficultyText".equals(f)) {
+                hasDifficulty = true;
+            }
+        }
+        if (hasAnswer) cbIncludeAnswers.setChecked(true);
+        if (hasExplanation) cbIncludeExplanations.setChecked(true);
+        if (hasDifficulty) cbIncludeDifficulty.setChecked(true);
     }
 
     /**
@@ -435,6 +498,7 @@ public class ExportActivity extends AppCompatActivity {
      * 开始导出
      */
     private void startExport() {
+        Log.i(LOG_PREFIX, "startExport called");
         // 检查存储权限
         checkStoragePermissionAndStartExport();
     }
@@ -455,64 +519,104 @@ public class ExportActivity extends AppCompatActivity {
      * 继续执行导出操作
      */
     private void proceedWithExport() {
+        Log.i(LOG_PREFIX, "proceedWithExport called");
         if (selectedFormat == null) {
+            Log.e(LOG_PREFIX, "selectedFormat is null");
             Toast.makeText(this, "请选择导出格式", Toast.LENGTH_SHORT).show();
             return;
         }
 
         final ExportManager.ExportFormat exportFormat = selectedFormat;
+        Log.i(LOG_PREFIX, "Format to export: " + exportFormat);
 
-        // 获取题目数据
+        // 同步获取题目数据（先获取数据，确保成功后再导出）
+        final int[] totalQuestions = {0};
+        final List<Question>[] allQuestions = new ArrayList[1];
+        final String[] errorHolder = new String[1];
+        
         questionViewModel.getQuestions(new QuestionViewModel.GetQuestionsCallback() {
             @Override
             public void onSuccess(List<Question> questions) {
-                if (questions != null && !questions.isEmpty()) {
-                    // 范围过滤：仅收藏 / 仅错题（错题本版模板）
-                    List<Question> exportList = questions;
-                    if (rgExportScope != null && rgExportScope.getCheckedRadioButtonId() == R.id.rb_scope_favorite) {
-                        exportList = new ArrayList<>();
-                        for (Question q : questions) {
-                            if (q != null && q.isFavorite()) {
-                                exportList.add(q);
-                            }
-                        }
-                        if (exportList.isEmpty()) {
-                            Toast.makeText(ExportActivity.this, "没有收藏的题目可导出", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                    } else if (onlyIncorrect) {
-                        // 错题本版：仅导出答错过（答错次数>0）的题目
-                        exportList = new ArrayList<>();
-                        for (Question q : questions) {
-                            if (q != null && q.getIncorrectCount() > 0) {
-                                exportList.add(q);
-                            }
-                        }
-                        if (exportList.isEmpty()) {
-                            Toast.makeText(ExportActivity.this, "没有答错过的题目可导出（错题本为空）", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        Toast.makeText(ExportActivity.this, "已过滤出 " + exportList.size() + " 道错题", Toast.LENGTH_SHORT).show();
-                    }
-                    // 试卷版/模拟考试版：按难度从易到难排序，组卷更合理
-                    if (sortByDifficulty && exportList.size() > 1) {
-                        exportList = new ArrayList<>(exportList);
-                        exportList.sort((a, b) -> Integer.compare(a.getDifficulty(), b.getDifficulty()));
-                    }
-                    exportQuestions(exportList, exportFormat);
-                } else {
-                    Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
+                Log.i(LOG_PREFIX, "getQuestions onSuccess: " + (questions != null ? questions.size() : "null"));
+                
+                // 处理空数据库或空题目列表
+                if (questions == null) {
+                    questions = new ArrayList<>();
+                    Log.w(LOG_PREFIX, "Questions list is null, using empty list");
                 }
+                
+                totalQuestions[0] = questions.size();
+                allQuestions[0] = questions;
+                errorHolder[0] = null;
+                
+                // 数据处理完成后直接执行导出
+                processAndExport(questions, exportFormat, true);
             }
 
             @Override
             public void onError(String error) {
-                Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
+                Log.e(LOG_PREFIX, "getQuestions onError: " + error);
+                errorHolder[0] = error;
+                Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_LONG).show();
             }
         });
     }
 
+    /**
+     * 处理数据并执行导出（在主线程中执行）
+     */
+    private void processAndExport(List<Question> questions, ExportManager.ExportFormat exportFormat, boolean showProgress) {
+        Log.i(LOG_PREFIX, "processAndExport: questions=" + questions.size() + ", format=" + exportFormat);
+        
+        if (questions.isEmpty()) {
+            Toast.makeText(this, "当前数据库中没有题目可导出", Toast.LENGTH_LONG).show();
+            return;
+        }
+        
+        // 范围过滤：仅收藏 / 仅错题（错题本版模板）
+        List<Question> exportList = questions;
+        int exportScope = (rgExportScope != null && rgExportScope.getCheckedRadioButtonId() == R.id.rb_scope_favorite) ? 1 : 0;
+        Log.i(LOG_PREFIX, "Export scope: " + (exportScope == 1 ? "favorites" : "all"));
+        if (rgExportScope != null && rgExportScope.getCheckedRadioButtonId() == R.id.rb_scope_favorite) {
+            exportList = new ArrayList<>();
+            for (Question q : questions) {
+                if (q != null && q.isFavorite()) {
+                    exportList.add(q);
+                }
+            }
+            Log.i(LOG_PREFIX, "Filtered favorites: " + exportList.size() + " / " + questions.size());
+            if (exportList.isEmpty()) {
+                Toast.makeText(this, "没有收藏的题目可导出", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        } else if (onlyIncorrect) {
+            // 错题本版：仅导出答错过（答错次数>0）的题目
+            exportList = new ArrayList<>();
+            for (Question q : questions) {
+                if (q != null && q.getIncorrectCount() > 0) {
+                    exportList.add(q);
+                }
+            }
+            Log.i(LOG_PREFIX, "Filtered incorrect questions: " + exportList.size() + " / " + questions.size());
+            if (exportList.isEmpty()) {
+                Toast.makeText(this, "没有答错过的题目可导出（错题本为空）", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Toast.makeText(this, "已过滤出 " + exportList.size() + " 道错题", Toast.LENGTH_SHORT).show();
+        }
+        // 试卷版/模拟考试版：按难度从易到难排序，组卷更合理
+        if (sortByDifficulty && exportList.size() > 1) {
+            exportList = new ArrayList<>(exportList);
+            exportList.sort((a, b) -> Integer.compare(a.getDifficulty(), b.getDifficulty()));
+            Log.i(LOG_PREFIX, "Sorted by difficulty: " + exportList.size() + " questions");
+        }
+        Log.i(LOG_PREFIX, "Final export list: " + exportList.size() + " questions, format: " + exportFormat);
+        exportQuestions(exportList, exportFormat);
+    }
+
     private void exportQuestions(List<Question> questions, ExportManager.ExportFormat format) {
+        Log.i(LOG_PREFIX, "exportQuestions called: questions=" + questions.size() + ", format=" + format);
+        
         // 创建导出配置
         ExportManager.ExportConfig config = new ExportManager.ExportConfig();
         config.setFormat(format);
@@ -523,6 +627,10 @@ public class ExportActivity extends AppCompatActivity {
         if (selectedTemplate != null) {
             config.setTemplateId(selectedTemplate.getId());
         }
+        Log.i(LOG_PREFIX, "Export config: templateId=" + config.getTemplateId() +
+                ", fields=" + (selectedFields != null ? selectedFields.size() : 0) +
+                ", answers=" + config.isIncludeAnswers() +
+                ", explanations=" + config.isIncludeExplanations());
 
         // 根据导出格式选择对话框布局
         AlertDialog.Builder progressBuilder = new AlertDialog.Builder(ExportActivity.this);
@@ -567,6 +675,7 @@ public class ExportActivity extends AppCompatActivity {
         task.setCallback(new ExportManager.ExportCallback() {
             @Override
             public void onExportStart() {
+                Log.i(LOG_PREFIX, "onExportStart");
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -577,6 +686,7 @@ public class ExportActivity extends AppCompatActivity {
 
             @Override
             public void onExportProgress(int progress) {
+                Log.d(LOG_PREFIX, "onExportProgress: " + progress + "%");
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -589,28 +699,45 @@ public class ExportActivity extends AppCompatActivity {
 
             @Override
             public void onExportLog(String message) {
-                // 不需要处理日志
+                Log.d(LOG_PREFIX, "Export log: " + message);
             }
 
             @Override
             public void onExportComplete(File file) {
+                Log.i(LOG_PREFIX, "onExportComplete: " + file.getAbsolutePath() + 
+                        ", size=" + file.length() + " bytes");
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
+                        // 导出线程回调时页面可能已销毁：不再弹窗/复制，避免 BadTokenException
+                        if (isFinishing() || isDestroyed()) {
+                            Log.w(LOG_PREFIX, "导出完成时页面已销毁，跳过结果展示");
+                            return;
+                        }
                         progressDialog.dismiss();
+                        // 判断是否为 WebView 导出
+                        boolean isWebView = selectedFormat == ExportManager.ExportFormat.WEBVIEW_APK;
                         // 复制到公共「下载/OilQuiz」目录，用户可在文件管理器中查看与编辑
                         String savedPath = ExportFileSaver.copyToDownloads(
                                 ExportActivity.this, file, getMimeType(file.getAbsolutePath()));
-                        showExportCompleteDialog(file, savedPath);
+                        Log.i(LOG_PREFIX, "File copied to downloads: " + (savedPath != null ? savedPath : "failed"));
+                        
+                        if (isWebView) {
+                            showWebViewExportCompleteDialog(file, savedPath, questions);
+                        } else {
+                            showExportCompleteDialog(file, savedPath, false);
+                        }
                     }
                 });
             }
 
             @Override
             public void onExportError(String error) {
+                Log.e(LOG_PREFIX, "onExportError: " + error);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
+                        if (isFinishing() || isDestroyed()) return;
                         progressDialog.dismiss();
                         Toast.makeText(ExportActivity.this, "导出失败：" + error, Toast.LENGTH_LONG).show();
                     }
@@ -625,19 +752,26 @@ public class ExportActivity extends AppCompatActivity {
     /**
      * 显示导出完成对话框
      */
-    private void showExportCompleteDialog(File file, String savedPath) {
+    private void showExportCompleteDialog(File file, String savedPath, boolean isWebViewAPK) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("导出完成");
 
         String message;
-        if (savedPath != null) {
+        if (isWebViewAPK) {
+            // WebView 应用导出（实际产物为单个 HTML 学习页，文案如实说明）
+            message = "WebView 学习页生成成功！\n\n";
+            if (savedPath != null) {
+                message += "文件已保存到：\n" + savedPath + "\n\n";
+            }
+            message += "文件大小: " + (file.length() / 1024) + " KB\n\n";
+            message += "使用方法：\n";
+            message += "1. 用系统浏览器或文件管理器直接打开该 HTML 文件\n";
+            message += "2. 或在支持本地 HTML 的阅读器/WebView 应用中打开\n\n";
+            message += "可在系统「文件管理 → 下载 → OilQuiz」中查看";
+        } else {
             message = "导出成功！\n\n文件已保存到：\n" + savedPath
                     + "\n\n文件大小: " + (file.length() / 1024) + " KB"
                     + "\n\n可在系统「文件管理 → 下载 → OilQuiz」中查看和编辑";
-        } else {
-            message = "导出成功！\n\n文件路径: " + file.getPath()
-                    + "\n文件大小: " + (file.length() / 1024) + " KB"
-                    + "\n\n（保存到公共目录失败，文件暂存于应用缓存）";
         }
         builder.setMessage(message);
 
@@ -663,6 +797,40 @@ public class ExportActivity extends AppCompatActivity {
         });
 
         builder.show();
+    }
+
+    /**
+     * 显示 WebView 导出完成对话框（带预览按钮）
+     */
+    private void showWebViewExportCompleteDialog(File file, String savedPath, List<Question> questions) {
+        // 自动启动 WebView 预览
+        previewWebViewFile(file);
+        
+        // 异步显示提示消息（不阻塞）
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(ExportActivity.this, "HTML 文件生成成功，已自动打开预览。\n文件也保存在：\n" + (savedPath != null ? savedPath : "下载/OilQuiz"), Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /**
+     * 预览 WebView 文件
+     */
+    private void previewWebViewFile(File file) {
+        Log.i(LOG_PREFIX, "Previewing WebView file: " + file.getAbsolutePath());
+        
+        try {
+            // 启动 SimpleWebViewActivity 打开 HTML 文件（类似背题应用）
+            Intent intent = new Intent(ExportActivity.this, com.oilquiz.app.SimpleWebViewActivity.class);
+            intent.putExtra("html_path", file.getAbsolutePath());
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(LOG_PREFIX, "Failed to preview WebView file", e);
+            Toast.makeText(ExportActivity.this, "预览失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     /**
@@ -725,6 +893,8 @@ public class ExportActivity extends AppCompatActivity {
                 return "application/vnd.ms-powerpoint";
             case "html":
                 return "text/html";
+            case "zip":
+                return "application/zip";
             case "md":
                 return "text/markdown";
             case "json":

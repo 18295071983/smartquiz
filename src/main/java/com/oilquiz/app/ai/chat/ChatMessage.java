@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat;
 
 import com.oilquiz.app.ai.agent.AgentExecutionState;
+import com.oilquiz.app.ai.chat.component.ComponentData;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -180,6 +181,9 @@ public class ChatMessage {
 
     /** 消息内容 */
     public String content;
+
+    /** 结构化 UI 组件列表（插件式渲染）：由工具结果或模型组件块生成，ChatAdapter 按类型渲染 */
+    public List<ComponentData> components;
 
     /** 思考步骤列表 */
     public List<ThinkingStep> thinkingSteps;

@@ -33,11 +33,13 @@ public final class ExportFileSaver {
     }
 
     /**
-     * 将导出文件复制到公共「下载/OilQuiz」目录。
+     * 将导出文件复制到公共「下载/OilQuiz」目录，确保文件管理器可见可编辑。
+     * <p>
+     * 支持多种文件格式，包括 HTML 文件。
      *
      * @param context  上下文
      * @param srcFile  导出器生成的临时文件
-     * @param mimeType MIME 类型（如 application/vnd...sheet），可为 null
+     * @param mimeType MIME 类型（如 application/vnd...sheet 或 text/html），可为 null
      * @return 用户可见的保存路径描述（如 "内部存储/Download/OilQuiz/导出题目_xxx.xlsx"）；
      *         失败返回 null（原始文件仍在应用缓存目录可分享）
      */
@@ -165,6 +167,8 @@ public final class ExportFileSaver {
             case "jpg":
             case "jpeg":
                 return "image/jpeg";
+            case "zip":
+                return "application/zip";
             default:
                 return "application/octet-stream";
         }

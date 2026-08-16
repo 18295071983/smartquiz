@@ -17,7 +17,7 @@
 """
 
 import csv
-import io
+import itertools
 import json
 import os
 import re
@@ -182,53 +182,147 @@ def _norm_cell(v):
 # ==================== 各格式行迭代器 ====================
 
 def _iter_xlsx(path):
+    """流式读取 xlsx：两遍读（read_only 模式开销小）。
+    第一遍定位首个有效 sheet 的表头；第二遍逐 sheet 逐行产出数据，
+    跨 sheet 表头（列数+列名）不一致的 sheet 跳过，避免按首个表头错位合并。
+    返回 (headers, 数据行生成器)。
+    """
     try:
         import openpyxl
     except ImportError:
         raise RuntimeError("openpyxl 不可用，无法解析 xlsx")
+
+    # 第一遍：定位首个有效 sheet 的表头
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    headers = []
-    rows = []
+    main_header = None
     try:
-        # 遍历全部工作表（多选/判断/填空等分 sheet 题库模板），逐表定位表头后合并行
         for ws in wb.worksheets:
-            sheet_rows = []
-            for row in ws.iter_rows(values_only=True):
-                sheet_rows.append([_norm_cell(c) for c in row])
-            sheet_rows = [r for r in sheet_rows if any(x != "" for x in r)]
-            if not sheet_rows:
+            head_rows = []
+            it = ws.iter_rows(values_only=True)
+            for r in it:
+                head_rows.append([_norm_cell(c) for c in r])
+                if len(head_rows) >= 12:
+                    break
+            head_rows = [r for r in head_rows if any(x != "" for x in r)]
+            if not head_rows:
                 continue
-            h, start = _detect_header(sheet_rows)
-            if not h:
-                continue
-            if not headers:
-                headers = h
-            rows.extend(sheet_rows[start:])
+            h, _start = _detect_header(head_rows)
+            if h:
+                main_header = h
+                break
     finally:
         wb.close()
-    if not rows:
-        return [], []
-    return headers, rows
+
+    if not main_header:
+        return [], iter(())
+
+    def gen():
+        wb2 = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            for ws in wb2.worksheets:
+                it = ws.iter_rows(values_only=True)
+                head_rows = []
+                for r in it:
+                    head_rows.append([_norm_cell(c) for c in r])
+                    if len(head_rows) >= 12:
+                        break
+                head_rows = [r for r in head_rows if any(x != "" for x in r)]
+                if not head_rows:
+                    continue
+                h, start = _detect_header(head_rows)
+                if not h:
+                    continue
+                # 表头一致性校验（列数与列名），不一致的 sheet 跳过
+                if len(h) != len(main_header) or any((a or "") != (b or "")
+                                                     for a, b in zip(h, main_header)):
+                    continue
+                for r in head_rows[start:]:
+                    if any(x != "" for x in r):
+                        yield r
+                for r in it:
+                    row = [_norm_cell(c) for c in r]
+                    if any(x != "" for x in row):
+                        yield row
+        finally:
+            wb2.close()
+
+    return main_header, gen()
+
+
+def _open_text(path):
+    """打开文本文件（自动探测编码），返回文件对象。UTF-8 BOM 自动剥离。"""
+    with open(path, "rb") as f:
+        head = f.read(4096)
+    if head.startswith(b"\xef\xbb\xbf"):
+        return open(path, "r", encoding="utf-8-sig", errors="replace")
+    for enc in ("utf-8", "gbk", "latin-1"):
+        try:
+            head.decode(enc)
+            return open(path, "r", encoding=enc, errors="replace")
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return open(path, "r", encoding="utf-8", errors="replace")
 
 
 def _iter_csv(path):
-    text = _read_text(path)
-    sample = text[:4096]
+    """流式读取 CSV：读前 50 行嗅探分隔符并定位表头，其余行逐行产出。
+    返回 (headers, 数据行生成器)；生成器耗尽或异常时自动关闭文件。"""
+    f = _open_text(path)
     try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
-    except csv.Error:
-        dialect = csv.excel
-    rows = []
-    with io.StringIO(text) as f:
-        for row in csv.reader(f, dialect):
-            rows.append([_norm_cell(c) for c in row])
-    # 分隔符嗅探失败时按竖线/制表符兜底
-    if rows and len(rows[0]) == 1 and ("|" in rows[0][0] or "\t" in rows[0][0]):
-        sep = "|" if "|" in rows[0][0] else "\t"
-        rows = [r[0].split(sep) for r in rows if r and r[0]]
-    if not rows:
-        return [], []
-    return rows[0], rows[1:]
+        head_lines = []
+        while len(head_lines) < 50:
+            line = f.readline()
+            if line == "":
+                break
+            head_lines.append(line)
+        sample = "".join(head_lines)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        except csv.Error:
+            dialect = csv.excel
+
+        reader = csv.reader(itertools.chain(head_lines, iter(f.readline, "")), dialect)
+
+        def norm_rows():
+            try:
+                for row in reader:
+                    yield [_norm_cell(c) for c in row]
+            finally:
+                f.close()
+
+        all_rows = norm_rows()
+        # 分隔符嗅探失败时按竖线/制表符兜底（第一行单列且含分隔符）
+        first = next(all_rows, None)
+        if first is not None and len(first) == 1 and ("|" in first[0] or "\t" in first[0]):
+            sep = "|" if "|" in first[0] else "\t"
+
+            def split_rows():
+                try:
+                    yield first[0].split(sep)
+                    for row in all_rows:
+                        if row and row[0]:
+                            yield row[0].split(sep)
+                finally:
+                    f.close()
+            all_rows = split_rows()
+        else:
+            def prepend_first():
+                try:
+                    yield first
+                    for row in all_rows:
+                        yield row
+                finally:
+                    f.close()
+            all_rows = prepend_first()
+
+        header = next(all_rows, None)
+        if header is None:
+            f.close()
+            return [], iter(())
+        return header, all_rows
+    except Exception:
+        f.close()
+        raise
 
 
 def _iter_json(path):
@@ -240,7 +334,7 @@ def _iter_json(path):
                 data = data[key]
                 break
     if not isinstance(data, list) or not data:
-        return [], []
+        return [], iter(())
     headers = []
     for item in data[:20]:
         if isinstance(item, dict):
@@ -248,12 +342,14 @@ def _iter_json(path):
                 if k not in headers:
                     headers.append(str(k))
     if not headers:
-        return [], []
-    rows = []
-    for item in data:
-        if isinstance(item, dict):
-            rows.append([_norm_cell(item.get(h, "")) for h in headers])
-    return headers, rows
+        return [], iter(())
+
+    def gen():
+        for item in data:
+            if isinstance(item, dict):
+                yield [_norm_cell(item.get(h, "")) for h in headers]
+
+    return headers, gen()
 
 
 _SQL_INSERT_RE = re.compile(
@@ -302,24 +398,35 @@ def _split_sql_values(segment):
     return tuples
 
 
+_SQL_MAX_ROWS = 50000  # SQL 脚本数据行数上限，防超大脚本全量物化
+
+
 def _iter_sql(path):
     text = _read_text(path)
     headers = []
-    rows = []
-    for m in _SQL_INSERT_RE.finditer(text):
-        cols = [c.strip().strip('`"[]') for c in m.group(2).split(",")]
-        end = text.find(";", m.end())
-        segment = text[m.end():end if end > 0 else len(text)]
-        tuples = _split_sql_values(segment)
-        if not headers:
-            headers = cols
-        if cols == headers:
-            rows.extend(tuples)
-    return headers, rows
+    collected = []
+
+    def gen():
+        for m in _SQL_INSERT_RE.finditer(text):
+            cols = [c.strip().strip('`"[]') for c in m.group(2).split(",")]
+            end = text.find(";", m.end())
+            segment = text[m.end():end if end > 0 else len(text)]
+            tuples = _split_sql_values(segment)
+            if not headers:
+                headers.extend(cols)
+            if cols == headers:
+                for row in tuples:
+                    if len(collected) >= _SQL_MAX_ROWS:
+                        return
+                    collected.append(row)
+                    yield row
+
+    return headers, gen()
 
 
 def _pick_db_table(db_path):
-    """挑选含题干+答案类列且行数最多的表"""
+    """挑选含题干+答案类列且行数最多的表；数据行流式产出（游标逐行，防大表全量物化）。
+    返回 (conn, headers, 数据行生成器)；调用方负责关闭 conn。"""
     conn = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
     try:
         tables = [r[0] for r in conn.execute(
@@ -344,13 +451,15 @@ def _pick_db_table(db_path):
                 best_score = score
                 best = (t, cols)
         if not best:
-            return conn, None, []
+            return conn, None, iter(())
         t, cols = best
-        rows = []
         cur = conn.execute('SELECT * FROM "%s"' % t)
-        for r in cur:
-            rows.append([_norm_cell(c) for c in r])
-        return conn, cols, rows
+
+        def gen():
+            for r in cur:
+                yield [_norm_cell(c) for c in r]
+
+        return conn, cols, gen()
     except Exception:
         try:
             conn.close()
@@ -364,33 +473,41 @@ def _pick_db_table(db_path):
 def sample_file(path, max_rows=15):
     """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）"""
     try:
+        max_rows = int(max_rows) if max_rows else 15
         kind = _kind_of(path)
         if kind == "xlsx":
             headers, rows = _iter_xlsx(path)
+            sampled = list(itertools.islice(rows, max_rows))
         elif kind == "csv":
             headers, rows = _iter_csv(path)
+            sampled = list(itertools.islice(rows, max_rows))
         elif kind == "json":
             headers, rows = _iter_json(path)
+            sampled = list(itertools.islice(rows, max_rows))
         elif kind == "sql":
             headers, rows = _iter_sql(path)
+            sampled = list(itertools.islice(rows, max_rows))
         elif kind == "db":
             conn, headers, rows = _pick_db_table(path)
             try:
-                conn.close()
-            except Exception:
-                pass
-            if headers is None:
-                return json.dumps({"error": "未找到合适的题库表"}, ensure_ascii=False)
+                if headers is None:
+                    return json.dumps({"error": "未找到合适的题库表"}, ensure_ascii=False)
+                sampled = list(itertools.islice(rows, max_rows))
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         elif kind == "xls":
             headers, rows = _iter_xls(path)
+            sampled = list(itertools.islice(rows, max_rows))
         else:
             return json.dumps({"error": "不支持的文件类型: %s" % kind},
                               ensure_ascii=False)
-        max_rows = int(max_rows) if max_rows else 15
         return json.dumps({
             "source_kind": kind,
             "headers": headers,
-            "rows": rows[:max_rows],
+            "rows": sampled,
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -488,7 +605,8 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
                               ensure_ascii=False)
 
         source_name = os.path.basename(path)
-        total = len(rows)
+        # 流式解析：rows 为生成器，无法预知总数；total 由处理行数代替（Java 侧不消费 total_rows）
+        total = 0
 
         # 已有分片（续导时保留）+ 新分片计数器
         existing = sorted(f for f in os.listdir(out_dir)
@@ -519,6 +637,9 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
             chunks.append(cur_file)
 
         bp_counter = 0
+        # 断点语义：记录"已写入分片的最后源行号"（last_written），而非"已处理行号"。
+        # 恢复时 resume_row=last_written，已写行绝不重写，杜绝检查点粒度重叠导致的 CSV 重复。
+        last_written = resume_row
         for idx, row in enumerate(rows):
             if idx < resume_row:
                 continue
@@ -526,10 +647,8 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
 
             rec = _map_row(headers, row, mapping, source_name, std_columns, option_fields)
             key = re.sub(r"\s+", "", rec.get("questionText", ""))
-            # 题干为空或批内重复 → 丢弃
+            # 题干为空或批内重复 → 丢弃（不写盘，不更新 last_written）
             if not key or key in seen:
-                _update_breakpoint(breakpoint_path, processed) if (bp_counter % 500 == 0) else None
-                bp_counter += 1
                 continue
             seen.add(key)
 
@@ -537,6 +656,7 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
                 open_new_part()
 
             cur_writer[1].writerow([rec.get(c, "") for c in std_columns])
+            last_written = processed
             row_in_chunk = cur_rows_in_file
             cur_rows_in_file += 1
             written += 1
@@ -555,20 +675,20 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
                         "has": {f: bool(rec.get(f)) for f in fill_fields},
                     })
 
-            # 实时写断点（每 500 行一次，降低 IO）
+            # 实时写断点（每 500 行一次，值为已写行号；降低 IO）
             bp_counter += 1
             if bp_counter % 500 == 0:
-                _update_breakpoint(breakpoint_path, processed)
+                _update_breakpoint(breakpoint_path, last_written)
 
         if cur_writer:
             cur_writer[0].close()
 
-        _update_breakpoint(breakpoint_path, processed)
+        _update_breakpoint(breakpoint_path, last_written)
 
         return json.dumps({
             "success": True,
             "chunks": chunks,
-            "total_rows": total,
+            "total_rows": processed,
             "processed_rows": processed,
             "written_rows": written,
             "missing": missing,
@@ -627,8 +747,11 @@ def apply_fills(chunk_path, fills_json, fill_fields_json=None):
                         continue
                     row[col_idx[field]] = str(v)
             updated += 1
-        with open(chunk_path, "w", encoding="utf-8", newline="") as f:
+        # 原子写回：先写临时文件再改名，避免中途崩溃损坏分片 CSV
+        tmp_path = chunk_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8", newline="") as f:
             csv.writer(f).writerows(all_rows)
+        os.replace(tmp_path, chunk_path)
         return json.dumps({"updated": updated}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)

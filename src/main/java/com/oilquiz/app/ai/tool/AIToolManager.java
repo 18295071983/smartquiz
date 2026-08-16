@@ -226,6 +226,9 @@ public class AIToolManager {
             registerToolFactory("python_calculate", PythonCalculateTool.class, PythonCalculateTool::new);
             registerToolFactory("python_analyze_data", PythonDataAnalysisTool.class, PythonDataAnalysisTool::new);
             registerToolFactory("ai_create_tool", AIToolCreatorTool.class, AIToolCreatorTool::new);
+            registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
+            registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
+            registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             Log.i(TAG, "Python tool factories registered");
         } catch (Throwable e) {
             Log.w(TAG, "Failed to register Python tool factories: " + e.getMessage());
@@ -341,7 +344,12 @@ public class AIToolManager {
             // 参数类型归一：引导卡片等UI入口传的都是String，
             // 而工具内部多处用 (Integer)/(Boolean) 强转，不转换会 ClassCastException
             normalizeParamTypes(parameters);
-            return tool.execute(parameters);
+            AIToolResult result = tool.execute(parameters);
+            // 工具侧桥接：工具结果携带结构化 UI 组件时收集，本轮生成完成时附加到 AI 消息
+            if (result != null && result.getComponent() != null) {
+                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(result.getComponent());
+            }
+            return result;
         } catch (Exception e) {
             Log.e(TAG, "Error executing tool: " + toolName, e);
             Map<String, Object> additionalInfo = new HashMap<>();
