@@ -2463,13 +2463,23 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (tvSunset != null) tvSunset.setText(sunSet);
     }
 
-    /** 生成人性化天气说明文字 */
+    /** 生成人性化天气说明文字（与天气横幅共用 WeatherSummaryUtil，保证两处文案完全一致） */
     private void updateWeatherSummary() {
         if (tvWeatherSummary == null) return;
-
-        StringBuilder sb = new StringBuilder();
-
-        // ① 今日天气概述
+        String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
+                todayDayWeather, todayNightWeather, todayHighTemp, todayLowTemp,
+                currentTempVal, currentFeelsLike, currentWeatherText,
+                currentHumidity, currentUv, currentWindScale,
+                currentVisibility, minutelySummary, alertSummary);
+        if (summary != null) {
+            tvWeatherSummary.setText(summary);
+            tvWeatherSummary.setVisibility(View.VISIBLE);
+        } else {
+            tvWeatherSummary.setVisibility(View.GONE);
+        }
+        return;
+        // ========== 以下为旧版拼接逻辑，已由共享生成器替代，不再执行 ==========
+        /*
         if (!todayDayWeather.isEmpty() || !todayNightWeather.isEmpty()) {
             if (!todayDayWeather.isEmpty() && !todayNightWeather.isEmpty()) {
                 if (todayDayWeather.equals(todayNightWeather)) {
@@ -2602,6 +2612,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         } else {
             tvWeatherSummary.setVisibility(View.GONE);
         }
+        */
     }
 
     /** 从各种时间格式中提取 HH:mm，如 "06:30", "2024-01-01T06:30+08:00" */
