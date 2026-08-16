@@ -25,8 +25,6 @@ import com.oilquiz.app.manager.ConfigManager;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.SystemUIResourceAdapter;
-import com.oilquiz.app.ui.export.ExportQuestionsHolder;
-import com.oilquiz.app.ui.export.TemplateSelectionActivity;
 import com.oilquiz.app.util.export.ExportFileSaver;
 import com.oilquiz.app.util.export.ExportManager;
 import com.oilquiz.app.util.export.ExportUtils;
@@ -135,28 +133,12 @@ public class ExportActivity extends AppCompatActivity {
             }
         });
 
-        // 设置模板管理按钮点击事件（进入完整模板选择页面）
+        // 设置模板管理按钮点击事件：弹模板选择对话框（与页面模板 chips 同一来源），
+        // 选中后直接应用并与自定义字段/开关联动，不再进入独立的模板三级流水线
         btnSelectTemplate.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                questionViewModel.getQuestions(new QuestionViewModel.GetQuestionsCallback() {
-                    @Override
-                    public void onSuccess(List<Question> questions) {
-                        if (questions != null && !questions.isEmpty()) {
-                            // 题目列表通过内存持有器传递，避免 Intent 序列化超 Binder 上限抛 TransactionTooLargeException
-                            ExportQuestionsHolder.set(questions);
-                            Intent intent = new Intent(ExportActivity.this, TemplateSelectionActivity.class);
-                            startActivity(intent);
-                        } else {
-                            Toast.makeText(ExportActivity.this, "没有题目可导出", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
-                    }
-                });
+                showTemplateSelectDialog();
             }
         });
 
@@ -167,6 +149,32 @@ public class ExportActivity extends AppCompatActivity {
                 startExport();
             }
         });
+    }
+
+    /**
+     * 模板管理：弹出全部场景模板选择对话框（与页面模板 chips 同一来源）。
+     * 选中后应用模板字段/开关并高亮对应 chip，与自定义字段在同一页面联动。
+     */
+    private void showTemplateSelectDialog() {
+        if (sceneTemplates == null || sceneTemplates.isEmpty()) {
+            Toast.makeText(this, "暂无可用模板", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] names = new String[sceneTemplates.size()];
+        for (int i = 0; i < sceneTemplates.size(); i++) {
+            Template t = sceneTemplates.get(i);
+            String desc = t.getDescription();
+            names[i] = t.getName() + (desc != null && !desc.isEmpty() ? "：" + desc : "");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择导出模板")
+                .setItems(names, (dialog, which) -> {
+                    Template t = sceneTemplates.get(which);
+                    MaterialButton chip = findSceneChip(t);
+                    selectSceneTemplate(t, chip);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     /**
