@@ -69,7 +69,7 @@
             android:maxLines="1"
             android:ellipsize="end" />
 
-        <!-- 天气详情总介绍：一句话汇总（与详情页天气介绍同数据源，风格一致） -->
+        <!-- 天气详情总介绍：与详情页同款总结，自动横向滚动（跑马灯）循环展示 -->
         <TextView
             android:id="@+id/weather_summary"
             android:layout_width="match_parent"
@@ -78,9 +78,11 @@
             android:text="加载中..."
             android:textColor="@color/weather_banner_text_secondary"
             android:textSize="11sp"
-            android:maxLines="3"
-            android:lineSpacingExtra="1dp"
-            android:ellipsize="end" />
+            android:singleLine="true"
+            android:ellipsize="marquee"
+            android:marqueeRepeatLimit="marquee_forever"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
     </LinearLayout>
 
     <ImageView

@@ -143,6 +143,11 @@ public class WeatherBannerView extends LinearLayout {
         weatherBanner = findViewById(R.id.weather_banner);
         // 天气详情总介绍
         weatherSummary = findViewById(R.id.weather_summary);
+        // 自动跑马灯滚动：总结内容较长时循环滚动展示，无需手动滑动
+        if (weatherSummary != null) {
+            weatherSummary.setMarqueeRepeatLimit(-1); // 无限循环
+            weatherSummary.setSelected(true);          // 触发 marquee 滚动
+        }
 
         // 让所有子 View 都响应点击（点击横幅任意位置都跳转详情页）。
         // 每个子 View 自带 OnClick 监听：事件不会被内部控件吞掉导致"点了没反应"；
@@ -794,58 +799,20 @@ public class WeatherBannerView extends LinearLayout {
         if (weatherSummary != null) {
             StringBuilder s = new StringBuilder();
 
-            // ① 今日段：白天/夜间天气 + 温差（数据来自今日预报）
+            // 与天气详情页共用同一总结生成器（WeatherSummaryUtil），保证两处文案完全一致
             String[] today = parseForecastToday(forecastText);
-            String dayW = today[0], nightW = today[1], highT = today[2], lowT = today[3];
-            if (!dayW.isEmpty() || !nightW.isEmpty()) {
-                if (!dayW.isEmpty() && !nightW.isEmpty()) {
-                    if (dayW.equals(nightW)) {
-                        s.append("今天全天").append(dayW);
-                    } else {
-                        s.append("今天白天").append(dayW).append("，夜间").append(nightW);
-                    }
-                } else if (!dayW.isEmpty()) {
-                    s.append("今天白天").append(dayW);
+            String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
+                    today[0], today[1], today[2], today[3],
+                    info.temp, info.feelsLike, info.description,
+                    info.humidity, info.uv, info.windScale,
+                    info.visibility, null, null);
+            if (summary != null) {
+                // 具体地址补充（如" · 海淀区中关村大街"）
+                if (detailAddress != null && !detailAddress.isEmpty()) {
+                    s.append(summary).append(" · ").append(detailAddress);
                 } else {
-                    s.append("今天夜间").append(nightW);
+                    s.append(summary);
                 }
-                if (!highT.isEmpty() && !lowT.isEmpty()) {
-                    s.append("，").append(lowT).append("~").append(highT).append("°");
-                    try {
-                        int diff = Integer.parseInt(highT) - Integer.parseInt(lowT);
-                        if (diff >= 10) s.append("，温差").append(diff).append("°注意添减衣物");
-                    } catch (NumberFormatException ignored) {}
-                }
-                s.append("。");
-            }
-
-            // ② 当前段：温度/天气/体感/湿度/风/能见度/气压
-            s.append(" 当前");
-            String t = (info.temp == null || info.temp.isEmpty() || "--".equals(info.temp)) ? "" : info.temp;
-            if (!t.isEmpty()) s.append(t).append("°");
-            String desc = info.description;
-            if (desc != null && !desc.isEmpty() && !"暂无数据".equals(desc)) s.append("，").append(desc);
-            String feels = (info.feelsLike == null || info.feelsLike.isEmpty() || "--".equals(info.feelsLike)) ? "" : info.feelsLike;
-            if (!feels.isEmpty()) s.append("，体感").append(feels).append("°");
-            String h = (info.humidity == null || info.humidity.isEmpty() || "--".equals(info.humidity)) ? "" : info.humidity;
-            if (!h.isEmpty()) s.append("，湿度").append(h).append("%");
-            StringBuilder w = new StringBuilder();
-            if (info.windDir != null && !info.windDir.isEmpty() && !"--".equals(info.windDir)) w.append(info.windDir);
-            if (info.wind != null && !info.wind.isEmpty() && !"--".equals(info.wind)) {
-                if (w.length() > 0) w.append(" ");
-                w.append(info.wind);
-            }
-            if (w.length() > 0) s.append("，").append(w);
-            String vis = (info.visibility == null || info.visibility.isEmpty() || "--".equals(info.visibility)) ? "" : info.visibility;
-            if (!vis.isEmpty()) {
-                if (vis.matches("-?\\d+(\\.\\d+)?")) s.append("，能见度").append(vis).append("km");
-                else s.append("，能见度").append(vis);
-            }
-            String p = (info.pressure == null || info.pressure.isEmpty() || "--".equals(info.pressure)) ? "" : info.pressure;
-            if (!p.isEmpty()) s.append("，气压").append(p).append("hPa");
-            // 具体地址补充（如" · 海淀区中关村大街"）
-            if (detailAddress != null && !detailAddress.isEmpty()) {
-                s.append(" · ").append(detailAddress);
             }
             weatherSummary.setText(s.toString().trim());
         }
@@ -939,6 +906,10 @@ public class WeatherBannerView extends LinearLayout {
                     info.wind = line.substring(3).trim().replace(" km/h", "").replace("m/s", "");
                 } else if (line.startsWith("风向:")) {
                     info.windDir = line.substring(3).trim();
+                } else if (line.startsWith("风力:")) {
+                    info.windScale = line.substring(3).trim().replace("级", "");
+                } else if (line.startsWith("紫外线:")) {
+                    info.uv = line.substring(4).trim();
                 } else if (line.startsWith("体感温度:")) {
                     info.feelsLike = line.substring(5).trim().replace("°C", "").replace("°", "");
                 } else if (line.startsWith("能见度:")) {

@@ -303,6 +303,8 @@ public class WeatherBannerManager {
         public String humidity = "--";
         public String wind = "--";
         public String windDir = "--";
+        public String windScale = "--";
+        public String uv = "--";
         public String tempRange = "";
         public String forecast = "";
         public String feelsLike = "--";
