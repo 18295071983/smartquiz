@@ -69,60 +69,18 @@
             android:maxLines="1"
             android:ellipsize="end" />
 
-        <!-- 介绍行：体感 / 湿度 / 风力 / 能见度，类似详情页的 chips 风格；
-             用 marginHorizontal 分隔，避免 LinearLayout.showDividers 属性要求 divider 必须是 Drawable -->
-        <LinearLayout
-            android:id="@+id/weather_info_chips_row"
+        <!-- 天气详情总介绍：一句话汇总（与详情页天气介绍同数据源，风格一致） -->
+        <TextView
+            android:id="@+id/weather_summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:id="@+id/weather_feels_like"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="体感 --°"
-                android:textColor="@color/weather_banner_text_secondary"
-                android:textSize="11sp"
-                android:singleLine="true"
-                android:ellipsize="none"
-                android:layout_marginEnd="10dp" />
-
-            <TextView
-                android:id="@+id/weather_humidity"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="💧 --%"
-                android:textColor="@color/weather_banner_text_secondary"
-                android:textSize="11sp"
-                android:singleLine="true"
-                android:ellipsize="none"
-                android:layout_marginEnd="10dp" />
-
-            <TextView
-                android:id="@+id/weather_wind"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🌬 --"
-                android:textColor="@color/weather_banner_text_secondary"
-                android:textSize="11sp"
-                android:singleLine="true"
-                android:ellipsize="none" />
-
-            <TextView
-                android:id="@+id/weather_visibility"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="👁 --km"
-                android:textColor="@color/weather_banner_text_secondary"
-                android:textSize="11sp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:gravity="end" />
-        </LinearLayout>
+            android:text="加载中..."
+            android:textColor="@color/weather_banner_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="3"
+            android:lineSpacingExtra="1dp"
+            android:ellipsize="end" />
     </LinearLayout>
 
     <ImageView

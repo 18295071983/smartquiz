@@ -14,7 +14,8 @@ public class WeatherService {
 
     private static final String TAG = "WeatherService";
     
-    private static final long CACHE_DURATION_NOW = 15 * 60 * 1000;
+    /** 实时天气缓存时长：5 分钟（与横幅刷新周期一致，保证手动刷新/重进页面能及时看到新数据） */
+    private static final long CACHE_DURATION_NOW = 5 * 60 * 1000;
     private static final long CACHE_DURATION_FORECAST = 3 * 60 * 60 * 1000;
     private static final long CACHE_DURATION_AIR = 30 * 60 * 1000;
     private static final long CACHE_DURATION_ALERTS = 10 * 60 * 1000;
