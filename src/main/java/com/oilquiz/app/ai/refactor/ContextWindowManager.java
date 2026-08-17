@@ -21,7 +21,7 @@ public class ContextWindowManager {
     private final ChatHistoryManager chatHistoryManager;
     private final Context context;
     
-    private int maxContextTokens = 8192;
+    private int maxContextTokens = 16384;
     private float trimThreshold = 0.75f;
     private int minMessagesToKeep = 3;
     

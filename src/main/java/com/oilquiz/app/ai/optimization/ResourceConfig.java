@@ -40,8 +40,8 @@ public class ResourceConfig {
     // ========== 上下文大小 ==========
     /** 上下文大小下限（保证单次推理） */
     private static final int MIN_CONTEXT_SIZE = 2048;
-    /** 上下文大小上限 */
-    private static final int MAX_CONTEXT_SIZE = 8192;
+    /** 上下文大小上限（内存充足时允许大上下文，长对话更久才触发裁剪/超限） */
+    private static final int MAX_CONTEXT_SIZE = 16384;
     /** 默认上下文大小 */
     private static final int DEFAULT_CONTEXT_SIZE = 4096;
     /** 推理预留 token 数（输入 + 输出） */
@@ -348,7 +348,7 @@ public class ResourceConfig {
             // 内存一般：2048-8192
             maxAllowed = 8192;
         } else {
-            // 内存充足：使用默认上限
+            // 内存充足：使用默认上限（16384），"越过"小上下文限制
             maxAllowed = MAX_CONTEXT_SIZE;
         }
 

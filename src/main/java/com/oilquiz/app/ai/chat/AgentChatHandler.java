@@ -12,9 +12,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.AgentRouter;
 import com.oilquiz.app.ai.agent.SmartIntentRecognizer;
-import com.oilquiz.app.ai.agent.UnifiedAgentEngine;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
@@ -144,7 +144,7 @@ public class AgentChatHandler {
             }
         });
 
-        engine.setCallback(new UnifiedAgentEngine.AgentCallback() {
+        engine.setCallback(new AgentCallback() {
             @Override
             public void onToken(String token) {
                 if (isValid()) callback.onToken(token);
@@ -206,7 +206,7 @@ public class AgentChatHandler {
                     );
                     stepInfo.thought = step;
                     stepInfo.detail = detail;
-                    stepInfo.reasoningMode = engine.getCurrentMode().displayName;
+                    stepInfo.reasoningMode = "在线";
                     stepInfo.isCompleted = true;
                     callback.onAgentStep(stepInfo);
                 }
@@ -266,7 +266,7 @@ public class AgentChatHandler {
                         0
                     );
                     stepInfo.thought = thought;
-                    stepInfo.reasoningMode = engine.getCurrentMode().displayName;
+                    stepInfo.reasoningMode = "在线";
                     stepInfo.isCompleted = false;
                     callback.onAgentStep(stepInfo);
                 }
@@ -313,17 +313,7 @@ public class AgentChatHandler {
 
     public void setInferenceMode(InferenceMode mode) {
         this.currentInferenceMode = mode;
-        switch (mode) {
-            case REACT:
-                engine.setReasoningMode(UnifiedAgentEngine.ReasoningMode.REACT);
-                break;
-            case CHAIN_OF_THOUGHT:
-                engine.setReasoningMode(UnifiedAgentEngine.ReasoningMode.CHAIN_OF_THOUGHT);
-                break;
-            case PLAN_EXECUTE:
-                engine.setReasoningMode(UnifiedAgentEngine.ReasoningMode.PLAN_EXECUTE);
-                break;
-        }
+        // 推理模式（REACT/CoT/Plan）为旧本地 Agent 概念，在线引擎忽略
     }
 
     public InferenceMode getInferenceMode() {

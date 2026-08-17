@@ -794,6 +794,15 @@ public class LlamaHelper {
             }
             return;
         }
+        // 与文本推理共用同一把写锁，防止多模态推理与普通推理并发导致 native 崩溃
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            AILogger.e(TAG, "generateWithImage: 获取推理锁超时(" + (System.currentTimeMillis() - lockStart) + "ms)");
+            if (callback != null) {
+                callback.onError("Generation already in progress");
+            }
+            return;
+        }
         try {
             ChatMessage[] historyArray = history != null ? history.toArray(new ChatMessage[0]) : null;
             nativeGenerateWithImage(historyArray, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking, callback);
@@ -802,6 +811,8 @@ public class LlamaHelper {
             if (callback != null) {
                 callback.onError("Native method not found: " + e.getMessage());
             }
+        } finally {
+            releaseInferenceWriteLock();
         }
     }
 
@@ -935,13 +946,18 @@ public class LlamaHelper {
 
     /**
      * 降低 GPU 层数以减少设备卡顿
-     * 当模型运行时导致设备卡顿时，可降低 GPU 层数到 15-20 层
+     * ⚠ 注意：n_gpu_layers 仅在模型加载（initModel）时生效，运行时修改对已加载模型无效；
+     * 需先 release() 再重新 initModel（新层数）才能真正降低 GPU 负载。
      * @param targetLayers 目标层数（建议 15-20）
      */
     public static void reduceGPULayers(int targetLayers) {
         if (!libraryLoaded) {
             AILogger.e(TAG, "Library not loaded, cannot reduce GPU layers");
             return;
+        }
+        if (isModelInitialized()) {
+            AILogger.w(TAG, "模型已加载：GPU 层数修改需重新加载模型后生效"
+                    + "（当前调用仅更新下次加载参数）");
         }
         // 限制在合理范围内
         int layers = Math.max(1, Math.min(targetLayers, 30));
@@ -1043,6 +1059,84 @@ public class LlamaHelper {
     }
 
     private static native void nativeSetThreadCount(int count);
+
+    /**
+     * 设置 KV cache 量化类型（仅模型加载时生效，改后需重载模型）：
+     * 0 = Q8_0（KV 内存减半，精度损失极小，适合大模型/低内存设备）
+     * 1 = F16（默认，精度更高，KV 内存占满）
+     */
+    public static void setKvCacheType(int type) {
+        if (!libraryLoaded) {
+            AILogger.e(TAG, "Library not loaded, cannot set KV cache type");
+            return;
+        }
+        try {
+            nativeSetKvCacheType(type);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error setting KV cache type: " + e.getMessage(), e);
+        }
+    }
+
+    private static native void nativeSetKvCacheType(int type);
+
+    /**
+     * 获取当前模型的 GGUF 架构（general.architecture 元数据，如 qwen2vl/gemma3v/llama3.2 等）。
+     * 用于按权重元数据判断模型能力（多模态视觉等），而非模型名。
+     * 返回空串表示不可用。
+     */
+    public static String getModelArchitecture() {
+        if (!libraryLoaded) {
+            return "";
+        }
+        try {
+            return nativeGetModelArchitecture();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error getting model architecture: " + e.getMessage(), e);
+            return "";
+        }
+    }
+
+    private static native String nativeGetModelArchitecture();
+
+    /**
+     * 获取模型加载时的实际上下文大小（主 llama_context 的 n_ctx，如 7680）。
+     * 与 chat context 无关，Agent 原生 FC 路径可直接使用；未加载返回 0。
+     */
+    public static int getModelNctx() {
+        if (!libraryLoaded) {
+            return 0;
+        }
+        try {
+            return nativeGetModelNctx();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "Error getting model n_ctx: " + e.getMessage(), e);
+            return 0;
+        }
+    }
+
+    private static native int nativeGetModelNctx();
+
+    /**
+     * 增量生成（KV 复用）：对 appendStart 起的消息（Qwen3 格式手动渲染）解码到既有 KV cache，
+     * 然后从当前位置生成——工具循环后续轮次不再全量重解码 prompt，显著提速。
+     * 返回生成文本（Java 侧自行解析 tool_calls）；失败返回空串（调用方回退全量）。
+     */
+    public static String appendMessagesAndGenerate(String[] roles, String[] contents, int appendStart,
+                                                   int maxTokens, float temperature, float topP, int topK,
+                                                   boolean enableThinking) {
+        if (!libraryLoaded || roles == null || contents == null) return "";
+        try {
+            return nativeAppendMessagesAndGenerate(roles, contents, appendStart,
+                    maxTokens, temperature, topP, topK, enableThinking);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "appendMessagesAndGenerate error: " + e.getMessage(), e);
+            return "";
+        }
+    }
+
+    private static native String nativeAppendMessagesAndGenerate(String[] roles, String[] contents, int appendStart,
+                                                                 int maxTokens, float temperature, float topP, int topK,
+                                                                 boolean enableThinking);
 
     public static int getThreadCount() {
         if (!libraryLoaded) {

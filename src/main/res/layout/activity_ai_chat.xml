@@ -556,17 +556,6 @@
                 android:textColor="@color/on_primary_container"
                 app:chipStrokeWidth="0dp"/>
 
-            <!-- Agent 功能入口 -->
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_agent_mode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🤖 Agent"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/secondary_container"
-                android:textColor="@color/on_secondary_container"
-                app:chipStrokeWidth="0dp"/>
-
             <!-- 模式切换按钮 -->
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_deep_think"
@@ -577,29 +566,6 @@
                 android:layout_marginEnd="6dp"
                 app:chipBackgroundColor="@color/primary_container"
                 android:textColor="@color/on_primary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_creative"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="✍️写作"
-                app:chipIconTint="@color/secondary"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/secondary_container"
-                android:textColor="@color/on_secondary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <!-- 思考辅助入口 -->
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_thinking_assist"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="💡思考辅助"
-                app:chipIconTint="@color/tertiary"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
 
             <com.google.android.material.chip.Chip

@@ -36,9 +36,9 @@ android {
         versionName "2.0"
         multiDexEnabled true
         
-        // 注意：本地库构建已分离到msys2环境中进行
-        // 请使用 build_llama_jni_msys2.sh 脚本在msys2中预编译本地库
-        // 预编译后的.so文件应放在 src/main/jniLibs/ 目录下
+        // 本地库由 Gradle externalNativeBuild（CMake）直接编译：
+        // CMake 产物输出到 src/main/jniLibs/<abi>/（见 src/main/cpp/CMakeLists.txt LIBRARY_OUTPUT_DIRECTORY），
+        // AGP 打包时自动 strip。GGML_VULKAN=ON 为唯一 GPU backend（OpenCL 关闭）。
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"

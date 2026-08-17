@@ -5,12 +5,9 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.chat.event.StreamingEvent;
 import com.oilquiz.app.ai.chat.event.StreamingSubscriber;
-import com.oilquiz.app.ai.chat.mode.AgentModeHandler;
-import com.oilquiz.app.ai.chat.mode.CreativeWritingModeHandler;
 import com.oilquiz.app.ai.chat.mode.DeepThinkingModeHandler;
 import com.oilquiz.app.ai.chat.mode.ModeHandler;
 import com.oilquiz.app.ai.chat.mode.NormalModeHandler;
-import com.oilquiz.app.ai.chat.mode.ThinkingModeHandler;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AgentService;
@@ -78,11 +75,6 @@ public class ChatOrchestrator {
     private void initModeHandlers() {
         modeHandlers.put(ChatModeManager.ChatMode.NORMAL, new NormalModeHandler(aiService));
         modeHandlers.put(ChatModeManager.ChatMode.DEEP_THINKING, new DeepThinkingModeHandler(aiService));
-        modeHandlers.put(ChatModeManager.ChatMode.CREATIVE, new CreativeWritingModeHandler(aiService));
-        if (activity != null) {
-            modeHandlers.put(ChatModeManager.ChatMode.AGENT, new AgentModeHandler(activity, aiService, agentService, aiConfig));
-            modeHandlers.put(ChatModeManager.ChatMode.THINKING_ASSIST, new ThinkingModeHandler(activity, aiService));
-        }
         Log.i(TAG, "Mode handlers initialized: " + modeHandlers.size());
     }
     
@@ -416,9 +408,8 @@ public class ChatOrchestrator {
      * 检查指定消息是否为Agent模式
      */
     public boolean isAgentMessage(String messageId) {
-        if (messageId == null) return false;
-        ChatModeManager.ChatMode mode = messageModes.get(messageId);
-        return mode == ChatModeManager.ChatMode.AGENT;
+        // Agent 已不再作为独立模式（在线模型自动 Agent）；保留方法返回 false 兼容
+        return false;
     }
     
     public void setAutoModeEnabled(boolean enabled) {

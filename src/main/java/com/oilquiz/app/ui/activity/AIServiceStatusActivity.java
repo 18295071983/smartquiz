@@ -110,6 +110,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private MaterialButton btnSelectModel;
     private MaterialButton btnTestAi;
     private MaterialButton btnDeviceInfo;
+    private MaterialButton btnApplyGpuLayers;
+    private android.widget.EditText gpuLayersInput;
     private SwitchMaterial aiEnableSwitch;
     private AppCompatSpinner optimizationModeSpinner;
     private SwitchMaterial agentSwitch;
@@ -243,6 +245,13 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         
         // 设备信息按钮
         btnDeviceInfo = findViewById(R.id.btn_device_info);
+
+        // GPU 层数设置（修改后需重载模型才生效）
+        gpuLayersInput = findViewById(R.id.gpu_layers_input);
+        btnApplyGpuLayers = findViewById(R.id.btn_apply_gpu_layers);
+        if (gpuLayersInput != null) {
+            gpuLayersInput.setText(String.valueOf(LlamaHelper.getGPULayers()));
+        }
     }
 
     private void setButtonListeners() {
@@ -314,6 +323,85 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 startActivity(intent);
             });
         }
+
+        if (btnApplyGpuLayers != null) {
+            btnApplyGpuLayers.setOnClickListener(v -> applyGpuLayersAndReload());
+        }
+
+        MaterialButton btnPerformance = findViewById(R.id.btn_performance);
+        if (btnPerformance != null) {
+            btnPerformance.setOnClickListener(v ->
+                    startActivity(new Intent(this, PerformanceActivity.class)));
+        }
+    }
+
+    /**
+     * 应用 GPU 层数设置并重载模型（GPU 层数仅在 initModel 时生效，改后必须重载）
+     */
+    private void applyGpuLayersAndReload() {
+        if (gpuLayersInput == null) return;
+        final int target;
+        try {
+            target = Integer.parseInt(gpuLayersInput.getText().toString().trim());
+        } catch (Exception e) {
+            Toast.makeText(this, "请输入 0-30 的整数", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (target < 0 || target > 30) {
+            Toast.makeText(this, "GPU 层数范围 0-30（0=纯CPU）", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int current = 0;
+        try { current = LlamaHelper.getGPULayers(); } catch (Exception ignored) {}
+        boolean modelLoaded = LlamaHelper.isModelInitialized();
+
+        if (modelLoaded && target == current) {
+            Toast.makeText(this, "GPU 层数未变化（当前 " + current + "）", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String msg = modelLoaded
+                ? "GPU 层数将从 " + current + " 改为 " + target + "，需重新加载模型（数十秒）。继续？"
+                : "GPU 层数将设为 " + target + "（模型未加载，下次加载时生效）。";
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("GPU 层数设置")
+                .setMessage(msg)
+                .setPositiveButton(modelLoaded ? "重载模型" : "确定", (d, w) -> {
+                    // 持久化保存手动值（独立 key，加载时优先于自动计算；"恢复自动"删除此 key）
+                    getSharedPreferences("model_state_cache", MODE_PRIVATE)
+                            .edit().putInt("gpu_layers_manual", target).apply();
+                    LlamaHelper.setGPULayers(target);
+                    Toast.makeText(this, "GPU 层数已设为 " + target, Toast.LENGTH_SHORT).show();
+
+                    if (modelLoaded && aiService != null) {
+                        // 原子重载：释放旧模型 + 用新 GPU 层数重新加载（同一串行执行器，避免竞态）
+                        aiService.reloadModelAsync(new AIService.InitializeCallback() {
+                            @Override
+                            public void onResult(boolean success) {
+                                runOnUiThread(() -> {
+                                    Toast.makeText(AIServiceStatusActivity.this,
+                                            success ? "模型已按新 GPU 层数重新加载" : "模型重载失败",
+                                            Toast.LENGTH_SHORT).show();
+                                    refreshStatus();
+                                });
+                            }
+                        });
+                    } else {
+                        refreshStatus();
+                    }
+                })
+                .setNeutralButton("恢复自动", (d, w) -> {
+                    // 删除手动值，恢复自动计算（按设备/模型/内存）
+                    getSharedPreferences("model_state_cache", MODE_PRIVATE)
+                            .edit().remove("gpu_layers_manual").apply();
+                    Toast.makeText(this, "已恢复自动 GPU 层数", Toast.LENGTH_SHORT).show();
+                    if (modelLoaded && aiService != null) {
+                        aiService.reloadModelAsync(null);
+                    }
+                    refreshStatus();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void initTokenSpinner() {
@@ -478,6 +566,10 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 gpuLayers = LlamaHelper.getGPULayers();
             } catch (Exception e) {
                 Log.e(TAG, "Error getting GPU layers: " + e.getMessage());
+            }
+            // 同步 GPU 层数输入框（重载后显示新值）
+            if (gpuLayersInput != null) {
+                gpuLayersInput.setText(String.valueOf(gpuLayers));
             }
             
             if (openclLight != null) {

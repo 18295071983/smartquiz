@@ -332,6 +332,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.PerformanceActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.activity.AIChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />

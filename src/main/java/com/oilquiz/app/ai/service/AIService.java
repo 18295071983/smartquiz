@@ -531,6 +531,33 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     /**
+     * 原子重载当前模型：释放旧资源 + 重新加载，在同一个串行执行器中完成。
+     *
+     * ⚠ 切勿使用 release() + initializeAsync() 组合：
+     * release() 走多线程 executorService，initializeAsync() 走 modelInitSerialExecutor，
+     * 两个任务并发抢 modelInitLock 顺序不定——若 initialize 先完成、release 后执行，
+     * 模型会被卸载且 UI 仍显示"重载完成"。本方法在同一串行线程内完成两步，顺序有保证。
+     */
+    public void reloadModelAsync(InitializeCallback callback) {
+        modelInitSerialExecutor.execute(() -> {
+            boolean success = false;
+            synchronized (modelInitLock) {
+                try {
+                    releaseNativeResourcesLocked(false);
+                    AILogger.i(TAG, "reloadModelAsync: released old resources");
+                } catch (Exception e) {
+                    AILogger.e(TAG, "reloadModelAsync release error: " + e.getMessage(), e);
+                }
+                // initialize() 内部 synchronized(modelInitLock) 可重入
+                success = initialize();
+            }
+            if (callback != null) {
+                callback.onResult(success);
+            }
+        });
+    }
+
+    /**
      * 初始化AI服务（须在后台线程调用；会阻塞直至加载完成）
      */
     public boolean initialize() {
@@ -749,6 +776,102 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 释放 native 模型与聊天上下文。调用方须已持有 {@link #modelInitLock}，或与 {@link #switchModel} 等串行路径配合。
      */
+    /**
+     * 自动加载多模态投影文件（mmproj）——按 GGUF 权重元数据识别，不依赖模型名：
+     * 1. 先释放旧投影（防止切换模型后残留）
+     * 2. 读模型 general.architecture：非视觉架构直接跳过；视觉架构才尝试 mmproj
+     * 3. 预设精确配对优先；配对失败则逐个尝试目录中所有 mmproj（加载成功 = 与模型匹配）
+     * 失败仅记录日志，不影响模型加载主流程。
+     */
+    private void autoLoadMultimodalIfAvailable(java.io.File modelFile) {
+        try {
+            // 先清除旧投影（关键：切换模型时旧 mmproj 必须卸载，否则 isMultimodalLoaded 误报）
+            LlamaHelper.releaseMultimodal();
+            if (modelFile == null) return;
+            java.io.File modelDir = modelFile.getParentFile();
+            if (modelDir == null || !modelDir.isDirectory()) return;
+
+            // 1) 按 GGUF 权重元数据判断架构（不依赖模型名）
+            String arch = LlamaHelper.getModelArchitecture().toLowerCase();
+            if (arch.isEmpty()) {
+                AILogger.w(TAG, "Multimodal: cannot read model architecture, skip mmproj");
+                return;
+            }
+            if (!isVisionArchitecture(arch)) {
+                AILogger.i(TAG, "Multimodal: architecture " + arch + " is not vision, skip mmproj");
+                return;
+            }
+            AILogger.i(TAG, "Multimodal: vision architecture '" + arch + "' detected from GGUF metadata");
+
+            // 2) 预设精确配对优先（下载时 mmproj 自动下载到同目录）
+            String mmprojName = findPresetMmprojName(modelFile.getName());
+            if (mmprojName != null) {
+                java.io.File mmprojFile = new java.io.File(modelDir, mmprojName);
+                if (mmprojFile.exists()) {
+                    boolean ok = LlamaHelper.loadMultimodal(mmprojFile.getAbsolutePath());
+                    AILogger.i(TAG, "Multimodal: preset mmproj " + mmprojFile.getName() + " loaded=" + ok);
+                    if (ok) return;
+                }
+            }
+
+            // 3) 视觉架构下逐个尝试目录中所有 mmproj（loadMultimodal 成功即匹配，
+            //    解决"目录多个 mmproj 无法确定归属"的场景——mtmd 加载失败会安全返回 false）
+            java.io.File[] files = modelDir.listFiles();
+            if (files == null) return;
+            java.util.List<java.io.File> mmprojs = new java.util.ArrayList<>();
+            for (java.io.File f : files) {
+                if (!f.isFile()) continue;
+                String name = f.getName().toLowerCase();
+                if (name.contains("mmproj") && name.endsWith(".gguf")) {
+                    mmprojs.add(f);
+                }
+            }
+            for (java.io.File f : mmprojs) {
+                boolean ok = LlamaHelper.loadMultimodal(f.getAbsolutePath());
+                AILogger.i(TAG, "Multimodal: try mmproj " + f.getName() + " -> " + ok);
+                if (ok) return;
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Auto load multimodal failed: " + e.getMessage());
+        }
+    }
+
+    /** 按 GGUF 架构判断是否为视觉（多模态）架构 */
+    private static boolean isVisionArchitecture(String arch) {
+        if (arch == null || arch.isEmpty()) return false;
+        return arch.contains("qwen2vl") || arch.contains("qwen3vl") || arch.contains("gemma3v")
+                || arch.contains("gemma4v") || arch.contains("llava") || arch.contains("mllama")
+                || arch.contains("minicpmv") || arch.contains("glm4v") || arch.contains("internvl")
+                || arch.contains("hunyuanvl") || arch.contains("kimivl") || arch.contains("pixtral")
+                || arch.contains("siglip") || arch.contains("cogvlm") || arch.contains("step3vl")
+                || arch.contains("granite4-vision") || arch.contains("exaone4_5")
+                || arch.contains("nemotron-v2-vl") || arch.contains("minimax-m3")
+                || arch.contains("mimovl") || arch.contains("youtuvl") || arch.contains("yasa2")
+                || arch.contains("mobilenetv5") || arch.contains("llama4");
+    }
+
+    /** 按模型文件名在预设中查找对应 mmproj 文件名（无则返回 null） */
+    private String findPresetMmprojName(String modelFileName) {
+        try {
+            com.oilquiz.app.ai.model.ModelDownloadManager mgr =
+                    com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(context);
+            java.util.List<com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo> presets =
+                    mgr.getPresetDomesticModels();
+            if (presets == null) return null;
+            for (com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo p : presets) {
+                if (p.mmprojUrl == null || p.mmprojUrl.isEmpty()) continue;
+                // 预设模型下载文件名（URL 尾部）与当前模型文件名比对
+                String presetModelName = p.downloadUrl.substring(p.downloadUrl.lastIndexOf('/') + 1);
+                if (presetModelName.equals(modelFileName)) {
+                    return p.mmprojUrl.substring(p.mmprojUrl.lastIndexOf('/') + 1);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Find preset mmproj failed: " + e.getMessage());
+        }
+        return null;
+    }
+
     private void releaseNativeResourcesLocked(boolean stopCrashMonitoring) {
         try {
             if (stopCrashMonitoring && crashHandler != null) {
@@ -864,11 +987,11 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "maxMemAllocSize: " + maxMemAllocSizeMB + "MB");
             AILogger.i(TAG, "====================================");
 
-            // 获取上下文大小用于计算 KV 缓存
-            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0);
-
-            // 获取模型文件大小用于估算层数
+            // 获取模型文件大小用于估算层数与上下文（大模型需降低上下文减少 KV 内存）
             long modelSizeMB = modelFile.length() / (1024 * 1024);
+
+            // 获取上下文大小用于计算 KV 缓存（模型尺寸感知：8B 级大模型自动降档）
+            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0, modelSizeMB);
 
             // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
@@ -918,8 +1041,38 @@ public class AIService implements ComponentCallbacks2 {
             long modelLoadStart = System.currentTimeMillis();
 
             // 设置 GPU 层数（必须在 initModel 之前）
+            // 用户手动 GPU 层数优先：若设置了 gpu_layers_manual（状态页/性能面板写入），
+            // 覆盖自动计算值；未设置（或恢复自动=删除该 key）才用自动计算。
+            // 用独立 key 避免与 ModelStateCache 的 gpu_layers（自动保存）混淆。
+            int effectiveGpuLayers = gpuLayers;
+            try {
+                android.content.SharedPreferences modelPrefs = context.getSharedPreferences(
+                        "model_state_cache", android.content.Context.MODE_PRIVATE);
+                if (modelPrefs.contains("gpu_layers_manual")) {
+                    int manual = modelPrefs.getInt("gpu_layers_manual", -1);
+                    if (manual >= 0 && manual <= 30) {
+                        effectiveGpuLayers = manual;
+                        AILogger.i(TAG, "User manual GPU layers override: auto=" + gpuLayers + " -> manual=" + manual);
+                    }
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "Read manual GPU layers failed: " + e.getMessage());
+            }
+            gpuLayers = effectiveGpuLayers;
+
             LlamaHelper.setGPULayers(gpuLayers);
             AILogger.i(TAG, "Set GPU layers to " + gpuLayers + " before initModel");
+
+            // 设置内存池大小（KV cache 内存预算，native 创建 context 时按预算钳制 n_ctx）
+            // 之前只算不打日志，从未真正应用
+            LlamaHelper.setMemoryPoolSize(memoryPoolSize);
+            AILogger.i(TAG, "Set memory pool size to " + memoryPoolSize + "MB (KV cache budget)");
+
+            // KV cache 类型：默认 F16（最稳）。
+            // Q8_0 量化（setKvCacheType(0)）在部分设备解码时触发 SIGABRT（Vulkan kernel assert），
+            // 暂不自动启用；setKvCacheType API 保留供未来按设备白名单手动开启。
+            int kvCacheType = 1; // F16
+            LlamaHelper.setKvCacheType(kvCacheType);
 
             int result = LlamaHelper.initModel(
                     modelFile.getAbsolutePath(),
@@ -981,6 +1134,9 @@ public class AIService implements ComponentCallbacks2 {
                 }
 
                 UnifiedContextManager.getInstance().setModelContextReady(true);
+
+                // 多模态：vision 模型自动加载 mmproj 投影文件（下载预设时已自动下载到同目录）
+                autoLoadMultimodalIfAvailable(modelFile);
 
                 long totalLoadTimeMs = System.currentTimeMillis() - totalStartTime;
                 AILogger.i(TAG, "AI service initialized successfully with model: " + modelName);
@@ -2280,14 +2436,27 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 根据当前优化模式返回 Context Size
      */
-    private int calculateOptimalContextSize(long totalMemoryMB, long availableMemoryMB, boolean hasGpuSupport) {
+    private int calculateOptimalContextSize(long totalMemoryMB, long availableMemoryMB, boolean hasGpuSupport, long modelSizeMB) {
         // 使用 ResourceConfig 计算安全的上下文大小
         ResourceConfig resourceConfig = new ResourceConfig(context);
         int contextSize = resourceConfig.getOptimalContextSize(optimizationMode.contextSize, 128);
-        
+
+        // 模型尺寸感知：大模型权重占用大量内存，降低上下文上限避免 KV 内存高压卡顿
+        // 8B Q4_K_M≈4700MB + KV(8192)≈1.2GB → 常驻 6GB+，12GB 设备可用内存波动时明显卡顿
+        if (modelSizeMB >= 7000) {
+            contextSize = Math.min(contextSize, 4096);
+            AILogger.i(TAG, "Very large model (" + modelSizeMB + "MB): context capped to " + contextSize);
+        } else if (modelSizeMB >= 4500) {
+            contextSize = Math.min(contextSize, 6144);
+            AILogger.i(TAG, "Large model (" + modelSizeMB + "MB): context capped to " + contextSize);
+        } else if (modelSizeMB >= 3000) {
+            contextSize = Math.min(contextSize, 8192);
+            AILogger.i(TAG, "Mid-large model (" + modelSizeMB + "MB): context capped to " + contextSize);
+        }
+
         AILogger.i(TAG, "calculateOptimalContextSize: mode=" + optimizationMode.displayName 
                 + ", totalMem=" + totalMemoryMB + "MB, availableMem=" + availableMemoryMB + "MB"
-                + ", contextSize=" + contextSize);
+                + ", modelSize=" + modelSizeMB + "MB, contextSize=" + contextSize);
         
         return contextSize;
     }
@@ -3296,7 +3465,9 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     private long tryCreateChatContextWithFallback(String globalPrompt, String systemPrompt, String normalPrompt, int nThreads) {
-        int[] ctxSizes = { 8192, 4096, 2048, 1024 };
+        // 首值 0 = 使用模型加载时的完整上下文（native chatCreate 对 ctxSize<=0 取模型 n_ctx，
+        // 避免此前 {16384,8192,...} 与模型上下文脱节的误导性尝试）；失败再逐级减半降级。
+        int[] ctxSizes = { 0, 8192, 4096, 2048, 1024 };
 
         for (int ctxSize : ctxSizes) {
             AILogger.i(TAG, "Trying to create chat context with ctxSize=" + ctxSize);
@@ -3427,10 +3598,14 @@ public class AIService implements ComponentCallbacks2 {
                     AILogger.i(TAG, "initChatContext: destroying existing chat context");
                     LlamaHelper.chatDestroy();
                     
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                    // 轮询等待 native 清理完成（替代固定 sleep，最多 2 秒）
+                    for (int w = 0; w < 20 && !LlamaHelper.isModelInitialized(); w++) {
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
                     }
                     
                     if (!LlamaHelper.isModelInitialized()) {
@@ -3659,21 +3834,14 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.i(TAG, "chatSend context check: promptTokens=" + promptTokens +
                         ", remaining=" + remainingTokens + ", required=" + requiredTokens);
 
-                // 使用 final 变量用于 lambda
+                // 上下文空间不足：不再全清上下文（全清会导致多轮对话"失忆"），
+                // native 层 chatSend 内置滑动窗口（shiftContext）会自动裁剪最旧消息保留最近对话。
+                // 这里仅降低 maxTokens 作为保护，剩余空间由 native 滑动窗口处理。
                 final int effectiveMaxTokens;
                 if (remainingTokens < requiredTokens) {
-                    AILogger.w(TAG, "Not enough context space in chatSend, clearing context");
-                    LlamaHelper.clearContextForInference();
-
-                    // 再次检查
-                    remainingTokens = LlamaHelper.getContextRemainingTokens();
-                    if (remainingTokens < requiredTokens) {
-                        AILogger.w(TAG, "Still not enough context after clear, reducing maxTokens");
-                        effectiveMaxTokens = Math.max(128, remainingTokens - promptTokens - 256);
-                        AILogger.i(TAG, "Reduced maxTokens to " + effectiveMaxTokens);
-                    } else {
-                        effectiveMaxTokens = maxTokens;
-                    }
+                    AILogger.w(TAG, "chatSend 上下文空间不足（native 滑动窗口将自动裁剪最旧消息），降低 maxTokens 保护");
+                    effectiveMaxTokens = Math.max(128, remainingTokens - promptTokens - 256);
+                    AILogger.i(TAG, "Reduced maxTokens to " + effectiveMaxTokens);
                 } else {
                     effectiveMaxTokens = maxTokens;
                 }
