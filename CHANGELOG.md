@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-08-16] AI 消息改为动态布局（不依赖布局文件与 id）
+用户反馈"布局文件 id 错误，改为动态布局，不依赖布局文件"：
+1. **完全动态构建**：ChatAdapter 新增 createAiMessageItem()，纯代码创建 AI 消息整个视图树（根容器 → 主气泡[思考区+工具卡片+正文] → 展开按钮 → 操作按钮 → 状态 → 模型信息 → 时间戳），彻底摆脱布局文件与 findViewById。
+2. **DynamicAiMessageRoot**：动态根容器持有全部子视图引用，AIMessageViewHolder 直接取用（不再按 id 查找，杜绝 id 错乱/找不到问题）；删除 XML findViewById 回退分支。
+3. 主题色（colorOnSurface/colorOnSurfaceVariant/colorOutlineVariant）用 resolveAttrColor 解析；点击水波纹 getSelectableItemBackground；操作按钮 createActionButton 统一创建。
+4. **删除 item_ai_message.xml**（AI 消息已无布局依赖，该文件无其他引用方）。
+- 思考区/工具卡片/正文仍全部包裹在主气泡（ai_message_background）内，视觉与上一版一致，只是改为代码生成。
+
 ## [2026-08-16] 思考过程插入主消息气泡（主消息包裹全部内容）
 用户要求"思考过程插入主显示，主消息将模型回复全部包裹，不要单独思考布局"：
 1. **布局重构**：item_ai_message.xml 新增 message_bubble 容器（承载 ai_message_background 主气泡背景 + 内边距），把 thinking_label / thinking_content / inference_progress_view / component_container（工具卡片）/ attachments_recycler / content_host（正文）全部移入——思考过程、工具调用、模型回复现在都在**同一个主气泡**内自上而下显示。
