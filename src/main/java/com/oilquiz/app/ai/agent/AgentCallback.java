@@ -25,11 +25,11 @@ public interface AgentCallback {
     /** 思考链结束 */
     void onThinkingEnd();
 
-    /** 工具调用开始 */
-    void onToolCallStart(String toolName, String args);
+    /** 工具调用开始（toolCallId 用于 UI 层精确匹配卡片，避免并行/乱序时更新错位） */
+    void onToolCallStart(String toolCallId, String toolName, String args);
 
     /** 工具调用完成（使用统一的 OnlineToolResult 类型） */
-    void onToolCallComplete(String toolName, OnlineToolResult result);
+    void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result);
 
     /** 执行步骤更新 */
     void onStepUpdate(String step, String detail);

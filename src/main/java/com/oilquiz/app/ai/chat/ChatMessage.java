@@ -326,6 +326,8 @@ public class ChatMessage {
     }
 
     public static class ToolCallInfo {
+        /** 工具调用唯一 ID（引擎生成），用于完成回调精确定位卡片，避免并行/乱序更新错位 */
+        public String toolCallId;
         public String toolName;
         public String toolDisplayName;
         public String toolIcon;
@@ -1316,13 +1318,18 @@ public class ChatMessage {
                 .build();
     }
 
-    public static ChatMessage createToolCallMessage(String toolName, String parameters) {
+    public static ChatMessage createToolCallMessage(String toolCallId, String toolName, String parameters) {
         ToolCallInfo info = new ToolCallInfo(toolName, parameters);
+        info.toolCallId = toolCallId;
         return new Builder(MessageType.TOOL_CALL)
                 .content(info.toolDisplayName)
                 .toolCallInfo(info)
                 .status(MessageStatus.IN_PROGRESS)
                 .build();
+    }
+
+    public static ChatMessage createToolCallMessage(String toolName, String parameters) {
+        return createToolCallMessage(null, toolName, parameters);
     }
 
     public static ChatMessage createAgentStepMessage(AgentStepInfo stepInfo) {

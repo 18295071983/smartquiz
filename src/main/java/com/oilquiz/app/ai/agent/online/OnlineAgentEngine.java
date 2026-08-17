@@ -355,7 +355,8 @@ public class OnlineAgentEngine {
                 }
                 // 通知 UI 工具调用开始
                 activity.runOnUiThread(() -> {
-                    if (callback != null) callback.onToolCallStart(tc.name, tc.arguments);
+                    final String callId = tc.id != null ? tc.id : "call_" + System.nanoTime();
+                    if (callback != null) callback.onToolCallStart(callId, tc.name, tc.arguments);
                 });
 
                 // 并行执行
@@ -377,7 +378,7 @@ public class OnlineAgentEngine {
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
                     activity.runOnUiThread(() -> {
-                        if (callback != null) callback.onToolCallComplete(tr.toolName, tr);
+                        if (callback != null) callback.onToolCallComplete(tr.toolCallId, tr.toolName, tr);
                     });
 
                     // 在思考链中记录工具调用

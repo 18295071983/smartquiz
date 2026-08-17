@@ -25,8 +25,8 @@ public class AgentChatHandler {
     }
 
     public interface AgentChatCallback {
-        void onToolCallStart(String toolName, String args);
-        void onToolCallComplete(String toolName, OnlineToolResult result);
+        void onToolCallStart(String toolCallId, String toolName, String args);
+        void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result);
         void onToken(String token);
         void onThinkingToken(String token);
         void onThinkingEnd();
@@ -88,7 +88,7 @@ public class AgentChatHandler {
             @Override
             public void onToolCallStart(String toolName, String args) {
                 if (isValid()) {
-                    callback.onToolCallStart(toolName, args);
+                    callback.onToolCallStart("software_" + System.nanoTime(), toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
                 }
             }
@@ -99,7 +99,7 @@ public class AgentChatHandler {
                     OnlineToolResult toolResult = success
                         ? OnlineToolResult.success(null, toolName, result, 0)
                         : OnlineToolResult.failure(null, toolName, result, 0);
-                    callback.onToolCallComplete(toolName, toolResult);
+                    callback.onToolCallComplete("software_" + System.nanoTime(), toolName, toolResult);
                     callback.onToolCallResultUI(-1, success, result);
                 }
             }
@@ -150,17 +150,17 @@ public class AgentChatHandler {
             }
 
             @Override
-            public void onToolCallStart(String toolName, String args) {
+            public void onToolCallStart(String toolCallId, String toolName, String args) {
                 if (isValid()) {
-                    callback.onToolCallStart(toolName, args);
+                    callback.onToolCallStart(toolCallId, toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
                 }
             }
 
             @Override
-            public void onToolCallComplete(String toolName, OnlineToolResult result) {
+            public void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result) {
                 if (isValid()) {
-                    callback.onToolCallComplete(toolName, result);
+                    callback.onToolCallComplete(toolCallId, toolName, result);
                     // 保护：result可能为null
                     boolean success = result != null && result.success;
                     String resultStr = result != null ? result.result : "工具执行返回null";

@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-08-16] 修复对话消息乱显示/乱插入：全部改为按消息 id + toolCallId 定位
+用户反馈"组件没有 id 判断导致乱显示乱插入、UI 渲染不按先后顺序、新对话 id 混用、发送消息位置错乱"：
+1. **工具调用回调链传递 toolCallId**：AgentCallback.onToolCallStart/onToolCallComplete 接口增加 toolCallId 参数；OnlineAgentEngine 回调传 tc.id/tr.toolCallId（引擎内部原有，之前未透出）；AgentChatHandler.AgentChatCallback 同步。
+2. **工具组件按 id 精确更新**：appendAgentToolCall 生成的 tool_call 组件 props 增加 toolCallId 字段，完成时按 id 匹配更新（不再"找最后一张 running 卡片"，修复并行工具/乱序更新错位）；ChatMessage.ToolCallInfo 增加 toolCallId 字段，createToolCallMessage 支持带 id；新增 findToolCallMessageById 按 id 更新独立工具卡片（替代 findLastSpecialMessage 猜位置）。
+3. **消息定位全部按 id**：新增 findMessageIndexById + resolveStreamingIndex（优先按 currentStreamingMessageId 查找，回退索引）；safeUpdateMessage / safeUpdateMessageFromStreamingManager / completeGeneration / appendAgentToolCall / appendAgentThinkingToken / OutputRouter 回调（onTextOutput/onThinkingStart/onThinkingContent/onThinkingEnd/onError/onStreamComplete）/ onlineUpdateRunnable / handleGenerationError / onGenerationError / onGenerationStopped / StreamingTokenHandler.onError / handleStreamTokenLegacy / AITokenReceiver / AIResultReceiver / onInferenceProgress 全部改用 id 定位，不再依赖会漂移的 currentStreamingMessageIndex。
+4. **思考消息 id 锚定**：新增 currentThinkingMessageId + resolveThinkingIndex，updateThinkingMessageUi/finalizeThinkingMessage 按 id 定位；各重置点同步清 thinking id。
+5. **新对话 id 清理**：clearStreamingState / handleGenerationError / processChatMessage 各路径重置 currentThinkingMessageId。
+
 ## [2026-08-16] 对话折叠策略调整：思考中默认展开，思考完毕自动折叠；主回复全部展开
 用户要求"思考过程中默认展开不要折叠，思考完毕后你再折叠；主回复默认展开，长内容不自动折叠"：
 1. **思考过程**：ChatAdapter.updateThinkingContent 改为流式（GENERATING/IN_PROGRESS）时强制展开显示思考链，思考完毕后按 thinkingExpanded（默认 false）折叠；ThinkingMessageViewHolder.bind 同步（processing 时强制展开）。AIChatActivity.finalizeThinkingMessage 改为思考完毕一律折叠（原来"有内容保持展开"）。
