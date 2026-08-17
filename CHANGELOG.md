@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-08-16] 修复破坏缓存命中的关键点：工具定义顺序不稳定
+用户要求"检查模型调用时破坏缓存命中的地方"——逐点排查后确认并修复：
+1. **【已修】工具定义顺序随机（最严重）**：toolMetaIndex 是 ConcurrentHashMap，getToolDefinitions 每次构建遍历 values() 顺序不稳定；且引擎每轮 refreshRegistry() 重建索引，导致同一批工具每次 tools JSON 字节不同 → 前缀缓存 miss。修复：getAllToolMetas 按工具名排序（Collections.sort），tools 参数顺序确定。
+2. **【已确认安全】其余检查点**：
+   - system 提示词：同一模型 agentMode 稳定（detectAgentCapability 按模型名静态判断），模板不变
+   - env 上下文（时间/位置/天气）：仅 messageHistory 为空时注入一次，同一对话内前缀稳定
+   - messageHistory：追加不插入；trimMessageHistory 从头部截断保留 system 前缀
+   - 工具结果：追加到历史尾部，不改变前缀
+   - 引擎实例：AgentChatHandler/OnlineAgentEngine 复用（initAgentChatHandlerIfNeeded），历史跨轮保留
+   - 模型参数（temperature/max_tokens/stream/tools）：每轮相同
+- 修复后多轮 Agent 请求前缀逐字节稳定，主流 API（DeepSeek/OpenAI）自动缓存命中。
+
 ## [2026-08-16] API usage 字段解析兼容多服务商
 用户指出"不同模型返回的字段可能不同"——修正 usage 解析兼容性：
 1. **缓存字段三种结构兼容**：
