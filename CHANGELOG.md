@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 思考过程插入主消息气泡（主消息包裹全部内容）
+用户要求"思考过程插入主显示，主消息将模型回复全部包裹，不要单独思考布局"：
+1. **布局重构**：item_ai_message.xml 新增 message_bubble 容器（承载 ai_message_background 主气泡背景 + 内边距），把 thinking_label / thinking_content / inference_progress_view / component_container（工具卡片）/ attachments_recycler / content_host（正文）全部移入——思考过程、工具调用、模型回复现在都在**同一个主气泡**内自上而下显示。
+2. **思考内容去独立背景**：thinking_content 去掉 thinking_message_background（不再单独一个浅色块），文字用 colorOnSurfaceVariant 次级色与正文（colorOnSurface）区分；新增 thinking_divider 细分隔线在思考区与正文之间，思考展开时可见、折叠/无思考时隐藏（updateThinkingContent / expandThinkingContent / collapseThinkingContent 统一控制）。
+3. message_text 去掉自身 ai_message_background 背景（背景上移到 message_bubble），保留正文文字样式。
+- 现在视觉：一个主气泡内 = 思考标签 + 思考内容（次级色）→ 细分隔线 → 工具卡片 → 正文，主消息完整包裹模型回复全部内容。
+
 ## [2026-08-16] 在线 Agent 思考/工具调用合并到 AI 消息内嵌显示（去掉独立思考消息）
 用户反馈"工具调用集合到思考过程中，在线 Agent 独立思考消息与本地模型内嵌思考区合并显示，单独显示不合适"：
 1. **思考合并**：AgentCallbackImpl.onThinkingToken 不再创建独立 THINKING 消息（addThinkingMessage），改为写入 AI 消息内嵌思考区（appendAgentThinkingToken——此方法原本存在但从未接线，现启用），与本地模型完全一致：思考中展开显示、思考完毕折叠、可点击展开。
