@@ -382,18 +382,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             } else if (PAYLOAD_AGENT_UPDATE.equals(payload)) {
                 // Agent执行状态更新 - 通过payload增量刷新，不触发完整rebind
-                if (holder instanceof AIMessageViewHolder) {
-                    AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
-                    if (aiHolder.agentExecutionPanel != null) {
-                        if (message.agentExecutionState != null) {
-                            aiHolder.agentExecutionPanel.setVisibility(View.VISIBLE);
-                            aiHolder.agentExecutionPanel.setState(message.agentExecutionState);
-                            aiHolder.agentExecutionPanel.refresh();
-                        } else {
-                            aiHolder.agentExecutionPanel.setVisibility(View.GONE);
-                        }
-                    }
-                }
+                // （AgentExecutionPanel 已解绑移除，无需处理）
             } else if (PAYLOAD_EXPANDED_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
                     toggleMessageExpansion((AIMessageViewHolder) holder, message);
@@ -731,16 +720,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.agentExecutionView != null) {
                 holder.agentExecutionView.hide();
             }
-            // Agent模式：保持panel可见显示最终状态，而不是隐藏
-            if (holder.agentExecutionPanel != null) {
-                if (message.agentMode && message.agentExecutionState != null) {
-                    holder.agentExecutionPanel.setVisibility(View.VISIBLE);
-                    holder.agentExecutionPanel.setState(message.agentExecutionState);
-                    holder.agentExecutionPanel.refresh();
-                } else {
-                    holder.agentExecutionPanel.setVisibility(View.GONE);
-                }
-            }
             
             holder.statusIcon.setVisibility(View.VISIBLE);
             holder.statusIcon.setImageResource(R.drawable.ic_check_double);
@@ -774,20 +753,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (holder.agentExecutionView != null) {
                     holder.agentExecutionView.hide();
                 }
-                if (holder.agentExecutionPanel != null && message.agentExecutionState != null) {
-                    holder.agentExecutionPanel.setVisibility(View.VISIBLE);
-                    holder.agentExecutionPanel.setState(message.agentExecutionState);
-                    holder.agentExecutionPanel.refresh();
-                }
             } else {
                 if (holder.inferenceProgressView != null) {
                     holder.inferenceProgressView.updateState(currentState, stateDetails);
                 }
                 if (holder.agentExecutionView != null) {
                     holder.agentExecutionView.hide();
-                }
-                if (holder.agentExecutionPanel != null) {
-                    holder.agentExecutionPanel.setVisibility(View.GONE);
                 }
             }
             
@@ -800,16 +771,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             if (holder.agentExecutionView != null) {
                 holder.agentExecutionView.hide();
-            }
-            // Agent模式：保持panel可见显示错误/取消状态
-            if (holder.agentExecutionPanel != null) {
-                if (message.agentMode && message.agentExecutionState != null) {
-                    holder.agentExecutionPanel.setVisibility(View.VISIBLE);
-                    holder.agentExecutionPanel.setState(message.agentExecutionState);
-                    holder.agentExecutionPanel.refresh();
-                } else {
-                    holder.agentExecutionPanel.setVisibility(View.GONE);
-                }
             }
             holder.statusIcon.setVisibility(View.GONE);
             holder.statusText.setVisibility(View.GONE);
@@ -2135,7 +2096,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView expandButton;
         InferenceProgressView inferenceProgressView;
         AgentExecutionView agentExecutionView;
-        com.oilquiz.app.ai.agent.AgentExecutionPanel agentExecutionPanel;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
         View modelInfoContainer;
@@ -2199,13 +2159,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         void bind(ChatMessage message) {
-            // 构建标签文字：Agent多轮思考显示轮次
+            // 构建标签文字：与 AI 消息内嵌思考区一致的"💭 思考过程"；Agent 多轮思考附加轮次
             String label;
             boolean isAgentRound = message.agentMode && message.taskProgress != null && message.taskProgress > 0;
             if (isAgentRound) {
                 label = "💭 第" + message.taskProgress + "轮思考";
             } else {
-                label = "🧠 思考过程";
+                label = "💭 思考过程";
             }
 
             // 处理思考内容
