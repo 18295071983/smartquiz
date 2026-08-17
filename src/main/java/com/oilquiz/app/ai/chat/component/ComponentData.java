@@ -48,6 +48,27 @@ public class ComponentData {
     }
 
     /**
+     * 序列化为可持久化 JSON 字符串（Gson 无法直接序列化 org.json.JSONObject）。
+     * 会话保存时组件数据以字符串形式存储，加载时再解析。
+     */
+    public String toPersistableJson() {
+        JSONObject obj = new JSONObject();
+        try {
+            obj.put("type", type);
+            obj.put("props", props != null ? props : new JSONObject());
+            return obj.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 从持久化 JSON 字符串还原（{@link #toPersistableJson()} 的逆操作） */
+    public static ComponentData fromPersistableJson(String json) {
+        if (json == null || json.isEmpty()) return null;
+        return fromJson(json);
+    }
+
+    /**
      * 从 JSON 字符串解析组件数据（容错解析）。
      *
      * 兼容模型输出常见的不规范格式：

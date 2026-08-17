@@ -366,15 +366,20 @@ public class OnlineAgentEngine {
                 toolFutures.add(future);
             }
 
-            // 等待所有工具完成，并收集失败工具
+            // 等待所有工具完成，并收集失败工具（可被 cancel() 打断）
             List<String> failedTools = new ArrayList<>();
             for (int i = 0; i < toolFutures.size(); i++) {
                 if (isCancelled.get()) {
+                    // 取消剩余未完成的工具执行
+                    for (CompletableFuture<OnlineToolResult> f : toolFutures) {
+                        f.cancel(true);
+                    }
                     finishGeneration();
+                    notifyError("工具执行已中断");
                     return;
                 }
                 try {
-                    OnlineToolResult toolResult = toolFutures.get(i).join();
+                    OnlineToolResult toolResult = toolFutures.get(i).get(5, TimeUnit.SECONDS);
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
                     activity.runOnUiThread(() -> {
