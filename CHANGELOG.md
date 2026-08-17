@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-08-16] 确认 Agent 引擎完整利用 UI 组件 + 强化标记输出规则
+用户询问"Agent 引擎能否利用这些 UI 组件"——逐链路验证后确认完整可用，并强化引导：
+1. **链路验证**（全部打通）：
+   - 提示词：buildSystemPrompt（辅助模式）与 buildSystemPromptTakeover（接管模式）均含 buildComponentGuideSection 组件指南。
+   - 输出：模型生成 ```component:xxx {json}``` → streamOneIteration 流式 → onToken → safeUpdateMessage → ComponentContentSplitter 解析 → bindMessageContent 实时渲染。
+   - 工具：withComponent → ComponentCollector → 完成时合并消息渲染。
+   - 清理安全：notifyComplete 的 cleanModelOutput/sanitize 只清孤立代理项/U+FFFD/非法控制字符，不破坏反引号/花括号/冒号，组件标记保留。
+2. **强化规则**：组件指南规则明确"必须直接输出组件标记本身（```component:类型 换行 JSON 换行 ```），不要把 JSON 原文或组件说明文字展示给用户；一个标记块只包含一个组件"——提高模型稳定输出标记的概率。
+
 ## [2026-08-16] 新增 4 种 UI 组件（对照工具能力缺口）
 用户询问"还有哪些 UI 组件可增加、组件如何设计复用"——确认设计模式（ChatComponent 接口 + ComponentRegistry 插件注册 + 标记/withComponent 双触发 + 纯代码建 View），对照工具返回结构新增：
 1. **file_list 文件列表卡**：📁/📄 图标 + 文件名 + 大小 + 路径（FileTool.list 自动附加，含 formatSize 大小格式化）
