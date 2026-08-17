@@ -1267,17 +1267,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         Context ctx = holder.itemView.getContext();
         holder.componentContainer.setVisibility(View.VISIBLE);
         boolean first = true;
+        int rendered = 0;
         for (ComponentData data : message.components) {
+            // 数据损坏（如旧会话反序列化失败）时静默跳过，不显示"渲染失败"占位
+            if (data == null || data.props == null) continue;
             View view = ComponentRegistry.getInstance().render(ctx, data);
-            if (view == null) {
-                view = ComponentRegistry.getInstance().renderFallback(ctx, data);
-            }
+            if (view == null) continue;
             // 组件宽度撑满容器，组件之间留间距（首个组件与上方文本留间距）
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
             holder.componentContainer.addView(view, lp);
             first = false;
+            rendered++;
+        }
+        if (rendered == 0) {
+            holder.componentContainer.setVisibility(View.GONE);
         }
     }
 
@@ -1315,8 +1320,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.contentHost.removeAllViews();
             for (ComponentContentSplitter.Segment seg : ComponentContentSplitter.split(message.content)) {
                 if (seg.isComponent) {
+                    if (seg.component == null || seg.component.props == null) continue;
                     View view = ComponentRegistry.getInstance().render(ctx, seg.component);
-                    if (view == null) view = ComponentRegistry.getInstance().renderFallback(ctx, seg.component);
+                    if (view == null) continue;
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                     lp.topMargin = dpToPx(8, ctx);
