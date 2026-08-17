@@ -101,24 +101,6 @@ public class AgentRouter {
         return onlineEngine != null ? onlineEngine.getToolLoopCount() : 0;
     }
 
-    public String getCurrentResponse() {
-        return "";
-    }
-
-    public String getCurrentThinking() {
-        return "";
-    }
-
-    public int getRetryCount() {
-        return 0;
-    }
-
-    public void resumeExecution(String userInput) {
-    }
-
-    public void cancelPause() {
-    }
-
     public void shutdown() {
         if (onlineEngine != null) {
             onlineEngine.shutdown();

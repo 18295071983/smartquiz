@@ -1,17 +1,6 @@
 package com.oilquiz.app.ai.chat;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
-import android.text.TextUtils;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.Toast;
-import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.AgentRouter;
 import com.oilquiz.app.ai.agent.SmartIntentRecognizer;
@@ -225,37 +214,6 @@ public class AgentChatHandler {
             // ========== 新增回调方法 ==========
 
             @Override
-            public void onNeedMoreInfo(String missingInfo, String context, java.util.List<String> suggestions) {
-                AILogger.i(TAG, "onNeedMoreInfo: " + missingInfo);
-                if (isValid()) {
-                    // 显示输入对话框
-                    showInputDialog(missingInfo, context, suggestions);
-                }
-            }
-
-            @Override
-            public void onExecutionPaused(String reason, String currentState) {
-                AILogger.i(TAG, "onExecutionPaused: " + reason);
-                if (isValid()) {
-                    // 显示暂停状态
-                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
-                        ChatMessage.AgentStepInfo.AgentStepType.PAUSED,
-                        engine.getToolLoopCount() + 1,
-                        0
-                    );
-                    stepInfo.detail = reason;
-                    stepInfo.isCompleted = false;
-                    callback.onAgentStep(stepInfo);
-                }
-            }
-
-            @Override
-            public void onExecutionResuming(String userInput) {
-                AILogger.i(TAG, "onExecutionResuming: " + userInput);
-                // 恢复中，通知用户
-            }
-
-            @Override
             public void onThinking(String thought) {
                 AILogger.i(TAG, "onThinking: " + thought);
                 if (isValid()) {
@@ -282,21 +240,6 @@ public class AgentChatHandler {
                         0,
                         0
                     ));
-                }
-            }
-
-            @Override
-            public void onInputValidationResult(String paramName, com.oilquiz.app.ai.agent.InputValidator.ValidationResult result) {
-                AILogger.i(TAG, "onInputValidationResult: " + paramName + ", valid=" + result.valid);
-                if (isValid()) {
-                    if (result.valid) {
-                        // 验证成功
-                        AILogger.i(TAG, "Input validation passed, continuing...");
-                    } else {
-                        // 验证失败，显示错误
-                        String errorMsg = com.oilquiz.app.ai.agent.InputValidator.generateErrorMessage(result, paramName);
-                        showValidationError(paramName, errorMsg, result.correctFormat, result.examples);
-                    }
                 }
             }
 
@@ -356,154 +299,6 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return intentRecognizer.recognize(message);
     }
 
-    // ========== UI 交互方法 ==========
-
-    /**
-     * 显示输入对话框，请求用户补充信息
-     */
-    private void showInputDialog(final String missingInfo, final String context, final List<String> suggestions) {
-        activity.runOnUiThread(() -> {
-            AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-            LayoutInflater inflater = activity.getLayoutInflater();
-            View dialogView = inflater.inflate(R.layout.dialog_input_parameter, null);
-            
-            // 获取视图组件
-            TextView titleText = dialogView.findViewById(R.id.dialogTitle);
-            TextView promptText = dialogView.findViewById(R.id.promptText);
-            TextView contextText = dialogView.findViewById(R.id.contextText);
-            TextView suggestLabel = dialogView.findViewById(R.id.suggestLabel);
-            TextView suggestionsText = dialogView.findViewById(R.id.suggestionsText);
-            EditText input = dialogView.findViewById(R.id.inputField);
-            Button btnCancel = dialogView.findViewById(R.id.btnCancel);
-            Button btnSubmit = dialogView.findViewById(R.id.btnSubmit);
-            
-            // 设置内容
-            promptText.setText(missingInfo);
-            
-            // 显示上下文
-            if (context != null && !context.isEmpty()) {
-                contextText.setText(activity.getString(R.string.dialog_task_prefix) + context);
-                contextText.setVisibility(View.VISIBLE);
-            }
-            
-            // 显示建议
-            if (suggestions != null && !suggestions.isEmpty()) {
-                suggestLabel.setText(R.string.dialog_suggestions_label);
-                suggestLabel.setVisibility(View.VISIBLE);
-                
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < suggestions.size(); i++) {
-                    if (i > 0) sb.append("\n");
-                    sb.append("• ").append(suggestions.get(i));
-                }
-                suggestionsText.setText(sb.toString());
-                suggestionsText.setVisibility(View.VISIBLE);
-            }
-            
-            // 设置输入框提示
-            input.setHint(R.string.dialog_need_more_info_hint);
-            
-            // 设置按钮监听器
-            btnSubmit.setOnClickListener(v -> {
-                String userInput = input.getText().toString().trim();
-                if (!TextUtils.isEmpty(userInput)) {
-                    // 调用 resumeExecution 恢复执行
-                    engine.resumeExecution(userInput);
-                } else {
-                    Toast.makeText(activity, R.string.dialog_input_empty, Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            builder.setView(dialogView);
-            builder.setCancelable(false);
-            builder.show();
-        });
-    }
-    
-    /**
-     * 显示验证错误
-     */
-    private void showValidationError(String paramName, String errorMsg, 
-                                      String correctFormat, List<String> examples) {
-        activity.runOnUiThread(() -> {
-            AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-            LayoutInflater inflater = activity.getLayoutInflater();
-            View dialogView = inflater.inflate(R.layout.dialog_validation_error, null);
-            
-            // 获取视图组件
-            TextView titleText = dialogView.findViewById(R.id.dialogTitle);
-            TextView paramNameText = dialogView.findViewById(R.id.paramNameText);
-            TextView errorMessageText = dialogView.findViewById(R.id.errorMessageText);
-            TextView formatLabel = dialogView.findViewById(R.id.formatLabel);
-            TextView formatText = dialogView.findViewById(R.id.formatText);
-            TextView exampleLabel = dialogView.findViewById(R.id.exampleLabel);
-            TextView examplesText = dialogView.findViewById(R.id.examplesText);
-            TextView retryCountText = dialogView.findViewById(R.id.retryCountText);
-            View warningContainer = dialogView.findViewById(R.id.warningContainer);
-            Button btnCancel = dialogView.findViewById(R.id.btnCancel);
-            Button btnRetry = dialogView.findViewById(R.id.btnRetry);
-            
-            // 设置标题
-            String fullTitle = activity.getString(R.string.dialog_validation_error_title) + " - " + paramName;
-            titleText.setText(fullTitle);
-            paramNameText.setText(paramName);
-            
-            // 设置错误信息
-            StringBuilder errorBuilder = new StringBuilder();
-            errorBuilder.append(activity.getString(R.string.dialog_error_prefix, paramName));
-            errorBuilder.append("\n\n");
-            errorBuilder.append(errorMsg);
-            errorMessageText.setText(errorBuilder.toString());
-            
-            // 显示正确格式
-            if (correctFormat != null) {
-                formatLabel.setVisibility(View.VISIBLE);
-                formatLabel.setText(R.string.dialog_correct_format_label);
-                formatText.setText(correctFormat);
-                formatText.setVisibility(View.VISIBLE);
-            }
-            
-            // 显示示例
-            if (examples != null && !examples.isEmpty()) {
-                exampleLabel.setVisibility(View.VISIBLE);
-                exampleLabel.setText(R.string.dialog_examples_label);
-                
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < Math.min(3, examples.size()); i++) {
-                    if (i > 0) sb.append("\n");
-                    sb.append("• ").append(examples.get(i));
-                }
-                examplesText.setText(sb.toString());
-                examplesText.setVisibility(View.VISIBLE);
-            }
-            
-            // 显示重试次数
-            int retryCount = engine.getRetryCount();
-            retryCountText.setText(activity.getString(R.string.dialog_retry_count, retryCount));
-            
-            // 如果只剩1次机会，显示警告
-            if (retryCount >= 2) {
-                warningContainer.setVisibility(View.VISIBLE);
-            } else {
-                warningContainer.setVisibility(View.GONE);
-            }
-            
-            // 设置按钮监听器
-            btnRetry.setOnClickListener(v -> {
-                // 重新显示输入对话框
-                showInputDialog("请输入正确的" + paramName, errorMsg, examples);
-            });
-            
-            btnCancel.setOnClickListener(v -> {
-                engine.cancelPause();
-            });
-            
-            builder.setView(dialogView);
-            builder.setCancelable(false);
-            builder.show();
-        });
-    }
-
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
@@ -526,14 +321,6 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
 
     public int getToolLoopCount() {
         return engine.getToolLoopCount();
-    }
-
-    public String getCurrentResponse() {
-        return engine.getCurrentResponse();
-    }
-
-    public String getCurrentThinking() {
-        return engine.getCurrentThinking();
     }
 
     public void shutdown() {

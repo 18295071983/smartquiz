@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 清理在线 Agent 不可达假功能（暂停/恢复/参数验证 UI 链）
+- OnlineAgentEngine 从不触发 onNeedMoreInfo/onExecutionPaused/onExecutionResuming/onInputValidationResult（在线引擎无暂停恢复概念），AgentChatHandler 中对应 4 个回调覆写 + showInputDialog/showValidationError 两个对话框方法 + getCurrentResponse/getCurrentThinking 空包装均为不可达假功能 → 全部删除。
+- AgentRouter 删除 5 个空方法（getCurrentResponse/getCurrentThinking/getRetryCount/resumeExecution/cancelPause）。
+- AgentCallback 接口删除 4 个无调用方 default 方法；物理删除 InputValidator.java（仅被死回调引用）。
+- 删除 dialog_input_parameter.xml / dialog_validation_error.xml 布局 + strings.xml 中对应的 Agent 输入验证/校验错误字符串块（约 60 行，无引用）。
+- AgentChatHandler 清理 9 个无用 import（AlertDialog/TextUtils/LayoutInflater/View/Button/EditText/LinearLayout/TextView/Toast/R）。
+
 ## [2026-08-16] 修复删除后编译错误 + 清理 OnlineAgentEngine 本地回退死代码
 1. 修复删除 UnifiedAgentEngine 后 3 处编译错误：OnlineAgentEngine 补 `shutdown()` 方法；AgentChatHandler 两处 `engine.getCurrentMode()` 改为固定字符串"在线"（在线无推理模式概念）。
 2. 物理删除 3 个死模式 handler：AgentModeHandler / CreativeWritingModeHandler / ThinkingModeHandler（均无引用方）；ChatOrchestrator 清理对应 import。
