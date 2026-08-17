@@ -45,21 +45,9 @@ public interface AgentCallback {
     /** 在线模型执行步骤变化（OnlineExecutionStep） */
     default void onExecutionStep(OnlineExecutionStep step, String detail) {}
 
-    /** 需要更多用户信息时调用 */
-    default void onNeedMoreInfo(String missingInfo, String context, List<String> suggestions) {}
-
-    /** 执行已暂停，等待用户输入 */
-    default void onExecutionPaused(String reason, String currentState) {}
-
-    /** 用户已提供信息，执行即将恢复 */
-    default void onExecutionResuming(String userInput) {}
-
     /** 思考过程输出（整段，非流式） */
     default void onThinking(String thought) {}
 
     /** 思考阶段变化 */
     default void onThinkingStage(String stage) {}
-
-    /** 输入验证结果 */
-    default void onInputValidationResult(String paramName, InputValidator.ValidationResult result) {}
 }
