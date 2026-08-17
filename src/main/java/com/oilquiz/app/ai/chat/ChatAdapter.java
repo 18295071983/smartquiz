@@ -541,6 +541,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
 
+        // 分隔线仅在思考区实际显示时可见（思考内容与正文之间）
+        boolean showDivider = false;
+
         if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
             holder.thinkingLabel.setVisibility(View.VISIBLE);
 
@@ -554,6 +557,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (cleanedContent.isEmpty()) {
                 holder.thinkingLabel.setVisibility(View.GONE);
                 holder.thinkingContent.setVisibility(View.GONE);
+                if (holder.thinkingDivider != null) {
+                    holder.thinkingDivider.setVisibility(View.GONE);
+                }
                 return;
             }
 
@@ -572,10 +578,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.thinkingContent.setVisibility(View.VISIBLE);
                 holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
                 updateThinkingLabel(holder, true, true);
+                showDivider = true;
             } else if (message.thinkingExpanded) {
                 holder.thinkingContent.setVisibility(View.VISIBLE);
                 holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
                 updateThinkingLabel(holder, true, false);
+                showDivider = true;
             } else {
                 holder.thinkingContent.setVisibility(View.GONE);
                 updateThinkingLabel(holder, false, false);
@@ -609,6 +617,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } else {
             holder.thinkingLabel.setVisibility(View.GONE);
             holder.thinkingContent.setVisibility(View.GONE);
+        }
+
+        if (holder.thinkingDivider != null) {
+            holder.thinkingDivider.setVisibility(showDivider ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -670,6 +682,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         message.thinkingExpanded = true;
         updateThinkingLabel(holder, true, isStreaming);
+        if (holder.thinkingDivider != null) {
+            holder.thinkingDivider.setVisibility(View.VISIBLE);
+        }
     }
 
     private void collapseThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
@@ -680,6 +695,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.thinkingContent.setVisibility(View.GONE);
             message.thinkingExpanded = false;
             updateThinkingLabel(holder, false, isStreaming);
+            if (holder.thinkingDivider != null) {
+                holder.thinkingDivider.setVisibility(View.GONE);
+            }
             return;
         }
 
@@ -701,6 +719,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         message.thinkingExpanded = false;
         updateThinkingLabel(holder, false, isStreaming);
+        if (holder.thinkingDivider != null) {
+            holder.thinkingDivider.setVisibility(View.GONE);
+        }
     }
 
     private void updateMessageStatus(AIMessageViewHolder holder, ChatMessage message) {
@@ -2084,6 +2105,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<ComponentData> boundComponents;
         TextView thinkingLabel;
         TextView thinkingContent;
+        View thinkingDivider;
         View actionButtons;
         TextView btnCopy;
         TextView btnSpeak;
@@ -2112,6 +2134,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             componentContainer = itemView.findViewById(R.id.component_container);
             thinkingLabel = itemView.findViewById(R.id.thinking_label);
             thinkingContent = itemView.findViewById(R.id.thinking_content);
+            thinkingDivider = itemView.findViewById(R.id.thinking_divider);
             actionButtons = itemView.findViewById(R.id.action_buttons);
             btnCopy = itemView.findViewById(R.id.btn_copy);
             btnSpeak = itemView.findViewById(R.id.btn_speak);

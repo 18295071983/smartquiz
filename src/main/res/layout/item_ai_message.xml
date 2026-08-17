@@ -26,75 +26,92 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/thinking_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/chat_thinking_process"
-                android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginBottom="2dp"
-                android:visibility="gone"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?attr/selectableItemBackground" />
-
-            <TextView
-                android:id="@+id/thinking_content"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/thinking_message_background"
-                android:padding="8dp"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="12sp"
-                android:lineSpacingMultiplier="1.2"
-                android:visibility="gone" />
-
-            <!-- 推理进度视图 -->
-            <com.oilquiz.app.ai.chat.InferenceProgressView
-                android:id="@+id/inference_progress_view"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone" />
-
-            <!-- 附件缩略图列表 -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/attachments_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="3dp"
-                android:visibility="gone"
-                android:clipToPadding="false" />
-
-            <!-- 插件式 UI 组件容器：Agent 执行过程（工具卡片等）与模型组件在此插入式显示 -->
+            <!-- 主消息气泡：思考过程、工具卡片、正文全部包裹在同一气泡内 -->
             <LinearLayout
-                android:id="@+id/component_container"
+                android:id="@+id/message_bubble"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:visibility="gone" />
-
-            <!-- 内容宿主：纯文本只含 messageText；含组件标记时动态追加段落 TextView/组件 View -->
-            <LinearLayout
-                android:id="@+id/content_host"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:background="@drawable/ai_message_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp">
 
                 <TextView
-                    android:id="@+id/message_text"
+                    android:id="@+id/thinking_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_thinking_process"
+                    android:textSize="11sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginBottom="2dp"
+                    android:visibility="gone"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground" />
+
+                <TextView
+                    android:id="@+id/thinking_content"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="start"
-                    android:background="@drawable/ai_message_background"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="10dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="14sp"
-                    android:lineSpacingMultiplier="1.3"
-                    android:textIsSelectable="true"
-                    android:breakStrategy="high_quality"
-                    android:hyphenationFrequency="none" />
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp"
+                    android:lineSpacingMultiplier="1.2"
+                    android:visibility="gone" />
+
+                <!-- 思考区与正文之间的细分隔线（思考显示时可见） -->
+                <View
+                    android:id="@+id/thinking_divider"
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:background="?attr/colorOutlineVariant"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="2dp"
+                    android:visibility="gone" />
+
+                <!-- 推理进度视图 -->
+                <com.oilquiz.app.ai.chat.InferenceProgressView
+                    android:id="@+id/inference_progress_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <!-- 插件式 UI 组件容器：Agent 执行过程（工具卡片等）与模型组件在此插入式显示 -->
+                <LinearLayout
+                    android:id="@+id/component_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone" />
+
+                <!-- 附件缩略图列表 -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/attachments_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="3dp"
+                    android:visibility="gone"
+                    android:clipToPadding="false" />
+
+                <!-- 内容宿主：纯文本只含 messageText；含组件标记时动态追加段落 TextView/组件 View -->
+                <LinearLayout
+                    android:id="@+id/content_host"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/message_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="start"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp"
+                        android:lineSpacingMultiplier="1.3"
+                        android:textIsSelectable="true"
+                        android:breakStrategy="high_quality"
+                        android:hyphenationFrequency="none" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
