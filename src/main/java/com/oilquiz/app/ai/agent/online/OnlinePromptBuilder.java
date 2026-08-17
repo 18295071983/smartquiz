@@ -122,7 +122,11 @@ public class OnlinePromptBuilder {
         sb.append("- JSON查看: ```component:json_viewer\\n{\"title\":\"原始数据\",\"data\":{...}}```\n");
         sb.append("- 步骤卡: ```component:steps_card\\n{\"title\":\"流程\",\"steps\":[{\"title\":\"步骤\",\"description\":\"...\",\"status\":\"done|current|todo|failed\"}]}```\n");
         sb.append("- 便签卡: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"结论内容\",\"author\":\"来源\"}```\n");
-        sb.append("规则：标记必须单独成段；JSON 属性用双引号；适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接、列表、提醒、指标、JSON、步骤、便签）优先使用组件，不要把 JSON 原文直接展示给用户。\n\n");
+        sb.append("- 文件列表: ```component:file_list\\n{\"title\":\"目录内容\",\"path\":\"路径\",\"files\":[{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"file|dir\",\"path\":\"完整路径\"}]}```\n");
+        sb.append("- 宫格列表: ```component:grid_card\\n{\"title\":\"标题\",\"columns\":3,\"items\":[{\"icon\":\"📱\",\"label\":\"名称\"}]}```\n");
+        sb.append("- 联系卡: ```component:contact_card\\n{\"type\":\"phone|email|sms|map\",\"title\":\"标题\",\"value\":\"手机号/邮箱/位置\",\"description\":\"说明\"}```\n");
+        sb.append("- 待办清单: ```component:todo_card\\n{\"title\":\"计划\",\"items\":[{\"text\":\"任务\",\"done\":true}]}```\n");
+        sb.append("规则：标记必须单独成段；JSON 属性用双引号；适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接、列表、提醒、指标、JSON、步骤、便签、文件列表、宫格、联系、待办）优先使用组件，不要把 JSON 原文直接展示给用户。\n\n");
         return sb.toString();
     }
 

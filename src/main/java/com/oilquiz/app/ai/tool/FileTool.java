@@ -156,8 +156,42 @@ public class FileTool implements AITool {
             result.put("files", new java.util.ArrayList<>());
             result.put("count", 0);
         }
-        
-        return new AIToolResult(result, parameters);
+
+        AIToolResult toolResult = new AIToolResult(result, parameters);
+        // 附加文件列表组件（富 UI 展示目录内容）
+        try {
+            org.json.JSONArray items = new org.json.JSONArray();
+            java.util.List<?> list = (java.util.List<?>) result.get("files");
+            if (list != null) {
+                for (Object o : list) {
+                    if (!(o instanceof java.util.Map)) continue;
+                    java.util.Map<?, ?> f = (java.util.Map<?, ?>) o;
+                    org.json.JSONObject item = new org.json.JSONObject();
+                    item.put("name", String.valueOf(f.get("name")));
+                    item.put("path", String.valueOf(f.get("path")));
+                    boolean isDir = Boolean.TRUE.equals(f.get("is_directory"));
+                    item.put("type", isDir ? "dir" : "file");
+                    if (f.get("size") instanceof Number) {
+                        long bytes = ((Number) f.get("size")).longValue();
+                        item.put("size", formatSize(bytes));
+                    }
+                    items.put(item);
+                }
+            }
+            org.json.JSONObject props = new org.json.JSONObject();
+            props.put("title", "目录内容");
+            props.put("path", directoryPath);
+            props.put("files", items);
+            toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("file_list", props));
+        } catch (Exception ignore) {
+        }
+        return toolResult;
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024));
     }
     
     @Override
