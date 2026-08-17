@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-08-16] 统一思考过程组件布局 + 删除死代码
+用户反馈"有好几个思考过程组件布局各不相同，本地模型的思考布局好，统一一下"：
+1. **统一思考布局**：item_thinking_message.xml（在线 Agent 多轮思考独立消息）改为与 AI 消息内嵌思考区（item_ai_message 的 thinking_label/thinking_content，用户认可的那套）完全一致的视觉——同一 thinking_message_background、thinking_text 紫色、11sp label / 12sp 正文 / 1.2 行距 / 8dp 内边距、label 统一"💭 思考过程"；ThinkingMessageViewHolder label 文案同步（Agent 轮次保留"第N轮思考"）。
+2. **删除死思考组件**：
+   - agent_block_thinking.xml + AgentExecutionPanel.java（软件层 Agent 面板的思考块，布局早已从 item_ai_message 解绑、无实例化方）；
+   - thinking_dots_view.xml（无任何引用）。
+   - ChatAdapter 清理 agentExecutionPanel 字段及 PAYLOAD_AGENT_UPDATE/状态绑定中的死逻辑（该字段恒 null）。
+3. 保留：AgentExecutionView（agent_execution_view.xml）——仅 AIImportActivity 导入进度展示使用，非聊天思考，不动。
+- 现在思考 UI 只有两套且视觉统一：本地模型（AI 消息内嵌思考区）与在线 Agent（独立思考消息），样式一致。
+
 ## [2026-08-16] 修复对话消息乱显示/乱插入：全部改为按消息 id + toolCallId 定位
 用户反馈"组件没有 id 判断导致乱显示乱插入、UI 渲染不按先后顺序、新对话 id 混用、发送消息位置错乱"：
 1. **工具调用回调链传递 toolCallId**：AgentCallback.onToolCallStart/onToolCallComplete 接口增加 toolCallId 参数；OnlineAgentEngine 回调传 tc.id/tr.toolCallId（引擎内部原有，之前未透出）；AgentChatHandler.AgentChatCallback 同步。

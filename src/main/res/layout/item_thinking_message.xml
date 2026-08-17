@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 思考过程消息：与 AI 消息内嵌思考区（item_ai_message 的 thinking_label/thinking_content）保持完全一致的视觉 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="4dp">
 
     <TextView
         android:id="@+id/thinking_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="🧠 思考过程"
-        android:textSize="12sp"
-        android:textColor="@color/thinking_label"
-        android:layout_marginBottom="4dp"
+        android:text="@string/chat_thinking_process"
+        android:textSize="11sp"
+        android:textColor="@color/thinking_text"
+        android:layout_marginBottom="2dp"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground" />
@@ -22,10 +23,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/thinking_message_background"
-        android:padding="12dp"
         android:textColor="@color/thinking_text"
-        android:textSize="14sp"
-        android:lineSpacingMultiplier="1.3"
+        android:textSize="12sp"
+        android:lineSpacingMultiplier="1.2"
         android:textIsSelectable="true" />
 
     <ProgressBar
