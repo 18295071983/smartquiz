@@ -53,6 +53,10 @@ public class ComponentRegistry {
         register(new JsonViewerCard());
         register(new StepsCardView());
         register(new NoteCardView());
+        register(new FileListCardView());
+        register(new GridCardView());
+        register(new ContactCardView());
+        register(new TodoCardView());
         // 业务场景
         register(new QuizCardView());
         register(new WeatherCardView());

@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-08-16] 新增 4 种 UI 组件（对照工具能力缺口）
+用户询问"还有哪些 UI 组件可增加、组件如何设计复用"——确认设计模式（ChatComponent 接口 + ComponentRegistry 插件注册 + 标记/withComponent 双触发 + 纯代码建 View），对照工具返回结构新增：
+1. **file_list 文件列表卡**：📁/📄 图标 + 文件名 + 大小 + 路径（FileTool.list 自动附加，含 formatSize 大小格式化）
+2. **grid_card 宫格卡**：图标网格（应用列表/分类/快捷入口），columns 可配
+3. **contact_card 联系卡**：phone/email/sms/map 四型，大号展示 + 一键拨号/发信/地图动作按钮（点击调起系统 Intent）
+4. **todo_card 待办卡**：✅/⬜ 完成状态 + 删除线 + 底部"完成 N/M"摘要
+- 注册进 ComponentRegistry（现共 21 种）；OnlinePromptBuilder 组件指南补充 4 种新格式示例。
+- 复用方式：任何工具 `withComponent(ComponentData.of("file_list", props))` 或模型输出 ```component:file_list {json}``` 即可渲染，无需改渲染管线。
+
 ## [2026-08-16] 修正组件标记解析（修复上轮引入的嵌套 JSON 截断 bug）
 用户反馈"不要乱改，好好弄一下"——自查发现上一轮把代码块正则结束符从闭合的 ``` 改成第一个 }，导致 metric_card 等含嵌套数组的 JSON 在第一个内层 } 处被截断、解析失败：
 1. **恢复正确结束符**：COMPONENT_BLOCK 改回以 ``` 闭合（` ```component:(\w+)\s*([\s\S]*?)``` `），只有真正的三反引号才结束标记，JSON 内部 } 不影响匹配。
