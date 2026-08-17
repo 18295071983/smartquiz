@@ -257,7 +257,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_USER:
                 return new UserMessageViewHolder(inflater.inflate(R.layout.item_user_message, parent, false));
             case VIEW_TYPE_AI:
-                return new AIMessageViewHolder(inflater.inflate(R.layout.item_ai_message, parent, false));
+                // AI 消息完全动态构建（不依赖布局文件/id），杜绝 id 错乱
+                return createAiMessageItem(parent.getContext());
             case VIEW_TYPE_SYSTEM:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
             case VIEW_TYPE_THINKING:
@@ -281,6 +282,304 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             default:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
         }
+    }
+
+    /**
+     * 动态构建 AI 消息视图树（完全代码创建，不依赖布局文件与 id）。
+     * 结构：根容器 → 主气泡（思考区 + 工具卡片 + 正文）→ 展开按钮 → 操作按钮 → 状态 → 模型信息 → 时间戳。
+     */
+    private AIMessageViewHolder createAiMessageItem(Context ctx) {
+        int dp4 = dpToPx(4, ctx);
+        int dp6 = dpToPx(6, ctx);
+        int dp10 = dpToPx(10, ctx);
+        int dp12 = dpToPx(12, ctx);
+        int dp14 = dpToPx(14, ctx);
+
+        // 主题色解析
+        int colorOnSurface = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurface);
+        int colorOnSurfaceVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant);
+        int colorOutlineVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOutlineVariant);
+        int colorPrimary = ctx.getColor(R.color.primary);
+        int colorTextSecondary = ctx.getColor(R.color.text_secondary);
+        int colorTextTertiary = ctx.getColor(R.color.text_tertiary);
+
+        // ===== 根容器 =====
+        LinearLayout root = new LinearLayout(ctx);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp4, dp4, dp4, dp4);
+        RecyclerView.LayoutParams rootLp = new RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        root.setLayoutParams(rootLp);
+
+        // ===== blockLabel（未使用，保持隐藏） =====
+        TextView blockLabel = new TextView(ctx);
+        blockLabel.setTextSize(10f);
+        blockLabel.setTextColor(colorTextSecondary);
+        blockLabel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams blockLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blockLp.bottomMargin = dpToPx(1, ctx);
+        blockLabel.setLayoutParams(blockLp);
+        root.addView(blockLabel);
+
+        // ===== 横向容器（气泡在 weight=1 列内） =====
+        LinearLayout hRow = new LinearLayout(ctx);
+        hRow.setOrientation(LinearLayout.HORIZONTAL);
+        hRow.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(hRow);
+
+        LinearLayout vCol = new LinearLayout(ctx);
+        vCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams vColLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vColLp.weight = 1f;
+        vCol.setLayoutParams(vColLp);
+        hRow.addView(vCol);
+
+        // ===== 主气泡：思考区 + 工具卡片 + 正文 全部包裹 =====
+        LinearLayout bubble = new LinearLayout(ctx);
+        bubble.setOrientation(LinearLayout.VERTICAL);
+        bubble.setBackgroundResource(R.drawable.ai_message_background);
+        bubble.setPadding(dp12, dp10, dp12, dp10);
+        bubble.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        vCol.addView(bubble);
+
+        // --- 思考标签 ---
+        TextView thinkingLabel = new TextView(ctx);
+        thinkingLabel.setText(R.string.chat_thinking_process);
+        thinkingLabel.setTextSize(11f);
+        thinkingLabel.setTextColor(colorOnSurfaceVariant);
+        thinkingLabel.setClickable(true);
+        thinkingLabel.setFocusable(true);
+        thinkingLabel.setForeground(getSelectableItemBackground(ctx));
+        thinkingLabel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlLp.bottomMargin = dpToPx(2, ctx);
+        thinkingLabel.setLayoutParams(tlLp);
+        bubble.addView(thinkingLabel);
+
+        // --- 思考内容 ---
+        TextView thinkingContent = new TextView(ctx);
+        thinkingContent.setTextColor(colorOnSurfaceVariant);
+        thinkingContent.setTextSize(12f);
+        thinkingContent.setLineSpacing(0f, 1.2f);
+        thinkingContent.setVisibility(View.GONE);
+        thinkingContent.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        bubble.addView(thinkingContent);
+
+        // --- 思考与正文分隔线 ---
+        View thinkingDivider = new View(ctx);
+        thinkingDivider.setBackgroundColor(colorOutlineVariant);
+        thinkingDivider.setVisibility(View.GONE);
+        LinearLayout.LayoutParams tdLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(1, ctx));
+        tdLp.topMargin = dp6;
+        tdLp.bottomMargin = dpToPx(2, ctx);
+        thinkingDivider.setLayoutParams(tdLp);
+        bubble.addView(thinkingDivider);
+
+        // --- 推理进度 ---
+        InferenceProgressView inferenceProgressView = new InferenceProgressView(ctx);
+        inferenceProgressView.setVisibility(View.GONE);
+        inferenceProgressView.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        bubble.addView(inferenceProgressView);
+
+        // --- 工具卡片组件容器 ---
+        LinearLayout componentContainer = new LinearLayout(ctx);
+        componentContainer.setOrientation(LinearLayout.VERTICAL);
+        componentContainer.setVisibility(View.GONE);
+        componentContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        bubble.addView(componentContainer);
+
+        // --- 附件 RecyclerView ---
+        androidx.recyclerview.widget.RecyclerView attachmentsRecycler = new androidx.recyclerview.widget.RecyclerView(ctx);
+        attachmentsRecycler.setClipToPadding(false);
+        attachmentsRecycler.setVisibility(View.GONE);
+        LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        arLp.bottomMargin = dpToPx(3, ctx);
+        attachmentsRecycler.setLayoutParams(arLp);
+        bubble.addView(attachmentsRecycler);
+
+        // --- 内容宿主（正文；含组件标记时动态追加段落） ---
+        LinearLayout contentHost = new LinearLayout(ctx);
+        contentHost.setOrientation(LinearLayout.VERTICAL);
+        contentHost.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        bubble.addView(contentHost);
+
+        // --- 正文 ---
+        TextView messageText = new TextView(ctx);
+        messageText.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
+        messageText.setTextColor(colorOnSurface);
+        messageText.setTextSize(14f);
+        messageText.setLineSpacing(0f, 1.3f);
+        messageText.setTextIsSelectable(true);
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            messageText.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);
+            messageText.setHyphenationFrequency(android.graphics.text.LineBreaker.HYPHENATION_FREQUENCY_NORMAL);
+        }
+        messageText.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        contentHost.addView(messageText);
+
+        // ===== 展开按钮（主回复不再折叠，恒隐藏） =====
+        TextView btnExpand = new TextView(ctx);
+        btnExpand.setText(R.string.chat_expand_full);
+        btnExpand.setTextSize(11f);
+        btnExpand.setTextColor(colorPrimary);
+        btnExpand.setPadding(dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx));
+        btnExpand.setClickable(true);
+        btnExpand.setFocusable(true);
+        btnExpand.setForeground(getSelectableItemBackground(ctx));
+        btnExpand.setVisibility(View.GONE);
+        LinearLayout.LayoutParams beLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        beLp.topMargin = dpToPx(2, ctx);
+        btnExpand.setLayoutParams(beLp);
+        root.addView(btnExpand);
+
+        // ===== 操作按钮行 =====
+        LinearLayout actionButtons = new LinearLayout(ctx);
+        actionButtons.setOrientation(LinearLayout.HORIZONTAL);
+        actionButtons.setVisibility(View.GONE);
+        actionButtons.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(actionButtons);
+
+        TextView btnCopy = createActionButton(ctx, R.string.chat_copy, colorTextSecondary, true);
+        TextView btnSpeak = createActionButton(ctx, R.string.chat_speak, colorTextSecondary, true);
+        TextView btnShare = createActionButton(ctx, R.string.chat_share, colorTextSecondary, true);
+        TextView btnRegenerate = createActionButton(ctx, R.string.chat_regenerate, colorTextSecondary, true);
+        TextView btnNewChat = createActionButton(ctx, R.string.chat_new_chat, colorTextSecondary, false);
+        actionButtons.addView(btnCopy);
+        actionButtons.addView(btnSpeak);
+        actionButtons.addView(btnShare);
+        actionButtons.addView(btnRegenerate);
+        actionButtons.addView(btnNewChat);
+
+        // ===== 状态行 =====
+        LinearLayout statusRow = new LinearLayout(ctx);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams srLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        srLp.topMargin = dpToPx(1, ctx);
+        statusRow.setLayoutParams(srLp);
+        root.addView(statusRow);
+
+        ImageView statusIcon = new ImageView(ctx);
+        statusIcon.setVisibility(View.GONE);
+        statusIcon.setLayoutParams(new LinearLayout.LayoutParams(dp14, dp14));
+        statusRow.addView(statusIcon);
+
+        TextView statusText = new TextView(ctx);
+        statusText.setTextSize(10f);
+        statusText.setTextColor(colorTextSecondary);
+        statusText.setVisibility(View.GONE);
+        statusRow.addView(statusText);
+
+        // ===== 在线模型信息行 =====
+        LinearLayout modelInfoContainer = new LinearLayout(ctx);
+        modelInfoContainer.setOrientation(LinearLayout.HORIZONTAL);
+        modelInfoContainer.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        modelInfoContainer.setPadding(dp6, dp6, dp6, dp6);
+        modelInfoContainer.setVisibility(View.GONE);
+        modelInfoContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(modelInfoContainer);
+
+        View modelStatusIndicator = new View(ctx);
+        modelStatusIndicator.setBackgroundResource(R.drawable.status_indicator_unknown);
+        LinearLayout.LayoutParams msiLp = new LinearLayout.LayoutParams(dpToPx(5, ctx), dpToPx(5, ctx));
+        msiLp.setMarginStart(dpToPx(5, ctx));
+        modelStatusIndicator.setLayoutParams(msiLp);
+        modelInfoContainer.addView(modelStatusIndicator);
+
+        TextView modelNameText = new TextView(ctx);
+        modelNameText.setTextSize(10f);
+        modelNameText.setTextColor(colorTextSecondary);
+        LinearLayout.LayoutParams mntLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mntLp.weight = 1f;
+        mntLp.setMarginStart(dpToPx(5, ctx));
+        modelNameText.setLayoutParams(mntLp);
+        modelInfoContainer.addView(modelNameText);
+
+        TextView modelLatencyText = new TextView(ctx);
+        modelLatencyText.setTextSize(10f);
+        modelLatencyText.setTextColor(colorTextTertiary);
+        modelInfoContainer.addView(modelLatencyText);
+
+        TextView modelCostText = new TextView(ctx);
+        modelCostText.setTextSize(10f);
+        modelCostText.setTextColor(colorTextTertiary);
+        LinearLayout.LayoutParams mctLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mctLp.setMarginStart(dp6);
+        modelCostText.setLayoutParams(mctLp);
+        modelInfoContainer.addView(modelCostText);
+
+        // ===== 时间戳 =====
+        TextView timestampText = new TextView(ctx);
+        timestampText.setTextSize(10f);
+        timestampText.setTextColor(colorTextSecondary);
+        LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tsLp.setMarginStart(dp6);
+        timestampText.setLayoutParams(tsLp);
+        root.addView(timestampText);
+
+        // 组装为动态根容器（携带全部子视图引用，避免 findViewById）
+        DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
+                contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
+                actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate, btnNewChat, timestampText,
+                statusIcon, statusText, btnExpand, inferenceProgressView, attachmentsRecycler,
+                modelInfoContainer, modelStatusIndicator, modelNameText, modelLatencyText, modelCostText);
+        dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dynamicRoot.addView(root);
+        return new AIMessageViewHolder(dynamicRoot);
+    }
+
+    /** 解析主题 attr 颜色 */
+    private int resolveAttrColor(Context ctx, int attrRes) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(attrRes, tv, true)) {
+            return tv.data;
+        }
+        return 0xFF1E293B; // 兜底
+    }
+
+    /** 获取 selectableItemBackground（点击水波纹） */
+    private android.graphics.drawable.Drawable getSelectableItemBackground(Context ctx) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            return ctx.getDrawable(tv.resourceId);
+        }
+        return null;
+    }
+
+    /** 创建操作按钮（小字、可点击） */
+    private TextView createActionButton(Context ctx, int textRes, int color, boolean marginEnd) {
+        TextView tv = new TextView(ctx);
+        tv.setText(textRes);
+        tv.setTextSize(11f);
+        tv.setTextColor(color);
+        tv.setPadding(dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx));
+        tv.setClickable(true);
+        tv.setFocusable(true);
+        tv.setForeground(getSelectableItemBackground(ctx));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (marginEnd) {
+            lp.setMarginEnd(dpToPx(10, ctx));
+        }
+        tv.setLayoutParams(lp);
+        return tv;
     }
 
     @Override
@@ -2096,6 +2395,73 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 动态构建的 AI 消息根容器：持有全部子视图引用（替代 findViewById/布局文件 id）。
+     * 仅用于 createAiMessageItem 动态路径；其直接子 View 是实际内容根。
+     */
+    static class DynamicAiMessageRoot extends LinearLayout {
+        final TextView blockLabel;
+        final TextView messageText;
+        final LinearLayout contentHost;
+        final LinearLayout componentContainer;
+        final TextView thinkingLabel;
+        final TextView thinkingContent;
+        final View thinkingDivider;
+        final View actionButtons;
+        final TextView btnCopy;
+        final TextView btnSpeak;
+        final TextView btnShare;
+        final TextView btnRegenerate;
+        final TextView btnNewChat;
+        final TextView timestampText;
+        final ImageView statusIcon;
+        final TextView statusText;
+        final TextView btnExpand;
+        final InferenceProgressView inferenceProgressView;
+        final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
+        final View modelInfoContainer;
+        final View modelStatusIndicator;
+        final TextView modelNameText;
+        final TextView modelLatencyText;
+        final TextView modelCostText;
+
+        DynamicAiMessageRoot(Context ctx, TextView blockLabel, TextView messageText,
+                LinearLayout contentHost, LinearLayout componentContainer, TextView thinkingLabel,
+                TextView thinkingContent, View thinkingDivider, View actionButtons, TextView btnCopy,
+                TextView btnSpeak, TextView btnShare, TextView btnRegenerate, TextView btnNewChat,
+                TextView timestampText, ImageView statusIcon, TextView statusText, TextView btnExpand,
+                InferenceProgressView inferenceProgressView,
+                androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
+                View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
+                TextView modelCostText) {
+            super(ctx);
+            this.blockLabel = blockLabel;
+            this.messageText = messageText;
+            this.contentHost = contentHost;
+            this.componentContainer = componentContainer;
+            this.thinkingLabel = thinkingLabel;
+            this.thinkingContent = thinkingContent;
+            this.thinkingDivider = thinkingDivider;
+            this.actionButtons = actionButtons;
+            this.btnCopy = btnCopy;
+            this.btnSpeak = btnSpeak;
+            this.btnShare = btnShare;
+            this.btnRegenerate = btnRegenerate;
+            this.btnNewChat = btnNewChat;
+            this.timestampText = timestampText;
+            this.statusIcon = statusIcon;
+            this.statusText = statusText;
+            this.btnExpand = btnExpand;
+            this.inferenceProgressView = inferenceProgressView;
+            this.attachmentsRecycler = attachmentsRecycler;
+            this.modelInfoContainer = modelInfoContainer;
+            this.modelStatusIndicator = modelStatusIndicator;
+            this.modelNameText = modelNameText;
+            this.modelLatencyText = modelLatencyText;
+            this.modelCostText = modelCostText;
+        }
+    }
+
     static class AIMessageViewHolder extends RecyclerView.ViewHolder {
         TextView blockLabel;
         TextView messageText;
@@ -2128,33 +2494,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         AIMessageViewHolder(View itemView) {
             super(itemView);
-            blockLabel = itemView.findViewById(R.id.block_label);
-            messageText = itemView.findViewById(R.id.message_text);
-            contentHost = itemView.findViewById(R.id.content_host);
-            componentContainer = itemView.findViewById(R.id.component_container);
-            thinkingLabel = itemView.findViewById(R.id.thinking_label);
-            thinkingContent = itemView.findViewById(R.id.thinking_content);
-            thinkingDivider = itemView.findViewById(R.id.thinking_divider);
-            actionButtons = itemView.findViewById(R.id.action_buttons);
-            btnCopy = itemView.findViewById(R.id.btn_copy);
-            btnSpeak = itemView.findViewById(R.id.btn_speak);
-            btnShare = itemView.findViewById(R.id.btn_share);
-            btnRegenerate = itemView.findViewById(R.id.btn_regenerate);
-            btnNewChat = itemView.findViewById(R.id.btn_new_chat);
-            timestampText = itemView.findViewById(R.id.timestamp_text);
-            statusIcon = itemView.findViewById(R.id.status_icon);
-            statusText = itemView.findViewById(R.id.status_text);
-            expandButton = itemView.findViewById(R.id.btn_expand);
-            inferenceProgressView = itemView.findViewById(R.id.inference_progress_view);
-            // Agent 面板已解绑：布局中不再包含 agent_execution_view/agent_execution_panel，
-            // 字段保持 null，渲染逻辑通过 null 检查自然跳过
-            attachmentsRecycler = itemView.findViewById(R.id.attachments_recycler);
-            // 在线模型信息视图
-            modelInfoContainer = itemView.findViewById(R.id.model_info_container);
-            modelStatusIndicator = itemView.findViewById(R.id.model_status_indicator);
-            modelNameText = itemView.findViewById(R.id.model_name_text);
-            modelLatencyText = itemView.findViewById(R.id.model_latency_text);
-            modelCostText = itemView.findViewById(R.id.model_cost_text);
+            // AI 消息完全动态构建（createAiMessageItem），itemView 必为 DynamicAiMessageRoot
+            DynamicAiMessageRoot dr = (DynamicAiMessageRoot) itemView;
+            this.blockLabel = dr.blockLabel;
+            this.messageText = dr.messageText;
+            this.contentHost = dr.contentHost;
+            this.componentContainer = dr.componentContainer;
+            this.thinkingLabel = dr.thinkingLabel;
+            this.thinkingContent = dr.thinkingContent;
+            this.thinkingDivider = dr.thinkingDivider;
+            this.actionButtons = dr.actionButtons;
+            this.btnCopy = dr.btnCopy;
+            this.btnSpeak = dr.btnSpeak;
+            this.btnShare = dr.btnShare;
+            this.btnRegenerate = dr.btnRegenerate;
+            this.btnNewChat = dr.btnNewChat;
+            this.timestampText = dr.timestampText;
+            this.statusIcon = dr.statusIcon;
+            this.statusText = dr.statusText;
+            this.expandButton = dr.btnExpand;
+            this.inferenceProgressView = dr.inferenceProgressView;
+            this.attachmentsRecycler = dr.attachmentsRecycler;
+            this.modelInfoContainer = dr.modelInfoContainer;
+            this.modelStatusIndicator = dr.modelStatusIndicator;
+            this.modelNameText = dr.modelNameText;
+            this.modelLatencyText = dr.modelLatencyText;
+            this.modelCostText = dr.modelCostText;
         }
     }
 
