@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-08-16] 在线 Agent 思考/工具调用合并到 AI 消息内嵌显示（去掉独立思考消息）
+用户反馈"工具调用集合到思考过程中，在线 Agent 独立思考消息与本地模型内嵌思考区合并显示，单独显示不合适"：
+1. **思考合并**：AgentCallbackImpl.onThinkingToken 不再创建独立 THINKING 消息（addThinkingMessage），改为写入 AI 消息内嵌思考区（appendAgentThinkingToken——此方法原本存在但从未接线，现启用），与本地模型完全一致：思考中展开显示、思考完毕折叠、可点击展开。
+2. **思考结束处理**：新增 finalizeAgentThinking（思考内容写入 AI 消息 thinkingContent + 折叠），替代原 finalizeThinkingMessage（针对独立消息）。
+3. **工具调用已单通道**：确认在线 Agent 模式下工具调用仅以组件形式显示在 AI 消息内（appendAgentToolCall），addToolCallMessage 被 currentAgentGroupId 拦截不建独立卡片——思考区在上、工具卡片在下、正文最后，天然合并显示。
+4. **删除死代码**：addThinkingMessage / updateThinkingMessageUi / finalizeThinkingMessage / resolveThinkingIndex / currentThinkingMessageIndex / currentThinkingMessageId / lastThinkingUiUpdateTime；ChatMessage.createThinkingMessage / createThinkingRoundMessage（无调用方）；MessageType.THINKING 保留（兼容历史会话数据渲染）。
+- 现在本地模型与在线 Agent 的思考显示完全一致：都在 AI 消息气泡内，思考区 + 工具卡片 + 正文自上而下。
+
 ## [2026-08-16] 思考过程改为主消息色系（去掉紫色）
 用户反馈"紫色不好，改为主消息色系"：
 1. thinking_message_background.xml：背景 @color/thinking_background（淡紫 #EDE9FE）→ ?attr/colorSurfaceVariant（与 AI 主消息气泡同色系浅灰）。

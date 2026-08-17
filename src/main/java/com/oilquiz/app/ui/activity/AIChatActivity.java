@@ -242,13 +242,8 @@ public class AIChatActivity extends BaseActivity {
     private volatile long streamingTokenCount = 0;
     private volatile long streamingStartTime = 0;
     private volatile long lastTokenStatsUiUpdateTime = 0;
-    private volatile long lastThinkingUiUpdateTime = 0;
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
-    /** 当前Agent思考消息在chatHistory中的位置（-1表示无活跃思考消息） */
-    private volatile int currentThinkingMessageIndex = -1;
-    /** 当前思考消息的 id（按 id 定位，抗插入/清空漂移） */
-    private volatile String currentThinkingMessageId = null;
     private volatile int agentToolLoopCount = 0;
     /** 当前Agent执行组ID（null=非agent执行或本地模型） */
     private volatile String currentAgentGroupId = null;
@@ -4259,8 +4254,6 @@ public class AIChatActivity extends BaseActivity {
             agentToolLoopCount = 0;
             thinkingRoundEnded = false;
             thinkingRoundCount = 1;
-            currentThinkingMessageIndex = -1;
-            currentThinkingMessageId = null;
             currentStreamingContent = new StringBuilder();
             currentThinkingContent = new StringBuilder();
             currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -4473,8 +4466,6 @@ public class AIChatActivity extends BaseActivity {
                 agentToolLoopCount = 0;
                 thinkingRoundEnded = false;
                 thinkingRoundCount = 1;
-                currentThinkingMessageIndex = -1;
-                currentThinkingMessageId = null;
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -4780,8 +4771,6 @@ public class AIChatActivity extends BaseActivity {
             thinkingRoundEnded = false;
             thinkingRoundCount = 1;
             currentStreamingMessageIndex = -1;
-            currentThinkingMessageIndex = -1;
-            currentThinkingMessageId = null;
             currentStreamingMessageId = null;
         });
     }
@@ -4958,8 +4947,30 @@ public class AIChatActivity extends BaseActivity {
         isInThinking = true;
         ChatMessage msg = chatHistory.get(idx);
         msg.thinkingContent = snapshot;
+        msg.thinkingExpanded = true; // 思考中默认展开显示
         if (chatAdapter != null) {
             chatAdapter.updateMessageThinkingContent(idx, snapshot);
+        }
+    }
+
+    /**
+     * Agent 思考结束：把最终思考内容写入 AI 消息内嵌思考区并折叠（用户可点击展开）。
+     */
+    private void finalizeAgentThinking() {
+        final int idx = resolveStreamingIndex();
+        if (idx < 0) return;
+        String snapshot;
+        synchronized (streamingLock) {
+            snapshot = currentThinkingContent != null ? currentThinkingContent.toString() : "";
+        }
+        ChatMessage msg = chatHistory.get(idx);
+        if (msg == null) return;
+        if (!snapshot.isEmpty()) {
+            msg.thinkingContent = snapshot;
+        }
+        msg.thinkingExpanded = false; // 思考完毕自动折叠，用户可点击重新展开
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemChanged(idx);
         }
     }
 
@@ -5435,12 +5446,11 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onThinkingToken(String token) {
-            // 思考 token：每轮创建独立的思考消息块，自由插入到agent执行流中
-            // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用，
-            // 内部不能再 runOnUiThread（否则会post到队列，导致下一轮token先于addThinkingMessage执行）
+            // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
+            // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
             // 新一轮思考开始：状态栏显示思考中
-            if (thinkingRoundEnded || currentThinkingMessageIndex < 0) {
+            if (thinkingRoundEnded || currentThinkingContent == null) {
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
                 if (onUi) {
@@ -5451,44 +5461,25 @@ public class AIChatActivity extends BaseActivity {
                 synchronized (streamingLock) {
                     currentThinkingContent = new StringBuilder();
                 }
-                if (onUi) {
-                    addThinkingMessage(thinkingRoundCount);
-                } else {
-                    runOnUiThread(() -> addThinkingMessage(thinkingRoundCount));
-                }
             }
-            // 加锁防止与 updateThinkingMessageUi/finalizeThinkingMessage 的读取冲突
-            synchronized (streamingLock) {
-                if (currentThinkingContent != null) {
-                    currentThinkingContent.append(token);
-                }
-            }
-            // 节流：思考链可能很长，每 80ms 更新一次 UI
-            long now = System.currentTimeMillis();
-            if (now - lastThinkingUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                lastThinkingUiUpdateTime = now;
-                if (onUi) {
-                    updateThinkingMessageUi();
-                } else {
-                    runOnUiThread(() -> updateThinkingMessageUi());
-                }
+            if (onUi) {
+                appendAgentThinkingToken(token);
+            } else {
+                runOnUiThread(() -> appendAgentThinkingToken(token));
             }
         }
 
         @Override
         public void onThinkingEnd() {
             isInThinking = false;
-            // 思考内容不再单独显示（精简视觉；Agent 过程仅工具卡片插入式展示）
-            // 标记本轮思考结束，下一轮 onThinkingToken 时创建新的思考消息
+            // 思考结束：标记本轮结束，下一轮 onThinkingToken 时重置思考内容
+            // （思考内容保留在 AI 消息内嵌思考区，随后自动折叠，用户可点击展开）
             thinkingRoundEnded = true;
-            // 思考结束：强制最终更新 + 折叠当前思考消息
-            // 注意：必须在当前线程同步执行，不能post到队列，
-            // 否则下一轮 onThinkingToken 会先执行并重置 currentThinkingContent，导致本轮内容丢失
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
             if (onUi) {
-                finalizeThinkingMessage();
+                finalizeAgentThinking();
             } else {
-                runOnUiThread(() -> finalizeThinkingMessage());
+                runOnUiThread(() -> finalizeAgentThinking());
             }
         }
 
@@ -6401,8 +6392,6 @@ public class AIChatActivity extends BaseActivity {
         isInTag = false;
         if (tagBuffer != null) tagBuffer.setLength(0);
         currentStreamingMessageIndex = -1;
-        currentThinkingMessageIndex = -1;
-        currentThinkingMessageId = null;
         currentStreamingMessageId = null;
         isGenerating = false;
         isDirectStreaming = false;
@@ -6595,90 +6584,6 @@ public class AIChatActivity extends BaseActivity {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
         scrollToBottom();
-    }
-
-    /**
-     * 添加Agent思考消息（每轮思考独立一个消息块，插入到流式AI消息前面）
-     * @param round 当前思考轮次
-     * @return 消息在chatHistory中的位置
-     */
-    private int addThinkingMessage(int round) {
-        if (chatHistory == null) return -1;
-        // 思考消息插入所有模式（含 Agent：本地 Agent 原生 FC 的思考链同样以思考组件展示，
-        // 组件默认折叠、有思考内容自动展开，与 Agent 工具卡片互补不冲突）
-
-        ChatMessage msg = ChatMessage.createThinkingRoundMessage(round);
-        // 标记所属agent组
-        if (currentAgentGroupId != null) {
-            msg.agentGroupId = currentAgentGroupId;
-        }
-        // 插入到流式AI消息前面，使AI气泡始终显示在agent执行UI的最后面
-        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
-                ? currentStreamingMessageIndex : chatHistory.size();
-        chatHistory.add(insertPos, msg);
-        if (currentStreamingMessageIndex >= 0) {
-            currentStreamingMessageIndex++;
-        }
-        int pos = insertPos;
-        currentThinkingMessageIndex = pos;
-        currentThinkingMessageId = msg.id;
-        if (chatAdapter != null) {
-            chatAdapter.notifyItemInserted(pos);
-        }
-        scrollToBottom();
-        return pos;
-    }
-
-    /** 更新当前思考消息的UI显示（节流调用）——有思考内容就自动展开 */
-    private void updateThinkingMessageUi() {
-        final int idx = resolveThinkingIndex();
-        if (idx < 0) return;
-        // 加锁快照：防止与 onThinkingToken 的 append 并发
-        String thinkingSnapshot;
-        synchronized (streamingLock) {
-            thinkingSnapshot = currentThinkingContent != null ? currentThinkingContent.toString() : "";
-        }
-        ChatMessage msg = chatHistory.get(idx);
-        msg.thinkingContent = thinkingSnapshot;
-        // 有思考内容就展开（默认折叠，内容到达后自动展开显示思考链）
-        if (thinkingSnapshot != null && !thinkingSnapshot.isEmpty()) {
-            msg.thinkingExpanded = true;
-        }
-        if (chatAdapter != null) {
-            chatAdapter.updateMessageThinkingContent(idx, thinkingSnapshot);
-        }
-    }
-
-    /** 完成当前思考消息：设置最终内容、标记完成（思考完毕自动折叠，用户可点击重新展开） */
-    private void finalizeThinkingMessage() {
-        final int idx = resolveThinkingIndex();
-        if (idx < 0 || chatAdapter == null) {
-            currentThinkingMessageIndex = -1;
-            currentThinkingMessageId = null;
-            return;
-        }
-        String thinkingSnapshot;
-        synchronized (streamingLock) {
-            thinkingSnapshot = currentThinkingContent != null ? currentThinkingContent.toString() : "";
-        }
-        ChatMessage msg = chatHistory.get(idx);
-        msg.thinkingContent = thinkingSnapshot;
-        msg.status = ChatMessage.MessageStatus.COMPLETED;
-        // 思考完毕自动折叠，用户可点击重新展开
-        msg.thinkingExpanded = false;
-        chatAdapter.updateMessageThinkingContent(idx, thinkingSnapshot);
-        chatAdapter.notifyItemChanged(idx);
-        // 重置思考消息索引，下轮创建新消息
-        currentThinkingMessageIndex = -1;
-        currentThinkingMessageId = null;
-    }
-
-    /** 解析当前思考消息位置：优先按 id，回退索引（抗插入/清空漂移） */
-    private int resolveThinkingIndex() {
-        int byId = findMessageIndexById(currentThinkingMessageId);
-        if (byId >= 0) return byId;
-        return (currentThinkingMessageIndex >= 0 && currentThinkingMessageIndex < chatHistory.size())
-                ? currentThinkingMessageIndex : -1;
     }
 
     private int addToolCallMessage(String toolName, String parameters) {

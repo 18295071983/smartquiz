@@ -1272,32 +1272,6 @@ public class ChatMessage {
     }
 
     /**
-     * 创建思考过程消息
-     */
-    public static ChatMessage createThinkingMessage(String parentId, ThinkingStep step) {
-        return new Builder(MessageType.THINKING)
-                .parentId(parentId)
-                .thinkingSteps(List.of(step))
-                .status(MessageStatus.IN_PROGRESS)
-                .build();
-    }
-
-    /**
-     * 创建Agent多轮思考消息（每轮思考独立一个消息块）
-     * @param round 当前思考轮次（从1开始）
-     */
-    public static ChatMessage createThinkingRoundMessage(int round) {
-        ChatMessage msg = new Builder(MessageType.THINKING)
-                .status(MessageStatus.IN_PROGRESS)
-                .thinkingContent("")
-                .agentMode(true)
-                .taskProgress(round)
-                .build();
-        msg.thinkingExpanded = false;
-        return msg;
-    }
-
-    /**
      * 创建任务分解消息
      */
     public static ChatMessage createTaskBreakdownMessage(String content, List<ThinkingStep> steps) {
