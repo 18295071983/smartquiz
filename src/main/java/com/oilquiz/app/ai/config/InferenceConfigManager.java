@@ -100,7 +100,8 @@ public class InferenceConfigManager {
 
         switch (deviceTier) {
             case FLAGSHIP:
-                currentConfig.contextSize = 6144;
+                // 旗舰设备：大上下文（8192），长对话更久才触发裁剪
+                currentConfig.contextSize = 8192;
                 currentConfig.inferenceParams.nThreads = 4;
                 if (currentConfig.inferenceParams.nBatch == 0) {
                     currentConfig.inferenceParams.nBatch = 1024;
@@ -117,7 +118,7 @@ public class InferenceConfigManager {
                 currentConfig.generationParams.repeatPenalty = 1.15f;
                 break;
             case HIGH_END:
-                currentConfig.contextSize = 4096;
+                currentConfig.contextSize = 6144;
                 currentConfig.inferenceParams.nThreads = 4;
                 if (currentConfig.inferenceParams.nBatch == 0) {
                     currentConfig.inferenceParams.nBatch = 512;
@@ -134,7 +135,7 @@ public class InferenceConfigManager {
                 currentConfig.generationParams.repeatPenalty = 1.1f;
                 break;
             case MID_RANGE:
-                currentConfig.contextSize = 4096;
+                currentConfig.contextSize = 6144;
                 currentConfig.inferenceParams.nThreads = 4;
                 if (currentConfig.inferenceParams.nBatch == 0) {
                     currentConfig.inferenceParams.nBatch = 512;
@@ -167,6 +168,19 @@ public class InferenceConfigManager {
                 currentConfig.generationParams.minP = 0.1f;
                 currentConfig.generationParams.repeatPenalty = 1.1f;
                 break;
+        }
+
+        // 模型尺寸感知：大模型权重占用大量内存，降低上下文上限避免 KV 内存高压卡顿。
+        // 8B Q4_K_M≈4700MB + KV(8192)≈1.2GB → 常驻 6GB+，可用内存波动时明显卡顿/被杀。
+        if (currentConfig.modelSizeMB >= 7000) {
+            currentConfig.contextSize = Math.min(currentConfig.contextSize, 4096);
+            Log.i(TAG, "Very large model (" + currentConfig.modelSizeMB + "MB): context capped to " + currentConfig.contextSize);
+        } else if (currentConfig.modelSizeMB >= 4500) {
+            currentConfig.contextSize = Math.min(currentConfig.contextSize, 6144);
+            Log.i(TAG, "Large model (" + currentConfig.modelSizeMB + "MB): context capped to " + currentConfig.contextSize);
+        } else if (currentConfig.modelSizeMB >= 3000) {
+            currentConfig.contextSize = Math.min(currentConfig.contextSize, 8192);
+            Log.i(TAG, "Mid-large model (" + currentConfig.modelSizeMB + "MB): context capped to " + currentConfig.contextSize);
         }
 
         currentConfig.inferenceParams.useMmap = true;

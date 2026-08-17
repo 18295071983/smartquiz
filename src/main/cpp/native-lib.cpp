@@ -852,6 +852,7 @@ private:
     int gpuLayers;
     int memoryPoolSize;
     int batchSize;
+    int kvCacheType;   // KV cache 量化：0=Q8_0(省一半内存) 1=F16(默认,精度更高)
     std::string modelPath;
     std::atomic<bool> shouldStop;
     std::atomic<bool> isGenerating;
@@ -868,7 +869,7 @@ public:
 
     InferenceContext() : model(nullptr), ctx(nullptr), vocab(nullptr), 
                          contextSize(0), threadCount(0), gpuLayers(0), 
-                         memoryPoolSize(0), batchSize(32), shouldStop(false),
+                         memoryPoolSize(0), batchSize(32), kvCacheType(1), shouldStop(false),
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
                          modelType("unknown"), chatTemplate("") {
@@ -962,7 +963,9 @@ public:
         }
         
         // 限制批处理大小
-        const int MAX_BATCH_SIZE = 256;
+        // 批处理上限：1024（此前 256 导致 prompt decode 分 6 批变慢、且单批易超限；
+        // 1024 覆盖常见 prompt（1400 tokens 内 2 批），GPU 模式 batch 大吞吐高）
+        const int MAX_BATCH_SIZE = 1024;
         const int MIN_BATCH_SIZE = 32;
         if (this->batchSize > MAX_BATCH_SIZE) {
             LOGW("Batch size %d exceeds max %d, clamping", this->batchSize, MAX_BATCH_SIZE);
@@ -1112,7 +1115,15 @@ public:
         LOG_MEM("before_llama_model_load");
         
         auto startTime = std::chrono::steady_clock::now();
-        model = llama_model_load_from_file(modelPath.c_str(), model_params);
+        try {
+            model = llama_model_load_from_file(modelPath.c_str(), model_params);
+        } catch (const std::exception& e) {
+            LOGE("llama_model_load_from_file threw: %s", e.what());
+            model = nullptr;
+        } catch (...) {
+            LOGE("llama_model_load_from_file threw unknown exception");
+            model = nullptr;
+        }
         auto endTime = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
         
@@ -1126,7 +1137,14 @@ public:
                 LOGI("Retrying with CPU only...");
                 
                 startTime = std::chrono::steady_clock::now();
-                model = llama_model_load_from_file(modelPath.c_str(), model_params);
+                try {
+                    model = llama_model_load_from_file(modelPath.c_str(), model_params);
+                } catch (const std::exception& e) {
+                    LOGE("llama_model_load_from_file (CPU retry) threw: %s", e.what());
+                    model = nullptr;
+                } catch (...) {
+                    model = nullptr;
+                }
                 endTime = std::chrono::steady_clock::now();
                 elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
                 
@@ -1216,9 +1234,49 @@ public:
         ctx_params.n_batch = n_batch_actual;
         ctx_params.n_ubatch = n_batch_actual;
 
-        // 启用 Flash Attention 加速
-        ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
-        LOGI("Flash Attention enabled for faster inference");
+        // Flash Attention：原强制 ENABLED，但 Vulkan 后端 flash attention kernel 在部分 Adreno
+        // 设备上性能差（推理 0.4 t/s 异常慢），改为 AUTO（llama.cpp 自行判断是否启用，
+        // 不支持的 GPU 自动回退标准 attention——成熟 Vulkan kernel 更快）
+        ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        LOGI("Flash Attention set to AUTO (fallback-safe)");
+
+        // KV cache 量化：Q8_0 减半 KV 内存（8B@6144ctx：约0.9GB→0.45GB），精度损失极小
+        // 默认 F16（kvCacheType=1）；Java 侧大模型/低内存时设为 0（Q8_0）
+        if (this->kvCacheType == 0) {
+            ctx_params.type_k = GGML_TYPE_Q8_0;
+            ctx_params.type_v = GGML_TYPE_Q8_0;
+            LOGI("KV cache quantized to Q8_0 (memory ~50%% saved)");
+        } else {
+            ctx_params.type_k = GGML_TYPE_F16;
+            ctx_params.type_v = GGML_TYPE_F16;
+        }
+
+        // memoryPoolSize 作为 KV cache 内存预算（真正利用该配置）：
+        // 按模型参数估算每 token KV 字节，超预算时钳制 n_ctx，防止 KV 撑爆可用内存。
+        // KV/Token = 2(K+V) × n_layer × n_head_kv × head_dim × 元素字节
+        if (this->memoryPoolSize > 0 && model != nullptr) {
+            int nLayer = llama_model_n_layer(model);
+            int nHeadKv = llama_model_n_head_kv(model);
+            int nEmbd = llama_model_n_embd(model);
+            int nHead = llama_model_n_head(model);
+            int headDim = (nHead > 0 && nEmbd > 0) ? (nEmbd / nHead) : 128;
+            int kvElemBytes = (this->kvCacheType == 0) ? 1 : 2; // Q8_0=1字节, F16=2字节
+            long kvPerTokenBytes = 2L * nLayer * nHeadKv * headDim * kvElemBytes;
+            long kvBudgetBytes = (long) this->memoryPoolSize * 1024 * 1024;
+            if (kvPerTokenBytes > 0 && kvBudgetBytes > 0) {
+                int maxCtxByBudget = (int) (kvBudgetBytes / kvPerTokenBytes);
+                if (contextSize > maxCtxByBudget) {
+                    LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token)",
+                         this->memoryPoolSize, contextSize, maxCtxByBudget, kvPerTokenBytes);
+                    contextSize = maxCtxByBudget;
+                    ctx_params.n_ctx = contextSize;
+                } else {
+                    LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, peak=%lldMB)",
+                         this->memoryPoolSize, contextSize, kvPerTokenBytes,
+                         (kvPerTokenBytes * contextSize) / (1024 * 1024));
+                }
+            }
+        }
 
         LOGI("Creating context with n_ctx=%d, n_threads=%d, n_threads_batch=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
              contextSize, threadCount, batchThreadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
@@ -1228,7 +1286,34 @@ public:
         LOG_MEM("before_llama_init_from_model");
         
         startTime = std::chrono::steady_clock::now();
-        ctx = llama_init_from_model(model, ctx_params);
+        // 捕获 ggml backend（如 Vulkan shader 编译）抛出的 C++ 异常：
+        // Adreno 上 Q8_0 KV shader pipeline 创建失败会抛 vk::SystemError，
+        // 不捕获则 libc++abi terminate 直接崩进程（用户见"上下文初始化失败"）。
+        try {
+            ctx = llama_init_from_model(model, ctx_params);
+        } catch (const std::exception& e) {
+            LOGE("llama_init_from_model threw: %s (kvCacheType=%d, gpuLayers=%d)", e.what(), this->kvCacheType, this->gpuLayers);
+            ctx = nullptr;
+            // Q8_0 KV 在部分 GPU（Adreno Vulkan）shader 不兼容：回退 F16 重试一次
+            if (this->kvCacheType == 0) {
+                LOGI("KV Q8_0 shader failed, retrying with F16 KV cache...");
+                this->kvCacheType = 1;
+                ctx_params.type_k = GGML_TYPE_F16;
+                ctx_params.type_v = GGML_TYPE_F16;
+                try {
+                    ctx = llama_init_from_model(model, ctx_params);
+                } catch (const std::exception& e2) {
+                    LOGE("llama_init_from_model F16 retry threw: %s", e2.what());
+                    ctx = nullptr;
+                } catch (...) {
+                    LOGE("llama_init_from_model F16 retry threw unknown exception");
+                    ctx = nullptr;
+                }
+            }
+        } catch (...) {
+            LOGE("llama_init_from_model threw unknown exception");
+            ctx = nullptr;
+        }
         endTime = std::chrono::steady_clock::now();
         elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
         
@@ -1248,7 +1333,14 @@ public:
                 model_params.n_gpu_layers = 0;
                 
                 startTime = std::chrono::steady_clock::now();
-                model = llama_model_load_from_file(modelPath.c_str(), model_params);
+                try {
+                    model = llama_model_load_from_file(modelPath.c_str(), model_params);
+                } catch (const std::exception& e) {
+                    LOGE("llama_model_load_from_file (CPU reload) threw: %s", e.what());
+                    model = nullptr;
+                } catch (...) {
+                    model = nullptr;
+                }
                 endTime = std::chrono::steady_clock::now();
                 elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
                 
@@ -1269,7 +1361,15 @@ public:
                 
                 LOGI("Creating context with CPU mode...");
                 startTime = std::chrono::steady_clock::now();
-                ctx = llama_init_from_model(model, ctx_params);
+                try {
+                    ctx = llama_init_from_model(model, ctx_params);
+                } catch (const std::exception& e) {
+                    LOGE("llama_init_from_model (CPU mode) threw: %s", e.what());
+                    ctx = nullptr;
+                } catch (...) {
+                    LOGE("llama_init_from_model (CPU mode) threw unknown exception");
+                    ctx = nullptr;
+                }
                 endTime = std::chrono::steady_clock::now();
                 elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
                 
@@ -1439,13 +1539,20 @@ public:
             return false;
         }
 
-        llama_batch prompt_batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
-        LOGI("Processing prompt as single batch, size=%d", prompt_batch.n_tokens);
-        
-        int ret = llama_decode(ctx, prompt_batch);
-        if (ret != 0) {
-            LOGE("llama_decode failed for prompt batch with code: %d", ret);
-            return false;
+        // 分块解码 prompt（batch ≤ n_batch，防 llama_decode assert 崩溃）
+        const int nBatch = llama_n_batch(ctx);
+        const int bSize = nBatch > 0 ? nBatch : 256;
+        LOGI("Processing prompt as batches, size=%zu, n_batch=%d", prompt_tokens.size(), bSize);
+
+        int ret = 0;
+        for (size_t offset = 0; offset < prompt_tokens.size(); offset += bSize) {
+            size_t nTokens = std::min((size_t)bSize, prompt_tokens.size() - offset);
+            llama_batch prompt_batch = llama_batch_get_one(prompt_tokens.data() + offset, (int)nTokens);
+            ret = llama_decode(ctx, prompt_batch);
+            if (ret != 0) {
+                LOGE("llama_decode failed for prompt batch (offset=%zu, n=%zu) code: %d", offset, nTokens, ret);
+                break;
+            }
         }
         LOGI("llama_decode for prompt completed successfully");
         
@@ -1877,11 +1984,25 @@ public:
             return false;
         }
         
-        llama_batch prompt_batch = llama_batch_get_one(tokens_list.data(), tokens_list.size());
-        LOGI("Processing prompt as single batch, size=%d", prompt_batch.n_tokens);
+        // 分块解码 prompt（batch ≤ n_batch，否则 llama_decode 对单 batch 超 n_batch 会 assert 崩溃）
+        const int n_batch = llama_n_batch(ctx);
+        if (n_batch <= 0) {
+            LOGI("llama_n_batch unavailable, using 256");
+        }
+        const int batchSize = n_batch > 0 ? n_batch : 256;
+        LOGI("Processing prompt as batches, size=%zu, n_batch=%d", tokens_list.size(), batchSize);
         LOG_MEM("before_prompt_decode");
-        
-        int ret = llama_decode(ctx, prompt_batch);
+
+        int ret = 0;
+        for (size_t offset = 0; offset < tokens_list.size(); offset += batchSize) {
+            size_t nTokens = std::min((size_t)batchSize, tokens_list.size() - offset);
+            llama_batch prompt_batch = llama_batch_get_one(tokens_list.data() + offset, (int)nTokens);
+            ret = llama_decode(ctx, prompt_batch);
+            if (ret != 0) {
+                LOGE("llama_decode failed for prompt batch (offset=%zu, n=%zu) code: %d", offset, nTokens, ret);
+                break;
+            }
+        }
         
         LOG_MEM("after_prompt_decode");
         
@@ -2166,7 +2287,10 @@ public:
         common_chat_templates_inputs inputs;
         inputs.messages = chat_msgs;
         inputs.tools = tools;
-        inputs.tool_choice = tools.empty() ? COMMON_CHAT_TOOL_CHOICE_NONE : COMMON_CHAT_TOOL_CHOICE_AUTO;
+        // 工具场景强制 REQUIRED：generateWithTools 仅 Agent 阶段1（已判定涉及工具）使用，
+        // 强制模型输出 tool_call（llama.cpp 对 Qwen3 支持 REQUIRED），
+        // 避免模型"空输出/直接回答不调工具"导致工具调用失败
+        inputs.tool_choice = tools.empty() ? COMMON_CHAT_TOOL_CHOICE_NONE : COMMON_CHAT_TOOL_CHOICE_REQUIRED;
         inputs.parallel_tool_calls = true;
         inputs.add_generation_prompt = true;
         inputs.use_jinja = true;
@@ -2307,6 +2431,8 @@ public:
     void forceResetGeneration() { isGenerating.store(false); }
 
     void setGPULayers(int layers) { gpuLayers = layers; }
+
+    void setKvCacheType(int type) { kvCacheType = type; }
     void setThreadCount(int count) { threadCount = count; }
     void setMemoryPoolSize(int size) { memoryPoolSize = size; }
     void setBatchSize(int size) { batchSize = size; }
@@ -2596,13 +2722,22 @@ public:
                 if (nHistoryTokens > 0) {
                     historyTokens.resize(nHistoryTokens);
                     if (llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), historyTokens.data(), historyTokens.size(), true, true) >= 0) {
-                        // 评估历史 token 到 KV cache
-                        llama_batch historyBatch = llama_batch_get_one(historyTokens.data(), historyTokens.size());
-                        int ret = llama_decode(ctx, historyBatch);
-                        if (ret == 0) {
+                        // 评估历史 token 到 KV cache（分块，batch ≤ n_batch 防 assert 崩溃）
+                        const int nBatch = llama_n_batch(ctx);
+                        const int bSize = nBatch > 0 ? nBatch : 256;
+                        bool ok = true;
+                        for (size_t offset = 0; offset < historyTokens.size(); offset += bSize) {
+                            size_t nTokens = std::min((size_t)bSize, historyTokens.size() - offset);
+                            llama_batch historyBatch = llama_batch_get_one(historyTokens.data() + offset, (int)nTokens);
+                            int ret = llama_decode(ctx, historyBatch);
+                            if (ret != 0) {
+                                LOGW("Failed to evaluate history into KV cache: %d (offset=%zu)", ret, offset);
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if (ok) {
                             LOGI("History evaluated: %zu tokens into KV cache", historyTokens.size());
-                        } else {
-                            LOGW("Failed to evaluate history into KV cache: %d", ret);
                         }
                     }
                 }
@@ -2960,11 +3095,17 @@ private:
             return false;
         }
         std::vector<llama_token> tokens_copy(tokens);
-        llama_batch batch = llama_batch_get_one(tokens_copy.data(), tokens_copy.size());
-        int ret = llama_decode(ctx, batch);
-        if (ret != 0) {
-            LOGE("llama_decode failed: %d", ret);
-            return false;
+        // 分块解码（batch ≤ n_batch，防 llama_decode assert 崩溃）
+        const int nBatch = llama_n_batch(ctx);
+        const int bSize = nBatch > 0 ? nBatch : 256;
+        for (size_t offset = 0; offset < tokens_copy.size(); offset += bSize) {
+            size_t nTokens = std::min((size_t)bSize, tokens_copy.size() - offset);
+            llama_batch batch = llama_batch_get_one(tokens_copy.data() + offset, (int)nTokens);
+            int ret = llama_decode(ctx, batch);
+            if (ret != 0) {
+                LOGE("llama_decode failed: %d (offset=%zu)", ret, offset);
+                return false;
+            }
         }
         total_tokens_in_kv += tokens.size();
         current_pos += tokens.size();
@@ -4775,6 +4916,137 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetGPULayers(
     }
 }
 
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetModelNctx(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        return 0;
+    }
+    // 返回实际 context 的 n_ctx（llama_n_ctx，包含 memoryPool 预算等钳制后的真实值），
+    // 不能用 contextSize 字段（字段可能未被预算钳制，导致 token 预算高估）
+    llama_context* ctx = s_helperContext->getLlamaContext();
+    if (ctx == nullptr) {
+        return 0;
+    }
+    return llama_n_ctx(ctx);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeAppendMessagesAndGenerate(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jobjectArray roles,
+    jobjectArray contents,
+    jint appendStart,
+    jint maxTokens,
+    jfloat temperature,
+    jfloat topP,
+    jint topK,
+    jboolean enableThinking) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        return env->NewStringUTF("");
+    }
+    try {
+        const llama_vocab* vocab = s_helperContext->getVocab();
+        llama_context* ctx = s_helperContext->getLlamaContext();
+        if (vocab == nullptr || ctx == nullptr) return env->NewStringUTF("");
+
+        jsize n = env->GetArrayLength(roles);
+        if (appendStart < 0) appendStart = 0;
+        if (appendStart >= n) return env->NewStringUTF("");
+
+        // 1) 手动渲染新增消息（Qwen3 im_start 格式，与模板一致）→ tokenize → 分块 decode（不清 KV）
+        const int bSize = 1024;
+        for (int i = appendStart; i < n; i++) {
+            jstring roleJ = (jstring)env->GetObjectArrayElement(roles, i);
+            jstring contentJ = (jstring)env->GetObjectArrayElement(contents, i);
+            if (roleJ == nullptr || contentJ == nullptr) continue;
+            const char* role = env->GetStringUTFChars(roleJ, nullptr);
+            const char* content = env->GetStringUTFChars(contentJ, nullptr);
+            std::string msg;
+            if (role != nullptr && strcmp(role, "tool") == 0) {
+                msg = "<|im_start|>user\n<tool_response>\n" + std::string(content ? content : "") + "\n</tool_response>\n<|im_end|>\n";
+            } else {
+                msg = std::string("<|im_start|>") + (role ? role : "user") + "\n" + (content ? content : "") + "<|im_end|>\n";
+            }
+            env->ReleaseStringUTFChars(roleJ, role);
+            env->ReleaseStringUTFChars(contentJ, content);
+            env->DeleteLocalRef(roleJ);
+            env->DeleteLocalRef(contentJ);
+
+            int nt = -llama_tokenize(vocab, msg.c_str(), msg.size(), nullptr, 0, true, true);
+            if (nt <= 0) continue;
+            std::vector<llama_token> tokens(nt);
+            if (llama_tokenize(vocab, msg.c_str(), msg.size(), tokens.data(), tokens.size(), true, true) < 0) continue;
+            for (size_t off = 0; off < tokens.size(); off += bSize) {
+                size_t nn = std::min((size_t)bSize, tokens.size() - off);
+                llama_batch b = llama_batch_get_one(tokens.data() + off, (int)nn);
+                int ret = llama_decode(ctx, b);
+                if (ret != 0) {
+                    LOGE("nativeAppendMessagesAndGenerate: decode failed: %d", ret);
+                    return env->NewStringUTF("");
+                }
+            }
+        }
+
+        // 2) generation prompt（assistant 起始，与 Qwen3 模板一致；非思考加空 think）
+        std::string genPrompt = "<|im_start|>assistant\n";
+        if (!enableThinking) {
+            genPrompt += "<think>\n\n</think>\n\n";
+        }
+        int nt = -llama_tokenize(vocab, genPrompt.c_str(), genPrompt.size(), nullptr, 0, true, true);
+        if (nt > 0) {
+            std::vector<llama_token> tokens(nt);
+            if (llama_tokenize(vocab, genPrompt.c_str(), genPrompt.size(), tokens.data(), tokens.size(), true, true) >= 0) {
+                for (size_t off = 0; off < tokens.size(); off += bSize) {
+                    size_t nn = std::min((size_t)bSize, tokens.size() - off);
+                    llama_batch b = llama_batch_get_one(tokens.data() + off, (int)nn);
+                    if (llama_decode(ctx, b) != 0) {
+                        LOGW("generation prompt decode failed");
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3) 从 KV 当前位置生成（复用 generateFromEvaluatedContext）
+        std::string out;
+        bool ok = s_helperContext->generateFromEvaluatedContext(maxTokens, temperature, topP, topK,
+            (bool)enableThinking,
+            [&out](const std::string& text, bool complete, const std::string& err) {
+                if (!complete && err.empty()) out += text;
+            });
+        LOGI("Incremental generate: %zu chars, ok=%d", out.size(), (int)ok);
+        return env->NewStringUTF(out.c_str());
+    } catch (const std::exception& e) {
+        LOGE("nativeAppendMessagesAndGenerate error: %s", e.what());
+        return env->NewStringUTF("");
+    }
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetModelArchitecture(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        return env->NewStringUTF("");
+    }
+    llama_model* model = s_helperContext->getModel();
+    if (model == nullptr) {
+        return env->NewStringUTF("");
+    }
+    char buf[128] = {0};
+    int len = llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf));
+    if (len < 0) {
+        // 兼容旧 GGUF：从 general.name 或模型类型推断
+        int nameLen = llama_model_meta_val_str(model, "general.name", buf, sizeof(buf));
+        if (nameLen < 0) return env->NewStringUTF("");
+    }
+    LOGI("Model architecture: %s", buf);
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetThreadCount(
     JNIEnv* env,
@@ -4784,6 +5056,17 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetThreadCount(
     llama_jni::s_defaultThreadCount = threadCount;
     if (s_helperContext != nullptr) {
         s_helperContext->setThreadCount(threadCount);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetKvCacheType(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jint kvCacheType) {
+    LOGI("LlamaHelper: Setting KV cache type to %d (0=Q8_0省内存, 1=F16)", kvCacheType);
+    if (s_helperContext != nullptr) {
+        s_helperContext->setKvCacheType(kvCacheType);
     }
 }
 

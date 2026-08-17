@@ -226,14 +226,10 @@ public class AILogger {
             // 使用应用内部存储目录，不需要权限
             File appDir = appContext.getFilesDir();
             return new File(appDir, LOG_DIR);
-        } else {
-            // 备用方案：使用外部存储目录
-            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-                File externalDir = Environment.getExternalStorageDirectory();
-                File appDir = new File(externalDir, "OilQuiz");
-                return new File(appDir, LOG_DIR);
-            }
         }
+        // appContext 未初始化（如 LlamaHelper 类加载早于 AILogger.init）时：
+        // 不再写外部存储（Android 13+ 无权限会 EPERM 刷错误日志），返回 null 走 logcat-only，
+        // 等 AILogger.init 后重新 initLogFile 落到私有目录。
         return null;
     }
     

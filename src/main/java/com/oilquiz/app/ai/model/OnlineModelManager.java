@@ -210,6 +210,8 @@ public class OnlineModelManager {
                     config.cachedModelsJson = obj.optString("cachedModelsJson", null);
                     config.autoFetchModels = obj.optBoolean("autoFetchModels", true);
                     config.lastUsageFetchTime = obj.optLong("lastUsageFetchTime", 0);
+                    config.supportsVision = obj.optBoolean("supportsVision", false);
+                    config.supportsCode = obj.optBoolean("supportsCode", false);
                     
                     // 加载使用量信息
                     if (obj.has("usageInfo")) {
@@ -234,6 +236,28 @@ public class OnlineModelManager {
         
         // 统一刷新所有模型的 supportsAudio 标记
         refreshAllSupportsAudio();
+        // 统一刷新所有模型的 supportsVision 标记（按模型名自动推断视觉能力）
+        refreshAllSupportsVision();
+    }
+
+    /**
+     * 刷新所有模型的 supportsVision 标记。
+     * 按模型名关键词推断（vl/vision/4o/omni/gemini/glm-4v），
+     * 使在线模型配置的视觉能力字段有真实值（此前恒为 false 的死字段），
+     * 发图时优先用该字段判断，模型名兜底。
+     */
+    private void refreshAllSupportsVision() {
+        for (OnlineModelConfig config : modelList) {
+            config.supportsVision = isVisionModelName(config.modelName);
+        }
+    }
+
+    /** 按模型名关键词判断是否支持视觉（llama 无关，纯在线模型名推断） */
+    public static boolean isVisionModelName(String modelName) {
+        if (modelName == null) return false;
+        String m = modelName.toLowerCase();
+        return m.contains("vl") || m.contains("vision") || m.contains("4o")
+                || m.contains("omni") || m.contains("gemini") || m.contains("glm-4v");
     }
     
     /**
@@ -279,6 +303,8 @@ public class OnlineModelManager {
                 obj.put("cachedModelsJson", config.cachedModelsJson != null ? config.cachedModelsJson : "");
                 obj.put("autoFetchModels", config.autoFetchModels);
                 obj.put("lastUsageFetchTime", config.lastUsageFetchTime);
+                obj.put("supportsVision", config.supportsVision);
+                obj.put("supportsCode", config.supportsCode);
                 
                 // 保存使用量信息
                 if (config.usageInfo != null) {

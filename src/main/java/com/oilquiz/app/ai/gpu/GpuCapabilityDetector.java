@@ -836,26 +836,81 @@ public class GpuCapabilityDetector {
         }
     }
 
+    /**
+     * 获取设备温度（摄氏度）。
+     * 修复：thermal zone 值单位不统一——多数 Android 设备返回毫摄氏度（m°C，如 55000=55°C），
+     * 少数返回摄氏度。按值大小归一化：>1000 视为毫度除以 1000；并做范围校验（0-150°C）。
+     * 传感器优先级：type=cpu > type=gpu > 其他 thermal_zone（读 type 文件判断，避免选到非温度传感器）。
+     */
     public int getTemperature() {
         try {
             File thermalDir = new File("/sys/class/thermal");
-            if (thermalDir.exists() && thermalDir.listFiles() != null) {
-                for (File zone : thermalDir.listFiles()) {
-                    if (zone.getName().contains("gpu") || zone.getName().contains("thermal_zone")) {
-                        File tempFile = new File(zone, "temp");
-                        if (tempFile.exists()) {
-                            BufferedReader reader = new BufferedReader(new FileReader(tempFile));
-                            String line = reader.readLine();
-                            reader.close();
-                            if (line != null) {
-                                return Integer.parseInt(line.trim());
-                            }
-                        }
+            File[] zones = thermalDir.exists() ? thermalDir.listFiles() : null;
+            if (zones == null) return 0;
+
+            // 优先级：cpu > gpu > 任意 thermal_zone
+            String[][] priorityPatterns = {
+                    {"cpu", "cpu"},
+                    {"gpu", "gpu"},
+                    {"", "thermal_zone"}   // 兜底：任意 thermal_zone
+            };
+            for (String[] prio : priorityPatterns) {
+                String typeNeedle = prio[0];
+                String nameNeedle = prio[1];
+                for (File zone : zones) {
+                    if (!zone.getName().contains(nameNeedle)) continue;
+                    if (!typeNeedle.isEmpty()) {
+                        String zoneType = readThermalZoneType(zone);
+                        if (zoneType == null || !zoneType.toLowerCase().contains(typeNeedle)) continue;
                     }
+                    int temp = readThermalZoneTemp(zone);
+                    if (temp > 0) return temp;
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception ignored) {
         }
         return 0;
+    }
+
+    /** 读取 thermal zone 的 type（如 cpu/gpu/soc/tsens），读不到返回 null */
+    private String readThermalZoneType(File zone) {
+        try {
+            File typeFile = new File(zone, "type");
+            if (!typeFile.exists()) return null;
+            BufferedReader reader = new BufferedReader(new FileReader(typeFile));
+            try {
+                String line = reader.readLine();
+                return line != null ? line.trim() : null;
+            } finally {
+                reader.close();
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 读取 thermal zone 温度并归一化为摄氏度；无效返回 0 */
+    private int readThermalZoneTemp(File zone) {
+        try {
+            File tempFile = new File(zone, "temp");
+            if (!tempFile.exists()) return 0;
+            BufferedReader reader = new BufferedReader(new FileReader(tempFile));
+            String line;
+            try {
+                line = reader.readLine();
+            } finally {
+                reader.close();
+            }
+            if (line == null) return 0;
+            long raw = Long.parseLong(line.trim());
+            if (raw <= 0) return 0;
+            // 归一化：>1000 视为毫摄氏度（除以 1000），否则视为摄氏度
+            int temp = raw > 1000 ? (int) (raw / 1000) : (int) raw;
+            // 范围校验：0-150°C 才有效
+            if (temp <= 0 || temp > 150) return 0;
+            return temp;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 }

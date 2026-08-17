@@ -889,7 +889,11 @@ public class ModelDownloadManager {
         "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
         // Qwen3 系列：内置思考/非思考双模式（模板支持 enable_thinking，native 层按模板能力自动启用）
         "https://hf-mirror.com/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        // 原版 Qwen3-4B（官方仓库）：模板含 <think> 思考链 + enable_thinking 检测分支 + 原生 <tool_call> FC，
+        // 是本地 Agent（思考链 + 工具调用）的最佳 4B 选择。
+        // 注意：勿用 2507 版（Instruct-2507 模板无思考分支，且 llama.cpp 存在 false thinking detection bug，
+        // 见 ggml-org/llama.cpp issue #20809；Thinking-2507 有 <think> 标签缺失 bug）。
+        "https://hf-mirror.com/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
         // 更多支持思考/推理的模型（均经 HEAD 验证可用）
         "https://hf-mirror.com/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf",
         "https://hf-mirror.com/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
@@ -927,7 +931,7 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("deepseek-r1-1.5b", "DeepSeek-R1-1.5B", "推理模型", PRESET_DOMESTIC_MODEL_URLS[10], 1100, "Q4_K_M", 32768, 2048, 4));
         // Qwen3 系列：支持思考链（深度思考模式可用），工具调用能力也更强
         list.add(new ModelPresetInfo("qwen3-1.7b", "Qwen3-1.7B", "支持思考链的轻量中文模型", PRESET_DOMESTIC_MODEL_URLS[11], 1050, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("qwen3-4b-2507", "Qwen3-4B-2507", "支持思考链的强推理中文模型", PRESET_DOMESTIC_MODEL_URLS[12], 2400, "Q4_K_M", 32768, 4096, 8));
+        list.add(new ModelPresetInfo("qwen3-4b", "Qwen3-4B（推荐）", "思考链+原生工具调用双全，本地Agent首选", PRESET_DOMESTIC_MODEL_URLS[12], 2400, "Q4_K_M", 32768, 4096, 8));
         // 更多思考/推理模型：R1蒸馏系列自带<think>思考链，Qwen3支持双模式，其余为强推理模型
         list.add(new ModelPresetInfo("qwen3-0.6b", "Qwen3-0.6B", "超轻量思考链模型", PRESET_DOMESTIC_MODEL_URLS[13], 380, "Q4_K_M", 32768, 1024, 2));
         list.add(new ModelPresetInfo("qwen3-8b", "Qwen3-8B", "支持思考链的高性能中文模型", PRESET_DOMESTIC_MODEL_URLS[14], 4700, "Q4_K_M", 32768, 8192, 16));

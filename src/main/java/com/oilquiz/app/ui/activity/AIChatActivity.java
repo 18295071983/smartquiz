@@ -77,7 +77,6 @@ import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatModeManager;
-import com.oilquiz.app.ai.chat.ModeSelectorDialog;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.ai.chat.history.ChatHistoryAdapter;
 import com.oilquiz.app.ui.adapter.AttachmentAdapter;
@@ -161,8 +160,6 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnClearAllHistory;
     private View thinkingIndicator;
     private Chip chipNormalChat;
-    private Chip chipAgentMode;
-    private Chip chipThinkingAssist;
     private Chip chipWeather;
     private Chip chipClear;
     /** 快捷工具栏：键盘弹出时自动折叠 */
@@ -388,8 +385,6 @@ public class AIChatActivity extends BaseActivity {
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
             chipNormalChat = findViewById(R.id.chip_normal_chat);
-            chipAgentMode = findViewById(R.id.chip_agent_mode);
-            chipThinkingAssist = findViewById(R.id.chip_thinking_assist);
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
 
@@ -1201,7 +1196,8 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void initListener() {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
-        if (btnModeSelect != null) btnModeSelect.setOnClickListener(v -> showModeSelectorDialog());
+        // 模式切换：点击直接在 普通 ↔ 深度思考 间切换（简化，不再弹复杂对话框）
+        if (btnModeSelect != null) btnModeSelect.setOnClickListener(v -> toggleMode());
         if (btnModelSelect != null) {
             btnModelSelect.setOnClickListener(v -> {
                 // 打开模型选择页面
@@ -1270,18 +1266,6 @@ public class AIChatActivity extends BaseActivity {
             });
         });
 
-        // Agent 功能入口
-        if (chipAgentMode != null) chipAgentMode.setOnClickListener(v -> {
-            // 添加模式切换动画
-            animateModeSwitch(() -> {
-                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
-                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.AGENT);
-                updateModeButtonText();
-                // 注入模式切换指令到上下文
-                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.AGENT);
-                addSystemMessage("🤖 Agent模式已启用\n\n功能特性：\n• 工具智能选择与执行\n• ReAct推理循环\n• 思考链可视化\n• 快捷输入引导\n\n请点击下方工具快捷按钮或直接输入问题。");
-            });
-        });
         if (chipWeather != null) chipWeather.setOnClickListener(v -> showToolGuideDialog("ai_weather"));
 
         if (chipClear != null) chipClear.setOnClickListener(v -> {
@@ -1313,9 +1297,8 @@ public class AIChatActivity extends BaseActivity {
             addCompositeChip(quickGroup, "🔍 网页研究", "research");
         }
 
-        // 模式切换快捷按钮
+        // 模式切换快捷按钮（精简：仅 深度思考；创意/Agent/思考辅助已删除）
         Chip chipDeepThink = findViewById(R.id.chip_deep_think);
-        Chip chipCreative = findViewById(R.id.chip_creative);
         
         if (chipDeepThink != null) chipDeepThink.setOnClickListener(v -> {
             animateModeSwitch(() -> {
@@ -1324,26 +1307,6 @@ public class AIChatActivity extends BaseActivity {
                 updateModeButtonText();
                 injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.DEEP_THINKING);
                 showToast("已切换到深度思考模式");
-            });
-        });
-
-        if (chipCreative != null) chipCreative.setOnClickListener(v -> {
-            animateModeSwitch(() -> {
-                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
-                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.CREATIVE);
-                updateModeButtonText();
-                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.CREATIVE);
-                showToast("已切换到创意写作模式");
-            });
-        });
-
-        if (chipThinkingAssist != null) chipThinkingAssist.setOnClickListener(v -> {
-            animateModeSwitch(() -> {
-                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
-                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.THINKING_ASSIST);
-                updateModeButtonText();
-                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.THINKING_ASSIST);
-                showToast("已切换到思考辅助模式");
             });
         });
 
@@ -3289,6 +3252,27 @@ public class AIChatActivity extends BaseActivity {
         }
 
         saveAttachmentsToLocal(uris).thenAccept(localFileMap -> {
+            // 本地多模态优先：vision 模型 + mmproj 已加载 + 单张图片 → 直接视觉理解（不走 OCR/Agent）
+            // 在线模型场景：不走此分支（在线走 OCR 文本 + Agent，见下方注释）
+            boolean allImages = !filtered.isEmpty();
+            for (ChatMessage.Attachment att : filtered) {
+                if (!"image".equals(att.type)) { allImages = false; break; }
+            }
+            boolean multimodalReady = false;
+            try {
+                multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
+            } catch (Exception ignored) {}
+            if (allImages && multimodalReady && filtered.size() == 1) {
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                return;
+            }
+
+            // 在线多模态：在线视觉模型 + 单图 → 直接看图（base64 注入 OpenAI 兼容消息），不走 OCR
+            if (allImages && filtered.size() == 1 && isOnlineVisionModel()) {
+                handleOnlineMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                return;
+            }
+
             runOnUiThread(() -> {
                 // 1. 先展示上传状态（状态闭环起点：文件已落盘，开始解析）
                 StringBuilder displayMsg = new StringBuilder();
@@ -3629,6 +3613,20 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
+            // 本地多模态优先：vision 模型 + mmproj 已加载 + 单张图片 → 直接视觉理解（不走 OCR）
+            boolean allImages = !filtered.isEmpty();
+            for (ChatMessage.Attachment att : filtered) {
+                if (!"image".equals(att.type)) { allImages = false; break; }
+            }
+            boolean multimodalReady = false;
+            try {
+                multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
+            } catch (Exception ignored) {}
+            if (allImages && multimodalReady && filtered.size() == 1) {
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                return;
+            }
+
             // 图片等附件统一走 OCR 附件预解析路径（不交给本地模型多模态推理）
             runOnUiThread(() -> {
                 // 1. 展示上传状态
@@ -3718,6 +3716,213 @@ public class AIChatActivity extends BaseActivity {
                 });
             });
         });
+    }
+
+    /**
+     * 本地多模态推理：单张图片 + vision 模型（mmproj 已加载）→ generateWithImage 直接视觉理解。
+     * 图片本地保存失败时回退 OCR 附件路径；任何异常仅提示，不崩溃。
+     */
+    private void handleMultimodalImage(ChatMessage.Attachment imageAtt,
+                                       java.util.Map<android.net.Uri, String> localFileMap,
+                                       String originalMessage) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
+            String localPath = localFileMap != null ? localFileMap.get(uri) : null;
+            java.io.File localFile = localPath != null ? new java.io.File(localPath) : null;
+            if (localFile == null || !localFile.exists()) {
+                AppLogger.w(TAG, "Multimodal: image not saved locally, falling back to OCR path");
+                processMessageWithAttachments(originalMessage, java.util.Collections.singletonList(imageAtt));
+                return;
+            }
+
+            final String userText = originalMessage == null || originalMessage.trim().isEmpty()
+                    ? "请描述这张图片的内容" : originalMessage;
+            addUserMessage(userText);
+
+            // 创建流式 AI 消息
+            final String msgId = java.util.UUID.randomUUID().toString();
+            ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+            aiMsg.status = ChatMessage.MessageStatus.GENERATING;
+            chatHistory.add(aiMsg);
+            final int aiIndex = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
+            scrollToBottom();
+            beginGeneration();
+
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            new Thread(() -> {
+                final StringBuilder full = new StringBuilder();
+                try {
+                    LlamaHelper.generateWithImage(new ArrayList<>(),
+                            userText, localFile.getAbsolutePath(),
+                            maxTokens, 0.7f, 0.9f, 40, false,
+                            new LlamaHelper.TokenCallback() {
+                                @Override public void onToken(String token) {
+                                    if (token == null) return;
+                                    synchronized (full) { full.append(token); }
+                                    runOnUiThread(() -> {
+                                        synchronized (full) { aiMsg.content = full.toString(); }
+                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    });
+                                }
+                                @Override public void onComplete(String fullText) {
+                                    runOnUiThread(() -> {
+                                        aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
+                                        aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                        endGeneration();
+                                        scrollToBottom();
+                                        saveHistoryAsync();
+                                    });
+                                }
+                                @Override public void onError(String error) {
+                                    runOnUiThread(() -> {
+                                        aiMsg.content = "图片识别失败: " + error;
+                                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                        endGeneration();
+                                    });
+                                }
+                            });
+                } catch (Exception e) {
+                    AppLogger.e(TAG, "Multimodal generate error: " + e.getMessage(), e);
+                    runOnUiThread(() -> {
+                        aiMsg.content = "图片处理异常: " + e.getMessage();
+                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                        endGeneration();
+                    });
+                }
+            }).start();
+        } catch (Exception e) {
+            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
+            showToast("图片处理失败，请重试");
+        }
+    }
+
+    /**
+     * 当前是否为支持视觉的在线模型（模型名含 vl/vision/4o/omni/gemini/glm-4v 等）。
+     * 局限：模型名判断不绝对可靠——近期在线视觉失败（lastOnlineVisionFailAt）时返回 false，
+     * 走 OCR 兜底，避免对不支持图片的 API 反复发图导致 400 循环。
+     */
+    private boolean isOnlineVisionModel() {
+        try {
+            if (!shouldUseOnlineModel()) return false;
+            if (System.currentTimeMillis() - lastOnlineVisionFailAt < 30_000L) return false; // 失败冷却 30s
+            // 1) 配置能力字段优先（supportsVision / capabilities.supportsImageInput，
+            //    加载时按模型名自动填充并持久化，未来可支持用户手动覆盖）
+            OnlineModelManager.OnlineModelConfig active =
+                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+            if (active != null && active.hasCapability("vision")) return true;
+            // 2) 模型名关键词兜底推断（active 为 null 或能力字段未标记时）
+            String modelName = null;
+            if (inferenceRouter != null) {
+                modelName = inferenceRouter.getCurrentModelName();
+            }
+            if ((modelName == null || modelName.isEmpty()) && active != null) modelName = active.modelName;
+            if (modelName == null) return false;
+            return com.oilquiz.app.ai.model.OnlineModelManager.isVisionModelName(modelName);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 在线视觉最近一次失败时间（用于冷却，避免对不支持图片的模型反复请求） */
+    private volatile long lastOnlineVisionFailAt = 0;
+
+    /**
+     * 在线多模态推理：单张图片 + 在线视觉模型 → base64 注入 OpenAI 兼容消息直接看图。
+     * 图片超过 4MB 或读取失败时回退 OCR+Agent 路径；任何异常仅提示，不崩溃。
+     */
+    private void handleOnlineMultimodalImage(ChatMessage.Attachment imageAtt,
+                                             java.util.Map<android.net.Uri, String> localFileMap,
+                                             String originalMessage) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
+            String localPath = localFileMap != null ? localFileMap.get(uri) : null;
+            java.io.File localFile = localPath != null ? new java.io.File(localPath) : null;
+            if (localFile == null || !localFile.exists()) {
+                AppLogger.w(TAG, "Online multimodal: image not saved, falling back to OCR path");
+                processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
+                return;
+            }
+            if (localFile.length() > 4L * 1024 * 1024) {
+                AppLogger.w(TAG, "Online multimodal: image > 4MB, falling back to OCR path");
+                showToast("图片超过 4MB，已改用 OCR 识别");
+                processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
+                return;
+            }
+
+            // 读图转 base64
+            byte[] bytes = java.nio.file.Files.readAllBytes(localFile.toPath());
+            String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+
+            final String userText = originalMessage == null || originalMessage.trim().isEmpty()
+                    ? "请描述这张图片的内容" : originalMessage;
+            addUserMessage(userText);
+
+            final String msgId = java.util.UUID.randomUUID().toString();
+            ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+            aiMsg.status = ChatMessage.MessageStatus.GENERATING;
+            chatHistory.add(aiMsg);
+            final int aiIndex = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
+            scrollToBottom();
+            beginGeneration();
+
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            com.oilquiz.app.ai.service.OnlineInferenceService ois =
+                    com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
+            OnlineModelManager.OnlineModelConfig active =
+                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+            if (ois == null || active == null) {
+                aiMsg.content = "在线模型未配置";
+                aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                endGeneration();
+                return;
+            }
+
+            ois.generateStreamWithImages(userText, java.util.Collections.singletonList(b64),
+                    active, new java.util.ArrayList<>(),
+                    maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
+                        @Override public void onToken(String token) {
+                            if (token == null) return;
+                            runOnUiThread(() -> {
+                                aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                            });
+                        }
+                        @Override public void onComplete(String fullText) {
+                            runOnUiThread(() -> {
+                                aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : aiMsg.content;
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                scrollToBottom();
+                                saveHistoryAsync();
+                            });
+                        }
+                        @Override public void onError(String error) {
+                            // 在线视觉失败：进入冷却（30s 内不走在线视觉），回退 OCR+Agent
+                            lastOnlineVisionFailAt = System.currentTimeMillis();
+                            runOnUiThread(() -> {
+                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用 OCR 识别...";
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
+                                processMessageWithAttachmentsViaAgent(originalMessage,
+                                        java.util.Collections.singletonList(imageAtt));
+                            });
+                        }
+                    });
+        } catch (Exception e) {
+            AppLogger.e(TAG, "handleOnlineMultimodalImage error: " + e.getMessage(), e);
+            lastOnlineVisionFailAt = System.currentTimeMillis();
+            showToast("在线图片处理失败，改用 OCR 识别");
+            processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
+        }
     }
 
     /**
@@ -3988,35 +4193,15 @@ public class AIChatActivity extends BaseActivity {
 
     private void processChatMessage(String message) {
         try {
-            // 根据当前模式决定处理方式
-            ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(this).getCurrentMode();
-
-            // Agent 模式优先：统一使用在线引擎，本地模型通过回退机制支持
-            if (currentMode == ChatModeManager.ChatMode.AGENT) {
-                // 不需要强制本地标志，防止残留影响后续消息
-                forceLocalAgentOnce = false;
-                
-                if (shouldUseOnlineModel()) {
-                    // 在线模型：先显示友好引导，再走ReAct
-                    showOnlineAgentFriendlyGuide(message);
-                } else {
-                    // 本地模型：静默降级到普通对话（不显示提示）
-                    processChatMessageNormal(message);
-                    return;
-                }
-                
-                // 统一走 Agent 路由（在线引擎会自动处理本地回退）
+            // 简化路由：在线模型 → 完整 Agent（工具调用自动）；本地模型 → 普通对话
+            // （模式精简为 普通/深度思考 两个，深度思考由普通对话路径注入思考指令+enableThinking）
+            if (shouldUseOnlineModel()) {
+                showOnlineAgentFriendlyGuide(message);
                 processChatMessageWithAgent(message);
                 return;
             }
 
-            // 非 Agent 模式：检查是否应该使用在线模型（直接流式，无工具调用）
-            if (shouldUseOnlineModel()) {
-                processChatMessageWithOnlineModel(message);
-                return;
-            }
-
-            // 其他模式：使用普通聊天
+            // 其他：本地模型普通对话（深度思考模式在其中处理）
             processChatMessageNormal(message);
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessage: " + e.getMessage());
@@ -4250,10 +4435,19 @@ public class AIChatActivity extends BaseActivity {
 
             // 检测是否使用在线模型
             boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-            
-            // 本地模型 Agent 模式 → 静默降级到普通对话
+
+            // 本地模型：本地 Agent 引擎已弃用（工具调用不稳定），统一降级普通对话
             if (!useOnlineModel) {
-                AppLogger.aiW(TAG, "Agent mode with local model → downgrade to normal chat");
+                addSystemMessage("🤖 本地模型暂不支持 Agent 工具调用，已使用普通对话。");
+                processChatMessageNormal(message);
+                return;
+            }
+
+            // Agent 引擎就绪检查（在线路径）
+            initAgentChatHandlerIfNeeded();
+            if (agentChatHandler == null) {
+                AppLogger.aiW(TAG, "AgentChatHandler 未就绪，降级为普通对话");
+                addSystemMessage("🤖 Agent 引擎未就绪，已降级为普通对话");
                 processChatMessageNormal(message);
                 return;
             }
@@ -4296,13 +4490,19 @@ public class AIChatActivity extends BaseActivity {
             agentGroupToolCount = 0;
 
             int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 4096;
-            // 深度思考模式启用模型思考链
+            // 思考链：仅深度思考模式启用。
+            // 注意：AGENT 模式不启用 thinking——Qwen3-4B 在 thinking+FC 组合下
+            // 思考完会"忘记"调用工具（直接回答"无法获取"而非输出 tool_call），
+            // 非思考 FC 模式工具调用更稳定；深度思考模式（非 Agent）单独体验思考链。
             boolean enableThinking = ChatModeManager.getInstance(this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
             if (outputRouter != null) {
                 outputRouter.reset();
                 outputRouter.setThinkingEnabled(enableThinking);
             }
             isInThinking = enableThinking;
+            // 生成状态监控：Agent 生成可能较慢（本地模型），启动即显示处理中状态，
+            // 避免用户"一直等待"无反馈（onThinkingToken/onToolCallStart/onComplete 会覆盖更新）
+            updateAgentStatusBar("⏳ 模型处理中...", true);
             agentChatHandler.startAgentLoop(message, maxTokens, enableThinking);
 
         } catch (Exception e) {
@@ -5917,37 +6117,6 @@ public class AIChatActivity extends BaseActivity {
     }
     
     /**
-     * 显示模式选择对话框
-     */
-    private void showModeSelectorDialog() {
-        ModeSelectorDialog dialog = new ModeSelectorDialog(this);
-        dialog.setOnModeSelectedListener(new ModeSelectorDialog.OnModeSelectedListener() {
-            @Override
-            public void onModeSelected(ChatModeManager.ChatMode mode) {
-                ChatModeManager.getInstance(AIChatActivity.this).setManualMode(mode);
-                updateModeButtonText();
-                String modeName;
-                switch (mode) {
-                    case NORMAL: modeName = "普通模式"; break;
-                    case DEEP_THINKING: modeName = "深度思考模式"; break;
-                    case CREATIVE: modeName = "创意写作模式"; break;
-                    case AGENT: modeName = "Agent模式"; break;
-                    case THINKING_ASSIST: modeName = "思考辅助模式"; break;
-                    default: modeName = "未知模式"; break;
-                }
-                showToast("已切换到" + modeName);
-            }
-            
-            @Override
-            public void onAutoModeChanged(boolean enabled) {
-                ChatModeManager.getInstance(AIChatActivity.this).setAutoModeEnabled(enabled);
-                showToast(enabled ? "已开启AI智能模式切换" : "已关闭AI智能模式切换");
-            }
-        });
-        dialog.show();
-    }
-    
-    /**
      * 模式切换动画
      * 淡出当前内容 -> 执行切换 -> 淡入新内容
      */
@@ -5974,12 +6143,25 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 点击切换模式：普通 ↔ 深度思考（简化交互，不弹对话框）
+     */
+    private void toggleMode() {
+        ChatModeManager.ChatMode current = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode();
+        ChatModeManager.ChatMode next = current == ChatModeManager.ChatMode.NORMAL
+                ? ChatModeManager.ChatMode.DEEP_THINKING
+                : ChatModeManager.ChatMode.NORMAL;
+        ChatModeManager.getInstance(AIChatActivity.this).setManualMode(next);
+        updateModeButtonText();
+        showToast(next == ChatModeManager.ChatMode.DEEP_THINKING ? "已切换深度思考模式" : "已切换普通对话模式");
+    }
+
+    /**
      * 更新模式按钮显示文本
      */
     private void updateModeButtonText() {
         if (btnModeSelect != null) {
             ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode();
-            String btnText = currentMode.icon + currentMode.displayName + " ▼";
+            String btnText = currentMode.icon + currentMode.displayName;
             btnModeSelect.setText(btnText);
         }
     }
@@ -6359,8 +6541,8 @@ public class AIChatActivity extends BaseActivity {
      */
     private int addThinkingMessage(int round) {
         if (chatHistory == null) return -1;
-        // Agent 模式：思考过程已由独立 Agent 面板展示，消息流不再插入思考消息（避免双通道渲染）
-        if (currentAgentGroupId != null) return -1;
+        // 思考消息插入所有模式（含 Agent：本地 Agent 原生 FC 的思考链同样以思考组件展示，
+        // 组件默认折叠、有思考内容自动展开，与 Agent 工具卡片互补不冲突）
 
         ChatMessage msg = ChatMessage.createThinkingRoundMessage(round);
         // 标记所属agent组
@@ -6383,7 +6565,7 @@ public class AIChatActivity extends BaseActivity {
         return pos;
     }
 
-    /** 更新当前思考消息的UI显示（节流调用） */
+    /** 更新当前思考消息的UI显示（节流调用）——有思考内容就自动展开 */
     private void updateThinkingMessageUi() {
         if (currentThinkingMessageIndex >= 0 && currentThinkingMessageIndex < chatHistory.size()) {
             // 加锁快照：防止与 onThinkingToken 的 append 并发
@@ -6393,13 +6575,17 @@ public class AIChatActivity extends BaseActivity {
             }
             ChatMessage msg = chatHistory.get(currentThinkingMessageIndex);
             msg.thinkingContent = thinkingSnapshot;
+            // 有思考内容就展开（默认折叠，内容到达后自动展开显示思考链）
+            if (thinkingSnapshot != null && !thinkingSnapshot.isEmpty()) {
+                msg.thinkingExpanded = true;
+            }
             if (chatAdapter != null) {
                 chatAdapter.updateMessageThinkingContent(currentThinkingMessageIndex, thinkingSnapshot);
             }
         }
     }
 
-    /** 完成当前思考消息：设置最终内容、标记完成、折叠 */
+    /** 完成当前思考消息：设置最终内容、标记完成（保持展开，用户可手动折叠） */
     private void finalizeThinkingMessage() {
         if (currentThinkingMessageIndex < 0 || currentThinkingMessageIndex >= chatHistory.size() || chatAdapter == null) {
             currentThinkingMessageIndex = -1;
@@ -6412,7 +6598,10 @@ public class AIChatActivity extends BaseActivity {
         ChatMessage msg = chatHistory.get(currentThinkingMessageIndex);
         msg.thinkingContent = thinkingSnapshot;
         msg.status = ChatMessage.MessageStatus.COMPLETED;
-        msg.thinkingExpanded = false;
+        // 有内容保持展开（用户可手动折叠）；无内容保持折叠
+        if (thinkingSnapshot == null || thinkingSnapshot.isEmpty()) {
+            msg.thinkingExpanded = false;
+        }
         chatAdapter.updateMessageThinkingContent(currentThinkingMessageIndex, thinkingSnapshot);
         chatAdapter.notifyItemChanged(currentThinkingMessageIndex);
         // 重置思考消息索引，下轮创建新消息

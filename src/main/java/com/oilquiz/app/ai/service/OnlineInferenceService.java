@@ -353,6 +353,146 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 在线多模态生成：带图片（base64 data URL）的 OpenAI 兼容请求。
+     * 图片以 OpenAI 多模态 content 数组格式注入最后一条 user 消息：
+     * [{type:text,text:prompt}, {type:image_url,image_url:{url:"data:image/jpeg;base64,..."}}]
+     * 支持 Qwen-VL / GPT-4o 等兼容 OpenAI 图片消息的模型。
+     *
+     * @param imageBase64List 图片 base64 数据（不含前缀），将自动加 data:image/jpeg;base64 前缀
+     */
+    public void generateStreamWithImages(String prompt, List<String> imageBase64List,
+                                         OnlineModelManager.OnlineModelConfig config,
+                                         List<ChatMessage> history, int maxTokens,
+                                         StreamCallback callback) {
+        executor.execute(() -> {
+            try {
+                String apiUrl = config.apiUrl;
+                String modelName = config.modelName;
+                String apiKey = config.apiKey;
+
+                if (apiUrl == null || apiUrl.isEmpty()) {
+                    postError(callback, "API URL 不能为空");
+                    return;
+                }
+                if (modelName == null || modelName.isEmpty()) {
+                    postError(callback, "模型名称不能为空");
+                    return;
+                }
+                if (apiKey == null || apiKey.isEmpty()) {
+                    postError(callback, "API Key 不能为空");
+                    return;
+                }
+                if (imageBase64List == null || imageBase64List.isEmpty()) {
+                    generateStream(prompt, config, history, maxTokens, callback);
+                    return;
+                }
+
+                mainHandler.post(callback::onStart);
+
+                if (isAnthropicAPI(apiUrl)) {
+                    postError(callback, "当前 API 端点不支持图片消息，已回退请用 OCR 或本地多模态");
+                    return;
+                }
+                callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, imageBase64List,
+                        history, maxTokens, true, callback);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Stream generate with images failed: " + e.getMessage(), e);
+                postError(callback, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 调用 OpenAI 兼容 API（带图片 content 数组）
+     */
+    private String callOpenAIAPIWithImages(String apiUrl, String apiKey, String modelName,
+                                           String prompt, List<String> imageBase64List,
+                                           List<ChatMessage> history,
+                                           int maxTokens, boolean stream, StreamCallback callback) throws Exception {
+        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            connection.setDoOutput(true);
+
+            JsonObject requestBody = new JsonObject();
+            requestBody.addProperty("model", modelName);
+
+            JsonArray messages = new JsonArray();
+            if (history != null) {
+                for (ChatMessage msg : history) {
+                    JsonObject message = new JsonObject();
+                    if (msg.isSystemMessage()) {
+                        message.addProperty("role", "system");
+                    } else if (msg.isUserMessage()) {
+                        message.addProperty("role", "user");
+                    } else if (msg.isAIMessage()) {
+                        message.addProperty("role", "assistant");
+                    }
+                    message.addProperty("content", msg.content);
+                    messages.add(message);
+                }
+            }
+
+            // 最后一条 user 消息：content 数组（文本 + 图片）
+            JsonObject userMessage = new JsonObject();
+            userMessage.addProperty("role", "user");
+            JsonArray contentArray = new JsonArray();
+            JsonObject textPart = new JsonObject();
+            textPart.addProperty("type", "text");
+            textPart.addProperty("text", prompt);
+            contentArray.add(textPart);
+            for (String b64 : imageBase64List) {
+                JsonObject imgPart = new JsonObject();
+                imgPart.addProperty("type", "image_url");
+                JsonObject imgUrl = new JsonObject();
+                imgUrl.addProperty("url", "data:image/jpeg;base64," + b64);
+                imgPart.add("image_url", imgUrl);
+                contentArray.add(imgPart);
+            }
+            userMessage.add("content", contentArray);
+            messages.add(userMessage);
+
+            requestBody.add("messages", messages);
+            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
+            if (stream) {
+                requestBody.addProperty("stream", true);
+            }
+
+            AILogger.i(TAG, "Online multimodal request: model=" + modelName
+                    + ", images=" + imageBase64List.size() + ", prompt_len=" + prompt.length());
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(requestBody).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = readErrorStream(connection);
+                throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
+            }
+
+            if (stream) {
+                return readStreamResponse(connection, callback);
+            } else {
+                return readFullResponse(connection);
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
      * 构建OpenAI格式的URL，避免重复添加v1路径
      */
     private String buildOpenAIUrl(String apiUrl, String endpoint) {

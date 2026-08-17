@@ -10,43 +10,21 @@ import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.util.AILogger;
 
-import com.oilquiz.app.ai.agent.AgentCallback;
-import com.oilquiz.app.ai.agent.InferenceProgressListener;
-
 /**
- * Agent 统一路由入口。
+ * Agent 统一路由入口（纯在线）。
  *
- * 路由逻辑：一个分支判断
- * - 在线模型 → OnlineAgentEngine（原生 function calling + reasoning_content）
- * - 本地模型 → UnifiedAgentEngine（generateWithTools + 原生 FC + 思考模式）
- *
- * 对外接口与 {@link UnifiedAgentEngine} 兼容，UI 层无需感知引擎差异。
+ * 本地 Agent 已弃用（原生 FC 工具循环在 4B 上不稳定），本地模型使用普通对话；
+ * 本路由仅服务在线模型：OnlineAgentEngine（原生 function calling + reasoning_content）。
  */
 public class AgentRouter {
 
     private static final String TAG = "AgentRouter";
 
-    public enum EngineType {
-        LOCAL("本地引擎"),
-        ONLINE("在线引擎");
-
-        public final String displayName;
-        EngineType(String displayName) { this.displayName = displayName; }
-    }
-
     private final Activity activity;
-    private final AIService aiService;
     private final InferenceRouter inferenceRouter;
-    private final AgentService agentService;
-
-    /** 本地引擎 */
-    private final UnifiedAgentEngine localEngine;
 
     /** 在线引擎（懒创建） */
     private OnlineAgentEngine onlineEngine;
-
-    /** 上次使用的引擎类型 */
-    private EngineType lastUsedEngine;
 
     private AgentCallback callback;
     private InferenceProgressListener progressListener;
@@ -58,18 +36,13 @@ public class AgentRouter {
     public AgentRouter(Activity activity, AIService aiService, InferenceRouter inferenceRouter,
                        AgentService agentService) {
         this.activity = activity;
-        this.aiService = aiService;
         this.inferenceRouter = inferenceRouter;
-        this.agentService = agentService;
-        this.localEngine = new UnifiedAgentEngine(activity, aiService, inferenceRouter, agentService, false);
-        this.lastUsedEngine = EngineType.LOCAL;
     }
 
     // ==================== 回调设置 ====================
 
     public void setCallback(AgentCallback callback) {
         this.callback = callback;
-        localEngine.setCallback(callback);
         if (onlineEngine != null) {
             onlineEngine.setCallback(callback);
         }
@@ -77,14 +50,13 @@ public class AgentRouter {
 
     public void setInferenceProgressListener(InferenceProgressListener listener) {
         this.progressListener = listener;
-        localEngine.setInferenceProgressListener(listener);
         if (onlineEngine != null) {
             onlineEngine.setInferenceProgressListener(listener);
         }
     }
 
-    public void setReasoningMode(UnifiedAgentEngine.ReasoningMode mode) {
-        localEngine.setReasoningMode(mode);
+    public void setReasoningMode(Object mode) {
+        // 在线引擎无推理模式概念，忽略（兼容旧调用）
     }
 
     // ==================== 执行入口 ====================
@@ -94,31 +66,22 @@ public class AgentRouter {
     }
 
     /**
-     * 执行 Agent 任务。一个分支：
-     * - 在线模型 → OnlineAgentEngine
-     * - 本地模型 → 静默降级到普通对话（不调用本地 Agent）
+     * 执行 Agent 任务（仅在线模型）。
+     * 本地模型已被上层降级普通对话，不进入本路由。
      */
     public void execute(String message, int maxTokens, boolean enableThinking) {
-        boolean isOnline = isOnlineModelActive();
-
-        if (isOnline) {
-            lastUsedEngine = EngineType.ONLINE;
-            AILogger.i(TAG, "Online model → OnlineAgentEngine");
-            ensureOnlineEngineCreated();
-            onlineEngine.execute(message, maxTokens);
-        } else {
-            // 静默降级：Agent 模式下使用本地模型时，直接返回不执行
-            // 由 AIChatActivity.processChatMessage 降级到普通对话处理
-            lastUsedEngine = EngineType.LOCAL;
-            AILogger.w(TAG, "Agent mode with local model → silent downgrade to normal chat");
-            // 不做任何操作，让上层处理普通对话
+        if (!isOnlineModelActive()) {
+            AILogger.w(TAG, "Agent execute skipped: no online model active");
+            return;
         }
+        AILogger.i(TAG, "Online model → OnlineAgentEngine");
+        ensureOnlineEngineCreated();
+        onlineEngine.execute(message, maxTokens);
     }
 
     // ==================== 生命周期方法 ====================
 
     public void cancel() {
-        localEngine.cancel();
         if (onlineEngine != null) {
             onlineEngine.cancel();
         }
@@ -128,95 +91,37 @@ public class AgentRouter {
         if (onlineEngine != null) {
             onlineEngine.clearHistory();
         }
-        localEngine.clearHistory();
     }
 
     public boolean isGenerating() {
-        if (lastUsedEngine == EngineType.ONLINE && onlineEngine != null) {
-            return onlineEngine.isGenerating();
-        }
-        return localEngine.isGenerating();
+        return onlineEngine != null && onlineEngine.isGenerating();
     }
-
-    public EngineType getCurrentEngineType() {
-        return lastUsedEngine;
-    }
-
-    public EngineType getLastUsedEngine() {
-        return lastUsedEngine;
-    }
-
-    // ==================== 本地引擎兼容方法 ====================
 
     public int getToolLoopCount() {
-        if (lastUsedEngine == EngineType.ONLINE && onlineEngine != null) {
-            return onlineEngine.getToolLoopCount();
-        }
-        return localEngine.getToolLoopCount();
-    }
-
-    public UnifiedAgentEngine.ReasoningMode getCurrentMode() {
-        if (lastUsedEngine == EngineType.ONLINE) {
-            return UnifiedAgentEngine.ReasoningMode.REACT;
-        }
-        return localEngine.getCurrentMode();
+        return onlineEngine != null ? onlineEngine.getToolLoopCount() : 0;
     }
 
     public String getCurrentResponse() {
-        if (lastUsedEngine == EngineType.ONLINE) {
-            return "";
-        }
-        return localEngine.getCurrentResponse();
+        return "";
     }
 
     public String getCurrentThinking() {
-        if (lastUsedEngine == EngineType.ONLINE) {
-            return "";
-        }
-        return localEngine.getCurrentThinking();
+        return "";
     }
 
     public int getRetryCount() {
-        return localEngine.getRetryCount();
+        return 0;
     }
 
     public void resumeExecution(String userInput) {
-        localEngine.resumeExecution(userInput);
     }
 
     public void cancelPause() {
-        localEngine.cancelPause();
     }
 
     public void shutdown() {
-        localEngine.shutdown();
-    }
-
-    public UnifiedAgentEngine getLocalEngine() {
-        return localEngine;
-    }
-
-    // ==================== 在线引擎兼容方法 ====================
-
-    public void setOnlineFallbackEnabled(boolean enabled) {
         if (onlineEngine != null) {
-            onlineEngine.setLocalFallbackEnabled(enabled);
-        }
-    }
-
-    public boolean isOnlineUsingLocalFallback() {
-        return onlineEngine != null && onlineEngine.isUsingLocalFallback();
-    }
-
-    public void forceOnlineLocalFallback() {
-        if (onlineEngine != null) {
-            onlineEngine.forceLocalFallback();
-        }
-    }
-
-    public void resetOnlineFallbackState() {
-        if (onlineEngine != null) {
-            onlineEngine.resetFallbackState();
+            onlineEngine.shutdown();
         }
     }
 

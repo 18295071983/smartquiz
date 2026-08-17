@@ -8,8 +8,6 @@ import com.google.gson.JsonParser;
 import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.InferenceProgressListener;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
-import com.oilquiz.app.ai.engine.ALChat;
-import com.oilquiz.app.ai.model.ModelMemoryManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.util.AILogger;
@@ -60,37 +58,12 @@ public class OnlineAgentEngine {
         ASSISTED
     }
 
-    /**
-     * 本地 Agent 引擎回退处理器。
-     * 当在线模型不可用或连续失败时，由 AgentRouter 调用本地引擎（UnifiedAgentEngine）
-     * 执行完整的 Agent 循环（工具调用、ReAct/CoT），而非降级为纯聊天。
-     */
-    public interface LocalFallbackHandler {
-        /**
-         * 请求本地 Agent 引擎接管执行。
-         * @param userMessage 用户原始消息
-         * @param maxTokens 最大 token 数
-         */
-        void onLocalFallbackRequested(String userMessage, int maxTokens);
-    }
-
     private final Activity activity;
     private final OnlineToolManager toolManager;
     private final OnlineInferenceService onlineInferenceService;
     private final OnlinePromptBuilder promptBuilder;
     private final OnlineThinkingChain thinkingChain;
     private final ExecutorService executor;
-
-    /** 本地模型回退支持 */
-    private final ALChat localChat;
-    private final ModelMemoryManager memoryManager;
-    private volatile boolean localFallbackEnabled = true;
-    private volatile int consecutiveOnlineFailures = 0;
-    private static final int MAX_ONLINE_FAILURES_BEFORE_FALLBACK = 2;
-    private volatile boolean isUsingLocalFallback = false;
-
-    /** 本地 Agent 引擎回退处理器（由 AgentRouter 设置，走 UnifiedAgentEngine 的完整 Agent 循环） */
-    private volatile LocalFallbackHandler localFallbackHandler;
 
     /** 当前执行模式（每次 doExecute 开始时根据模型能力设定） */
     private volatile AgentMode agentMode = AgentMode.ASSISTED;
@@ -114,8 +87,6 @@ public class OnlineAgentEngine {
         this.onlineInferenceService = OnlineInferenceService.getInstance(activity);
         this.promptBuilder = new OnlinePromptBuilder(toolManager.getToolGuideInstance());
         this.thinkingChain = new OnlineThinkingChain();
-        this.localChat = new ALChat();
-        this.memoryManager = ModelMemoryManager.getInstance(activity);
         this.executor = Executors.newFixedThreadPool(4, r -> {
             Thread t = new Thread(r, "OnlineAgent-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
@@ -130,49 +101,6 @@ public class OnlineAgentEngine {
 
     public void setInferenceProgressListener(InferenceProgressListener listener) {
         this.progressListener = listener;
-    }
-
-    /**
-     * 设置本地 Agent 引擎回退处理器。
-     * 当在线模型不可用时，通过此处理器回退到 UnifiedAgentEngine（完整 Agent 循环），
-     * 而非降级为 localChat.sendMessage() 纯聊天。
-     */
-    public void setLocalFallbackHandler(LocalFallbackHandler handler) {
-        this.localFallbackHandler = handler;
-        AILogger.i(TAG, "Local fallback handler " + (handler != null ? "set" : "cleared"));
-    }
-
-    /**
-     * 设置是否启用本地模型回退
-     */
-    public void setLocalFallbackEnabled(boolean enabled) {
-        this.localFallbackEnabled = enabled;
-        AILogger.i(TAG, "Local fallback " + (enabled ? "enabled" : "disabled"));
-    }
-
-    /**
-     * 检查是否正在使用本地回退
-     */
-    public boolean isUsingLocalFallback() {
-        return isUsingLocalFallback;
-    }
-
-    /**
-     * 手动触发本地回退（用于测试或强制切换）
-     */
-    public void forceLocalFallback() {
-        isUsingLocalFallback = true;
-        consecutiveOnlineFailures = MAX_ONLINE_FAILURES_BEFORE_FALLBACK;
-        AILogger.w(TAG, "Forced switch to local fallback");
-    }
-
-    /**
-     * 重置回退状态，恢复使用在线模型
-     */
-    public void resetFallbackState() {
-        isUsingLocalFallback = false;
-        consecutiveOnlineFailures = 0;
-        AILogger.i(TAG, "Reset fallback state, will use online model");
     }
 
     /**
@@ -219,15 +147,6 @@ public class OnlineAgentEngine {
      */
     private void doExecute(String userMessage, int maxTokens) {
         OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
-        
-        // 检查是否需要使用本地回退
-        boolean shouldUseLocalFallback = shouldFallbackToLocal(cfg);
-        
-        if (shouldUseLocalFallback) {
-            AILogger.w(TAG, "Online model unavailable, falling back to local model");
-            executeWithLocalModel(userMessage, maxTokens);
-            return;
-        }
         
         if (cfg == null) {
             finishGeneration();
@@ -301,12 +220,7 @@ public class OnlineAgentEngine {
             // 流式生成一轮
             IterationResult result = streamOneIteration(cfg, maxTokens, toolsJson);
             if (result == null) {
-                // 检查是否是在线失败后应该回退本地
-                if (shouldFallbackToLocal(cfg)) {
-                    AILogger.w(TAG, "Online failed, executing with local model");
-                    executeWithLocalModel(userMessage, maxTokens);
-                }
-                return; // 错误已处理或已回退本地
+                return; // 错误已处理
             }
             // 取消检查：流被中断后立即退出，不继续处理工具调用
             if (isCancelled.get()) {
@@ -682,7 +596,6 @@ public class OnlineAgentEngine {
 
         if (errorHolder[0] != null) {
             finishGeneration();
-            recordOnlineFailure(); // 记录在线模型失败
             
             if (!result.content.isEmpty()) {
                 AILogger.w(TAG, "Returning partial result due to error: " + errorHolder[0]);
@@ -690,20 +603,10 @@ public class OnlineAgentEngine {
                 return null;
             }
             
-            // 检查是否应该立即回退到本地
-            if (shouldFallbackToLocal(onlineInferenceService.getActiveConfig())) {
-                AILogger.w(TAG, "Online error, attempting local fallback: " + errorHolder[0]);
-                // 不返回null，让doExecute处理回退
-                return null;
-            }
-            
             notifyError("推理失败: " + errorHolder[0]);
             return null;
         }
         
-        // 成功，重置失败计数
-        consecutiveOnlineFailures = 0;
-
         return result;
     }
 
@@ -1014,6 +917,12 @@ public class OnlineAgentEngine {
         isCancelled.set(true);
     }
 
+    public void shutdown() {
+        cancel();
+        messageHistory.clear();
+        thinkingChain.clear();
+    }
+
     public boolean isGenerating() {
         return isGenerating.get();
     }
@@ -1121,172 +1030,5 @@ public class OnlineAgentEngine {
         List<OnlineInferenceService.ToolCallInfo> toolCalls;
         /** 完成原因：stop/tool_calls/length/content_filter/null */
         String finishReason;
-    }
-
-    // ==================== 本地模型回退机制 ====================
-
-    /**
-     * 判断是否应该回退到本地模型
-     */
-    private boolean shouldFallbackToLocal(OnlineModelManager.OnlineModelConfig cfg) {
-        // 1. 手动强制回退
-        if (isUsingLocalFallback) {
-            AILogger.w(TAG, "Using local fallback (manual)");
-            return true;
-        }
-
-        // 2. 本地回退未启用
-        if (!localFallbackEnabled) {
-            return false;
-        }
-
-        // 3. 在线模型不可用
-        if (cfg == null || !cfg.enabled) {
-            AILogger.w(TAG, "Online model unavailable (config null or disabled)");
-            return canUseLocalModel();
-        }
-
-        // 4. 连续失败次数达到阈值
-        if (consecutiveOnlineFailures >= MAX_ONLINE_FAILURES_BEFORE_FALLBACK) {
-            AILogger.w(TAG, "Online model failed " + consecutiveOnlineFailures + " times, falling back");
-            return canUseLocalModel();
-        }
-
-        return false;
-    }
-
-    /**
-     * 检查本地模型是否可用
-     */
-    private boolean canUseLocalModel() {
-        if (!localChat.isInitialized()) {
-            AILogger.w(TAG, "Local model not initialized");
-            return false;
-        }
-
-        ModelMemoryManager.MemoryState memState = memoryManager.getMemoryState();
-        if (memState == ModelMemoryManager.MemoryState.OUT_OF_MEMORY) {
-            AILogger.w(TAG, "Memory insufficient for local model");
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * 使用本地模型执行推理。
-     * 优先使用 LocalFallbackHandler（走 UnifiedAgentEngine 的完整 Agent 循环），
-     * 仅在 handler 未设置时降级为 localChat.sendMessage() 纯聊天。
-     */
-    private void executeWithLocalModel(String userMessage, int maxTokens) {
-        // 优先：通过 handler 回退到 UnifiedAgentEngine（完整 Agent 循环 + 工具调用）
-        if (localFallbackHandler != null) {
-            AILogger.i(TAG, "Falling back to local Agent engine via LocalFallbackHandler");
-            notifyStep("本地回退", "切换到本地 Agent 引擎...");
-            finishGeneration(); // 释放 OnlineAgentEngine 的 isGenerating 锁
-            localFallbackHandler.onLocalFallbackRequested(userMessage, maxTokens);
-            return;
-        }
-
-        // 降级：纯聊天（无工具调用能力）
-        notifyStep("本地回退", "使用本地模型推理（无工具调用）...");
-
-        try {
-            // 检查内存状态
-            ModelMemoryManager.MemoryState memState = memoryManager.getMemoryState();
-            if (memState == ModelMemoryManager.MemoryState.CRITICAL) {
-                System.gc();
-                Thread.sleep(200);
-            }
-
-            // 构建提示词（简化版，不含工具定义）
-            String prompt = buildLocalPrompt(userMessage);
-            
-            // 调用本地模型
-            String response = localChat.sendMessage(prompt, maxTokens, 0.7f, 0.9f, 40);
-            
-            if (response != null && !response.trim().isEmpty()) {
-                // 清理输出
-                String cleaned = ToolResultInterpreter.cleanModelOutput(response);
-                if (cleaned == null) {
-                    cleaned = ToolResultInterpreter.sanitize(response);
-                }
-                
-                // 成功，重置在线失败计数
-                consecutiveOnlineFailures = 0;
-                
-                AILogger.i(TAG, "Local model inference success, len=" + cleaned.length());
-                notifyStep("本地回退", "推理完成");
-                notifyComplete(cleaned);
-            } else {
-                AILogger.w(TAG, "Local model returned empty response");
-                notifyError("本地模型推理失败：返回空结果");
-            }
-            
-        } catch (OutOfMemoryError oom) {
-            AILogger.e(TAG, "Local model OOM", oom);
-            emergencyMemoryCleanup();
-            notifyError("本地模型内存不足");
-        } catch (Exception e) {
-            AILogger.e(TAG, "Local model error: " + e.getMessage(), e);
-            notifyError("本地模型推理失败: " + e.getMessage());
-        } finally {
-            finishGeneration();
-        }
-    }
-
-    /**
-     * 构建本地模型的提示词
-     */
-    private String buildLocalPrompt(String userMessage) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("你是一个智能AI助手，请用中文回答用户的问题。\n\n");
-        
-        // 如果有历史消息，简要包含上下文
-        if (!messageHistory.isEmpty()) {
-            sb.append("【对话历史】\n");
-            int startIdx = Math.max(0, messageHistory.size() - 6); // 最近3轮对话
-            for (int i = startIdx; i < messageHistory.size(); i++) {
-                JsonObject msg = messageHistory.get(i);
-                String role = msg.has("role") ? msg.get("role").getAsString() : "";
-                String content = msg.has("content") ? msg.get("content").getAsString() : "";
-                
-                if ("user".equals(role)) {
-                    sb.append("用户: ").append(content).append("\n");
-                } else if ("assistant".equals(role)) {
-                    sb.append("助手: ").append(content).append("\n");
-                }
-            }
-            sb.append("\n");
-        }
-        
-        sb.append("用户: ").append(userMessage).append("\n");
-        sb.append("助手: ");
-        
-        return sb.toString();
-    }
-
-    /**
-     * 记录在线模型失败
-     */
-    private void recordOnlineFailure() {
-        consecutiveOnlineFailures++;
-        AILogger.w(TAG, "Online model failure #" + consecutiveOnlineFailures);
-        
-        if (consecutiveOnlineFailures >= MAX_ONLINE_FAILURES_BEFORE_FALLBACK) {
-            isUsingLocalFallback = true;
-            AILogger.e(TAG, "Online model failed " + consecutiveOnlineFailures 
-                + " times, switched to local fallback");
-        }
-    }
-
-    /**
-     * 紧急内存清理
-     */
-    private void emergencyMemoryCleanup() {
-        System.gc();
-        try {
-            Thread.sleep(500);
-        } catch (InterruptedException ignored) {}
     }
 }

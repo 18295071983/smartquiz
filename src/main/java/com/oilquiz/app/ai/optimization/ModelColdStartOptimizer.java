@@ -172,7 +172,7 @@ public class ModelColdStartOptimizer {
             
             // 使用历史最优线程数
             params.useOptimalThreads = true;
-            params.contextSize = Math.min(requestedContextSize, 8192);
+            params.contextSize = Math.min(requestedContextSize, 16384);
             
             // 根据历史加载时间判断是否需要预加载
             if (stats.avgLoadTimeMs > 5000) {

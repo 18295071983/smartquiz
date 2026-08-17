@@ -279,6 +279,41 @@
                                 android:textColor="@color/text_primary"/>
                         </LinearLayout>
                     </LinearLayout>
+                    <!-- GPU 层数设置：修改后需重新加载模型才生效 -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider"/>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingVertical="8dp"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="GPU 层数"
+                            android:textSize="14sp"
+                            android:textColor="@color/text_secondary"/>
+                        <EditText
+                            android:id="@+id/gpu_layers_input"
+                            android:layout_width="70dp"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:maxLength="2"
+                            android:textSize="14sp"
+                            android:gravity="center"/>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_apply_gpu_layers"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="应用并重载"
+                            android:textSize="13sp"
+                            style="?attr/materialButtonOutlinedStyle"/>
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -1140,6 +1175,16 @@
                         app:backgroundTint="@color/primary"
                         app:cornerRadius="12dp"/>
                 </LinearLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_performance"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="性能监控（实时检测 &amp; 优化建议）"
+                    android:textAllCaps="false"
+                    android:textColor="@color/on_primary"
+                    app:backgroundTint="@color/teal_600"
+                    app:cornerRadius="12dp"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
