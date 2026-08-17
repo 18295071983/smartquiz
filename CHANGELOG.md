@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-08-16] API usage 字段解析兼容多服务商
+用户指出"不同模型返回的字段可能不同"——修正 usage 解析兼容性：
+1. **缓存字段三种结构兼容**：
+   - OpenAI/Moonshot/通义：`usage.prompt_tokens_details.cached_tokens`（嵌套对象，此前漏解析）
+   - DeepSeek/智谱：`usage.prompt_cache_hit_tokens`（顶层）
+   - 兜底：`usage.cached_tokens`（顶层）
+2. **token 计数兼容**：firstInt() 依次尝试 prompt_tokens/input_tokens（OpenAI/Anthropic 差异）、completion_tokens/output_tokens；total_tokens 缺失时用 prompt+completion 求和。
+- 新增 firstInt 辅助方法；日志打印 prompt/completion/total/cache_hit 便于核对服务商实际字段。
+
 ## [2026-08-16] API 缓存命中统计展示
 用户要求"分析 API 响应缓存命中，做显示功能"：
 1. **请求加 stream_options.include_usage**：callOpenAIStreamWithToolsV2 请求体添加 stream_options.include_usage=true（OpenAI/DeepSeek 标准），流式响应末尾返回 usage（含缓存统计）。
