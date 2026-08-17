@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 修复 component:metric_card 等标记不渲染（增强组件标记解析容错）
+用户反馈"component:metric_card"——模型输出组件标记但界面显示原文未渲染：
+1. **正则增强**：COMPONENT_BLOCK 改为 ` ```component:(\w+)\s*\{([\s\S]*?)\}``` `（显式匹配 {json} 主体，兼容多行/同行 JSON）；新增 COMPONENT_BLOCK_BARE 裸标记正则（模型漏写三反引号时兜底：`component:type {json}` 独立成段）。
+2. **parseJsonObject 容错**：属性名补引号正则收紧（仅匹配 `{`/`,` 后紧跟字母的未加引号键，避免误伤已带引号键与值内冒号）；JSONObject 构造失败时逐字符清理未转义控制字符（换行/制表）再解析。
+3. split() 支持代码块与裸标记双通道；containsComponent 同步。
+- 修复目标：模型无论输出 ```component:metric_card\n{json}```、```component:metric_card {json}```、还是裸 `component:metric_card {json}`，都能渲染为组件。
+
 ## [2026-08-16] 修复恢复对话后工具组件渲染失败（null）
 用户反馈"恢复对话后工具组件渲染失败，null"——根因：ComponentData 持久化用 JSONObject.toString() 字符串中转，经 Gson 双重转义（\\n 等）导致旧会话数据损坏/解析失败，渲染返回 null。
 1. **持久化改为 Gson JsonObject 结构**：ChatHistoryManager 的 ComponentDataAdapter 重写——序列化时 org.json JSONObject/JSONArray 递归转为 Gson 树（orgJsonToGson），反序列化时 Gson 树转回 org.json（gsonToOrgJson），彻底消除字符串中转的双重转义问题。

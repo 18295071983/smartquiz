@@ -25,17 +25,24 @@ import java.util.regex.Pattern;
  */
 public class ComponentContentSplitter {
 
-    /** 组件块：```component:type\n{json}``` 或 ```component:type{json}```（容忍标记与 JSON 同行/无空格） */
+    /** 组件块：```component:type\n{json}```、```component:type {json}```、```component:type{json}```
+     *  兼容多行 JSON、同行 JSON、JSON 前带说明文字。 */
     private static final Pattern COMPONENT_BLOCK = Pattern.compile(
-            "```component:(\\w+)\\s*([\\s\\S]*?)```",
+            "```component:(\\w+)\\s*\\{([\\s\\S]*?)\\}```",
+            Pattern.CASE_INSENSITIVE);
+
+    /** 无代码块变体：component:type {json} 或 component:type\n{json}（模型漏写三反引号时兜底） */
+    private static final Pattern COMPONENT_BLOCK_BARE = Pattern.compile(
+            "(?m)^\\s*component:(\\w+)\\s*\\{([\\s\\S]*?)\\}\\s*$",
             Pattern.CASE_INSENSITIVE);
 
     private ComponentContentSplitter() {
     }
 
-    /** 内容是否包含组件标记 */
+    /** 内容是否包含组件标记（代码块或裸标记） */
     public static boolean containsComponent(String content) {
-        return content != null && COMPONENT_BLOCK.matcher(content).find();
+        return content != null
+                && (COMPONENT_BLOCK.matcher(content).find() || COMPONENT_BLOCK_BARE.matcher(content).find());
     }
 
     /**
@@ -48,23 +55,35 @@ public class ComponentContentSplitter {
         List<Segment> segments = new ArrayList<>();
         if (content == null || content.isEmpty()) return segments;
 
+        // 优先用代码块正则，其次用裸标记正则（两者覆盖所有已识别格式）
         Matcher matcher = COMPONENT_BLOCK.matcher(content);
+        boolean matched = false;
         int lastEnd = 0;
         while (matcher.find()) {
-            // 标记前的文本段
+            matched = true;
             if (matcher.start() > lastEnd) {
                 String text = content.substring(lastEnd, matcher.start());
                 if (!text.trim().isEmpty()) {
                     segments.add(Segment.text(text));
                 }
             }
-            // 组件段：标记内 JSON 直接作为 props（type 来自标记名）
-            String type = matcher.group(1);
-            String json = matcher.group(2).trim();
-            org.json.JSONObject props = ComponentData.parseJsonObject(json);
-            if (props == null) props = new org.json.JSONObject();
-            segments.add(Segment.component(new ComponentData(type, props)));
+            addComponentSegment(segments, matcher.group(1), matcher.group(2));
             lastEnd = matcher.end();
+        }
+        if (!matched) {
+            // 无代码块：尝试裸标记（component:xxx {json} 独立成段）
+            matcher = COMPONENT_BLOCK_BARE.matcher(content);
+            while (matcher.find()) {
+                matched = true;
+                if (matcher.start() > lastEnd) {
+                    String text = content.substring(lastEnd, matcher.start());
+                    if (!text.trim().isEmpty()) {
+                        segments.add(Segment.text(text));
+                    }
+                }
+                addComponentSegment(segments, matcher.group(1), matcher.group(2));
+                lastEnd = matcher.end();
+            }
         }
         // 尾部文本段
         if (lastEnd < content.length()) {
@@ -78,6 +97,13 @@ public class ComponentContentSplitter {
             segments.add(Segment.text(content));
         }
         return segments;
+    }
+
+    private static void addComponentSegment(List<Segment> segments, String type, String jsonBody) {
+        String json = "{" + jsonBody + "}";
+        org.json.JSONObject props = ComponentData.parseJsonObject(json);
+        if (props == null) props = new org.json.JSONObject();
+        segments.add(Segment.component(new ComponentData(type, props)));
     }
 
     /**

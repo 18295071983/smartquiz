@@ -165,9 +165,25 @@ public class ComponentData {
             cleaned = cleaned.replace('\'', '"');
 
             // 3. 属性名补引号：{key:value 或 ,key:value → {"key":value
-            cleaned = cleaned.replaceAll("([{, ])([A-Za-z_][A-Za-z0-9_]*)(\\s*:)", "$1\"$2\"$3");
+            //    仅匹配「冒号前紧跟字母/下划线」的未加引号键（已加引号的键不受影响）
+            cleaned = cleaned.replaceAll("([{,]) *([A-Za-z_][A-Za-z0-9_]*)(\\s*:)", "$1\"$2\"$3");
 
-            return new JSONObject(cleaned);
+            // 4. 直接构造；若含未转义控制字符则逐字符清理
+            try {
+                return new JSONObject(cleaned);
+            } catch (Exception e) {
+                // 清理 JSON 值中的非法控制字符（模型偶尔输出真实换行/制表符）
+                StringBuilder sb = new StringBuilder(cleaned.length());
+                for (int i = 0; i < cleaned.length(); i++) {
+                    char c = cleaned.charAt(i);
+                    if (c == '\n' || c == '\r' || c == '\t') {
+                        sb.append(' ');
+                    } else {
+                        sb.append(c);
+                    }
+                }
+                return new JSONObject(sb.toString());
+            }
         } catch (Exception e) {
             return null;
         }
