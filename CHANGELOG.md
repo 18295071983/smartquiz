@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 修复恢复对话后工具组件渲染失败（null）
+用户反馈"恢复对话后工具组件渲染失败，null"——根因：ComponentData 持久化用 JSONObject.toString() 字符串中转，经 Gson 双重转义（\\n 等）导致旧会话数据损坏/解析失败，渲染返回 null。
+1. **持久化改为 Gson JsonObject 结构**：ChatHistoryManager 的 ComponentDataAdapter 重写——序列化时 org.json JSONObject/JSONArray 递归转为 Gson 树（orgJsonToGson），反序列化时 Gson 树转回 org.json（gsonToOrgJson），彻底消除字符串中转的双重转义问题。
+2. **旧数据兼容**：deserialize 兼容旧字符串格式（isJsonPrimitive 分支）；ComponentData.fromPersistableJson 优先用 Gson JsonParser 解析（正确处理转义），失败再走容错 fromJson。
+3. **渲染降级**：ChatAdapter.bindComponents / 组件标记渲染——组件数据损坏（null/props 缺失）或渲染失败时**静默跳过**，不再显示"组件渲染失败"占位；全部失败则隐藏组件容器。
+- 修复笔误：org.jsonPropsToGson → ChatHistoryManager.orgJsonPropsToGson（org.json 被误当包名）。
+
 ## [2026-08-16] 在线 Agent 组件实时显示（工具组件不用等 Agent 完成）
 用户问"在线 agent 会不会用"——验证后确认会，并增强实时性：
 1. **链路确认**：工具 withComponent → AIToolManager.collect → completeGeneration drain 附加消息 ✅；模型输出 ```component:``` 标记 → ComponentContentSplitter 解析 → bindMessageContent 渲染（含流式 PAYLOAD_CONTENT_UPDATE 实时重建）✅。

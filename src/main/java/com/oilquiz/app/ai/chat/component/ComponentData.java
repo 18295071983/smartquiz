@@ -48,8 +48,9 @@ public class ComponentData {
     }
 
     /**
-     * 序列化为可持久化 JSON 字符串（Gson 无法直接序列化 org.json.JSONObject）。
-     * 会话保存时组件数据以字符串形式存储，加载时再解析。
+     * 序列化为可持久化结构（Gson 无法直接序列化 org.json.JSONObject，
+     * 由 ChatHistoryManager 的 TypeAdapter 以 Gson JsonObject 结构持久化，
+     * 此处保留便利方法供兼容）。
      */
     public String toPersistableJson() {
         JSONObject obj = new JSONObject();
@@ -62,10 +63,57 @@ public class ComponentData {
         }
     }
 
-    /** 从持久化 JSON 字符串还原（{@link #toPersistableJson()} 的逆操作） */
+    /** 从持久化 JSON 字符串还原（{@link #toPersistableJson()} 的逆操作）。
+     *  优先用 Gson 解析（正确处理转义），失败再走容错解析。 */
     public static ComponentData fromPersistableJson(String json) {
         if (json == null || json.isEmpty()) return null;
+        try {
+            com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(json);
+            if (el != null && el.isJsonObject()) {
+                com.google.gson.JsonObject obj = el.getAsJsonObject();
+                String type = obj.has("type") && !obj.get("type").isJsonNull()
+                        ? obj.get("type").getAsString() : null;
+                if (type == null || type.isEmpty()) return null;
+                org.json.JSONObject props = gsonObjToOrgJson(obj.get("props"));
+                return new ComponentData(type, props != null ? props : new JSONObject());
+            }
+        } catch (Exception ignored) {
+        }
         return fromJson(json);
+    }
+
+    /** Gson JsonElement → org.json 值（递归，兼容 JSONArray） */
+    private static Object gsonElementToOrgJson(com.google.gson.JsonElement el) {
+        if (el == null || el.isJsonNull()) return org.json.JSONObject.NULL;
+        if (el.isJsonPrimitive()) {
+            com.google.gson.JsonPrimitive p = el.getAsJsonPrimitive();
+            if (p.isBoolean()) return p.getAsBoolean();
+            if (p.isNumber()) return p.getAsDouble();
+            return p.getAsString();
+        }
+        if (el.isJsonArray()) {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (com.google.gson.JsonElement child : el.getAsJsonArray()) {
+                arr.put(gsonElementToOrgJson(child));
+            }
+            return arr;
+        }
+        if (el.isJsonObject()) {
+            org.json.JSONObject obj = new org.json.JSONObject();
+            for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : el.getAsJsonObject().entrySet()) {
+                try {
+                    obj.put(e.getKey(), gsonElementToOrgJson(e.getValue()));
+                } catch (org.json.JSONException ignored) {}
+            }
+            return obj;
+        }
+        return null;
+    }
+
+    private static org.json.JSONObject gsonObjToOrgJson(com.google.gson.JsonElement el) {
+        if (el == null || !el.isJsonObject()) return null;
+        Object converted = gsonElementToOrgJson(el);
+        return converted instanceof org.json.JSONObject ? (org.json.JSONObject) converted : null;
     }
 
     /**
