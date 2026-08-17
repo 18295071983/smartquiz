@@ -306,6 +306,9 @@
     <color name="component_accent">#4C8DFF</color>
     <color name="component_bg">#F8FAFC</color>
     <color name="component_border">#E2E8F0</color>
+    <color name="component_success">#2ECC71</color>
+    <color name="component_warning">#F1C40F</color>
+    <color name="component_error">#E74C3C</color>
     <color name="chart_1">#4C8DFF</color>
     <color name="chart_2">#FF8C42</color>
     <color name="chart_3">#2ECC71</color>

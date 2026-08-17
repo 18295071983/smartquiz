@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-08-16] Agent UI 组件扩充：新增 6 种组件 + 工具侧自动附加
+用户反馈"Agent 可利用的 UI 组件太少，需要新增"：
+1. **新增 6 个组件**（插件式注册到 ComponentRegistry）：
+   - list_card 列表卡片（图标+标题+描述+右侧值，搜索结果/文件列表/条目）
+   - alert_card 提醒卡片（success/warning/error/info 四色 + 左侧色条 + 图标）
+   - metric_card 指标卡片（一行多个大数字+标签，Token/耗时/成功率）
+   - json_viewer JSON 查看器（美化格式化 + 等宽字体 + 滚动上限）
+   - steps_card 步骤流程卡片（done/current/todo/failed 状态指示）
+   - note_card 便签/引用卡片（note/quote/tip/summary，左侧竖线 + 斜体）
+2. **提示词更新**：OnlinePromptBuilder 组件指南补充 6 种新组件的 JSON 格式示例，引导模型优先用组件展示结构化数据。
+3. **工具侧自动附加组件**（不依赖模型输出标记）：
+   - NetworkSearchTool.search 成功时自动附加 list_card（搜索结果列表）
+   - TranslationTool.translate 成功时自动附加 info_card（原文→译文）
+4. ComponentColors 新增 success/warning/error 色（component_success/warning/error）。
+- 现在 Agent 可用组件 18 种：chart/info_card/table/image_grid/link/quiz/weather/file/code/progress/tool_call + list/alert/metric/json_viewer/steps/note。
+
 ## [2026-08-16] Agent 组件补齐 5 项能力
 1. **Agent 执行过程可视化**：AI 气泡内新增 agentStatus 状态行（🔍思考中(第N轮) → 🔧调用工具X → ✅完成），随 Agent 回调实时更新；ChatMessage 新增 agentStepStatus 字段，动态布局新增 agentStatus TextView，bindAgentStepStatus 绑定。
 2. **工具中途打断**：OnlineAgentEngine 等待工具结果从 join() 改为 get(5s) 轮询 isCancelled，用户停止生成时取消剩余工具 future（cancel(true)）并立即返回，不再阻塞等待慢工具。

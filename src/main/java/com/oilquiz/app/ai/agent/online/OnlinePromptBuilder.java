@@ -116,7 +116,13 @@ public class OnlinePromptBuilder {
         sb.append("- 代码卡: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码内容\",\"title\":\"标题\"}```\n");
         sb.append("- 进度卡: ```component:progress_card\\n{\"title\":\"进度\",\"progress\":68,\"description\":\"说明\",\"status\":\"状态\"}```\n");
         sb.append("- 链接卡: ```component:link_card\\n{\"title\":\"标题\",\"description\":\"摘要\",\"url\":\"https://...\"}```\n");
-        sb.append("规则：标记必须单独成段；JSON 属性用双引号；适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接）优先使用组件，不要把 JSON 原文直接展示给用户。\n\n");
+        sb.append("- 列表卡: ```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
+        sb.append("- 提醒卡: ```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
+        sb.append("- 指标卡: ```component:metric_card\\n{\"title\":\"统计\",\"metrics\":[{\"label\":\"Token\",\"value\":\"1.2k\",\"color\":\"accent\"}]}```\n");
+        sb.append("- JSON查看: ```component:json_viewer\\n{\"title\":\"原始数据\",\"data\":{...}}```\n");
+        sb.append("- 步骤卡: ```component:steps_card\\n{\"title\":\"流程\",\"steps\":[{\"title\":\"步骤\",\"description\":\"...\",\"status\":\"done|current|todo|failed\"}]}```\n");
+        sb.append("- 便签卡: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"结论内容\",\"author\":\"来源\"}```\n");
+        sb.append("规则：标记必须单独成段；JSON 属性用双引号；适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接、列表、提醒、指标、JSON、步骤、便签）优先使用组件，不要把 JSON 原文直接展示给用户。\n\n");
         return sb.toString();
     }
 
