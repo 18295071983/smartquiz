@@ -71,6 +71,42 @@ public class OnlineToolManager {
         return registry.getToolDefinitions();
     }
 
+    /**
+     * 按用户消息意图获取工具定义子集（省 token）。
+     * 用关键词匹配工具类别，只注入相关工具：
+     * - 无关键词命中 → 全量（保证能力完整）
+     * - 命中 → 相关类别 + 基础类别（file/database/general 视场景）
+     * 大幅减少每轮推理的工具定义 token（20+ 工具全量定义可达数千 token）。
+     */
+    public String getToolDefinitionsForMessage(String message) {
+        if (message == null || message.trim().isEmpty()) return getToolDefinitions();
+        String msg = message.toLowerCase();
+        java.util.Set<String> matchedCategories = new java.util.LinkedHashSet<>();
+        if (containsAny(msg, "天气", "气温", "温度", "预报", "weather")) matchedCategories.add("weather");
+        if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news", "find", "查询", "读网页", "网页")) matchedCategories.add("search");
+        if (containsAny(msg, "翻译", "translate", "译成", "英文", "日语", "韩语")) matchedCategories.add("translation");
+        if (containsAny(msg, "计算", "算一下", "calculator", "calculate", "math")) matchedCategories.add("calculator");
+        if (containsAny(msg, "文件", "目录", "读取", "file", "list", "打开文件", "解析")) matchedCategories.add("file");
+        if (containsAny(msg, "时间", "日期", "现在几点", "time", "date", "今天")) matchedCategories.add("time");
+        if (containsAny(msg, "定位", "位置", "坐标", "location", "gps", "where")) matchedCategories.add("location");
+        if (containsAny(msg, "数据库", "题库", "database", "查询记录", "查一下记录")) matchedCategories.add("data");
+        if (containsAny(msg, "图片", "生成图", "image", "画图", "照片", "识别")) matchedCategories.add("image");
+        if (containsAny(msg, "应用", "打开", "app", "启动", "软件", "运行", "设备")) matchedCategories.add("app");
+
+        if (matchedCategories.isEmpty()) {
+            // 无明确意图：全量注入保证能力
+            return getToolDefinitions();
+        }
+        return registry.getToolDefinitionsByCategories(matchedCategories);
+    }
+
+    private static boolean containsAny(String msg, String... keywords) {
+        for (String k : keywords) {
+            if (msg.contains(k)) return true;
+        }
+        return false;
+    }
+
     // ==================== 工具执行（带重试 + 缓存 + 使用链记录） ====================
 
     /**

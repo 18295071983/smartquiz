@@ -194,8 +194,8 @@ public class OnlineAgentEngine {
         userMsg.addProperty("content", userMessage);
         messageHistory.add(userMsg);
 
-        // 3. 通过 OnlineToolManager 获取工具定义
-        String toolsJson = toolManager.getToolDefinitions();
+        // 3. 通过 OnlineToolManager 获取工具定义（按用户消息意图裁剪子集，省 token）
+        String toolsJson = toolManager.getToolDefinitionsForMessage(userMessage);
         int toolCount = countToolsInJson(toolsJson);
         AILogger.i(TAG, "Tool definitions: count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {

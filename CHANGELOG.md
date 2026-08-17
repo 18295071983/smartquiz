@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-08-16] 大幅节省 Agent token：提示词精简 + 工具定义按需注入
+用户担忧"会不会浪费巨量 token"——量化后确认三大消耗点并优化：
+1. **组件指南精简（约 -1200 tokens/轮）**：从 21 种组件全量示例压缩为 6 种高频（chart/info_card/table_card/list_card/alert_card/weather_card），其余组件靠工具自动附加（FileTool→file_list、NetworkSearch→list_card 等），模型无需知道全部格式。
+2. **知识库策略节压缩（约 -500 tokens/轮）**：从 5 段详述精简为 4 行要点。
+3. **工具定义按需注入（最大头，约 -3000~5000 tokens/轮）**：20+ 工具的完整 OpenAI 定义（全量可达数千 token）改为按用户消息关键词匹配类别子集——只注入相关工具（天气/搜索/翻译/计算/文件/时间/定位/数据/图片/应用），基础类别（file/data/general/meta/toolkit/system/app/tool）始终保留；无意图命中时回退全量保证能力。OnlineToolManager.getToolDefinitionsForMessage + OnlineToolRegistry.getToolDefinitionsByCategories。
+
 ## [2026-08-16] 确认 Agent 引擎完整利用 UI 组件 + 强化标记输出规则
 用户询问"Agent 引擎能否利用这些 UI 组件"——逐链路验证后确认完整可用，并强化引导：
 1. **链路验证**（全部打通）：

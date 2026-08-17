@@ -104,32 +104,14 @@ public class OnlinePromptBuilder {
      */
     private String buildComponentGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【富内容组件渲染】\n");
-        sb.append("当需要展示结构化数据时，在回复中输出组件标记块，界面会自动渲染为对应组件并插入到标记所在位置：\n");
-        sb.append("- 图表: ```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
-        sb.append("- 信息卡: ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
-        sb.append("- 表格: ```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
-        sb.append("- 题目卡: ```component:quiz_card\\n{\"type\":\"single|multiple|judge\",\"question\":\"题干\",\"options\":[\"A. 选项\"],\"answer\":\"A\",\"analysis\":\"解析\"}```\n");
-        sb.append("- 文件卡: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"可打开URI\"}```\n");
-        sb.append("- 图片网格: ```component:image_grid\\n{\"columns\":3,\"images\":[\"图片URL\"]}```\n");
-        sb.append("- 天气卡: ```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
-        sb.append("- 代码卡: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码内容\",\"title\":\"标题\"}```\n");
-        sb.append("- 进度卡: ```component:progress_card\\n{\"title\":\"进度\",\"progress\":68,\"description\":\"说明\",\"status\":\"状态\"}```\n");
-        sb.append("- 链接卡: ```component:link_card\\n{\"title\":\"标题\",\"description\":\"摘要\",\"url\":\"https://...\"}```\n");
-        sb.append("- 列表卡: ```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
-        sb.append("- 提醒卡: ```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
-        sb.append("- 指标卡: ```component:metric_card\\n{\"title\":\"统计\",\"metrics\":[{\"label\":\"Token\",\"value\":\"1.2k\",\"color\":\"accent\"}]}```\n");
-        sb.append("- JSON查看: ```component:json_viewer\\n{\"title\":\"原始数据\",\"data\":{...}}```\n");
-        sb.append("- 步骤卡: ```component:steps_card\\n{\"title\":\"流程\",\"steps\":[{\"title\":\"步骤\",\"description\":\"...\",\"status\":\"done|current|todo|failed\"}]}```\n");
-        sb.append("- 便签卡: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"结论内容\",\"author\":\"来源\"}```\n");
-        sb.append("- 文件列表: ```component:file_list\\n{\"title\":\"目录内容\",\"path\":\"路径\",\"files\":[{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"file|dir\",\"path\":\"完整路径\"}]}```\n");
-        sb.append("- 宫格列表: ```component:grid_card\\n{\"title\":\"标题\",\"columns\":3,\"items\":[{\"icon\":\"📱\",\"label\":\"名称\"}]}```\n");
-        sb.append("- 联系卡: ```component:contact_card\\n{\"type\":\"phone|email|sms|map\",\"title\":\"标题\",\"value\":\"手机号/邮箱/位置\",\"description\":\"说明\"}```\n");
-        sb.append("- 待办清单: ```component:todo_card\\n{\"title\":\"计划\",\"items\":[{\"text\":\"任务\",\"done\":true}]}```\n");
-        sb.append("规则：标记必须单独成段（以 ``` 开头和结尾）；JSON 属性用双引号；" +
-                "适合用组件展示的数据（图表、表格、题目、代码、文件、图片、天气、进度、链接、列表、提醒、指标、JSON、步骤、便签、文件列表、宫格、联系、待办）" +
-                "必须直接输出组件标记本身（```component:类型 换行 JSON 换行 ```），不要把 JSON 原文或组件说明文字展示给用户；" +
-                "一个标记块只包含一个组件。\n\n");
+        sb.append("\n【富内容组件】结构化数据用组件标记展示（工具结果会自动附加组件，无需手动输出）：\n");
+        sb.append("```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
+        sb.append("```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
+        sb.append("```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
+        sb.append("```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
+        sb.append("```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
+        sb.append("```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
+        sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n\n");
         return sb.toString();
     }
 
@@ -141,39 +123,11 @@ public class OnlinePromptBuilder {
      */
     private String buildKnowledgeStrategySection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("【知识库驱动的工具策略】\n");
-        sb.append("你拥有丰富的知识库，包括各类API、网站、数据源的使用方法。请充分利用这些知识优化工具调用：\n\n");
-
-        sb.append("1. 搜索策略优化：根据你的知识构造精准搜索词\n");
-        sb.append("   - 查油价 → 搜索\"今日国际原油价格\"或\"国内成品油价格调整最新\"\n");
-        sb.append("   - 查汇率 → 搜索\"人民币兑美元实时汇率\"\n");
-        sb.append("   - 查新闻 → 搜索关键词+\"最新\"获取时效性结果\n");
-        sb.append("   - 查技术问题 → 搜索错误信息+技术关键词，定位Stack Overflow/官方文档\n\n");
-
-        sb.append("2. 数据源感知：你知道哪些网站/数据源更可靠，优先搜索和读取权威来源\n");
-        sb.append("   - 官方数据 → 政府网站、官方API文档\n");
-        sb.append("   - 新闻资讯 → 权威新闻网站\n");
-        sb.append("   - 技术文档 → 官方文档、GitHub、Stack Overflow\n");
-        sb.append("   - 实时数据 → 用 network_search 定位数据页，再用 webpage_reader 提取关键信息\n\n");
-
-        sb.append("3. 工具组合策略：基于你的知识选择最优工具组合\n");
-        sb.append("   - 需要实时信息 → network_search 搜索 + webpage_reader 深度阅读提取\n");
-        sb.append("   - 需要本地数据 → database 查询题库/记录 + file 读取文件\n");
-        sb.append("   - 需要位置服务 → location 定位 + ai_weather 天气查询\n");
-        sb.append("   - 需要翻译 → translation 直接翻译，无需搜索\n");
-        sb.append("   - 需要计算 → app_toolkit 计算，无需搜索\n\n");
-
-        sb.append("4. 查询构造技巧：\n");
-        sb.append("   - 包含时间词（\"今日\"、\"最新\"、年份）获取时效性信息\n");
-        sb.append("   - 包含地域词（\"中国\"、\"北京\"）获取本地化结果\n");
-        sb.append("   - 使用专业术语提高搜索精准度，避免过于宽泛\n");
-        sb.append("   - 搜索后先看摘要，判断哪些结果值得用 webpage_reader 深度阅读\n\n");
-
-        sb.append("5. 结果分析与整合：\n");
-        sb.append("   - 用你的知识判断工具返回数据是否合理、是否过时\n");
-        sb.append("   - 多个来源的信息交叉验证，取可靠数据\n");
-        sb.append("   - 将工具结果与你已有的知识整合，给出完整准确的回答\n\n");
-
+        sb.append("【工具策略】\n");
+        sb.append("1. 搜索：根据知识构造精准词（查油价→\"国际原油价格\"；查汇率→\"人民币兑美元\"；新闻→关键词+最新；技术→错误信息+关键词）。\n");
+        sb.append("2. 数据源：优先权威来源（官方文档/政府网站/主流新闻），实时数据用 network_search 定位 + webpage_reader 提取。\n");
+        sb.append("3. 组合：实时信息→search+read；本地数据→database+file；位置→location+weather；翻译/计算→直接专用工具。\n");
+        sb.append("4. 交叉验证多来源，结合已有知识整合，不编造数据。\n\n");
         return sb.toString();
     }
 

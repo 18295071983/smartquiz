@@ -299,10 +299,57 @@ public class OnlineToolRegistry {
         }
     }
 
+    /**
+     * 按类别子集构建工具定义 JSON（省 token）。
+     * 只包含指定类别 + 始终保留的基础类别（file/database 等通用能力）。
+     */
+    public String getToolDefinitionsByCategories(java.util.Set<String> categories) {
+        if (categories == null || categories.isEmpty()) return getToolDefinitions();
+        try {
+            // 基础类别始终包含（通用能力，避免模型无法处理文件/查询）
+            java.util.Set<String> include = new java.util.LinkedHashSet<>(categories);
+            include.add("file");
+            include.add("data");
+            include.add("general");
+            include.add("meta");
+            include.add("toolkit");
+            include.add("system");
+            include.add("app");
+            include.add("tool");
+
+            // 类别细分映射：搜索意图包含 search/research/web；python 归 code 类
+            if (include.contains("search")) {
+                include.add("research");
+                include.add("web");
+            }
+            if (include.contains("code")) {
+                include.add("python");
+            }
+            if (include.contains("image")) {
+                include.add("image");
+            }
+            if (include.contains("time")) {
+                include.add("time");
+            }
+
+            JSONArray tools = new JSONArray();
+            for (ToolMeta meta : getAllToolMetas()) {
+                if (include.contains(meta.category)) {
+                    JSONObject tool = buildToolJsonObject(meta);
+                    if (tool != null) tools.put(tool);
+                }
+            }
+            AILogger.i(TAG, "Built subset tool definitions: " + tools.length() + " tools for categories " + include);
+            return tools.toString();
+        } catch (Exception e) {
+            AILogger.e(TAG, "Failed to build subset tool definitions: " + e.getMessage(), e);
+            return getToolDefinitions();
+        }
+    }
+
     private JSONObject buildToolJsonObject(ToolMeta meta) throws JSONException {
         JSONObject tool = new JSONObject();
         tool.put("type", "function");
-
         JSONObject function = new JSONObject();
         function.put("name", meta.name);
         function.put("description", meta.description != null ? meta.description : "");
