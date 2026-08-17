@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-08-16] 在线 Agent 组件实时显示（工具组件不用等 Agent 完成）
+用户问"在线 agent 会不会用"——验证后确认会，并增强实时性：
+1. **链路确认**：工具 withComponent → AIToolManager.collect → completeGeneration drain 附加消息 ✅；模型输出 ```component:``` 标记 → ComponentContentSplitter 解析 → bindMessageContent 渲染（含流式 PAYLOAD_CONTENT_UPDATE 实时重建）✅。
+2. **实时性增强**：appendAgentToolCall 工具完成分支即时 drain ComponentCollector 并附加组件到当前消息——list_card/info_card/image_grid 等随工具完成立刻显示，不再等 Agent 全部执行完；completeGeneration 的 drain 因取走即清空不重复。
+- 现在在线 Agent：搜索 → list_card 实时出现；翻译 → info_card 实时出现；模型输出组件标记 → 流式实时渲染。
+
 ## [2026-08-16] Agent UI 组件扩充：新增 6 种组件 + 工具侧自动附加
 用户反馈"Agent 可利用的 UI 组件太少，需要新增"：
 1. **新增 6 个组件**（插件式注册到 ComponentRegistry）：

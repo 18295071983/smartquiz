@@ -7020,6 +7020,12 @@ public class AIChatActivity extends BaseActivity {
                     if (c.props == null) c.props = new org.json.JSONObject();
                     c.props.put("status", status);
                     if (result != null) c.props.put("result", result);
+                    // 附加该工具通过 withComponent 产生的结构化组件（list_card 等），实时显示不等 Agent 完成
+                    java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> drained =
+                            com.oilquiz.app.ai.chat.component.ComponentCollector.drain();
+                    if (drained != null && !drained.isEmpty()) {
+                        comps.addAll(drained);
+                    }
                     // 新引用触发 ChatAdapter 组件容器重建
                     msg.components = new java.util.ArrayList<>(comps);
                     if (chatAdapter != null) {
