@@ -1284,9 +1284,11 @@ public class OnlineInferenceService {
         /**
          * API 返回的 token 用量（需请求中带 stream_options.include_usage）。
          * prompt_tokens 包含 system 消息 + 工具定义 + 历史消息的 token。
-         * 默认空实现，调用方可覆盖以精确更新推理速度显示。
+         * cachedTokens：前缀缓存命中 token（DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens），0 表示未命中/不支持。
+         * 默认空实现，调用方可覆盖以精确更新推理速度显示与缓存统计。
          */
         default void onUsage(int promptTokens, int completionTokens, int totalTokens) {}
+        default void onUsageWithCache(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {}
     }
 
     /**
@@ -1443,6 +1445,12 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
+            // 请求流式 usage（缓存命中统计等）：OpenAI/DeepSeek 标准 stream_options.include_usage
+            try {
+                JsonObject streamOptions = new JsonObject();
+                streamOptions.addProperty("include_usage", true);
+                requestBody.add("stream_options", streamOptions);
+            } catch (Exception ignored) {}
 
             // 添加 tools 参数（跳过空数组，避免 API 忽略或报错）
             if (toolsJson != null && !toolsJson.isEmpty() && !toolsJson.equals("[]")) {
@@ -1671,8 +1679,20 @@ public class OnlineInferenceService {
                             int promptTokens = usage.has("prompt_tokens") ? usage.get("prompt_tokens").getAsInt() : 0;
                             int completionTokens = usage.has("completion_tokens") ? usage.get("completion_tokens").getAsInt() : 0;
                             int totalTokens = usage.has("total_tokens") ? usage.get("total_tokens").getAsInt() : 0;
-                            final int pt = promptTokens, ct = completionTokens, tt = totalTokens;
-                            mainHandler.post(() -> callback.onUsage(pt, ct, tt));
+                            // 缓存命中统计：DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens
+                            int cachedTokens = 0;
+                            if (usage.has("prompt_cache_hit_tokens")) {
+                                cachedTokens = usage.get("prompt_cache_hit_tokens").getAsInt();
+                            } else if (usage.has("cached_tokens")) {
+                                cachedTokens = usage.get("cached_tokens").getAsInt();
+                            }
+                            final int pt = promptTokens, ct = completionTokens, tt = totalTokens, cache = cachedTokens;
+                            AILogger.i(TAG, "API usage: prompt=" + pt + " completion=" + ct
+                                + " total=" + tt + " cache_hit=" + cache);
+                            mainHandler.post(() -> {
+                                callback.onUsage(pt, ct, tt);
+                                callback.onUsageWithCache(pt, ct, tt, cache);
+                            });
                         } catch (Exception ex) {
                             AILogger.w(TAG, "Failed to parse usage: " + ex.getMessage());
                         }

@@ -323,6 +323,10 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return engine.getToolLoopCount();
     }
 
+    public int getLastCacheHitTokens() {
+        return engine.getLastCacheHitTokens();
+    }
+
     public void shutdown() {
         isShutdown = true;
         engine.shutdown();
