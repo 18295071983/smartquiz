@@ -249,6 +249,8 @@ public class AIChatActivity extends BaseActivity {
     private volatile String currentAgentGroupId = null;
     private volatile int agentGroupStepCount = 0;
     private volatile int agentGroupToolCount = 0;
+    /** 本轮 Agent 用到的工具名集合（去重，用于汇总展示） */
+    private final java.util.Set<String> agentToolNames = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Object streamingLock = new Object();
     
     // isRecovering 和 pendingMessageForRecovery 已移至 NativeRecoveryHandler
@@ -4254,6 +4256,9 @@ public class AIChatActivity extends BaseActivity {
             agentToolLoopCount = 0;
             thinkingRoundEnded = false;
             thinkingRoundCount = 1;
+            agentGroupStepCount = 0;
+            agentGroupToolCount = 0;
+            agentToolNames.clear();
             currentStreamingContent = new StringBuilder();
             currentThinkingContent = new StringBuilder();
             currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -4466,6 +4471,9 @@ public class AIChatActivity extends BaseActivity {
                 agentToolLoopCount = 0;
                 thinkingRoundEnded = false;
                 thinkingRoundCount = 1;
+                agentGroupStepCount = 0;
+                agentGroupToolCount = 0;
+                agentToolNames.clear();
                 currentStreamingContent = new StringBuilder();
                 currentThinkingContent = new StringBuilder();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
@@ -4929,6 +4937,20 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 更新 AI 消息气泡内的 Agent 执行步骤状态行。
+     */
+    private void setAgentStepStatus(String status) {
+        if (status == null || status.isEmpty()) return;
+        final int idx = resolveStreamingIndex();
+        if (idx < 0 || idx >= chatHistory.size()) return;
+        ChatMessage msg = chatHistory.get(idx);
+        msg.agentStepStatus = status;
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemChanged(idx, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+        }
+    }
+
+    /**
      * Agent 模式思考 token 直接路由到思考布局（msg.thinkingContent）。
      * 保证所有模式下思考内容都显示在思考布局中，不泄漏到主消息。
      */
@@ -5256,9 +5278,29 @@ public class AIChatActivity extends BaseActivity {
             }
             
             endGeneration();
+            // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名
+            boolean isAgentModeRun = agentGroupToolCount > 0 || thinkingRoundCount > 1;
+            if (isAgentModeRun) {
+                StringBuilder sum = new StringBuilder();
+                if (agentGroupToolCount > 0) sum.append("🔧 调用工具 ").append(agentGroupToolCount).append(" 次");
+                if (thinkingRoundCount > 1) {
+                    if (sum.length() > 0) sum.append(" · ");
+                    sum.append("🧠 思考 ").append(thinkingRoundCount).append(" 轮");
+                }
+                if (!agentToolNames.isEmpty()) {
+                    if (sum.length() > 0) sum.append("\n");
+                    sum.append("工具：").append(String.join("、", agentToolNames));
+                }
+                if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
+                    chatHistory.get(messageIndex).agentSummary = sum.toString();
+                }
+            }
             agentToolLoopCount = 0;
             thinkingRoundEnded = false;
             thinkingRoundCount = 1;
+            agentGroupStepCount = 0;
+            agentGroupToolCount = 0;
+            agentToolNames.clear();
             if (messageIndex >= 0 && messageIndex < chatHistory.size()) {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
@@ -5385,6 +5427,7 @@ public class AIChatActivity extends BaseActivity {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
             runOnUiThread(() -> {
                 appendAgentToolCall(toolCallId, toolName, "running", args, null);
+                setAgentStepStatus("🔧 调用 " + toolName + "...");
                 updateAgentStatusBar("🔧 调用 " + toolName + "...", true);
                 addToolCallMessage(toolCallId, toolName, args);
                 scrollToBottom();
@@ -5400,6 +5443,7 @@ public class AIChatActivity extends BaseActivity {
                 // 完成时传简略摘要（如"北京 26℃ 晴"），执行后的工具行不再空白
                 appendAgentToolCall(toolCallId, toolName, success ? "success" : "failed", null,
                         com.oilquiz.app.ai.chat.component.ToolCallCardView.summarize(resultStr));
+                setAgentStepStatus(success ? "✅ " + toolName + " 完成" : "⚠️ " + toolName + " 失败");
                 updateAgentStatusBar("✅ " + toolName + " 完成", false);
                 // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新
                 // （否则 findLastSpecialMessage 返回 -1 时回退到最后一条消息，结果会写到错误消息上）
@@ -5453,6 +5497,7 @@ public class AIChatActivity extends BaseActivity {
             if (thinkingRoundEnded || currentThinkingContent == null) {
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
+                setAgentStepStatus("🔍 思考中...（第" + thinkingRoundCount + "轮）");
                 if (onUi) {
                     updateAgentStatusBar("🧠 思考中...", true);
                 } else {
@@ -5490,6 +5535,8 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 // 状态栏恢复（执行完成）
                 updateAgentStatusBar("✅ 执行完成", false);
+                // 气泡内步骤状态（汇总文本已在 completeGeneration 中写入 agentSummary）
+                setAgentStepStatus("✅ 执行完成");
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
                 }
@@ -6991,6 +7038,9 @@ public class AIChatActivity extends BaseActivity {
             if (args != null) props.put("args", args);
             if (result != null) props.put("result", result);
             comps.add(com.oilquiz.app.ai.chat.component.ComponentData.of("tool_call", props));
+            // 在线 Agent 模式：工具卡片走组件通道（addToolCallMessage 被拦截），此处补记工具计数用于汇总
+            agentGroupToolCount++;
+            if (toolName != null) agentToolNames.add(toolName);
             msg.components = new java.util.ArrayList<>(comps);
             if (chatAdapter != null) {
                 chatAdapter.notifyItemChanged(msgIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);

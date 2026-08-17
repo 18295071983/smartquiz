@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] Agent 组件补齐 5 项能力
+1. **Agent 执行过程可视化**：AI 气泡内新增 agentStatus 状态行（🔍思考中(第N轮) → 🔧调用工具X → ✅完成），随 Agent 回调实时更新；ChatMessage 新增 agentStepStatus 字段，动态布局新增 agentStatus TextView，bindAgentStepStatus 绑定。
+2. **工具中途打断**：OnlineAgentEngine 等待工具结果从 join() 改为 get(5s) 轮询 isCancelled，用户停止生成时取消剩余工具 future（cancel(true)）并立即返回，不再阻塞等待慢工具。
+3. **Agent 任务结果汇总**：生成完成时在气泡内显示汇总（🔧调用工具N次 · 🧠思考N轮 + 工具名列表）；agentGroupToolCount 计数移到 appendAgentToolCall（在线 Agent 组件通道），新增 agentToolNames 集合记录去重工具名；ChatMessage 新增 agentSummary 字段 + 动态布局 agentSummary TextView。
+4. **Agent 过程持久化**：修复 Gson 无法序列化 org.json.JSONObject（ComponentData.props）问题——ComponentData 新增 toPersistableJson/fromPersistableJson，ChatHistoryManager 注册 ComponentData TypeAdapter（序列化为 JSON 字符串，反序列化兼容新旧格式），工具卡片组件随会话保存/加载。
+5. **工具使用统计展示**：Agent 汇总中展示本轮工具名列表（去重），作为 UsageTracker 统计的轻量 UI 呈现。
+
 ## [2026-08-16] AI 消息改为动态布局（不依赖布局文件与 id）
 用户反馈"布局文件 id 错误，改为动态布局，不依赖布局文件"：
 1. **完全动态构建**：ChatAdapter 新增 createAiMessageItem()，纯代码创建 AI 消息整个视图树（根容器 → 主气泡[思考区+工具卡片+正文] → 展开按钮 → 操作按钮 → 状态 → 模型信息 → 时间戳），彻底摆脱布局文件与 findViewById。

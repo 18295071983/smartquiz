@@ -5,8 +5,15 @@ import android.util.Log;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
 import com.google.gson.reflect.TypeToken;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.model.AgentTask;
 
 import java.io.File;
@@ -60,7 +67,43 @@ public class ChatHistoryManager {
 
     public ChatHistoryManager(Context context) {
         this.context = context;
-        this.gson = new GsonBuilder().disableHtmlEscaping().create();
+        // ComponentData.props 是 org.json.JSONObject，Gson 无法直接序列化；
+        // 注册适配器：组件数据整体以 JSON 字符串形式持久化（含 tool_call 工具卡片，支持 Agent 过程随会话保存）
+        this.gson = new GsonBuilder()
+                .disableHtmlEscaping()
+                .registerTypeAdapter(ComponentData.class, new ComponentDataAdapter())
+                .create();
+    }
+
+    /** ComponentData Gson 适配器：序列化为 JSON 字符串，反序列化时还原组件数据 */
+    private static class ComponentDataAdapter
+            implements JsonSerializer<ComponentData>, JsonDeserializer<ComponentData> {
+        @Override
+        public JsonElement serialize(ComponentData src, java.lang.reflect.Type typeOfSrc,
+                                     JsonSerializationContext context) {
+            String json = src != null ? src.toPersistableJson() : null;
+            return new JsonPrimitive(json != null ? json : "");
+        }
+
+        @Override
+        public ComponentData deserialize(JsonElement json, java.lang.reflect.Type typeOfT,
+                                         JsonDeserializationContext context) {
+            if (json == null || json.isJsonNull()) return null;
+            // 兼容旧格式：新格式是字符串（{"type":...}），旧格式是 JSON 对象
+            if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString()) {
+                return ComponentData.fromPersistableJson(json.getAsString());
+            }
+            if (json.isJsonObject()) {
+                try {
+                    String type = json.getAsJsonObject().get("type") != null
+                            ? json.getAsJsonObject().get("type").getAsString() : null;
+                    if (type != null && !type.isEmpty()) {
+                        return ComponentData.fromPersistableJson(json.toString());
+                    }
+                } catch (Exception ignored) {}
+            }
+            return null;
+        }
     }
 
     /**

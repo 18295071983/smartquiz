@@ -345,6 +345,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         vCol.addView(bubble);
 
+        // --- Agent 执行状态行（思考中/调用工具/完成），实时步骤可视化 ---
+        TextView agentStatus = new TextView(ctx);
+        agentStatus.setTextSize(11f);
+        agentStatus.setTextColor(colorOnSurfaceVariant);
+        agentStatus.setVisibility(View.GONE);
+        LinearLayout.LayoutParams asLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        asLp.bottomMargin = dpToPx(4, ctx);
+        agentStatus.setLayoutParams(asLp);
+        bubble.addView(agentStatus);
+
         // --- 思考标签 ---
         TextView thinkingLabel = new TextView(ctx);
         thinkingLabel.setText(R.string.chat_thinking_process);
@@ -427,6 +438,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         messageText.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         contentHost.addView(messageText);
+
+        // --- Agent 任务汇总行（完成后：工具数/轮次/耗时） ---
+        TextView agentSummary = new TextView(ctx);
+        agentSummary.setTextSize(11f);
+        agentSummary.setTextColor(colorOnSurfaceVariant);
+        agentSummary.setVisibility(View.GONE);
+        LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sumLp.topMargin = dpToPx(6, ctx);
+        agentSummary.setLayoutParams(sumLp);
+        bubble.addView(agentSummary);
 
         // ===== 展开按钮（主回复不再折叠，恒隐藏） =====
         TextView btnExpand = new TextView(ctx);
@@ -536,9 +558,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 组装为动态根容器（携带全部子视图引用，避免 findViewById）
         DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
-                actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate, btnNewChat, timestampText,
-                statusIcon, statusText, btnExpand, inferenceProgressView, attachmentsRecycler,
-                modelInfoContainer, modelStatusIndicator, modelNameText, modelLatencyText, modelCostText);
+                agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
+                btnNewChat, timestampText, statusIcon, statusText, btnExpand, inferenceProgressView,
+                attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
+                modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dynamicRoot.addView(root);
@@ -786,6 +809,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         bindAttachments(holder, message);
         bindComponents(holder, message);
         updateThinkingContent(holder, message);
+        bindAgentStepStatus(holder, message);
         updateMessageStatus(holder, message);
         bindModelInfo(holder, message);
 
@@ -833,6 +857,29 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         handleLongContent(holder, message);
+    }
+
+    /**
+     * 绑定 Agent 执行步骤状态行与任务汇总行（气泡内实时可视化）。
+     * agentStepStatus：思考中/调用工具X/完成；agentSummary：完成后汇总。
+     */
+    private void bindAgentStepStatus(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.agentStatus != null) {
+            if (message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
+                holder.agentStatus.setText(message.agentStepStatus);
+                holder.agentStatus.setVisibility(View.VISIBLE);
+            } else {
+                holder.agentStatus.setVisibility(View.GONE);
+            }
+        }
+        if (holder.agentSummary != null) {
+            if (message.agentSummary != null && !message.agentSummary.isEmpty()) {
+                holder.agentSummary.setText(message.agentSummary);
+                holder.agentSummary.setVisibility(View.VISIBLE);
+            } else {
+                holder.agentSummary.setVisibility(View.GONE);
+            }
+        }
     }
 
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
@@ -2407,6 +2454,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final TextView thinkingLabel;
         final TextView thinkingContent;
         final View thinkingDivider;
+        final TextView agentStatus;
+        final TextView agentSummary;
         final View actionButtons;
         final TextView btnCopy;
         final TextView btnSpeak;
@@ -2427,10 +2476,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         DynamicAiMessageRoot(Context ctx, TextView blockLabel, TextView messageText,
                 LinearLayout contentHost, LinearLayout componentContainer, TextView thinkingLabel,
-                TextView thinkingContent, View thinkingDivider, View actionButtons, TextView btnCopy,
-                TextView btnSpeak, TextView btnShare, TextView btnRegenerate, TextView btnNewChat,
-                TextView timestampText, ImageView statusIcon, TextView statusText, TextView btnExpand,
-                InferenceProgressView inferenceProgressView,
+                TextView thinkingContent, View thinkingDivider, TextView agentStatus, TextView agentSummary,
+                View actionButtons, TextView btnCopy, TextView btnSpeak, TextView btnShare,
+                TextView btnRegenerate, TextView btnNewChat, TextView timestampText, ImageView statusIcon,
+                TextView statusText, TextView btnExpand, InferenceProgressView inferenceProgressView,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
                 TextView modelCostText) {
@@ -2442,6 +2491,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingLabel = thinkingLabel;
             this.thinkingContent = thinkingContent;
             this.thinkingDivider = thinkingDivider;
+            this.agentStatus = agentStatus;
+            this.agentSummary = agentSummary;
             this.actionButtons = actionButtons;
             this.btnCopy = btnCopy;
             this.btnSpeak = btnSpeak;
@@ -2472,6 +2523,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
+        TextView agentStatus;
+        TextView agentSummary;
         View actionButtons;
         TextView btnCopy;
         TextView btnSpeak;
@@ -2503,6 +2556,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingLabel = dr.thinkingLabel;
             this.thinkingContent = dr.thinkingContent;
             this.thinkingDivider = dr.thinkingDivider;
+            this.agentStatus = dr.agentStatus;
+            this.agentSummary = dr.agentSummary;
             this.actionButtons = dr.actionButtons;
             this.btnCopy = dr.btnCopy;
             this.btnSpeak = dr.btnSpeak;
