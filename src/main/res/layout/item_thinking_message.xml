@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:text="@string/chat_thinking_process"
         android:textSize="11sp"
-        android:textColor="@color/thinking_text"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:layout_marginBottom="2dp"
         android:clickable="true"
         android:focusable="true"
@@ -23,7 +23,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/thinking_message_background"
-        android:textColor="@color/thinking_text"
+        android:textColor="?attr/colorOnSurface"
         android:textSize="12sp"
         android:lineSpacingMultiplier="1.2"
         android:textIsSelectable="true" />

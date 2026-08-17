@@ -243,9 +243,6 @@
     <color name="mode_unselected_background">#374151</color>
     <color name="mode_unselected_border">#4B5563</color>
 
-    <color name="thinking_background">#3B0066</color>
-    <color name="thinking_text">#CE93D8</color>
-    <color name="thinking_label">#BA68C8</color>
     <color name="task_background">#004200</color>
     <color name="task_text">#A5D6A7</color>
     <color name="task_label">#66BB6A</color>

@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 思考过程改为主消息色系（去掉紫色）
+用户反馈"紫色不好，改为主消息色系"：
+1. thinking_message_background.xml：背景 @color/thinking_background（淡紫 #EDE9FE）→ ?attr/colorSurfaceVariant（与 AI 主消息气泡同色系浅灰）。
+2. item_ai_message.xml + item_thinking_message.xml：思考标签/正文文字 @color/thinking_text（深紫 #6D28D9）→ 标签 ?attr/colorOnSurfaceVariant、正文 ?attr/colorOnSurface（与主消息文字一致）。
+3. 删除死代码：colors.xml / values-night/colors.xml 中 thinking_background/thinking_text/thinking_label 三个紫色定义（已无引用）；item_chat_message.xml 死布局（无引用方）。
+- 思考区现在与主消息同色系（浅灰底 + 深色文字），仅在圆角/字号上与正文区分。
+
 ## [2026-08-16] 统一思考过程组件布局 + 删除死代码
 用户反馈"有好几个思考过程组件布局各不相同，本地模型的思考布局好，统一一下"：
 1. **统一思考布局**：item_thinking_message.xml（在线 Agent 多轮思考独立消息）改为与 AI 消息内嵌思考区（item_ai_message 的 thinking_label/thinking_content，用户认可的那套）完全一致的视觉——同一 thinking_message_background、thinking_text 紫色、11sp label / 12sp 正文 / 1.2 行距 / 8dp 内边距、label 统一"💭 思考过程"；ThinkingMessageViewHolder label 文案同步（Agent 轮次保留"第N轮思考"）。

@@ -189,9 +189,6 @@
     <color name="mode_unselected_background">#F8FAFC</color>
     <color name="mode_unselected_border">#E2E8F0</color>
 
-    <color name="thinking_background">#EDE9FE</color>
-    <color name="thinking_text">#6D28D9</color>
-    <color name="thinking_label">#7C3AED</color>
     <color name="task_background">#ECFDF5</color>
     <color name="task_text">#065F46</color>
     <color name="task_label">#047857</color>
