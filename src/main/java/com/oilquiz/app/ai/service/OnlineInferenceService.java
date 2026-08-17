@@ -1498,13 +1498,26 @@ public class OnlineInferenceService {
         }
     }
 
+    /** 依次尝试多个 JSON 字段名，返回第一个存在的整数值（兼容各服务商字段差异），无则返回 0 */
+    private static int firstInt(JsonObject obj, String... keys) {
+        if (obj == null) return 0;
+        for (String key : keys) {
+            if (obj.has(key) && !obj.get(key).isJsonNull()) {
+                try {
+                    return obj.get(key).getAsInt();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return 0;
+    }
+
     /**
      * 判断 400 错误是否因模型不支持 tools/function calling 引起。
      * 仅匹配明确的 tools/function 不支持关键词，避免其他参数（如 stream_options）
      * 导致的 400 被误判为 tools 不支持而盲目降级。
      */
-    private boolean isToolsUnsupportedError(String errorBody) {
-        if (errorBody == null) return false;
+    private boolean isToolsUnsupportedError(String errorBody) {        if (errorBody == null) return false;
         String lower = errorBody.toLowerCase();
         return lower.contains("does not support tools")
             || lower.contains("tools are not supported")
@@ -1676,14 +1689,32 @@ public class OnlineInferenceService {
                     if (json.has("usage") && !json.get("usage").isJsonNull()) {
                         try {
                             JsonObject usage = json.getAsJsonObject("usage");
-                            int promptTokens = usage.has("prompt_tokens") ? usage.get("prompt_tokens").getAsInt() : 0;
-                            int completionTokens = usage.has("completion_tokens") ? usage.get("completion_tokens").getAsInt() : 0;
-                            int totalTokens = usage.has("total_tokens") ? usage.get("total_tokens").getAsInt() : 0;
-                            // 缓存命中统计：DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens
+                            // 各服务商 token 计数字段兼容：
+                            // OpenAI 系: prompt_tokens/completion_tokens/total_tokens
+                            // Anthropic: input_tokens/output_tokens
+                            int promptTokens = firstInt(usage, "prompt_tokens", "input_tokens");
+                            int completionTokens = firstInt(usage, "completion_tokens", "output_tokens");
+                            int totalTokens = firstInt(usage, "total_tokens", "prompt_tokens", "input_tokens")
+                                    + firstInt(usage, "completion_tokens", "output_tokens");
+                            if (usage.has("total_tokens")) {
+                                totalTokens = usage.get("total_tokens").getAsInt();
+                            }
+                            // 缓存命中统计，兼容多种结构：
+                            // 1) OpenAI/Moonshot/通义: usage.prompt_tokens_details.cached_tokens（嵌套）
+                            // 2) DeepSeek/智谱: usage.prompt_cache_hit_tokens（顶层）
+                            // 3) 兜底: usage.cached_tokens（顶层）
                             int cachedTokens = 0;
-                            if (usage.has("prompt_cache_hit_tokens")) {
+                            if (usage.has("prompt_tokens_details")
+                                    && !usage.get("prompt_tokens_details").isJsonNull()) {
+                                JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
+                                if (details.has("cached_tokens") && !details.get("cached_tokens").isJsonNull()) {
+                                    cachedTokens = details.get("cached_tokens").getAsInt();
+                                }
+                            }
+                            if (cachedTokens == 0 && usage.has("prompt_cache_hit_tokens")) {
                                 cachedTokens = usage.get("prompt_cache_hit_tokens").getAsInt();
-                            } else if (usage.has("cached_tokens")) {
+                            }
+                            if (cachedTokens == 0 && usage.has("cached_tokens")) {
                                 cachedTokens = usage.get("cached_tokens").getAsInt();
                             }
                             final int pt = promptTokens, ct = completionTokens, tt = totalTokens, cache = cachedTokens;
