@@ -25,15 +25,17 @@ import java.util.regex.Pattern;
  */
 public class ComponentContentSplitter {
 
-    /** 组件块：```component:type\n{json}```、```component:type {json}```、```component:type{json}```
-     *  兼容多行 JSON、同行 JSON、JSON 前带说明文字。 */
+    /**
+     * 组件块：```component:type\n{json}```、```component:type {json}```、```component:type{json}```。
+     * 以闭合的 ``` 作为标记结束符（不能用第一个 } 结束——组件 JSON 内部嵌套对象含多个 }）。
+     */
     private static final Pattern COMPONENT_BLOCK = Pattern.compile(
-            "```component:(\\w+)\\s*\\{([\\s\\S]*?)\\}```",
+            "```component:(\\w+)\\s*([\\s\\S]*?)```",
             Pattern.CASE_INSENSITIVE);
 
-    /** 无代码块变体：component:type {json} 或 component:type\n{json}（模型漏写三反引号时兜底） */
+    /** 无代码块变体：component:type {json}（模型漏写三反引号时兜底，JSON 需独立成段） */
     private static final Pattern COMPONENT_BLOCK_BARE = Pattern.compile(
-            "(?m)^\\s*component:(\\w+)\\s*\\{([\\s\\S]*?)\\}\\s*$",
+            "(?m)^\\s*component:(\\w+)\\s*(\\{[\\s\\S]*?\\})\\s*$",
             Pattern.CASE_INSENSITIVE);
 
     private ComponentContentSplitter() {
@@ -55,33 +57,25 @@ public class ComponentContentSplitter {
         List<Segment> segments = new ArrayList<>();
         if (content == null || content.isEmpty()) return segments;
 
-        // 优先用代码块正则，其次用裸标记正则（两者覆盖所有已识别格式）
+        // 优先用代码块正则（以 ``` 闭合），其次用裸标记正则
         Matcher matcher = COMPONENT_BLOCK.matcher(content);
         boolean matched = false;
         int lastEnd = 0;
         while (matcher.find()) {
             matched = true;
-            if (matcher.start() > lastEnd) {
-                String text = content.substring(lastEnd, matcher.start());
-                if (!text.trim().isEmpty()) {
-                    segments.add(Segment.text(text));
-                }
-            }
+            appendTextBefore(segments, content, lastEnd, matcher.start());
             addComponentSegment(segments, matcher.group(1), matcher.group(2));
             lastEnd = matcher.end();
         }
         if (!matched) {
-            // 无代码块：尝试裸标记（component:xxx {json} 独立成段）
             matcher = COMPONENT_BLOCK_BARE.matcher(content);
             while (matcher.find()) {
                 matched = true;
-                if (matcher.start() > lastEnd) {
-                    String text = content.substring(lastEnd, matcher.start());
-                    if (!text.trim().isEmpty()) {
-                        segments.add(Segment.text(text));
-                    }
-                }
-                addComponentSegment(segments, matcher.group(1), matcher.group(2));
+                appendTextBefore(segments, content, lastEnd, matcher.start());
+                // 裸标记 group(2) 已含完整 {json}，直接作为 props
+                org.json.JSONObject props = ComponentData.parseJsonObject(matcher.group(2));
+                if (props == null) props = new org.json.JSONObject();
+                segments.add(Segment.component(new ComponentData(matcher.group(1), props)));
                 lastEnd = matcher.end();
             }
         }
@@ -99,11 +93,65 @@ public class ComponentContentSplitter {
         return segments;
     }
 
-    private static void addComponentSegment(List<Segment> segments, String type, String jsonBody) {
-        String json = "{" + jsonBody + "}";
+    private static void appendTextBefore(List<Segment> segments, String content, int lastEnd, int start) {
+        if (start > lastEnd) {
+            String text = content.substring(lastEnd, start);
+            if (!text.trim().isEmpty()) {
+                segments.add(Segment.text(text));
+            }
+        }
+    }
+
+    /**
+     * 从标记内容（group 捕获的 {json} 原始文本）解析组件 props。
+     * 用大括号配对找到完整 JSON 主体，兼容多行、内部嵌套。
+     */
+    private static void addComponentSegment(List<Segment> segments, String type, String rawBody) {
+        String body = rawBody != null ? rawBody.trim() : "";
+        // 提取完整 {json} 主体（大括号配对，容忍开头说明文字）
+        String json = extractJsonBody(body);
         org.json.JSONObject props = ComponentData.parseJsonObject(json);
         if (props == null) props = new org.json.JSONObject();
         segments.add(Segment.component(new ComponentData(type, props)));
+    }
+
+    /**
+     * 从任意文本中提取第一个平衡的 {…} JSON 主体。
+     * 以第一个 { 开始，按大括号深度找到配对的最后一个 }。
+     *
+     * @param text 可能包含说明文字 + JSON 的文本
+     * @return 完整 JSON 主体；找不到返回原文本
+     */
+    private static String extractJsonBody(String text) {
+        if (text == null || text.isEmpty()) return text;
+        int start = text.indexOf('{');
+        if (start < 0) return text;
+        int depth = 0;
+        boolean inString = false;
+        char quote = 0;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == quote) {
+                    inString = false;
+                }
+            } else {
+                if (c == '"' || c == '\'') {
+                    inString = true;
+                    quote = c;
+                } else if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return text.substring(start, i + 1);
+                    }
+                }
+            }
+        }
+        return text.substring(start);
     }
 
     /**

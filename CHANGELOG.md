@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-08-16] 修正组件标记解析（修复上轮引入的嵌套 JSON 截断 bug）
+用户反馈"不要乱改，好好弄一下"——自查发现上一轮把代码块正则结束符从闭合的 ``` 改成第一个 }，导致 metric_card 等含嵌套数组的 JSON 在第一个内层 } 处被截断、解析失败：
+1. **恢复正确结束符**：COMPONENT_BLOCK 改回以 ``` 闭合（` ```component:(\w+)\s*([\s\S]*?)``` `），只有真正的三反引号才结束标记，JSON 内部 } 不影响匹配。
+2. **大括号配对提取**：新增 extractJsonBody()——以第一个 { 开始，按大括号深度（跳过字符串内 { }）找到配对的最后一个 }，正确提取含嵌套对象的完整 JSON（如 metric_card 的 metrics 数组、chart 的 series 多层）。
+3. **裸标记兜底保留**：COMPONENT_BLOCK_BARE 用 `\{[\s\S]*?\}` 且要求独立成段（模型漏写三反引号时兜底）。
+4. **验证**：独立测试确认 metric_card（嵌套数组）、chart（多层 series）、同行 JSON、裸标记四种用例均正确提取完整 JSON。
+- parseJsonObject 保持：lastIndexOf('}') 提取主体 + 单引号转双引号 + 未引号键补引号（已带引号键与值内冒号不受影响）。
+
 ## [2026-08-16] 修复 component:metric_card 等标记不渲染（增强组件标记解析容错）
 用户反馈"component:metric_card"——模型输出组件标记但界面显示原文未渲染：
 1. **正则增强**：COMPONENT_BLOCK 改为 ` ```component:(\w+)\s*\{([\s\S]*?)\}``` `（显式匹配 {json} 主体，兼容多行/同行 JSON）；新增 COMPONENT_BLOCK_BARE 裸标记正则（模型漏写三反引号时兜底：`component:type {json}` 独立成段）。
