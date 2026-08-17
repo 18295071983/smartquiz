@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-08-16] 工具定义恢复全量注入（利用 prompt caching + 模型自行探索）
+用户指出"在线模型一般有缓存命中及长上下文，可以让模型自行探索"——确认架构后调整策略：
+1. **恢复全量工具注入**：OnlineAgentEngine 改回 toolManager.getToolDefinitions()（不再关键词裁剪）。依据：
+   - OpenAI/Anthropic 兼容 API（用户可配 DeepSeek/通义/自建等）普遍有 prompt caching——system+工具定义作为固定前缀，多轮不变即命中缓存，全量成本可忽略。
+   - 长上下文模型（128K+）下全量工具定义占比小。
+   - 全量注入让模型自行探索/组合任意工具，不被裁剪限制能力（模型想用 python/数据库等均可用）。
+2. **多轮前缀稳定**：每轮 streamOneIteration 复用同一 toolsJson，tools 参数不变 → 前缀缓存命中最大化。
+3. 保留 getToolDefinitionsForMessage/getToolDefinitionsByCategories 作为可选能力（未调用，供未来按需场景）。
+4. 保留提示词精简（组件指南 6 种高频 + 知识库节压缩）——省首轮 token 且无副作用。
+
 ## [2026-08-16] 大幅节省 Agent token：提示词精简 + 工具定义按需注入
 用户担忧"会不会浪费巨量 token"——量化后确认三大消耗点并优化：
 1. **组件指南精简（约 -1200 tokens/轮）**：从 21 种组件全量示例压缩为 6 种高频（chart/info_card/table_card/list_card/alert_card/weather_card），其余组件靠工具自动附加（FileTool→file_list、NetworkSearch→list_card 等），模型无需知道全部格式。

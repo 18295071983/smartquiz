@@ -194,8 +194,10 @@ public class OnlineAgentEngine {
         userMsg.addProperty("content", userMessage);
         messageHistory.add(userMsg);
 
-        // 3. 通过 OnlineToolManager 获取工具定义（按用户消息意图裁剪子集，省 token）
-        String toolsJson = toolManager.getToolDefinitionsForMessage(userMessage);
+        // 3. 通过 OnlineToolManager 获取工具定义。
+        // 全量注入：在线 API 通常有 prompt caching（前缀缓存，system+工具定义不变即命中）且长上下文支持，
+        // 全量工具定义成本可忽略，且让模型自行探索/组合任意工具（不做关键词裁剪限制能力）。
+        String toolsJson = toolManager.getToolDefinitions();
         int toolCount = countToolsInJson(toolsJson);
         AILogger.i(TAG, "Tool definitions: count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {
