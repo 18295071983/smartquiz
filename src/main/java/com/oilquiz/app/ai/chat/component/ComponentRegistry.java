@@ -46,6 +46,13 @@ public class ComponentRegistry {
         register(new TableCardView());
         register(new ImageGridCardView());
         register(new LinkCardView());
+        // Agent 常用
+        register(new ListCardView());
+        register(new AlertCardView());
+        register(new MetricCardView());
+        register(new JsonViewerCard());
+        register(new StepsCardView());
+        register(new NoteCardView());
         // 业务场景
         register(new QuizCardView());
         register(new WeatherCardView());

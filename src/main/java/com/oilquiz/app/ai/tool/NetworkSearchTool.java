@@ -218,7 +218,28 @@ public class NetworkSearchTool implements AITool {
             result.put("results", searchResults);
             result.put("engine", "Metaso");
 
-            return new AIToolResult(result, parameters);
+            AIToolResult toolResult = new AIToolResult(result, parameters);
+            // 附加搜索结果列表组件（富 UI 展示，无需模型输出标记）
+            try {
+                org.json.JSONArray items = new org.json.JSONArray();
+                for (Map<String, String> sr : searchResults) {
+                    org.json.JSONObject item = new org.json.JSONObject();
+                    item.put("icon", "🔍");
+                    item.put("title", sr.getOrDefault("title", ""));
+                    String snippet = sr.getOrDefault("snippet", "");
+                    item.put("description", snippet.length() > 80 ? snippet.substring(0, 80) + "..." : snippet);
+                    item.put("value", sr.getOrDefault("source", ""));
+                    item.put("url", sr.getOrDefault("url", ""));
+                    items.put(item);
+                }
+                org.json.JSONObject props = new org.json.JSONObject();
+                props.put("title", "搜索结果 · " + searchResults.size() + " 条");
+                props.put("items", items);
+                toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("list_card", props));
+            } catch (Exception ignore) {
+                // 组件附加失败不影响搜索结果返回
+            }
+            return toolResult;
 
         } catch (Exception e) {
             AILogger.e(TAG, "Search failed: " + e.getMessage(), e);

@@ -140,7 +140,21 @@ public class TranslationTool implements AITool {
             result.put("message", "AI翻译服务初始化失败，请检查AI模型配置");
         }
 
-        return new AIToolResult(result, parameters);
+        AIToolResult toolResult = new AIToolResult(result, parameters);
+        // 附加翻译结果组件（原文→译文 键值对卡片）
+        if (translatedText != null && !translatedText.startsWith("Error:")) {
+            try {
+                org.json.JSONArray items = new org.json.JSONArray();
+                items.put(new org.json.JSONObject().put("label", "原文").put("value", text));
+                items.put(new org.json.JSONObject().put("label", "译文（" + targetLanguage + "）").put("value", translatedText));
+                org.json.JSONObject props = new org.json.JSONObject();
+                props.put("title", "翻译结果");
+                props.put("items", items);
+                toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("info_card", props));
+            } catch (Exception ignore) {
+            }
+        }
+        return toolResult;
     }
 
     private AIToolResult detectLanguage(Map<String, Object> parameters) {

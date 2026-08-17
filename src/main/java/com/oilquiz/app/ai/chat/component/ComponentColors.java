@@ -34,6 +34,21 @@ public final class ComponentColors {
         return ContextCompat.getColor(context, R.color.component_accent);
     }
 
+    /** 成功色 */
+    public static int success(Context context) {
+        return ContextCompat.getColor(context, R.color.component_success);
+    }
+
+    /** 警告色 */
+    public static int warning(Context context) {
+        return ContextCompat.getColor(context, R.color.component_warning);
+    }
+
+    /** 错误色 */
+    public static int error(Context context) {
+        return ContextCompat.getColor(context, R.color.component_error);
+    }
+
     /** 卡片背景色 */
     public static int background(Context context) {
         return ContextCompat.getColor(context, R.color.component_bg);
