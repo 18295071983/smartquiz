@@ -5278,7 +5278,7 @@ public class AIChatActivity extends BaseActivity {
             }
             
             endGeneration();
-            // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名
+            // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名 / 缓存命中
             boolean isAgentModeRun = agentGroupToolCount > 0 || thinkingRoundCount > 1;
             if (isAgentModeRun) {
                 StringBuilder sum = new StringBuilder();
@@ -5290,6 +5290,14 @@ public class AIChatActivity extends BaseActivity {
                 if (!agentToolNames.isEmpty()) {
                     if (sum.length() > 0) sum.append("\n");
                     sum.append("工具：").append(String.join("、", agentToolNames));
+                }
+                // 缓存命中统计（API 返回 usage 时才有；DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens）
+                if (agentChatHandler != null) {
+                    int cacheHit = agentChatHandler.getLastCacheHitTokens();
+                    if (cacheHit > 0) {
+                        if (sum.length() > 0) sum.append("\n");
+                        sum.append("⚡ 缓存命中 ").append(cacheHit).append(" tokens（本轮省去重复计费）");
+                    }
                 }
                 if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
                     chatHistory.get(messageIndex).agentSummary = sum.toString();

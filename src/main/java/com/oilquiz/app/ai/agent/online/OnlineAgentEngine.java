@@ -80,6 +80,8 @@ public class OnlineAgentEngine {
     // 推理进度统计
     private long inferenceStartTime;
     private int totalTokenCount;
+    /** 最近一次推理的缓存命中 token 数（DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens） */
+    private volatile int lastCacheHitTokens = 0;
 
     public OnlineAgentEngine(Activity activity, OnlineToolManager toolManager) {
         this.activity = activity;
@@ -580,6 +582,15 @@ public class OnlineAgentEngine {
                         + " completion=" + completionTokens + " total=" + totalTokens);
                     notifyProgress();
                 }
+
+                @Override
+                public void onUsageWithCache(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {
+                    totalTokenCount = totalTokens;
+                    lastCacheHitTokens = cachedTokens;
+                    AILogger.i(TAG, "Token usage: prompt=" + promptTokens + " completion=" + completionTokens
+                        + " total=" + totalTokens + " cache_hit=" + cachedTokens);
+                    notifyProgress();
+                }
             });
 
         try {
@@ -937,6 +948,11 @@ public class OnlineAgentEngine {
 
     public int getToolLoopCount() {
         return toolLoopCount.get();
+    }
+
+    /** 最近一次推理的缓存命中 token 数（0 = 未命中或不支持） */
+    public int getLastCacheHitTokens() {
+        return lastCacheHitTokens;
     }
 
     public OnlineThinkingChain getThinkingChain() {

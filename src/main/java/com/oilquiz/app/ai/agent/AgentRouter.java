@@ -101,6 +101,10 @@ public class AgentRouter {
         return onlineEngine != null ? onlineEngine.getToolLoopCount() : 0;
     }
 
+    public int getLastCacheHitTokens() {
+        return onlineEngine != null ? onlineEngine.getLastCacheHitTokens() : 0;
+    }
+
     public void shutdown() {
         if (onlineEngine != null) {
             onlineEngine.shutdown();

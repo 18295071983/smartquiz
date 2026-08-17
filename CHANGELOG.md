@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-08-16] API 缓存命中统计展示
+用户要求"分析 API 响应缓存命中，做显示功能"：
+1. **请求加 stream_options.include_usage**：callOpenAIStreamWithToolsV2 请求体添加 stream_options.include_usage=true（OpenAI/DeepSeek 标准），流式响应末尾返回 usage（含缓存统计）。
+2. **解析缓存字段**：readStreamResponseWithTools 解析 usage 时同时读取 prompt_cache_hit_tokens（DeepSeek）或 cached_tokens（OpenAI），新增 NativeToolStreamCallback.onUsageWithCache 回调；日志打印 prompt/completion/total/cache_hit。
+3. **透传链**：OnlineAgentEngine.lastCacheHitTokens 字段 + getLastCacheHitTokens()；AgentRouter / AgentChatHandler 逐层透传。
+4. **UI 展示**：Agent 完成时气泡内汇总追加"⚡ 缓存命中 N tokens（本轮省去重复计费）"。
+- 效果：在线 Agent 多轮对话时可直观看到前缀缓存命中了多少 token（DeepSeek 返回 prompt_cache_hit_tokens 时）。
+
 ## [2026-08-16] 工具定义恢复全量注入（利用 prompt caching + 模型自行探索）
 用户指出"在线模型一般有缓存命中及长上下文，可以让模型自行探索"——确认架构后调整策略：
 1. **恢复全量工具注入**：OnlineAgentEngine 改回 toolManager.getToolDefinitions()（不再关键词裁剪）。依据：
