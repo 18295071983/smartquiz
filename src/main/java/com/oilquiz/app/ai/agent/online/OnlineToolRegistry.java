@@ -208,12 +208,15 @@ public class OnlineToolRegistry {
         return result;
     }
 
-    /** 获取所有启用工具的元数据 */
+    /** 获取所有启用工具的元数据（按名称排序，保证 JSON 序列化顺序稳定，避免破坏前缀缓存命中） */
     public Collection<ToolMeta> getAllToolMetas() {
         List<ToolMeta> result = new ArrayList<>();
         for (ToolMeta meta : toolMetaIndex.values()) {
             if (isToolEnabled(meta.name)) result.add(meta);
         }
+        // 确定性排序：ConcurrentHashMap 迭代顺序不稳定，同批工具每次构建 tools JSON 顺序必须一致，
+        // 否则 tools 参数字节变化 → 前缀缓存 miss
+        Collections.sort(result, (a, b) -> a.name.compareTo(b.name));
         return result;
     }
 
