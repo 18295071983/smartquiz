@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 思考过程背景：与主消息（AI 气泡）同一色系（colorSurfaceVariant），圆角更小以示从属 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="12dp" />
-    <solid android:color="@color/thinking_background" />
+    <solid android:color="?attr/colorSurfaceVariant" />
     <padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" />
 </shape>
