@@ -6598,10 +6598,8 @@ public class AIChatActivity extends BaseActivity {
         ChatMessage msg = chatHistory.get(currentThinkingMessageIndex);
         msg.thinkingContent = thinkingSnapshot;
         msg.status = ChatMessage.MessageStatus.COMPLETED;
-        // 有内容保持展开（用户可手动折叠）；无内容保持折叠
-        if (thinkingSnapshot == null || thinkingSnapshot.isEmpty()) {
-            msg.thinkingExpanded = false;
-        }
+        // 思考完毕自动折叠，用户可点击重新展开
+        msg.thinkingExpanded = false;
         chatAdapter.updateMessageThinkingContent(currentThinkingMessageIndex, thinkingSnapshot);
         chatAdapter.notifyItemChanged(currentThinkingMessageIndex);
         // 重置思考消息索引，下轮创建新消息

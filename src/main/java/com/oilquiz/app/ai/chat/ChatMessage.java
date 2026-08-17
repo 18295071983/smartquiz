@@ -195,8 +195,7 @@ public class ChatMessage {
     public String actionPayload;
 
     /**
-     * 思考区域是否展开（默认折叠，用户可点击切换）。
-     * 注意：流式生成中也保持折叠以节省屏幕空间，但 label 会显示"思考中..."。
+     * 思考区域是否展开（默认折叠，思考中/流式时强制展开，思考完毕后折叠，用户可点击切换）。
      */
     public boolean thinkingExpanded = false;
 

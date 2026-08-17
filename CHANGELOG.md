@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-08-16] 对话折叠策略调整：思考中默认展开，思考完毕自动折叠；主回复全部展开
+用户要求"思考过程中默认展开不要折叠，思考完毕后你再折叠；主回复默认展开，长内容不自动折叠"：
+1. **思考过程**：ChatAdapter.updateThinkingContent 改为流式（GENERATING/IN_PROGRESS）时强制展开显示思考链，思考完毕后按 thinkingExpanded（默认 false）折叠；ThinkingMessageViewHolder.bind 同步（processing 时强制展开）。AIChatActivity.finalizeThinkingMessage 改为思考完毕一律折叠（原来"有内容保持展开"）。
+2. **主回复**：handleLongContent 删掉长内容（>500 字符）自动折叠 + 展开按钮逻辑，全部直接展开（maxLines 无限）；删除无调用方的 applyExpansionState 方法。
+3. 更新 ChatMessage.thinkingExpanded 注释（原注释"流式中保持折叠"已过时）。
+
 ## [2026-08-16] 清理在线 Agent 不可达假功能（暂停/恢复/参数验证 UI 链）
 - OnlineAgentEngine 从不触发 onNeedMoreInfo/onExecutionPaused/onExecutionResuming/onInputValidationResult（在线引擎无暂停恢复概念），AgentChatHandler 中对应 4 个回调覆写 + showInputDialog/showValidationError 两个对话框方法 + getCurrentResponse/getCurrentThinking 空包装均为不可达假功能 → 全部删除。
 - AgentRouter 删除 5 个空方法（getCurrentResponse/getCurrentThinking/getRetryCount/resumeExecution/cancelPause）。

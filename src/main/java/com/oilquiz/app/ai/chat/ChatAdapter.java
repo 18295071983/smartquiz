@@ -578,15 +578,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             });
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
-            // 根据 message.thinkingExpanded 决定展开/折叠
-            // 流式中也允许折叠（遵循用户默认折叠的需求）
-            if (message.thinkingExpanded) {
+            // 思考中（流式）默认展开显示思考过程，思考完毕后默认折叠
+            if (isStreaming) {
                 holder.thinkingContent.setVisibility(View.VISIBLE);
                 holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                updateThinkingLabel(holder, true, isStreaming);
+                updateThinkingLabel(holder, true, true);
+            } else if (message.thinkingExpanded) {
+                holder.thinkingContent.setVisibility(View.VISIBLE);
+                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                updateThinkingLabel(holder, true, false);
             } else {
                 holder.thinkingContent.setVisibility(View.GONE);
-                updateThinkingLabel(holder, false, isStreaming);
+                updateThinkingLabel(holder, false, false);
             }
 
             // 点击展开/折叠，带动画效果
@@ -879,40 +882,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
-        boolean isLong = message.content != null && message.content.length() > 500;
-        // 有结构化组件（消息级组件或内容流组件标记）的消息不做折叠限制，完整展示
-        boolean hasComponents = (message.components != null && !message.components.isEmpty())
-                || com.oilquiz.app.ai.chat.component.ComponentContentSplitter.containsComponent(message.content);
-
-        // 短消息、未完成或带组件：不显示展开按钮，全部展开
-        if (hasComponents || !isLong || !message.isCompleted()) {
-            holder.expandButton.setVisibility(View.GONE);
-            holder.messageText.setMaxLines(Integer.MAX_VALUE);
-            holder.messageText.setEllipsize(null);
-            return;
-        }
-
-        // 长消息已完成：显示展开/收起按钮，默认折叠
-        holder.expandButton.setVisibility(View.VISIBLE);
-        holder.expandButton.setOnClickListener(v -> {
-            message.hasUserToggledExpand = true;
-            message.isExpanded = !message.isExpanded;
-            applyExpansionState(holder, message);
-        });
-        applyExpansionState(holder, message);
-    }
-
-    /** 应用展开/收起状态到视图 */
-    private void applyExpansionState(AIMessageViewHolder holder, ChatMessage message) {
-        if (message.isExpanded) {
-            holder.expandButton.setText(R.string.chat_collapse);
-            holder.messageText.setMaxLines(Integer.MAX_VALUE);
-            holder.messageText.setEllipsize(null);
-        } else {
-            holder.expandButton.setText(R.string.chat_expand_full);
-            holder.messageText.setMaxLines(8);
-            holder.messageText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        }
+        // 用户要求：主回复默认全部展开显示，长内容不自动折叠
+        holder.expandButton.setVisibility(View.GONE);
+        holder.messageText.setMaxLines(Integer.MAX_VALUE);
+        holder.messageText.setEllipsize(null);
     }
 
     private void toggleMessageExpansion(AIMessageViewHolder holder, ChatMessage message) {
@@ -2255,8 +2228,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
                 messageText.setText(displayContent);
 
-                // 展开/折叠控制
-                if (message.thinkingExpanded) {
+                // 展开/折叠控制：思考中（流式）强制展开，思考完毕后默认折叠
+                boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
+                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+                if (processing || message.thinkingExpanded) {
                     messageText.setVisibility(View.VISIBLE);
                     if (thinkingLabel != null) {
                         thinkingLabel.setText(label);
@@ -2273,11 +2248,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 thinkingLabel.setVisibility(View.VISIBLE);
             }
 
-            // 处理进度条：仅展开且思考进行中时显示（折叠时隐藏，精简视觉）
+            // 处理进度条：仅思考进行中时显示（折叠时隐藏，精简视觉）
             if (thinkingProgress != null) {
                 boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
                         || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-                if (message.thinkingExpanded && processing) {
+                if (processing) {
                     thinkingProgress.setVisibility(View.VISIBLE);
                     thinkingProgress.setIndeterminate(true);
                 } else {
