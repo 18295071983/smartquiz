@@ -86,12 +86,13 @@ public class ImportLlmEngine {
         public String failReason;
     }
 
-    /** 缺失字段填充推理结果 */
+    /** 缺失字段填充推理结果（含题型推断） */
     public static class FillResult {
         public boolean valid;
         public String category;
         public int difficulty = 1;
         public String explanation = "";
+        public String questionType = "";
         public String failReason;
     }
 
@@ -456,9 +457,10 @@ public class ImportLlmEngine {
                     .append(truncate(questionInfos.get(i), 80)).append('\n');
         }
         String prompt = BASE_RULE + "\n"
-                + "示例：{\"fills\":[{\"category\":\"分类\",\"difficulty\":1,\"explanation\":\"说明\"}]}\n"
-                + "为下列" + n + "道题按顺序补充分类category、难度difficulty(1-3)、解析explanation，"
-                + "fills数组长度必须为" + n + "。\n题目列表：\n" + info;
+                + "示例：{\"fills\":[{\"category\":\"分类\",\"difficulty\":1,\"explanation\":\"说明\",\"questionType\":\"单选题\"}]}\n"
+                + "为下列" + n + "道题按顺序补充分类category、难度difficulty(1-3)、解析explanation、"
+                + "题型questionType(单选/多选/判断/填空/简答)，fills数组长度必须为" + n + "。\n"
+                + "注意：只推断缺失字段，参考每题的题干/选项内容以及相邻题目的题型难度一致性。\n题目列表：\n" + info;
 
         for (int round = 1; round <= MAX_INFER_ROUNDS; round++) {
             String p = prompt;
@@ -486,6 +488,7 @@ public class ImportLlmEngine {
                     fr.category = clean.json.optString("category", "").trim();
                     fr.difficulty = clean.json.optInt("difficulty", 1);
                     fr.explanation = clean.json.optString("explanation", "").trim();
+                    fr.questionType = clean.json.optString("questionType", "").trim();
                     results.set(i, fr);
                 }
                 postInferHousekeeping();

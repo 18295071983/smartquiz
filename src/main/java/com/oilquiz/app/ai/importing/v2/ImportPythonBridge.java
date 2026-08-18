@@ -66,10 +66,13 @@ public class ImportPythonBridge {
      * <p>
      * 返回归一化约定：成功为 {"headers":[...],"rows":[...],"source_kind":...}；
      * 失败**不再返回 null**，而是 {"error":"..."} 归一化错误对象，调用方据此展示具体原因。
+     *
+     * @param sheetIndex Excel 用户选定工作表索引（-1=自动扫全部）
      */
-    public JSONObject sampleFile(String filePath, int maxRows) {
+    public JSONObject sampleFile(String filePath, int maxRows, int sheetIndex) {
         return callWithRetry("sample_file", "文件采样",
-                py -> py.callAttr("sample_file", filePath, maxRows));
+                py -> py.callAttr("sample_file", filePath, maxRows,
+                        sheetIndex >= 0 ? Integer.valueOf(sheetIndex) : null));
     }
 
     /**
@@ -88,10 +91,11 @@ public class ImportPythonBridge {
      */
     public JSONObject parseFile(String filePath, String mappingJson, String outDir,
                                 long resumeRow, int chunkRows, String breakpointPath,
-                                String specJson) {
+                                String specJson, int sheetIndex) {
         return callWithRetry("parse_file", "全量解析",
                 py -> py.callAttr("parse_file", filePath, mappingJson, outDir,
-                        resumeRow, chunkRows, breakpointPath, specJson));
+                        resumeRow, chunkRows, breakpointPath, specJson,
+                        sheetIndex >= 0 ? Integer.valueOf(sheetIndex) : null));
     }
 
     /**

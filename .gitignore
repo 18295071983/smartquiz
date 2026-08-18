@@ -222,3 +222,7 @@ fix_chat_adapter.ps1
 
 # ============ Decompiled classes ============
 libs/com/
+
+# Python 构建产物
+__pycache__/
+*.pyc

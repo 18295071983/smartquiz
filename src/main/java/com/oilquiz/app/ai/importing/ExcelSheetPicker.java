@@ -81,6 +81,7 @@ public class ExcelSheetPicker {
 
     /**
      * 分析 Excel 所有 sheet,自动识别每个 sheet 的表头行。
+     * 单次加载 workbook（避免每个 sheet 都全量重载导致大文件卡顿）。
      * 失败返回空 list。
      */
     public static List<SheetProfile> analyzeSheets(File excelFile) {
@@ -88,27 +89,32 @@ public class ExcelSheetPicker {
         if (excelFile == null || !excelFile.exists()) {
             return result;
         }
+        FileInputStream fis = null;
+        Workbook workbook = null;
         try {
-            List<ExcelUtil.SheetInfo> sheets = ExcelUtil.getExcelSheets(excelFile);
-            if (sheets == null || sheets.isEmpty()) {
-                return result;
-            }
-            for (ExcelUtil.SheetInfo info : sheets) {
+            fis = new FileInputStream(excelFile);
+            workbook = WorkbookFactory.create(fis);
+            int sheetCount = workbook.getNumberOfSheets();
+            for (int i = 0; i < sheetCount; i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                if (sheet == null) continue;
                 SheetProfile profile = new SheetProfile();
-                profile.sheetName = info.sheetName;
-                profile.sheetIndex = info.sheetIndex;
-                profile.rowCount = info.rowCount;
-                profile.columnCount = info.columnCount;
-                // 读前 20 行(含第 0 行)用于表头识别与预览
-                profile.sampleRows = readRows(excelFile, info.sheetIndex, 0, 20);
-                StructureResult sr = detectSheetStructure(profile.sampleRows, info.columnCount);
+                profile.sheetName = sheet.getSheetName() != null ? sheet.getSheetName() : "工作表" + (i + 1);
+                profile.sheetIndex = i;
+                profile.rowCount = sheet.getLastRowNum() + 1;
+                profile.columnCount = 0;
+                Row firstRow = sheet.getRow(0);
+                if (firstRow != null) profile.columnCount = firstRow.getLastCellNum();
+                // 读前 20 行(含第 0 行)用于表头识别与预览（复用已加载的 workbook）
+                profile.sampleRows = readRowsFromWorkbook(workbook, i, 0, 20);
+                StructureResult sr = detectSheetStructure(profile.sampleRows, profile.columnCount);
                 profile.headerRowIndex = sr.headerIdx;
                 profile.subHeaderRowIndex = sr.subHeaderIdx;
                 profile.dataStartRowIndex = sr.dataStartIdx;
                 profile.headerColumns = sr.finalHeader;
-                profile.inferredQuestionType = inferQuestionTypeFromName(info.sheetName);
+                profile.inferredQuestionType = inferQuestionTypeFromName(profile.sheetName);
                 int colSize = (profile.headerColumns == null) ? -1 : profile.headerColumns.size();
-                String logMsg = "sheet[" + info.sheetName + "] headerIdx=" + profile.headerRowIndex
+                String logMsg = "sheet[" + profile.sheetName + "] headerIdx=" + profile.headerRowIndex
                         + " subHeaderIdx=" + profile.subHeaderRowIndex
                         + " dataStart=" + profile.dataStartRowIndex
                         + " inferType=" + profile.inferredQuestionType
@@ -116,8 +122,8 @@ public class ExcelSheetPicker {
                 Log.i(TAG, logMsg);
                 if (profile.headerColumns != null && !profile.headerColumns.isEmpty()) {
                     StringBuilder hsb = new StringBuilder();
-                    for (int i = 0; i < Math.min(profile.headerColumns.size(), 12); i++) {
-                        hsb.append("[").append(profile.headerColumns.get(i)).append("] ");
+                    for (int j = 0; j < Math.min(profile.headerColumns.size(), 12); j++) {
+                        hsb.append("[").append(profile.headerColumns.get(j)).append("] ");
                     }
                     Log.i(TAG, "  headerPreview: " + hsb.toString());
                 }
@@ -125,8 +131,48 @@ public class ExcelSheetPicker {
             }
         } catch (Exception e) {
             Log.e(TAG, "分析 Excel sheet 失败: " + e.getMessage(), e);
+        } finally {
+            try {
+                if (workbook != null) workbook.close();
+                if (fis != null) fis.close();
+            } catch (IOException ignored) {
+            }
         }
         return result;
+    }
+
+    /** 从已加载的 workbook 读取指定 sheet 的行（避免重复全量加载） */
+    private static List<List<String>> readRowsFromWorkbook(Workbook workbook, int sheetIndex,
+                                                           int startRow, int maxRows) {
+        List<List<String>> data = new ArrayList<>();
+        if (workbook == null) return data;
+        try {
+            Sheet sheet = workbook.getSheetAt(sheetIndex);
+            if (sheet == null) return data;
+            int lastRow = sheet.getLastRowNum();
+            int read = 0;
+            for (int i = startRow; i <= lastRow; i++) {
+                if (maxRows > 0 && read >= maxRows) break;
+                Row row = sheet.getRow(i);
+                if (row == null) {
+                    data.add(new ArrayList<>());
+                    read++;
+                    continue;
+                }
+                int colNum = row.getLastCellNum();
+                if (colNum < 0) colNum = 0;
+                List<String> rowData = new ArrayList<>();
+                for (int j = 0; j < colNum; j++) {
+                    Cell cell = row.getCell(j);
+                    rowData.add(ExcelUtil.getCellValue(cell));
+                }
+                data.add(rowData);
+                read++;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "读取 sheet 行失败: " + e.getMessage());
+        }
+        return data;
     }
 
     /**

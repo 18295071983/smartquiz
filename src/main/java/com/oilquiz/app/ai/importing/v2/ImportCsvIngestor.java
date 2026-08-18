@@ -208,12 +208,18 @@ public class ImportCsvIngestor {
                     if (!v.isEmpty()) cv.put(col, v);
             }
         }
-        // 数值列强修正
-        cv.put("difficulty", clampDifficulty(row.get("difficulty")));
+        // 数值列强修正：仅当 CSV 分片实际包含该列时才写入（源文件没有的字段不填默认值，
+        // 遵循"题库有啥导啥"；数据库对缺失列有默认值兜底）
+        if (row.containsKey("difficulty")) {
+            cv.put("difficulty", clampDifficulty(row.get("difficulty")));
+        }
         long now = System.currentTimeMillis();
         if (legal.contains("createdAt")) cv.put("createdAt", now);
         if (legal.contains("updatedAt")) cv.put("updatedAt", now);
-        if (legal.contains("correctAnswer")) cv.put("correctAnswer", correctAnswer);
+        // 仅当源文件实际包含 correctAnswer 列时才写（缺失留空，避免覆盖数据库已有默认）
+        if (legal.contains("correctAnswer") && row.containsKey("correctAnswer")) {
+            cv.put("correctAnswer", correctAnswer);
+        }
         return cv;
     }
 

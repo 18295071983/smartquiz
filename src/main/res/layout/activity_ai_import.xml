@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AI 导入题库页面布局：独立新布局，参考 activity_import.xml 风格 -->
+<!-- AI 导入题库页面：单列可滚动布局，精简卡片层级 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -23,456 +23,169 @@
             app:titleTextColor="@color/on_surface" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- 内容区：垂直分布，预览区占用剩余空间 -->
-    <LinearLayout
+    <!-- 内容区：可滚动，避免小屏溢出 -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-        <!-- 文件选择区 -->
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp">
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <LinearLayout
+            <!-- 文件选择区 -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnSelectFile"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:text="选择题库文件"
-                    app:backgroundTint="@color/primary"
-                    android:textColor="@color/on_primary"
-                    app:cornerRadius="12dp"
-                    android:textAllCaps="false" />
-
-                <TextView
-                    android:id="@+id/tvFileName"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="尚未选择文件"
-                    android:textSize="13sp"
-                    android:textColor="@color/on_surface_variant"
-                    android:singleLine="true"
-                    android:ellipsize="middle" />
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="12dp">
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnCancel"
-                        android:layout_width="0dp"
+                        android:id="@+id/btnSelectFile"
+                        android:layout_width="match_parent"
                         android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:text="取消"
-                        app:backgroundTint="@color/secondary"
-                        android:textColor="@color/on_secondary"
-                        app:cornerRadius="12dp"
-                        android:textAllCaps="false"
-                        android:layout_marginEnd="8dp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnStartImport"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:text="智能导入"
+                        android:text="选择题库文件"
                         app:backgroundTint="@color/primary"
                         android:textColor="@color/on_primary"
                         app:cornerRadius="12dp"
                         android:textAllCaps="false" />
+
+                    <TextView
+                        android:id="@+id/tvFileName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="尚未选择文件"
+                        android:textSize="13sp"
+                        android:textColor="@color/on_surface_variant"
+                        android:singleLine="true"
+                        android:ellipsize="middle" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCancel"
+                            android:layout_width="0dp"
+                            android:layout_height="48dp"
+                            android:layout_weight="1"
+                            android:text="取消"
+                            app:backgroundTint="@color/secondary"
+                            android:textColor="@color/on_secondary"
+                            app:cornerRadius="12dp"
+                            android:textAllCaps="false"
+                            android:layout_marginEnd="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnStartImport"
+                            android:layout_width="0dp"
+                            android:layout_height="48dp"
+                            android:layout_weight="1"
+                            android:text="智能导入"
+                            app:backgroundTint="@color/primary"
+                            android:textColor="@color/on_primary"
+                            app:cornerRadius="12dp"
+                            android:textAllCaps="false" />
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
 
-        <!-- 模型选择区 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp">
-
-            <LinearLayout
+            <!-- 模型选择区（紧凑单行） -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="12dp">
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:orientation="vertical">
 
-                    <TextView
-                        android:layout_width="0dp"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="AI 模型"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="12dp">
 
-                    <TextView
-                        android:id="@+id/tvModelInfo"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="自动选择"
-                        android:textSize="12sp"
-                        android:textColor="@color/primary"
-                        android:layout_marginEnd="8dp"
-                        android:singleLine="true"
-                        android:ellipsize="end"
-                        android:maxWidth="180dp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🤖 AI 模型"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_surface" />
 
+                        <TextView
+                            android:id="@+id/tvModelInfo"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="自动选择"
+                            android:textSize="12sp"
+                            android:textColor="@color/primary"
+                            android:layout_marginStart="8dp"
+                            android:layout_marginEnd="8dp"
+                            android:singleLine="true"
+                            android:ellipsize="end" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSwitchModel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="切换"
+                            android:textSize="12sp"
+                            app:backgroundTint="@color/secondary"
+                            android:textColor="@color/on_secondary"
+                            app:cornerRadius="8dp"
+                            android:textAllCaps="false"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp" />
+                    </LinearLayout>
+
+                    <!-- 在线模型配置入口（仅在线模式显示） -->
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSwitchModel"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/btnConfigOnline"
+                        android:layout_width="match_parent"
                         android:layout_height="36dp"
-                        android:text="切换"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginEnd="12dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="配置在线模型"
                         android:textSize="12sp"
-                        app:backgroundTint="@color/secondary"
-                        android:textColor="@color/on_secondary"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
                         app:cornerRadius="8dp"
                         android:textAllCaps="false"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp" />
+                        android:visibility="gone" />
                 </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                <!-- 在线模型配置入口（仅在线模式显示） -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnConfigOnline"
-                    android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="8dp"
-                    android:text="配置在线模型"
-                    android:textSize="12sp"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    app:cornerRadius="8dp"
-                    android:textAllCaps="false"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 阶段图标行：4 个阶段(PROFILE/FORMAT/INGEST/DONE)，未激活置灰(alpha) -->
-        <LinearLayout
-            android:id="@+id/stageIndicatorContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginBottom="12dp">
-
-            <TextView
-                android:id="@+id/stage1"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="📄"
-                android:textSize="22sp"
-                android:alpha="0.3" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="→"
-                android:textSize="16sp"
-                android:textColor="@color/on_surface_variant" />
-
-            <TextView
-                android:id="@+id/stage2"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="🔍"
-                android:textSize="22sp"
-                android:alpha="0.3" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="→"
-                android:textSize="16sp"
-                android:textColor="@color/on_surface_variant" />
-
-            <TextView
-                android:id="@+id/stage3"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="⚙️"
-                android:textSize="22sp"
-                android:alpha="0.3" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="→"
-                android:textSize="16sp"
-                android:textColor="@color/on_surface_variant" />
-
-            <TextView
-                android:id="@+id/stage4"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="✅"
-                android:textSize="22sp"
-                android:alpha="0.3" />
-        </LinearLayout>
-
-        <!-- 流式指标区：tok/s、token、已入库数、进度 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="12dp">
-
+            <!-- 阶段指示：4 步（检测→映射→解析→入库），emoji + 文字 -->
             <LinearLayout
-                android:id="@+id/metricsTokCell"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/tvTokPerSec"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0.0 t/s"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/primary" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="速度"
-                    android:textSize="11sp"
-                    android:textColor="@color/on_surface_variant" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/metricsTokenCell"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/tvTokenCount"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 token"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/on_surface" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="token"
-                    android:textSize="11sp"
-                    android:textColor="@color/on_surface_variant" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/metricsQuestionCell"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/tvQuestionCount"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 入库"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/success" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="已入库"
-                    android:textSize="11sp"
-                    android:textColor="@color/on_surface_variant" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center">
-
-                <TextView
-                    android:id="@+id/tvProgress"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0/0"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/secondary" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="进度"
-                    android:textSize="11sp"
-                    android:textColor="@color/on_surface_variant" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Agent 执行区：内嵌 AgentExecutionView，初始隐藏；加载动画复用其内置能力 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp">
-
-            <com.oilquiz.app.ai.chat.AgentExecutionView
-                android:id="@+id/agentView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 字段覆盖率区：v2 流程无覆盖率回调，隐藏 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/coverageCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="字段覆盖率"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
-
-                    <TextView
-                        android:id="@+id/tvCoveragePercent"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0%"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/primary" />
-                </LinearLayout>
-
-                <!-- 水平进度条；后续可替换为自定义环形图，id 不变 -->
-                <ProgressBar
-                    android:id="@+id/coverageBar"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressTint="@color/primary" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 预览区：v2 流程无抽取预览回调，隐藏 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/previewCard"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:layout_marginBottom="12dp"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:padding="12dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="抽取预览"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/on_surface"
-                    android:layout_marginBottom="8dp" />
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvPreview"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:scrollbars="vertical" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 结果统计区：初始隐藏 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/statsCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="12dp"
-            android:visibility="gone">
-
-            <LinearLayout
+                android:id="@+id/stageIndicatorContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:gravity="center"
+                android:layout_marginBottom="12dp">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -480,21 +193,189 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center">
-
                     <TextView
-                        android:id="@+id/tvSuccessCount"
+                        android:id="@+id/stage1"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0"
+                        android:text="📄"
                         android:textSize="20sp"
+                        android:alpha="0.3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="检测"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant"
+                        android:alpha="0.6" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="→"
+                    android:textSize="14sp"
+                    android:textColor="@color/on_surface_variant"
+                    android:layout_marginBottom="14dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/stage2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔍"
+                        android:textSize="20sp"
+                        android:alpha="0.3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="映射"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant"
+                        android:alpha="0.6" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="→"
+                    android:textSize="14sp"
+                    android:textColor="@color/on_surface_variant"
+                    android:layout_marginBottom="14dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/stage3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="⚙️"
+                        android:textSize="20sp"
+                        android:alpha="0.3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="解析"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant"
+                        android:alpha="0.6" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="→"
+                    android:textSize="14sp"
+                    android:textColor="@color/on_surface_variant"
+                    android:layout_marginBottom="14dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/stage4"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✅"
+                        android:textSize="20sp"
+                        android:alpha="0.3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="入库"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant"
+                        android:alpha="0.6" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 实时监控：耗时 / 步骤 / 推理速度 / Token -->
+            <LinearLayout
+                android:id="@+id/monitorBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/status_bar_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMonitorElapsed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="00:00"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/primary" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="耗时"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMonitorStage"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="等待"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/secondary"
+                        android:singleLine="true"
+                        android:ellipsize="end" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="步骤"
+                        android:textSize="10sp"
+                        android:textColor="@color/on_surface_variant" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMonitorSpeed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="-"
+                        android:textSize="15sp"
                         android:textStyle="bold"
                         android:textColor="@color/success" />
-
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="成功"
-                        android:textSize="12sp"
+                        android:text="推理 t/s"
+                        android:textSize="10sp"
                         android:textColor="@color/on_surface_variant" />
                 </LinearLayout>
 
@@ -504,74 +385,181 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center">
-
                     <TextView
-                        android:id="@+id/tvFailedCount"
+                        android:id="@+id/tvMonitorTokens"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/error" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="失败"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_variant" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-
-                    <TextView
-                        android:id="@+id/tvTotalCount"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="20sp"
+                        android:textSize="15sp"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface" />
-
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="总计"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_variant" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-
-                    <TextView
-                        android:id="@+id/tvDupCount"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/secondary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="重复"
-                        android:textSize="12sp"
+                        android:text="Token"
+                        android:textSize="10sp"
                         android:textColor="@color/on_surface_variant" />
                 </LinearLayout>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
-    </LinearLayout>
+            <!-- Agent 执行区：内嵌 AgentExecutionView，初始隐藏 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="12dp">
+
+                <com.oilquiz.app.ai.chat.AgentExecutionView
+                    android:id="@+id/agentView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 结果统计区：初始隐藏，导入中显示进度、完成后显示数字 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/statsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <!-- 进度行 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="进度"
+                            android:textSize="13sp"
+                            android:textColor="@color/on_surface_variant" />
+
+                        <TextView
+                            android:id="@+id/tvProgress"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="0/0"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/secondary"
+                            android:layout_marginStart="8dp"
+                            android:gravity="end" />
+                    </LinearLayout>
+
+                    <!-- 统计数字行 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView
+                                android:id="@+id/tvSuccessCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="20sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/success" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="成功"
+                                android:textSize="12sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView
+                                android:id="@+id/tvFailedCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="20sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/error" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="失败"
+                                android:textSize="12sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView
+                                android:id="@+id/tvTotalCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="20sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/on_surface" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="总计"
+                                android:textSize="12sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView
+                                android:id="@+id/tvDupCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="20sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/secondary" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="重复"
+                                android:textSize="12sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
 
 </LinearLayout>
