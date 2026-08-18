@@ -90,8 +90,11 @@ public class ComponentRegistry {
 
     /**
      * 按类型渲染组件 View。
-     * 未注册类型不返回 null：由通用兜底组件（DynamicCardView）渲染，
-     * 保证 Agent 动态创建的组件在对话界面可见可用。
+     * 渲染链路容错：
+     * 1. 类型未注册 → 通用兜底组件（DynamicCardView）
+     * 2. 已注册但数据不匹配（canRender=false）→ 同样尝试通用兜底组件
+     * 3. 渲染抛异常 → 返回 null（调用方显示降级占位）
+     * 保证 Agent 输出的组件尽可能可见可用，而不是"渲染失败"。
      *
      * @param context Android Context
      * @param data    组件数据
@@ -107,6 +110,11 @@ public class ComponentRegistry {
         try {
             if (component.canRender(data)) {
                 return component.createView(context, data);
+            }
+            // 已注册但数据不匹配：尝试通用兜底展示，避免直接"渲染失败"
+            if (component != dynamicFallback && dynamicFallback.canRender(data)) {
+                Log.w(TAG, "registered type data mismatch, using dynamic fallback: " + data.type);
+                return dynamicFallback.createView(context, data);
             }
         } catch (Exception e) {
             Log.e(TAG, "component render failed: " + data.type, e);
