@@ -68,8 +68,24 @@ public class AgentManagerActivity extends AppCompatActivity {
         }
     }
 
-    /** 占位 Fragment 基类：提供统一空状态视图 */
+    /** 占位 Fragment 基类：统一把子类内容包进 ScrollView，支持列表滚动 */
     public abstract static class BaseManageFragment extends Fragment {
+
+        /** 子类实现：返回实际管理内容 View（记忆/工具/工作区/统计） */
+        protected abstract View buildContent(LayoutInflater inflater, ViewGroup container);
+
+        @Override
+        public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
+                                 android.os.Bundle savedInstanceState) {
+            View content = buildContent(inflater, container);
+            android.widget.ScrollView scrollView = new android.widget.ScrollView(requireContext());
+            scrollView.setFillViewport(true);
+            scrollView.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            scrollView.addView(content);
+            return scrollView;
+        }
+
         protected TextView createPlaceholder(ViewGroup container, String text) {
             TextView tv = new TextView(requireContext());
             tv.setText(text);
@@ -91,8 +107,7 @@ public class AgentManagerActivity extends AppCompatActivity {
     /** 记忆管理 Tab */
     public static class MemoryManageFragment extends BaseManageFragment {
         @Override
-        public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
-                                 android.os.Bundle savedInstanceState) {
+        protected View buildContent(@NonNull LayoutInflater inflater, ViewGroup container) {
             return new com.oilquiz.app.ai.agent.ui.AgentMemoryView(requireContext()).build(container);
         }
     }
@@ -100,8 +115,7 @@ public class AgentManagerActivity extends AppCompatActivity {
     /** 动态工具管理 Tab */
     public static class ToolManageFragment extends BaseManageFragment {
         @Override
-        public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
-                                 android.os.Bundle savedInstanceState) {
+        protected View buildContent(@NonNull LayoutInflater inflater, ViewGroup container) {
             return new com.oilquiz.app.ai.agent.ui.AgentToolView(requireContext()).build(container);
         }
     }
@@ -109,8 +123,7 @@ public class AgentManagerActivity extends AppCompatActivity {
     /** 工作区管理 Tab */
     public static class WorkspaceManageFragment extends BaseManageFragment {
         @Override
-        public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
-                                 android.os.Bundle savedInstanceState) {
+        protected View buildContent(@NonNull LayoutInflater inflater, ViewGroup container) {
             return new com.oilquiz.app.ai.agent.ui.AgentWorkspaceView(requireContext()).build(container);
         }
     }
@@ -118,8 +131,7 @@ public class AgentManagerActivity extends AppCompatActivity {
     /** 统计管理 Tab */
     public static class StatsManageFragment extends BaseManageFragment {
         @Override
-        public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
-                                 android.os.Bundle savedInstanceState) {
+        protected View buildContent(@NonNull LayoutInflater inflater, ViewGroup container) {
             return new com.oilquiz.app.ai.agent.ui.AgentStatsView(requireContext()).build(container);
         }
     }
