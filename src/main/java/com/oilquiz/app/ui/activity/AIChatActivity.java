@@ -461,7 +461,8 @@ public class AIChatActivity extends BaseActivity {
                 @Override
                 public void onPreview(ChatMessage.Attachment attachment) {
                     if (attachment != null && attachment.url != null) {
-                        showImagePreview(attachment.url);
+                        // 传完整附件（含本地路径），预览优先用本地文件，避免 content:// 权限过期转圈
+                        showImagePreview(attachment.url, attachment.thumbnailPath, attachment.localFilePath);
                     }
                 }
 
@@ -6992,8 +6993,37 @@ public class AIChatActivity extends BaseActivity {
 
     /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——避免依赖系统图片查看器 */
     private void showImagePreview(String url) {
+        showImagePreview(url, null, null);
+    }
+
+    /**
+     * 图片预览：优先使用本地文件路径（thumbnailPath/localFilePath），
+     * Glide 加载 file:// 稳定；避免 content:// 权限过期导致一直转圈。
+     */
+    private void showImagePreview(String url, String thumbnailPath, String localFilePath) {
         try {
-            if (url == null || url.isEmpty()) return;
+            // 解析可用的本地路径（优先级：thumbnailPath → localFilePath → url）
+            String loadTarget = null;
+            if (thumbnailPath != null && !thumbnailPath.isEmpty()) {
+                java.io.File f = new java.io.File(thumbnailPath);
+                if (f.exists()) loadTarget = Uri.fromFile(f).toString();
+            }
+            if (loadTarget == null && localFilePath != null && !localFilePath.isEmpty()) {
+                java.io.File f = new java.io.File(localFilePath);
+                if (f.exists()) loadTarget = Uri.fromFile(f).toString();
+            }
+            if (loadTarget == null && url != null && !url.isEmpty()) {
+                // content:// 或 file:// 或 http(s):// 原样传 Glide；纯文件路径转 file://
+                if (url.startsWith("/")) {
+                    java.io.File f = new java.io.File(url);
+                    if (f.exists()) loadTarget = Uri.fromFile(f).toString();
+                    else loadTarget = url;
+                } else {
+                    loadTarget = url;
+                }
+            }
+            if (loadTarget == null) return;
+
             android.app.Dialog dialog = new android.app.Dialog(this);
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
 
@@ -7041,7 +7071,7 @@ public class AIChatActivity extends BaseActivity {
                             return false;
                         }
                     };
-            com.bumptech.glide.Glide.with(this).load(url).timeout(15000).listener(listener).into(photoView);
+            com.bumptech.glide.Glide.with(this).load(loadTarget).timeout(15000).listener(listener).into(photoView);
         } catch (Exception e) {
             android.util.Log.w("AIChatActivity", "Image preview failed: " + e.getMessage());
         }
