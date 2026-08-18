@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-08-16] 增强文生图工具（image_gen）
+用户要求"创建文生图工具，调研免费 API 并设计"——确认项目已有 image_gen（Pollinations.ai 免费无 key），本轮增强：
+1. **多模型**：flux（默认）/ flux-realism（写实）/ flux-anime（动漫）/ turbo（快速），白名单校验 + 别名归一化（real/photo→flux-realism 等）。
+2. **中文提示词增强**：中文 prompt 自动追加英文质量词（high quality, detailed, 8k, professional）——Flux 对英文理解更好；支持 style 风格参数（photorealistic/cartoon/watercolor 等）。
+3. **去重缓存**：同 prompt+model+尺寸+风格 复用已生成图片（ConcurrentHashMap）。
+4. **失败降级**：指定模型生成失败自动换 flux 重试一次；仍失败返回明确提示。
+5. **指南更新**：AIToolUsageGuide 增加 image_gen 典型调用示例（含 model/style 说明）。
+- 免费 API 调研结论：Pollinations.ai 是最优（完全免费、无 key、无限额度、Flux 质量高）；本地 SD 手机跑不动、HuggingFace 有配额限制。
+
 ## [2026-08-16] Agent 图片组件同样修复：BitmapFactory 优先解码本地文件
 用户询问"Agent 图片组件是否也有这个问题"——检查确认 ImageGridCardView / FileCardView / MarkdownRenderer 的图片预览同样用纯 Glide 加载，file:// 可能不回调转圈。统一修复：
 1. **ImageGridCardView**：loadWithFeedback（缩略图）+ showFullImage（全屏）——本地文件（file:// 或 / 开头）优先 BitmapFactory 采样解码，网络 URL 走 Glide（15s 超时+失败提示）。
