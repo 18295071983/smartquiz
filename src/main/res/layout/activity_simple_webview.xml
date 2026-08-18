@@ -22,8 +22,8 @@
         android:max="100"
         android:progress="0" />
 
-    <!-- WebView -->
-    <WebView
+    <!-- WebView（腾讯 X5 内核，不可用时 QbSdk 自动回退系统 WebView） -->
+    <com.tencent.smtt.sdk.WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
