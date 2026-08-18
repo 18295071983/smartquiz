@@ -102,6 +102,13 @@ android {
         exclude "META-INF/INDEX.LIST"
         exclude "META-INF/io.netty.versions.properties"
         exclude "mozilla/public-suffix-list.txt"
+        // flexmark 等库的重复 LICENSE 文件
+        exclude "META-INF/LICENSE-LGPL-3.txt"
+        exclude "META-INF/LICENSE-LGPL-2.1.txt"
+        exclude "META-INF/LICENSE-2.0.txt"
+        exclude "META-INF/AL2.0"
+        exclude "META-INF/LGPL2.1"
+        exclude "META-INF/LICENSE-W3C-TEST"
 
         pickFirst "**/libvulkan.so.*"
         pickFirst "**/libc++_shared.so"
@@ -309,6 +316,8 @@ dependencies {
     implementation "androidx.work:work-runtime:2.9.0"
     implementation "net.dongliu:apk-parser:2.6.10"
     implementation "org.jsoup:jsoup:1.17.2"
+    // Markdown → HTML（flexmark 成熟库：标题/列表/表格/代码块/转义/图片标准渲染）
+    implementation "com.vladsch.flexmark:flexmark-all:0.64.8"
     
     // PdfiumAndroid - 免费开源PDF渲染库 (Google Pdfium)
     implementation("com.github.barteksc:pdfium-android:1.9.0") {
