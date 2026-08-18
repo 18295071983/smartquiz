@@ -66,6 +66,8 @@ public class ComponentRegistry {
         register(new FileCardView());
         register(new CodeCardView());
         register(new ProgressCardView());
+        // HTML 富内容（Agent/Python 生成，WebView 渲染，支持 CSS/简单 JS）
+        register(new HtmlCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）
         register(new ToolCallCardView());
     }
