@@ -860,7 +860,7 @@ public class AIToolManager {
                     .category("file")
                     .build();
             case "file_generator":
-                return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件")
+                return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）")
                     .addParameter("action", "string", "操作类型: create(默认)/append/json/config/markdown/template/report/copy/delete", false, "create")
                     .addParameter("file_name", "string", "文件名/路径", true)
                     .addParameter("content", "string", "文件内容(create/append/markdown用)", false)
