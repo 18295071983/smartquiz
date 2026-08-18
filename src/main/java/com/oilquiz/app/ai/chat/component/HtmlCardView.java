@@ -184,23 +184,9 @@ public class HtmlCardView implements ChatComponent {
             }
         });
 
-        // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹基础样式适配浅色卡片背景
-        String lowerHtml = html.toLowerCase();
-        String fullHtml;
-        if (lowerHtml.contains("<!doctype") || lowerHtml.contains("<html")) {
-            fullHtml = html;
-        } else {
-            fullHtml = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
-                    + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
-                    + "<style>html,body{margin:0;padding:0;background:transparent;}"
-                    + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
-                    + "color:#333333;word-break:break-word;padding:2px;}"
-                    + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
-                    + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
-                    + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
-                    + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
-                    + "</style></head><body>" + html + "</body></html>";
-        }
+        // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹 viewport + 基础样式
+        // （缺 viewport 时 WebView/浏览器按 980px 默认宽度渲染，手机上会显示成"横屏"）
+        String fullHtml = wrapHtml(html);
         webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
 
         card.addView(webView, new LinearLayout.LayoutParams(
@@ -208,6 +194,28 @@ public class HtmlCardView implements ChatComponent {
         Log.i("HtmlCardView", "html component created (WebView), htmlLen=" + html.length()
                 + ", title=" + (title == null ? "" : title));
         return card;
+    }
+
+    /**
+     * 包裹完整 HTML：非完整文档时补 viewport（手机竖屏适配）+ 基础样式。
+     * 预览与全屏页（临时文件）共用，保证两处渲染一致。
+     */
+    private static String wrapHtml(String html) {
+        if (html == null) return "";
+        String lower = html.toLowerCase();
+        if (lower.contains("<!doctype") || lower.contains("<html")) {
+            return html;
+        }
+        return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
+                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
+                + "<style>html,body{margin:0;padding:0;background:transparent;}"
+                + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
+                + "color:#333333;word-break:break-word;padding:2px;}"
+                + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
+                + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
+                + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
+                + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
+                + "</style></head><body>" + html + "</body></html>";
     }
 
     /**
@@ -226,7 +234,8 @@ public class HtmlCardView implements ChatComponent {
                     "preview_" + System.currentTimeMillis() + ".html");
             java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
             try {
-                fos.write(html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                // 与预览一致的包裹逻辑：补 viewport，全屏页不再"横屏"
+                fos.write(wrapHtml(html).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             } finally {
                 fos.close();
             }
