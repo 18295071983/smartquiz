@@ -110,8 +110,8 @@ public class SimpleWebViewActivity extends BaseActivity {
                     return true;
                 }
                 if (url != null && url.startsWith("file://")) {
-                    // 本地文件链接：html 由 WebView 内部渲染；其余类型用渲染引擎
-                    // （Markdown/Text/CSV/PDF/Word/Excel/PPT 等，渲染样式显示在当前页面）
+                    // 本地文件链接：html 由 WebView 内部渲染；PDF 用 pdfium 引擎；
+                    // 其余类型交给系统 Intent（ACTION_VIEW）由系统/已装应用打开
                     try {
                         String path = android.net.Uri.parse(url).getPath();
                         if (path != null) {
@@ -121,48 +121,51 @@ public class SimpleWebViewActivity extends BaseActivity {
                             }
                             java.io.File f = new java.io.File(path);
                             if (f.exists() && f.isFile()) {
-                                com.oilquiz.app.util.render.FileRenderEngine engine =
-                                        com.oilquiz.app.util.PreviewRenderBridge.RenderEngineFactory
-                                                .getInstance().getEngineForFile(f);
-                                if (engine != null) {
-                                    Log.i(TAG, "文件链接 → 渲染引擎: " + engine.getEngineName() + " : " + path);
-                                    // 子线程渲染（POI/PDF/位图解码较重，避免主线程 ANR），回调切回主线程更新 WebView
-                                    final String fPath = path;
-                                    new Thread(() -> {
-                                        try {
-                                            engine.render(f, new com.oilquiz.app.util.render.FileRenderEngine.RenderCallback() {
-                                                @Override
-                                                public void onSuccess(Object renderedContent) {
-                                                    String html = extractHtml(renderedContent);
-                                                    runOnUiThread(() -> {
-                                                        if (html != null) {
-                                                            String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
-                                                                    .getInstance(SimpleWebViewActivity.this).getWorkspacePath() + "/";
-                                                            webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
-                                                        } else {
-                                                            openGenericPreview(fPath);
-                                                        }
-                                                    });
-                                                }
+                                if (lower.endsWith(".pdf")) {
+                                    // PDF：pdfium 渲染引擎（子线程，防 ANR）
+                                    com.oilquiz.app.util.render.FileRenderEngine engine =
+                                            com.oilquiz.app.util.PreviewRenderBridge.RenderEngineFactory
+                                                    .getInstance().getEngineForFile(f);
+                                    if (engine != null) {
+                                        Log.i(TAG, "文件链接 → PDF 渲染引擎: " + path);
+                                        final String fPath = path;
+                                        new Thread(() -> {
+                                            try {
+                                                engine.render(f, new com.oilquiz.app.util.render.FileRenderEngine.RenderCallback() {
+                                                    @Override
+                                                    public void onSuccess(Object renderedContent) {
+                                                        String html = extractHtml(renderedContent);
+                                                        runOnUiThread(() -> {
+                                                            if (html != null) {
+                                                                String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                                                        .getInstance(SimpleWebViewActivity.this).getWorkspacePath() + "/";
+                                                                webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
+                                                            } else {
+                                                                openWithSystem(fPath);
+                                                            }
+                                                        });
+                                                    }
 
-                                                @Override
-                                                public void onError(String message) {
-                                                    Log.w(TAG, "渲染失败，回退通用预览: " + message);
-                                                    runOnUiThread(() -> openGenericPreview(fPath));
-                                                }
+                                                    @Override
+                                                    public void onError(String message) {
+                                                        Log.w(TAG, "PDF 渲染失败，系统打开: " + message);
+                                                        runOnUiThread(() -> openWithSystem(fPath));
+                                                    }
 
-                                                @Override
-                                                public void onProgress(int progress) {
-                                                }
-                                            });
-                                        } catch (Throwable t) {
-                                            Log.w(TAG, "渲染异常，回退通用预览: " + t.getMessage());
-                                            runOnUiThread(() -> openGenericPreview(fPath));
-                                        }
-                                    }).start();
-                                    return true;
+                                                    @Override
+                                                    public void onProgress(int progress) {
+                                                    }
+                                                });
+                                            } catch (Throwable t) {
+                                                Log.w(TAG, "PDF 渲染异常，系统打开: " + t.getMessage());
+                                                runOnUiThread(() -> openWithSystem(fPath));
+                                            }
+                                        }).start();
+                                        return true;
+                                    }
                                 }
-                                openGenericPreview(path);
+                                // 其他类型（md/txt/json/word/excel/ppt/图片等）：系统 Intent 打开
+                                openWithSystem(path);
                                 return true;
                             }
                         }
@@ -200,6 +203,38 @@ public class SimpleWebViewActivity extends BaseActivity {
                     startActivity(intent);
                 } catch (Exception e) {
                     Log.w(TAG, "通用预览打开失败: " + e.getMessage());
+                }
+            }
+
+            /** 系统 Intent 打开文件（FileProvider + ACTION_VIEW），由系统/已装应用处理 */
+            private void openWithSystem(String path) {
+                try {
+                    java.io.File f = new java.io.File(path);
+                    android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                            SimpleWebViewActivity.this, "com.oilquiz.app.fileprovider", f);
+                    String mime = getMimeType(f.getName());
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                    intent.setDataAndType(uri, mime != null ? mime : "*/*");
+                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(intent);
+                    Log.i(TAG, "系统打开文件: " + path);
+                } catch (Exception e) {
+                    Log.w(TAG, "系统打开失败: " + e.getMessage());
+                    android.widget.Toast.makeText(SimpleWebViewActivity.this,
+                            "无法打开该文件（系统无对应应用）", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            private String getMimeType(String fileName) {
+                try {
+                    String ext = "";
+                    int dot = fileName.lastIndexOf('.');
+                    if (dot > 0) ext = fileName.substring(dot + 1).toLowerCase();
+                    String mime = android.webkit.MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(ext);
+                    return mime;
+                } catch (Exception e) {
+                    return null;
                 }
             }
 
