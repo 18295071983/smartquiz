@@ -656,7 +656,13 @@ public class AgentLoopEngine {
         sb.append("【回答要求】\n");
         sb.append("- 用中文回答，简洁准确\n");
         sb.append("- 基于工具返回的结果给出结论，不要说'请稍等'之类的话\n");
-        sb.append("- 不要描述'我将调用工具'，直接调用工具后基于结果回答\n");
+        sb.append("- 不要描述'我将调用工具'，直接调用工具后基于结果回答\n\n");
+
+        sb.append("【UI 组件输出】\n");
+        sb.append("有结构的信息（列表/表格/指标/信息卡/步骤/待办/代码等）用组件标记输出，界面自动渲染成卡片，比纯文本更美观：\n");
+        sb.append("  ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
+        sb.append("可用类型：info_card(信息卡)/table_card(表格)/list_card(列表)/metric_card(指标)/alert_card(提示)/steps_card(步骤)/todo_card(待办)/chart(图表)/code_card(代码)/note_card(备注)/html(富内容)；也可用任意自定义类型名（通用卡片展示）。\n");
+        sb.append("格式：```component:类型\\n{JSON}\\n```，JSON 用双引号，一个标记块一个组件；无法保证 JSON 合法时用普通文本即可。\n");
 
         return sb.toString();
     }
