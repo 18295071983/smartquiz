@@ -39,27 +39,6 @@ public class SmartQuizApplication extends Application {
         return currentActivity;
     }
 
-    /** 异步初始化腾讯 X5 内核（后台线程）；失败/无内核时 QbSdk 自动回退系统 WebView */
-    private void initX5EnvironmentAsync() {
-        try {
-            com.tencent.smtt.sdk.QbSdk.setDownloadWithoutWifi(true);
-            com.tencent.smtt.sdk.QbSdk.initX5Environment(this, new com.tencent.smtt.sdk.QbSdk.PreInitCallback() {
-                @Override
-                public void onViewInitFinished(boolean success) {
-                    android.util.Log.i(TAG, "X5 内核初始化完成: success=" + success
-                            + ", isTbsCoreInited=" + com.tencent.smtt.sdk.QbSdk.isTbsCoreInited());
-                }
-
-                @Override
-                public void onCoreInitFinished() {
-                    android.util.Log.i(TAG, "X5 内核核心加载完成");
-                }
-            });
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "X5 初始化异常(自动回退系统 WebView): " + t.getMessage());
-        }
-    }
-
     @Override
     public void onCreate() {
         applyThemeMode();
@@ -89,14 +68,6 @@ public class SmartQuizApplication extends Application {
             }
         } catch (Exception e) {
             com.oilquiz.app.util.AILogger.e(TAG, "Chaquopy Python 初始化失败: " + e.getMessage(), e);
-        }
-
-        // 异步初始化腾讯 X5 内核（QbSdk，后台线程，不阻塞启动；
-        // 初始化失败/无内核时 QbSdk 自动回退系统 WebView）
-        try {
-            initX5EnvironmentAsync();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "X5 初始化调用失败(自动回退系统 WebView): " + t.getMessage());
         }
 
         // 在后台线程初始化所有耗时组件，避免主线程阻塞
