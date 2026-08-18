@@ -201,7 +201,7 @@ public class OnlineAgentEngine {
             if (memorySummary != null && !memorySummary.isEmpty()) {
                 JsonObject memoryMsg = new JsonObject();
                 memoryMsg.addProperty("role", "system");
-                memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用（如需新增/更新，用 memory 工具保存）：\n" + memorySummary);
+                memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用。仅当用户明确要求记住或主动告知新的个人信息/偏好时，才用 memory 工具 save 新增或更新（不要擅自把普通聊天内容存为记忆）：\n" + memorySummary);
                 messageHistory.add(1, memoryMsg);
                 AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(activity).size() + " entries");
             }

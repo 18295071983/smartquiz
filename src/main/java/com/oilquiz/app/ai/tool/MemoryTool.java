@@ -43,7 +43,7 @@ public class MemoryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "长期记忆：跨会话保存/读取/删除用户信息。用户明确表达偏好、重要事实时主动 save；需要回忆历史信息时 recall；用户要求删除某条记忆时 delete。action: save|recall|delete|list|clear";
+        return "长期记忆：跨会话保存/读取/删除用户信息。仅在用户明确要求记住、或主动告知个人信息/偏好时 save（不要擅自把普通聊天内容存为记忆）；需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
     }
 
     @Override
@@ -72,12 +72,15 @@ public class MemoryTool implements AITool {
                     if (key.trim().isEmpty() || value.trim().isEmpty()) {
                         return AIToolResult.fail("save 需要 key 和 value 参数");
                     }
+                    boolean replaced = store.get(key.trim()) != null;
                     boolean ok = store.save(key.trim(), value.trim());
                     Map<String, Object> result = new HashMap<>();
                     result.put("status", ok ? "saved" : "failed");
                     result.put("key", key.trim());
+                    result.put("replaced", replaced);
                     result.put("total", store.size());
-                    result.put("message", "已保存记忆: " + key.trim());
+                    result.put("message", !ok ? "保存失败"
+                            : (replaced ? "已更新记忆: " + key.trim() : "已保存记忆: " + key.trim()));
                     return AIToolResult.success(result);
                 }
                 case "recall": {
