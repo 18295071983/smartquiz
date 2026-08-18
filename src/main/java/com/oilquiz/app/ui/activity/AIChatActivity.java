@@ -3167,7 +3167,10 @@ public class AIChatActivity extends BaseActivity {
         com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
         String message = inputMessage.getText().toString().trim();
 
-        List<ChatMessage.Attachment> savedAttachments = new ArrayList<>(currentAttachments);
+        // 统一从 inputManager 取附件（图库/拍照/录音都经它添加，避免两套列表不一致导致附件丢失）
+        List<ChatMessage.Attachment> savedAttachments = inputManager != null
+                ? inputManager.getCurrentAttachments()
+                : new ArrayList<>(currentAttachments);
 
         // 图片附件走 OCR 工具 + 在线模型分析，不依赖本地模型加载状态
         boolean hasImageAttachment = false;
@@ -3191,6 +3194,7 @@ public class AIChatActivity extends BaseActivity {
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
             scrollToBottom(true);
             saveHistoryAsync();
+            if (inputManager != null) inputManager.clearAttachments();
             currentAttachments.clear();
             resetAttachmentAdapter();
         } else {
@@ -3741,7 +3745,7 @@ public class AIChatActivity extends BaseActivity {
 
             final String userText = originalMessage == null || originalMessage.trim().isEmpty()
                     ? "请描述这张图片的内容" : originalMessage;
-            addUserMessage(userText);
+            // 用户消息已由 sendMessage 添加（含附件），此处不再重复添加，直接创建 AI 回复消息
 
             // 创建流式 AI 消息
             final String msgId = java.util.UUID.randomUUID().toString();
@@ -3863,7 +3867,7 @@ public class AIChatActivity extends BaseActivity {
 
             final String userText = originalMessage == null || originalMessage.trim().isEmpty()
                     ? "请描述这张图片的内容" : originalMessage;
-            addUserMessage(userText);
+            // 用户消息已由 sendMessage 添加（含附件），此处不再重复添加，直接创建 AI 回复消息
 
             final String msgId = java.util.UUID.randomUUID().toString();
             ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
@@ -7729,7 +7733,12 @@ public class AIChatActivity extends BaseActivity {
             attachment.localFilePath = localPath;
             attachment.thumbnailPath = localPath;
 
-            currentAttachments.add(attachment);
+            // 统一走 inputManager 添加（sendMessage 从 inputManager 取附件）
+            if (inputManager != null) {
+                inputManager.addAttachment(attachment);
+            } else {
+                currentAttachments.add(attachment);
+            }
             resetAttachmentAdapter();
             showToast("照片已添加");
 
@@ -7828,7 +7837,12 @@ public class AIChatActivity extends BaseActivity {
                     audioUri.toString(),
                     "语音消息"
                 );
-                currentAttachments.add(attachment);
+                // 统一走 inputManager 添加
+                if (inputManager != null) {
+                    inputManager.addAttachment(attachment);
+                } else {
+                    currentAttachments.add(attachment);
+                }
                 
                 // 刷新附件列表显示
                 refreshAttachmentsUI();
