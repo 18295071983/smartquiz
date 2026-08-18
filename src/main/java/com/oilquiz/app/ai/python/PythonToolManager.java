@@ -27,6 +27,46 @@ public class PythonToolManager {
     
     private PythonToolManager(Context context) {
         this.context = context.getApplicationContext();
+        // 跟踪当前前台 Activity：供 Python UI 动作（show_dialog 弹出对话框）使用
+        try {
+            if (this.context instanceof android.app.Application) {
+                ((android.app.Application) this.context)
+                        .registerActivityLifecycleCallbacks(activityCallbacks);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "注册 Activity 生命周期回调失败: " + t.getMessage());
+        }
+    }
+
+    /** 当前前台 Activity（弱跟踪：pause/destroy 后清空） */
+    private volatile android.app.Activity currentActivity;
+
+    private final android.app.Application.ActivityLifecycleCallbacks activityCallbacks =
+            new android.app.Application.ActivityLifecycleCallbacks() {
+                @Override public void onActivityResumed(android.app.Activity activity) {
+                    currentActivity = activity;
+                }
+
+                @Override public void onActivityPaused(android.app.Activity activity) {
+                    if (currentActivity == activity) currentActivity = null;
+                }
+
+                @Override public void onActivityDestroyed(android.app.Activity activity) {
+                    if (currentActivity == activity) currentActivity = null;
+                }
+
+                @Override public void onActivityCreated(android.app.Activity activity, android.os.Bundle b) {}
+                @Override public void onActivityStarted(android.app.Activity activity) {}
+                @Override public void onActivityStopped(android.app.Activity activity) {}
+                @Override public void onActivitySaveInstanceState(android.app.Activity activity, android.os.Bundle b) {}
+            };
+
+    /** 当前可用的前台 Activity（无前台 Activity 返回 null，调用方降级） */
+    public android.app.Activity getCurrentActivity() {
+        android.app.Activity a = currentActivity;
+        if (a == null || a.isFinishing()) return null;
+        if (android.os.Build.VERSION.SDK_INT >= 17 && a.isDestroyed()) return null;
+        return a;
     }
     
     public static PythonToolManager getInstance(Context context) {
@@ -594,6 +634,7 @@ public class PythonToolManager {
             Map<String, Object> reply = new HashMap<>();
             try {
                 String type = "", message = "", title = "", duration = "short", eventType = "";
+                String dialogType = "info";
                 int current = 0, total = 0;
                 if (action != null) {
                     Map<PyObject, PyObject> m = action.asMap();
@@ -606,6 +647,7 @@ public class PythonToolManager {
                             case "title": title = v; break;
                             case "duration": duration = v; break;
                             case "event_type": eventType = v; break;
+                            case "dialog_type": dialogType = v; break;
                             case "current": current = parseInt(v); break;
                             case "total": total = parseInt(v); break;
                             default: break;
@@ -617,9 +659,8 @@ public class PythonToolManager {
                         showToast(message, "long".equalsIgnoreCase(duration));
                         break;
                     case "dialog":
-                        // 无 Activity 上下文，对话框降级为 Toast 提示（标题+内容）
-                        showToast((title != null && !title.isEmpty() ? title + "：" : "") + message, true);
-                        Log.i(TAG, "[Python dialog] " + title + " - " + message);
+                        // 用当前前台 Activity 弹真实对话框（info/confirm/warning 三种按钮形态）
+                        showDialog(title, message, dialogType);
                         break;
                     case "progress":
                         Log.i(TAG, "[Python progress] " + current + "/" + total + " " + message);
@@ -651,6 +692,49 @@ public class PythonToolManager {
                             longDuration ? android.widget.Toast.LENGTH_LONG : android.widget.Toast.LENGTH_SHORT)
                             .show();
                 } catch (Throwable ignored) {
+                }
+            });
+        }
+
+        /** 弹出真实对话框：info=确定；confirm=确定/取消；warning=知道了（红色警告）。无前台 Activity 时降级 Toast */
+        private void showDialog(String title, String message, String dialogType) {
+            String dType = dialogType != null ? dialogType : "info";
+            String toastText = (title != null && !title.isEmpty() ? title + "：" : "") + message;
+            android.app.Activity act = getCurrentActivity();
+            if (act == null) {
+                Log.w(TAG, "无前台 Activity，对话框降级为 Toast: " + toastText);
+                showToast(toastText, true);
+                return;
+            }
+            final android.app.Activity fAct = act;
+            android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+            main.post(() -> {
+                try {
+                    if (fAct.isFinishing() || fAct.isDestroyed()) {
+                        showToast(toastText, true);
+                        return;
+                    }
+                    android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                    if (title != null && !title.isEmpty()) b.setTitle(title);
+                    if (message != null && !message.isEmpty()) b.setMessage(message);
+                    switch (dType) {
+                        case "confirm":
+                            b.setPositiveButton("确定", null);
+                            b.setNegativeButton("取消", null);
+                            break;
+                        case "warning":
+                            b.setPositiveButton("知道了", null);
+                            break;
+                        default:
+                            b.setPositiveButton("确定", null);
+                            break;
+                    }
+                    b.setCancelable(true);
+                    b.show();
+                    Log.i(TAG, "[Python dialog] shown: " + dType + " - " + title);
+                } catch (Throwable t) {
+                    Log.w(TAG, "弹出对话框失败，降级 Toast: " + t.getMessage());
+                    showToast(toastText, true);
                 }
             });
         }
