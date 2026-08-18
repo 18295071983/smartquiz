@@ -39,6 +39,11 @@ public class SmartQuizApplication extends Application {
         return currentActivity;
     }
 
+    /** 全局应用 Context（pdfium 等需要 Context 的库使用） */
+    public static android.content.Context getAppContext() {
+        return instance;
+    }
+
     @Override
     public void onCreate() {
         applyThemeMode();

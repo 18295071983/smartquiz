@@ -1,17 +1,20 @@
 package com.oilquiz.app.util.render;
 
 import android.graphics.Bitmap;
-import android.graphics.pdf.PdfRenderer;
-import android.os.ParcelFileDescriptor;
 import android.util.Base64;
 import android.util.Log;
 
+import com.oilquiz.app.util.preview.PdfiumPreviewManager;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * PDF 渲染引擎（基于 Google Pdfium 核心库，经 PdfiumPreviewManager 渲染）。
+ * 每页渲染为 JPEG（quality 85），输出单 HTML 预览页。
+ */
 public class PDFRenderEngine implements FileRenderEngine {
     private static final String TAG = "PDFRenderEngine";
     private static final String[] SUPPORTED_EXTENSIONS = {"pdf"};
@@ -30,27 +33,39 @@ public class PDFRenderEngine implements FileRenderEngine {
     }
 
     @Override
+    public String getEngineName() {
+        return "PDF渲染引擎";
+    }
+
+    @Override
+    public String getFileTypeDescription(File file) {
+        return "PDF文档";
+    }
+
+    @Override
     public void render(File file, RenderCallback callback) {
         try {
             Log.d(TAG, "Rendering PDF file: " + file.getName());
-            
-            ParcelFileDescriptor fileDescriptor = null;
-            PdfRenderer pdfRenderer = null;
-            
+
+            PdfiumPreviewManager pdfManager = new PdfiumPreviewManager(
+                    com.oilquiz.app.SmartQuizApplication.getAppContext());
+
             try {
-                fileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
-                pdfRenderer = new PdfRenderer(fileDescriptor);
-                
-                int pageCount = pdfRenderer.getPageCount();
+                if (!pdfManager.openDocument(file.getAbsolutePath())) {
+                    callback.onSuccess(generateErrorPdfHtml(file, "PDF 打开失败（可能已损坏或加密）"));
+                    return;
+                }
+
+                int pageCount = pdfManager.getPageCount();
                 Log.d(TAG, "PDF总页数: " + pageCount);
-                
+
                 if (pageCount > 0) {
                     // 限制页数，防止内存溢出
                     int renderPageCount = Math.min(pageCount, MAX_PAGES);
                     if (pageCount > MAX_PAGES) {
                         Log.w(TAG, "PDF页数过多(" + pageCount + ")，只渲染前" + MAX_PAGES + "页");
                     }
-                    
+
                     // 生成HTML内容
                     StringBuilder htmlContent = new StringBuilder();
                     htmlContent.append("<!DOCTYPE html>");
@@ -72,13 +87,10 @@ public class PDFRenderEngine implements FileRenderEngine {
                     htmlContent.append(".page-content { padding: 12px; text-align: center; background: #fff; }");
                     htmlContent.append(".page-content img { max-width: 100%; height: auto; box-shadow: 0 1px 6px rgba(0,0,0,0.08); }");
                     htmlContent.append(".warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 8px; margin-bottom: 12px; text-align: center; font-size: 13px; }");
-                    htmlContent.append(".loading { text-align: center; padding: 40px; color: #64748b; }");
-                    htmlContent.append(".loading-spinner { display: inline-block; width: 36px; height: 36px; border: 4px solid #e2e8f0; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 12px; }");
-                    htmlContent.append("@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }");
                     htmlContent.append("</style>");
                     htmlContent.append("</head>");
                     htmlContent.append("<body>");
-                    
+
                     // 头部信息
                     htmlContent.append("<div class='container'>");
                     htmlContent.append("<div class='header'>");
@@ -91,93 +103,57 @@ public class PDFRenderEngine implements FileRenderEngine {
                     }
                     htmlContent.append("</div>");
                     htmlContent.append("</div>");
-                    
-                    // 渲染每一页
+
+                    // 渲染每一页（Pdfium：按宽度自适应保持宽高比）
                     for (int i = 0; i < renderPageCount; i++) {
-                        // 发送进度
                         int progress = (i * 90) / renderPageCount;
                         callback.onProgress(progress);
-                        
-                        // 获取当前页
-                        PdfRenderer.Page page = pdfRenderer.openPage(i);
-                        
-                        // 计算缩放比例，使宽度为RENDER_WIDTH
-                        int width = page.getWidth();
-                        int height = page.getHeight();
-                        float scale = (float) RENDER_WIDTH / width;
-                        int renderHeight = (int) (height * scale);
-                        
-                        // 创建Bitmap用于渲染
-                        Bitmap bitmap = Bitmap.createBitmap(RENDER_WIDTH, renderHeight, Bitmap.Config.ARGB_8888);
-                        
-                        // 渲染页面到Bitmap（使用缩放）
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
-                        
-                        // 将Bitmap转换为Base64
+
+                        Bitmap bitmap = pdfManager.renderPage(i, RENDER_WIDTH, 5000);
+                        if (bitmap == null) {
+                            htmlContent.append("<div class='page-container'><div class='page-content'>")
+                                    .append("⚠️ 第 ").append(i + 1).append(" 页渲染失败</div></div>");
+                            continue;
+                        }
+
                         String base64Image = bitmapToBase64(bitmap);
-                        
-                        // 添加页面到HTML
+                        bitmap.recycle();
+
                         htmlContent.append("<div class='page-container'>");
                         htmlContent.append("<div class='page-header'>");
                         htmlContent.append("<span>第 ").append(i + 1).append(" 页</span>");
-                        htmlContent.append("<span>").append(width).append(" × ").append(height).append("</span>");
                         htmlContent.append("</div>");
                         htmlContent.append("<div class='page-content'>");
                         htmlContent.append("<img src='data:image/jpeg;base64,").append(base64Image).append("' alt='第").append(i + 1).append("页'>");
                         htmlContent.append("</div>");
                         htmlContent.append("</div>");
-                        
-                        // 回收Bitmap
-                        bitmap.recycle();
-                        
-                        // 关闭页面
-                        page.close();
                     }
-                    
-                    // 如果页数过多，添加提示
+
                     if (pageCount > MAX_PAGES) {
                         htmlContent.append("<div class='warning'>");
                         htmlContent.append("⚠️ PDF文件页数过多，仅显示前 ").append(MAX_PAGES).append(" 页。请使用专业PDF阅读器查看完整内容。");
                         htmlContent.append("</div>");
                     }
-                    
+
                     htmlContent.append("</div>");
                     htmlContent.append("</body>");
                     htmlContent.append("</html>");
-                    
-                    // 关闭渲染器
-                    pdfRenderer.close();
-                    fileDescriptor.close();
-                    
-                    // 发送进度
+
                     callback.onProgress(100);
-                    
-                    // 返回HTML内容
                     callback.onSuccess(htmlContent.toString());
-                    
                     Log.d(TAG, "PDF渲染完成，共 " + renderPageCount + " 页");
                 } else {
                     Log.w(TAG, "PDF文件无页面: " + file.getName());
                     callback.onSuccess(generateEmptyPdfHtml(file, "PDF文件无页面"));
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 Log.e(TAG, "渲染PDF文件失败: " + e.getMessage(), e);
                 callback.onSuccess(generateErrorPdfHtml(file, "渲染PDF文件失败: " + e.getMessage()));
             } finally {
-                // 确保资源被释放
-                if (pdfRenderer != null) {
-                    try {
-                        pdfRenderer.close();
-                    } catch (Exception e) {
-                        Log.w(TAG, "关闭PdfRenderer失败: " + e.getMessage());
-                    }
-                }
-                if (fileDescriptor != null) {
-                    try {
-                        fileDescriptor.close();
-                    } catch (Exception e) {
-                        Log.w(TAG, "关闭FileDescriptor失败: " + e.getMessage());
-                    }
+                try {
+                    pdfManager.closeDocument();
+                } catch (Exception e) {
+                    Log.w(TAG, "关闭 pdfium 文档失败: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
@@ -185,13 +161,12 @@ public class PDFRenderEngine implements FileRenderEngine {
             callback.onSuccess(generateErrorPdfHtml(file, "渲染PDF文件失败: " + e.getMessage()));
         }
     }
-    
+
     /**
-     * 将Bitmap转换为Base64字符串
+     * 将Bitmap转换为Base64字符串（JPEG quality 85，体积比 PNG 小一个量级）
      */
     private String bitmapToBase64(Bitmap bitmap) {
         try {
-            // JPEG quality 85：体积比 PNG 小一个量级（50 页 PNG-Base64 可达百 MB，易 OOM）
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream);
             byte[] byteArray = outputStream.toByteArray();
@@ -202,7 +177,7 @@ public class PDFRenderEngine implements FileRenderEngine {
             return "";
         }
     }
-    
+
     /**
      * 格式化文件大小
      */
@@ -212,14 +187,14 @@ public class PDFRenderEngine implements FileRenderEngine {
         if (size < 1024 * 1024 * 1024) return String.format("%.1f MB", size / (1024.0 * 1024.0));
         return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
-    
+
     /**
      * 生成空PDF的HTML
      */
     private String generateEmptyPdfHtml(File file, String message) {
         return generateErrorPdfHtml(file, message);
     }
-    
+
     /**
      * 生成错误PDF的HTML
      */
@@ -231,13 +206,13 @@ public class PDFRenderEngine implements FileRenderEngine {
             "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
             "<title>PDF预览 - " + file.getName() + "</title>" +
             "<style>" +
-            "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #ff6b6b, #ee5a24); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }" +
-            ".container { max-width: 500px; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }" +
-            ".icon { font-size: 80px; margin-bottom: 20px; }" +
-            "h1 { color: #e74c3c; font-size: 24px; margin-bottom: 15px; }" +
-            ".info { background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: left; }" +
-            ".info p { margin: 8px 0; color: #555; font-size: 14px; }" +
-            ".error { color: #e74c3c; margin-top: 15px; padding: 12px; background: #fdf2f2; border-radius: 6px; font-size: 13px; }" +
+            "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }" +
+            ".container { max-width: 500px; background: white; padding: 32px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); text-align: center; }" +
+            ".icon { font-size: 64px; margin-bottom: 16px; }" +
+            "h1 { color: #dc2626; font-size: 20px; margin-bottom: 12px; }" +
+            ".info { background: #f8fafc; padding: 12px; border-radius: 8px; margin: 16px 0; text-align: left; }" +
+            ".info p { margin: 6px 0; color: #475569; font-size: 13px; }" +
+            ".error { color: #dc2626; margin-top: 12px; padding: 10px; background: #fef2f2; border-radius: 6px; font-size: 13px; }" +
             "</style>" +
             "</head>" +
             "<body>" +
@@ -251,19 +226,9 @@ public class PDFRenderEngine implements FileRenderEngine {
             "<div class='error'>" +
             "<p><strong>错误信息:</strong> " + errorMessage + "</p>" +
             "</div>" +
-            "<p style='margin-top: 20px; color: #7f8c8d; font-size: 14px;'>请尝试使用其他PDF阅读器打开</p>" +
+            "<p style='margin-top: 16px; color: #64748b; font-size: 13px;'>请尝试使用其他PDF阅读器打开</p>" +
             "</div>" +
             "</body>" +
             "</html>";
-    }
-
-    @Override
-    public String getEngineName() {
-        return "PDF渲染引擎";
-    }
-
-    @Override
-    public String getFileTypeDescription(File file) {
-        return "PDF文档";
     }
 }
