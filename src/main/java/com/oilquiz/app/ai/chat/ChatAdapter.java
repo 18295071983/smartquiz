@@ -1272,7 +1272,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 数据损坏（如旧会话反序列化失败）时静默跳过，不显示"渲染失败"占位
             if (data == null || data.props == null) continue;
             View view = ComponentRegistry.getInstance().render(ctx, data);
-            if (view == null) continue;
+            if (view == null) {
+                // 渲染失败降级占位（不显示组件源码）
+                TextView tv = new TextView(ctx);
+                tv.setText("⚠ 组件 " + data.type + " 渲染失败");
+                tv.setTextSize(12);
+                tv.setTextColor(0xFF888888);
+                LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                flp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
+                holder.componentContainer.addView(tv, flp);
+                first = false;
+                rendered++;
+                continue;
+            }
             // 组件宽度撑满容器，组件之间留间距（首个组件与上方文本留间距）
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -1322,7 +1335,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (seg.isComponent) {
                     if (seg.component == null || seg.component.props == null) continue;
                     View view = ComponentRegistry.getInstance().render(ctx, seg.component);
-                    if (view == null) continue;
+                    if (view == null) {
+                        // 渲染失败降级占位（不显示组件源码）
+                        TextView tv = createSegmentTextView(ctx, holder.messageText);
+                        tv.setText("⚠ 组件 " + seg.component.type + " 渲染失败");
+                        tv.setTextColor(0xFF888888);
+                        holder.contentHost.addView(tv);
+                        continue;
+                    }
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                     lp.topMargin = dpToPx(8, ctx);
