@@ -16,6 +16,7 @@ import java.util.Map;
  * 动作：
  * - save: 保存一条记忆（key + value）
  * - recall: 读取一条记忆（key）
+ * - delete: 删除一条记忆（key）
  * - list: 列出所有记忆
  * - clear: 清空所有记忆（需确认）
  *
@@ -42,14 +43,14 @@ public class MemoryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "长期记忆：跨会话保存/读取用户信息。用户明确表达偏好、重要事实时主动 save；需要回忆历史信息时 recall。action: save|recall|list|clear";
+        return "长期记忆：跨会话保存/读取/删除用户信息。用户明确表达偏好、重要事实时主动 save；需要回忆历史信息时 recall；用户要求删除某条记忆时 delete。action: save|recall|delete|list|clear";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作：save(保存记忆)|recall(读取)|list(列出所有)|clear(清空)");
-        params.put("key", "记忆键（如 user_name / preference_city），save/recall 用");
+        params.put("action", "操作：save(保存记忆)|recall(读取)|delete(删除单条)|list(列出所有)|clear(清空)");
+        params.put("key", "记忆键（如 user_name / preference_city），save/recall/delete 用");
         params.put("value", "记忆值（内容），save 用");
         return params;
     }
@@ -90,6 +91,20 @@ public class MemoryTool implements AITool {
                     result.put("found", value != null);
                     result.put("value", value != null ? value : "");
                     result.put("message", value != null ? "记忆内容: " + value : "未找到该记忆");
+                    return AIToolResult.success(result);
+                }
+                case "delete": {
+                    String key = parameters.get("key") != null ? String.valueOf(parameters.get("key")) : "";
+                    if (key.trim().isEmpty()) {
+                        return AIToolResult.fail("delete 需要 key 参数");
+                    }
+                    boolean existed = store.get(key.trim()) != null;
+                    store.remove(key.trim());
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("key", key.trim());
+                    result.put("deleted", existed);
+                    result.put("total", store.size());
+                    result.put("message", existed ? "已删除记忆: " + key.trim() : "未找到该记忆: " + key.trim());
                     return AIToolResult.success(result);
                 }
                 case "clear": {

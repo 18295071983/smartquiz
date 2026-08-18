@@ -99,14 +99,18 @@
                 android:contentDescription="@string/chat_desc_history"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_agent_manager"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="🧠 管理"
+                android:textSize="11sp"
+                android:textColor="@color/on_secondary_container"
+                app:backgroundTint="@color/secondary_container"
+                app:cornerRadius="16dp"
+                android:textAllCaps="false"
                 android:layout_marginEnd="2dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_agent_settings"
-                app:iconSize="20dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="Agent管理"/>
+                android:paddingHorizontal="6dp"
+                android:minWidth="0dp"
+                android:contentDescription="Agent管理(记忆/工具/工作区/统计)"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_chat"
                 android:layout_width="36dp"
