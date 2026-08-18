@@ -38,7 +38,7 @@ public class ProgressCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String title = p.optString("title", "");
         int progress = Math.max(0, Math.min(100, p.optInt("progress", 0)));
         String description = p.optString("description", "");

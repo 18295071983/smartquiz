@@ -39,7 +39,7 @@ public class QuizCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String question = p.optString("question", "");
         String answer = p.optString("answer", "");
         String analysis = p.optString("analysis", "");

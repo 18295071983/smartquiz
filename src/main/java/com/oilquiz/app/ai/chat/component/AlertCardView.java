@@ -38,7 +38,7 @@ public class AlertCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String type = p.optString("type", "info");
         String title = p.optString("title", "");
         String content = p.optString("content", "");

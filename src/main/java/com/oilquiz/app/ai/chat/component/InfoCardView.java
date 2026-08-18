@@ -36,7 +36,7 @@ public class InfoCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String title = p.optString("title", "");
         JSONArray items = p.optJSONArray("items");
 

@@ -44,7 +44,7 @@ public class WeatherCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String city = p.optString("city", "");
         String temp = p.optString("temp", "");
         String text = p.optString("text", "");

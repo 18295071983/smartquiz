@@ -41,7 +41,7 @@ public class TableCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String title = p.optString("title", "");
         String align = p.optString("align", "left");
         JSONArray headers = p.optJSONArray("headers");

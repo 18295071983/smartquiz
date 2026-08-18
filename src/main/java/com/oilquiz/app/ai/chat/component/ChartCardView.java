@@ -50,7 +50,7 @@ public class ChartCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String chartType = p.optString("chartType", "bar");
         String title = p.optString("title", "");
         JSONArray categories = p.optJSONArray("categories");

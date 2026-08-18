@@ -37,7 +37,7 @@ public class JsonViewerCard implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String title = p.optString("title", "");
         Object raw = p.has("data") ? p.opt("data") : p.opt("json");
         String jsonText = raw != null ? prettyPrint(raw) : "";
