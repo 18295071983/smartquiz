@@ -74,6 +74,10 @@ public class SimpleWebViewActivity extends BaseActivity {
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
 
+        // 软件渲染：规避设备 GPU tile 内存超限导致长页面下半部分不绘制（空白/点击失效）
+        // 对静态 HTML 渲染性能足够；硬件加速留给系统 WebView/其他页面
+        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+
         // 设置 WebViewClient，防止跳转到系统浏览器
         webView.setWebViewClient(new WebViewClient() {
             // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）
