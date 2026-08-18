@@ -274,7 +274,7 @@ public class AgentService {
         registerToolSchema("file_analyzer", "分析文件", "file_path(文件路径,必填), analysis_type(分析类型,可选)");
         registerToolSchema("file_generator", "生成文件", "file_name(文件名,必填), content(内容,必填), format(格式,可选)");
         registerToolSchema("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能", "action(操作类型: check/check_all/request/request_and_wait/get_status/list_permissions/explain_permission/can_request,默认check), permission(权限名称:camera/位置/录音/存储/拨打电话/发送短信等,可选), permissions(权限列表,可选)");
-        registerToolSchema("create_dynamic_tool", "动态创建和管理AI工具", "action(操作类型: create/update/delete/list,默认list), tool_name(工具名称,可选), description(工具描述,可选), parameters(参数定义JSON,可选), logic(执行逻辑脚本,可选)");
+        registerToolSchema("create_dynamic_tool", "动态创建和管理AI工具", "action(操作类型: create/update/delete/list,默认list), tool_name(工具名称,可选), description(工具描述,可选), parameters(参数定义JSON,可选), logic(执行逻辑脚本:支持Python脚本自动识别,脚本内用script_args['参数名']读取工具参数;或DSL命令echo/set/if/call_tool等,可选)");
         registerToolSchema("app_toolkit", "应用工具集，提供多种实用功能", "action(操作类型: weather_current/weather_forecast/calculate/ocr_recognize等,必填)");
         registerToolSchema("python_execute", "执行Python代码", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
         registerToolSchema("python_analyze_data", "使用Python分析数据", "data(数据,可选), task(任务描述,可选)");

@@ -980,7 +980,7 @@ public class AIToolManager {
                     .addParameter("tool_name", "string", "工具名称", false)
                     .addParameter("description", "string", "工具描述", false)
                     .addParameter("parameters", "string", "参数定义JSON", false)
-                    .addParameter("logic", "string", "执行逻辑脚本", false)
+                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数)或DSL命令(echo/set/if/call_tool等)", false)
                     .category("tool")
                     .build();
             case "permission_manager":

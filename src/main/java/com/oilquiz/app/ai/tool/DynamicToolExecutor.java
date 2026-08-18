@@ -24,7 +24,12 @@ public class DynamicToolExecutor {
         if (logic == null || logic.trim().isEmpty()) {
             return "未提供执行逻辑";
         }
-        
+
+        // Python 脚本支持：逻辑是 Python 脚本时交给 Python 执行引擎（脚本内用 script_args 取参数）
+        if (looksLikePython(logic)) {
+            return executeAsPython(logic, parameters);
+        }
+
         StringBuilder result = new StringBuilder();
         String[] lines = logic.split("\n");
         
@@ -44,6 +49,148 @@ public class DynamicToolExecutor {
         }
         
         return result.length() > 0 ? result.toString() : "执行完成";
+    }
+
+    // ==================== Python 脚本支持 ====================
+
+    /**
+     * 判断执行逻辑是否为 Python 脚本：
+     * 1. 显式标记：首行 python / ```python / # python
+     * 2. 语法特征：def/import/from/class 行首、# -*- coding、行首缩进的代码块、print( 等
+     * DSL 命令（echo/set/if 等）不会被误判为 Python。
+     */
+    private static boolean looksLikePython(String logic) {
+        String[] lines = logic.split("\n");
+        boolean hasIndented = false;
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            String lower = line.toLowerCase();
+            if (lower.startsWith("```python") || lower.startsWith("python:")
+                    || lower.equals("python") || lower.startsWith("# python")
+                    || lower.contains("coding:")) {
+                return true;
+            }
+            if (line.startsWith("def ") || line.startsWith("import ")
+                    || line.startsWith("from ") || line.startsWith("class ")) {
+                return true;
+            }
+            // DSL 命令行 → 不是 Python 块
+            if (isDslCommand(line)) {
+                if (hasIndented) return true; // 前面已有缩进代码 → 整体 Python
+                continue;
+            }
+            // 非命令行：有缩进 → Python 特征
+            if (raw.startsWith(" ") || raw.startsWith("\t")) {
+                hasIndented = true;
+            }
+            // print( / return 等 Python 调用特征（DSL 的 print 是裸 print 空格）
+            if (line.contains("print(") || line.contains("return ")
+                    || line.contains("==") || line.contains("lambda ")
+                    || line.matches("[A-Za-z_][\\w]*\\s*=.*")) {
+                if (!lower.startsWith("set ") && !lower.startsWith("if ")) {
+                    hasIndented = true;
+                }
+            }
+        }
+        return hasIndented;
+    }
+
+    private static boolean isDslCommand(String line) {
+        String lower = line.toLowerCase();
+        return lower.startsWith("echo ") || lower.startsWith("print ")
+                || lower.startsWith("log ") || lower.startsWith("set ")
+                || lower.startsWith("if ") || lower.startsWith("concat ")
+                || lower.startsWith("length ") || lower.startsWith("upper ")
+                || lower.startsWith("lower ") || lower.startsWith("trim ")
+                || lower.startsWith("replace ") || lower.startsWith("split ")
+                || lower.startsWith("join ") || lower.startsWith("call_tool ");
+    }
+
+    /**
+     * 用 Python 执行引擎运行脚本。参数以 script_args dict 注入，
+     * 脚本可通过 script_args['参数名'] 读取；print 输出与返回值合并返回。
+     */
+    private String executeAsPython(String logic, Map<String, Object> parameters) {
+        try {
+            com.oilquiz.app.ai.python.PythonToolManager ptm =
+                    com.oilquiz.app.ai.python.PythonToolManager.getInstance(context);
+            if (!ptm.isInitialized()) {
+                if (!ptm.initialize()) {
+                    return "Python 环境初始化失败，无法执行 Python 脚本";
+                }
+            }
+            StringBuilder fullCode = new StringBuilder();
+            fullCode.append("# -*- coding: utf-8 -*-\n");
+            fullCode.append("import sys\n");
+            fullCode.append("sys.path.insert(0, '.')\n\n");
+            fullCode.append("# 脚本参数\n");
+            fullCode.append("script_args = ").append(toPythonDict(parameters)).append("\n\n");
+            fullCode.append(logic);
+
+            com.oilquiz.app.ai.python.PythonToolManager.ExecutionResult r =
+                    ptm.executeCode(fullCode.toString(), parameters);
+            if (r != null && r.success) {
+                StringBuilder out = new StringBuilder();
+                if (r.stdout != null && !r.stdout.trim().isEmpty()) {
+                    out.append(r.stdout.trim());
+                }
+                if (r.result != null && !r.result.trim().isEmpty()) {
+                    if (out.length() > 0) out.append("\n");
+                    out.append(r.result.trim());
+                }
+                return out.length() > 0 ? out.toString() : "执行完成";
+            }
+            StringBuilder err = new StringBuilder("Python 执行失败");
+            if (r != null) {
+                if (r.error != null && !r.error.isEmpty()) err.append(": ").append(r.error);
+                if (r.stderr != null && !r.stderr.trim().isEmpty()) {
+                    err.append("\n").append(r.stderr.trim());
+                }
+            } else {
+                err.append("（无返回结果）");
+            }
+            return err.toString();
+        } catch (Throwable t) {
+            Log.e(TAG, "Python 动态工具执行异常: " + t.getMessage(), t);
+            return "Python 执行异常: " + t.getMessage();
+        }
+    }
+
+    /** Map → Python dict 字面量 */
+    private static String toPythonDict(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) return "{}";
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            if (!first) sb.append(", ");
+            first = false;
+            sb.append("'").append(e.getKey().replace("'", "\\'")).append("': ");
+            sb.append(toPythonValue(e.getValue()));
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String toPythonValue(Object v) {
+        if (v == null) return "None";
+        if (v instanceof String) return "'" + ((String) v).replace("'", "\\'") + "'";
+        if (v instanceof Number || v instanceof Boolean) return v.toString();
+        if (v instanceof java.util.List) {
+            StringBuilder sb = new StringBuilder("[");
+            java.util.List<?> list = (java.util.List<?>) v;
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(toPythonValue(list.get(i)));
+            }
+            return sb.append("]").toString();
+        }
+        if (v instanceof java.util.Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> m = (Map<String, Object>) v;
+            return toPythonDict(m);
+        }
+        return "'" + v.toString().replace("'", "\\'") + "'";
     }
     
     private String executeLine(String line, Map<String, Object> parameters) {
