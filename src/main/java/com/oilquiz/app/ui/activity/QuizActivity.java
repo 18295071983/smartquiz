@@ -21,7 +21,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.animation.ObjectAnimator;
 import android.animation.AnimatorSet;
-import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -91,7 +90,16 @@ public class QuizActivity extends BaseActivity {
 
     private LinearLayout navigationLayout;
     private List<Question> originalQuestions;
-    private GestureDetector gestureDetector;
+    /** 横向拖动起点（按下时的 X/Y 坐标） */
+    private float swipeDownX = 0;
+    private float swipeDownY = 0;
+    /** 最近一次拖动位置的 X 坐标（MOVE 中持续更新） */
+    private float swipeLastX = 0;
+    /** 按下与最后拖动的事件时间戳（计算滑动速度） */
+    private long swipeDownTime = 0;
+    private long swipeLastTime = 0;
+    /** 是否正在横向拖动跟踪（横向主导且已越过触摸阈值） */
+    private boolean swipeTracking = false;
     private String questionOrderMode = "顺序";
     // checkBoxContainer 已合并到 optionsContainer
     private LinearLayout checkBoxContainer; // 多选题复选框容器
@@ -245,39 +253,123 @@ public class QuizActivity extends BaseActivity {
     }
     
     /**
-     * 初始化手势检测器
+     * 初始化手势：左右滑动切换题目（跟手拖动 + 松手吸附）。
+     * ScrollView 会消费触摸事件导致 Activity.onTouchEvent 收不到手势，
+     * 因此手势检测直接挂在内容 ScrollView 上，并实现拖动跟手：
+     * - 横向拖动时内容视图平移跟手（带阻尼）
+     * - 松手：位移/速度超过阈值 → 吸附切题（滑入动画）；否则回弹
+     */
+    /**
+     * 初始化手势：左右滑动切换题目（跟手拖动 + 松手吸附）。
+     * 纯手写触摸逻辑（不依赖 GestureDetector——其状态机需要完整 DOWN→MOVE→UP 序列，
+     * ScrollView 场景下事件不完整会导致 onScroll 不触发）。
+     * - 横向主导时内容视图平移跟手（0.4 阻尼）
+     * - 松手：位移超阈值 → 吸附切题（滑入动画）；否则回弹
      */
     private void initGestureDetector() {
-        gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
-                // 计算滑动距离
-                float diffX = e2.getX() - e1.getX();
-                float diffY = e2.getY() - e1.getY();
-                
-                // 确保是水平滑动且距离足够大
-                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 100) {
-                    if (diffX > 0) {
-                        // 向右滑动，显示上一题
-                        if (currentQuestionIndex > 0) {
-                            showPreviousQuestion();
-                        }
-                    } else {
-                        // 向左滑动，显示下一题
-                        if (currentQuestionIndex < questions.size() - 1) {
-                            showNextQuestion();
+        if (scrollViewContent == null) return;
+        scrollViewContent.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    swipeDownX = event.getX();
+                    swipeDownY = event.getY();
+                    swipeLastX = event.getX();
+                    swipeDownTime = event.getEventTime();
+                    swipeLastTime = event.getEventTime();
+                    swipeTracking = false;
+                    return false; // 不消费，让 ScrollView/子 View 正常处理
+                case MotionEvent.ACTION_MOVE:
+                    float dx = event.getX() - swipeDownX;
+                    float dy = event.getY() - swipeDownY;
+                    if (!swipeTracking) {
+                        // 首次超过触摸阈值且横向主导 → 进入横向拖动（阈值降低提高灵敏度）
+                        if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy)) {
+                            swipeTracking = true;
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                        } else if (Math.abs(dy) > 16) {
+                            // 纵向主导：交给 ScrollView 滚动，不跟踪
+                            return false;
                         }
                     }
-                    return true;
-                }
-                return false;
+                    if (swipeTracking) {
+                        swipeLastX = event.getX();
+                        swipeLastTime = event.getEventTime();
+                        // 阻尼拖动（0.7：跟手更灵敏，拖动距离≈手指位移）
+                        scrollViewContent.setTranslationX(dx * 0.7f);
+                        return true; // 消费，避免 ScrollView 滚动
+                    }
+                    return false;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (swipeTracking) {
+                        boolean handled = handleSwipeEnd();
+                        v.performClick();
+                        swipeTracking = false;
+                        return true;
+                    }
+                    v.performClick();
+                    return false;
             }
+            return false;
         });
+    }
+
+    /**
+     * 松手吸附判定：位移或速度超阈值 → 切题并复位（带滑入动画）；否则回弹复位。
+     * - 位移阈值：屏宽 1/6 或 70px（降低原 1/4/120px 提高灵敏度）
+     * - 速度判定：快速甩动（>800px/s）即使位移不足也切题
+     */
+    private boolean handleSwipeEnd() {
+        if (scrollViewContent == null) return false;
+        float deltaX = swipeLastX - swipeDownX;
+        // 位移阈值：屏宽 1/6，下限 70px
+        int threshold = (int) (getResources().getDisplayMetrics().widthPixels / 6f);
+        threshold = Math.max(70, threshold);
+        // 速度（px/s）：从拖动距离与耗时计算
+        long dt = Math.max(1, swipeLastTime - swipeDownTime);
+        float velocityX = Math.abs(deltaX) * 1000f / dt;
+
+        boolean shouldNext = deltaX < -threshold || (deltaX < -30 && velocityX > 800);
+        boolean shouldPrev = deltaX > threshold || (deltaX > 30 && velocityX > 800);
+
+        if (shouldNext && currentQuestionIndex < questions.size() - 1) {
+            scrollViewContent.animate().translationX(0).setDuration(150).start();
+            showNextQuestion();
+            animateSlideIn(false);
+            return true;
+        } else if (shouldPrev && currentQuestionIndex > 0) {
+            scrollViewContent.animate().translationX(0).setDuration(150).start();
+            showPreviousQuestion();
+            animateSlideIn(true);
+            return true;
+        }
+        // 未达阈值：回弹
+        scrollViewContent.animate().translationX(0).setDuration(200).start();
+        return false;
+    }
+
+    /**
+     * 题目切换滑入动画：左滑切下一题→新题从右滑入；右滑切上一题→新题从左滑入。
+     * 动画作用于内容容器（ScrollView）。
+     */
+    private void animateSlideIn(boolean fromLeft) {
+        try {
+            View target = scrollViewContent;
+            if (target == null) return;
+            int enterAnim = fromLeft
+                    ? R.anim.slide_in_left   // 上一题：从左滑入
+                    : R.anim.slide_in_right; // 下一题：从右滑入
+            target.startAnimation(android.view.animation.AnimationUtils.loadAnimation(this, enterAnim));
+        } catch (Exception e) {
+            Log.w("QuizActivity", "Slide animation failed: " + e.getMessage());
+        }
     }
     
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
+        // 手势已由 ScrollView 的 OnTouchListener 处理（内容区域触摸都走 ScrollView），
+        // Activity 级不再重复识别，避免 downX 未初始化导致误判/空指针
+        return super.onTouchEvent(event);
     }
 
     // 更新模式显示
@@ -1081,10 +1173,11 @@ public class QuizActivity extends BaseActivity {
         if (navigationLayout != null && questions != null) {
             navigationLayout.removeAllViews();
             
-            // 圆形按钮尺寸（dp→px）
-            int sizePx = (int) (40 * getResources().getDisplayMetrics().density + 0.5f);
-            int marginPx = (int) (4 * getResources().getDisplayMetrics().density + 0.5f);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(sizePx, sizePx);
+            // 药丸形按钮尺寸（dp→px）
+            int widthPx = (int) (44 * getResources().getDisplayMetrics().density + 0.5f);
+            int heightPx = (int) (32 * getResources().getDisplayMetrics().density + 0.5f);
+            int marginPx = (int) (3 * getResources().getDisplayMetrics().density + 0.5f);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(widthPx, heightPx);
             params.setMargins(marginPx, 0, marginPx, 0);
             
             for (int i = 0; i < questions.size(); i++) {
@@ -1092,7 +1185,7 @@ public class QuizActivity extends BaseActivity {
                 com.google.android.material.button.MaterialButton navButton = new com.google.android.material.button.MaterialButton(this);
                 navButton.setLayoutParams(params);
                 navButton.setText(String.valueOf(i + 1));
-                navButton.setTextSize(13);
+                navButton.setTextSize(12);
                 navButton.setTag(questionIndex);
                 navButton.setGravity(android.view.Gravity.CENTER);
                 // 移除MaterialButton默认最小尺寸和内边距
@@ -1101,13 +1194,21 @@ public class QuizActivity extends BaseActivity {
                 navButton.setIconPadding(0);
                 navButton.setInsetTop(0);
                 navButton.setInsetBottom(0);
-                navButton.setCornerRadius(0); // 圆形由drawable控制
+                navButton.setCornerRadius(0); // 圆角由drawable控制
                 navButton.setIcon(null);
+                navButton.setStateListAnimator(null); // 去掉默认阴影动画，保持扁平
                 
                 // 根据题目状态设置初始样式（基于userAnswers判断是否真正已作答）
                 if (i == currentQuestionIndex) {
+                    // 当前题：主色 + 略微放大
                     navButton.setBackgroundResource(R.drawable.nav_button_current);
                     navButton.setTextColor(getResources().getColor(R.color.white));
+                    navButton.setTextSize(13);
+                    LinearLayout.LayoutParams curParams = new LinearLayout.LayoutParams(
+                            (int) (48 * getResources().getDisplayMetrics().density + 0.5f),
+                            (int) (36 * getResources().getDisplayMetrics().density + 0.5f));
+                    curParams.setMargins(marginPx, 0, marginPx, 0);
+                    navButton.setLayoutParams(curParams);
                 } else if (userAnswers != null && i < userAnswers.size()
                         && userAnswers.get(i) != null && !userAnswers.get(i).isEmpty()) {
                     navButton.setBackgroundResource(R.drawable.nav_button_answered);
