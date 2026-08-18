@@ -126,29 +126,40 @@ public class SimpleWebViewActivity extends BaseActivity {
                                                 .getInstance().getEngineForFile(f);
                                 if (engine != null) {
                                     Log.i(TAG, "文件链接 → 渲染引擎: " + engine.getEngineName() + " : " + path);
-                                    engine.render(f, new com.oilquiz.app.util.render.FileRenderEngine.RenderCallback() {
-                                        @Override
-                                        public void onSuccess(Object renderedContent) {
-                                            String html = extractHtml(renderedContent);
-                                            if (html != null) {
-                                                String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
-                                                        .getInstance(SimpleWebViewActivity.this).getWorkspacePath() + "/";
-                                                webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
-                                            } else {
-                                                openGenericPreview(path);
-                                            }
-                                        }
+                                    // 子线程渲染（POI/PDF/位图解码较重，避免主线程 ANR），回调切回主线程更新 WebView
+                                    final String fPath = path;
+                                    new Thread(() -> {
+                                        try {
+                                            engine.render(f, new com.oilquiz.app.util.render.FileRenderEngine.RenderCallback() {
+                                                @Override
+                                                public void onSuccess(Object renderedContent) {
+                                                    String html = extractHtml(renderedContent);
+                                                    runOnUiThread(() -> {
+                                                        if (html != null) {
+                                                            String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                                                    .getInstance(SimpleWebViewActivity.this).getWorkspacePath() + "/";
+                                                            webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
+                                                        } else {
+                                                            openGenericPreview(fPath);
+                                                        }
+                                                    });
+                                                }
 
-                                        @Override
-                                        public void onError(String message) {
-                                            Log.w(TAG, "渲染失败，回退通用预览: " + message);
-                                            openGenericPreview(path);
-                                        }
+                                                @Override
+                                                public void onError(String message) {
+                                                    Log.w(TAG, "渲染失败，回退通用预览: " + message);
+                                                    runOnUiThread(() -> openGenericPreview(fPath));
+                                                }
 
-                                        @Override
-                                        public void onProgress(int progress) {
+                                                @Override
+                                                public void onProgress(int progress) {
+                                                }
+                                            });
+                                        } catch (Throwable t) {
+                                            Log.w(TAG, "渲染异常，回退通用预览: " + t.getMessage());
+                                            runOnUiThread(() -> openGenericPreview(fPath));
                                         }
-                                    });
+                                    }).start();
                                     return true;
                                 }
                                 openGenericPreview(path);
