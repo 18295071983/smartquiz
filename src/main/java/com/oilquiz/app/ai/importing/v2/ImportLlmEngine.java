@@ -519,10 +519,11 @@ public class ImportLlmEngine {
      * @param rawRows     工作表前 12 行原始内容（含空行，行号与工作表一致）
      * @param legalFields 合法标准字段集合（用于硬过滤）
      * @param docHint     题库说明/模板说明（可为空，帮助 AI 理解列含义）
+     * @param aliasJson   本地别名词典（标准字段→常见列名，可为空）
      * @return HeaderResult：headerRow(-1=无表头) + 标准字段→列索引映射
      */
     public HeaderResult runHeaderInfer(JSONArray rawRows, java.util.Set<String> legalFields,
-                                       String docHint) {
+                                       String docHint, String aliasJson) {
         HeaderResult result = new HeaderResult();
         if (rawRows == null || rawRows.length() == 0) {
             result.failReason = "无原始行数据";
@@ -546,6 +547,10 @@ public class ImportLlmEngine {
             sb.append("可映射字段：").append(truncate(joinFields(legalFields), 300)).append('\n');
         } else {
             sb.append("可映射字段：questionText, optionA~L, correctAnswer, category, difficulty, explanation, questionType, optionsCombined\n");
+        }
+        if (aliasJson != null && !aliasJson.isEmpty()) {
+            sb.append("参考别名词典（标准字段的常见列名写法，用于理解自定义列名）：")
+                    .append(truncate(aliasJson, 300)).append('\n');
         }
         sb.append("   某列同时包含多个选项（分号/竖线/A.前缀 分隔）时映射为 optionsCombined；");
         sb.append("无法判断的列不要映射。\n");
