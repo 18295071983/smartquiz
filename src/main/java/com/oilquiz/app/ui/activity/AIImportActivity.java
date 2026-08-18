@@ -89,6 +89,8 @@ public class AIImportActivity extends BaseActivity {
     private MaterialButton btnSwitchModel;
     private MaterialButton btnConfigOnline;
     private OnlineModelManager onlineModelManager;
+    // 用户题库说明输入区（可选，引导 AI 导入）
+    private android.widget.EditText etUserGuide;
 
     @Override
     protected int getLayoutId() {
@@ -137,6 +139,9 @@ public class AIImportActivity extends BaseActivity {
         tvModelInfo = findViewById(R.id.tvModelInfo);
         btnSwitchModel = findViewById(R.id.btnSwitchModel);
         btnConfigOnline = findViewById(R.id.btnConfigOnline);
+
+        // 用户题库说明输入区
+        etUserGuide = findViewById(R.id.etUserGuide);
     }
 
     @Override
@@ -466,8 +471,9 @@ public class AIImportActivity extends BaseActivity {
         // 使用本地 AI 引擎创建 v2 导入管线（避免 sign6 错误）
         com.oilquiz.app.ai.importing.v2.ImportMain v2Main =
             new com.oilquiz.app.ai.importing.v2.ImportMain(this, orchestrator);
-        if (docHint != null && !docHint.isEmpty()) {
-            v2Main.setDocHint(docHint);
+        String effectiveDocHint = mergeUserGuide(docHint);
+        if (effectiveDocHint != null && !effectiveDocHint.isEmpty()) {
+            v2Main.setDocHint(effectiveDocHint);
         }
         if (sheetIndex >= 0) {
             v2Main.setExcelSheetIndex(sheetIndex);
@@ -498,8 +504,9 @@ public class AIImportActivity extends BaseActivity {
                                    final String docHint) {
         com.oilquiz.app.ai.importing.v2.ImportMain v2Main =
             new com.oilquiz.app.ai.importing.v2.ImportMain(this, orchestrator);
-        if (docHint != null && !docHint.isEmpty()) {
-            v2Main.setDocHint(docHint);
+        String effectiveDocHint = mergeUserGuide(docHint);
+        if (effectiveDocHint != null && !effectiveDocHint.isEmpty()) {
+            v2Main.setDocHint(effectiveDocHint);
         }
         activeV2Main = v2Main;
 
@@ -513,6 +520,19 @@ public class AIImportActivity extends BaseActivity {
             agentView.updateCurrentStep(1, "SHEET", "📑", "多工作表导入 " + sheetIndexes.size() + " 个");
             v2Main.runSheets(currentFile, sheetIndexes, v2Listener);
         }
+    }
+
+    /**
+     * 合并用户输入的题库说明（引导 AI 导入）与自动提取的题库说明。
+     * 用户填写优先（放前面），自动提取内容补充在后；两者都为空返回原值。
+     */
+    private String mergeUserGuide(String docHint) {
+        String user = etUserGuide != null ? etUserGuide.getText().toString().trim() : "";
+        if (user.isEmpty()) {
+            return docHint;
+        }
+        return "【用户填写】" + user
+                + (docHint != null && !docHint.isEmpty() ? "\n【自动提取】" + docHint : "");
     }
 
     /** v2 导入公共回调：阶段指示/实时监控/统计卡/结果弹窗（单文件/多文件/多工作表共用） */
