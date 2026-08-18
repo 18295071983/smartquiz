@@ -115,27 +115,26 @@ public class FileGeneratorTool implements AITool {
         if (!parameters.containsKey("file_name") && parameters.containsKey("file_path")) {
             parameters.put("file_name", parameters.get("file_path"));
         }
-        // 所有文件统一保存到应用外部下载目录（无需 WRITE_EXTERNAL_STORAGE 权限）
+        // 文件默认保存到 Agent 工作区（filesDir/agent_workspace/，无需存储权限，管理页统一可见）；
+        // Agent 明确指定绝对路径（/ 开头或 file://）时保留原路径
         Object fpObj = parameters.get("file_path");
         if (fpObj instanceof String) {
-            String fp = (String) fpObj;
-            // 提取纯文件名（去掉可能的目录前缀）
-            String fileNameOnly = fp;
-            if (fp != null) {
+            String fp = ((String) fpObj).trim();
+            boolean isAbsolute = fp.startsWith("/") || fp.startsWith("file://");
+            if (!isAbsolute) {
+                // 相对路径/纯文件名 → 工作区
+                String fileNameOnly = fp;
                 int lastSlash = fp.lastIndexOf('/');
                 if (lastSlash >= 0 && lastSlash < fp.length() - 1) {
                     fileNameOnly = fp.substring(lastSlash + 1);
                 }
+                if (fileNameOnly == null || fileNameOnly.trim().isEmpty()) {
+                    fileNameOnly = "generated_file.txt";
+                }
+                File wsDir = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                        .getInstance(context).getWorkspaceDir();
+                parameters.put("file_path", new File(wsDir, fileNameOnly).getAbsolutePath());
             }
-            if (fileNameOnly == null || fileNameOnly.trim().isEmpty()) {
-                fileNameOnly = "generated_file.txt";
-            }
-            // 统一保存到应用外部下载目录
-            File downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-            if (downloadDir == null) {
-                downloadDir = context.getFilesDir();
-            }
-            parameters.put("file_path", new File(downloadDir, fileNameOnly).getAbsolutePath());
         }
     }
 
