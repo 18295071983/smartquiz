@@ -109,7 +109,28 @@ public class SimpleWebViewActivity extends BaseActivity {
                     }
                     return true;
                 }
-                // file:// 与相对链接：交给 WebView 内部导航（可打开本地文件/同目录资源）
+                if (url != null && url.startsWith("file://")) {
+                    // 本地文件链接：html 由 WebView 内部渲染；md/txt/json/pdf/office 等交给文件预览
+                    try {
+                        String path = android.net.Uri.parse(url).getPath();
+                        if (path != null) {
+                            String lower = path.toLowerCase();
+                            if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+                                return false; // WebView 内部渲染
+                            }
+                            java.io.File f = new java.io.File(path);
+                            if (f.exists() && f.isFile()) {
+                                Log.i(TAG, "文件链接 → 文件预览: " + path);
+                                com.oilquiz.app.ui.activity.WebViewFilePreviewActivity.start(
+                                        SimpleWebViewActivity.this, path);
+                                return true;
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "文件链接处理失败: " + url + " - " + e.getMessage());
+                    }
+                }
+                // 相对链接：交给 WebView 内部导航（baseUrl 指向文件目录，可打开同目录资源）
                 return false;
             }
 
