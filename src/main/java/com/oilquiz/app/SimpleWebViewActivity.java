@@ -200,9 +200,10 @@ public class SimpleWebViewActivity extends BaseActivity {
                         "text/html", "UTF-8", null);
                 return;
             }
-            // baseUrl 指向文件所在目录（末尾补 /），相对路径图片/资源可加载
-            String dir = f.getParent();
-            String baseUrl = "file://" + dir + (dir.endsWith("/") ? "" : "/");
+            // baseUrl 指向 Agent 工作区（相对链接自动解析到工作区文件：
+            // <a href="report.md"> → 工作区/report.md，点击可预览）
+            String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
+                    .getInstance(this).getWorkspacePath() + "/";
             webView.loadDataWithBaseURL(baseUrl, content, "text/html", "UTF-8", null);
         } catch (Exception e) {
             Log.e(TAG, "读取 HTML 文件失败: " + e.getMessage(), e);

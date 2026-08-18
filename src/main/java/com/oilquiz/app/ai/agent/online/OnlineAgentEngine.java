@@ -197,7 +197,12 @@ public class OnlineAgentEngine {
                 systemPrompt += "\n【工作区】你的文件工作目录: " + wsPath
                         + "。file_generator/image_gen 生成的文件默认保存在此；"
                         + "用 workspace 工具(list/read/delete)管理，或直接用 file_reader 读取工具返回的绝对路径。"
-                        + "不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录）。\n";
+                        + "不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录）。\n"
+                        + "【文件链接规则】生成 HTML 页面时自动适配本环境："
+                        + "引用工作区里的文件用相对路径（如 <a href=\"report.md\">），"
+                        + "用户点击会在 App 内自动预览（md/文本/表格/pdf 等按类型打开）；"
+                        + "引用网页用 https:// 链接（App 内打开）。"
+                        + "生成文件后如需在页面中引用，用与页面同目录的文件名即可。\n";
             } catch (Throwable t) {
                 AILogger.w(TAG, "注入工作区信息失败: " + t.getMessage());
             }
