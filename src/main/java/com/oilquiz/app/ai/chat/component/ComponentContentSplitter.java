@@ -28,23 +28,32 @@ public class ComponentContentSplitter {
     /**
      * 组件块：```component:type\n{json}```、```component:type {json}```、```component:type{json}```。
      * 以闭合的 ``` 作为标记结束符（不能用第一个 } 结束——组件 JSON 内部嵌套对象含多个 }）。
+     * 类型名支持字母/数字/下划线/连字符（Agent 可能输出 custom-panel 这类带连字符类型）。
      */
     private static final Pattern COMPONENT_BLOCK = Pattern.compile(
-            "```component:(\\w+)\\s*([\\s\\S]*?)```",
+            "```component:([\\w-]+)\\s*([\\s\\S]*?)```",
             Pattern.CASE_INSENSITIVE);
 
     /** 无代码块变体：component:type {json}（模型漏写三反引号时兜底，JSON 需独立成段） */
     private static final Pattern COMPONENT_BLOCK_BARE = Pattern.compile(
-            "(?m)^\\s*component:(\\w+)\\s*(\\{[\\s\\S]*?\\})\\s*$",
+            "(?m)^\\s*component:([\\w-]+)\\s*(\\{[\\s\\S]*?\\})\\s*$",
+            Pattern.CASE_INSENSITIVE);
+
+    /** 宽松块兜底：```component:xxx 开头的块（JSON 缺失/未闭合/格式错误也识别为组件段），
+     *  匹配到下一个 ``` 或文本结束。防止 Agent 输出不规范标记时把组件源码当纯文本显示。 */
+    private static final Pattern COMPONENT_BLOCK_LOOSE = Pattern.compile(
+            "```component:([\\w-]+)\\s*([\\s\\S]*?)(?=```|$)",
             Pattern.CASE_INSENSITIVE);
 
     private ComponentContentSplitter() {
     }
 
-    /** 内容是否包含组件标记（代码块或裸标记） */
+    /** 内容是否包含组件标记（代码块、裸标记或未闭合的宽松标记） */
     public static boolean containsComponent(String content) {
         return content != null
-                && (COMPONENT_BLOCK.matcher(content).find() || COMPONENT_BLOCK_BARE.matcher(content).find());
+                && (COMPONENT_BLOCK.matcher(content).find()
+                    || COMPONENT_BLOCK_BARE.matcher(content).find()
+                    || COMPONENT_BLOCK_LOOSE.matcher(content).find());
     }
 
     /**
@@ -57,7 +66,7 @@ public class ComponentContentSplitter {
         List<Segment> segments = new ArrayList<>();
         if (content == null || content.isEmpty()) return segments;
 
-        // 优先用代码块正则（以 ``` 闭合），其次用裸标记正则
+        // 优先用代码块正则（以 ``` 闭合），其次用裸标记正则，最后用宽松兜底正则
         Matcher matcher = COMPONENT_BLOCK.matcher(content);
         boolean matched = false;
         int lastEnd = 0;
@@ -77,6 +86,21 @@ public class ComponentContentSplitter {
                 if (props == null) props = new org.json.JSONObject();
                 segments.add(Segment.component(new ComponentData(matcher.group(1), props)));
                 lastEnd = matcher.end();
+            }
+        }
+        if (!matched) {
+            // 宽松兜底：```component:xxx 块未闭合/JSON缺失也识别为组件段（空 props），
+            // 由通用组件兜底展示，避免把组件源码当纯文本显示
+            Matcher loose = COMPONENT_BLOCK_LOOSE.matcher(content);
+            while (loose.find()) {
+                matched = true;
+                appendTextBefore(segments, content, lastEnd, loose.start());
+                String type = loose.group(1);
+                org.json.JSONObject props = ComponentData.parseJsonObject(
+                        extractJsonBody(loose.group(2)));
+                if (props == null) props = new org.json.JSONObject();
+                segments.add(Segment.component(new ComponentData(type, props)));
+                lastEnd = loose.end();
             }
         }
         // 尾部文本段

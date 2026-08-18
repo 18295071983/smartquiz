@@ -134,7 +134,12 @@ public class OnlinePromptBuilder {
         sb.append("20. progress_card 进度: ```component:progress_card\\n{\"title\":\"标题\",\"progress\":60,\"description\":\"描述\",\"status\":\"状态\"}```\n");
         sb.append("21. tool_call 工具调用过程（由系统自动附加，无需手动输出）\n");
         sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表/步骤/待办/指标等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n");
-        sb.append("自定义组件：你可以自行编写 UI 组件——使用任意类型名（如 ```component:custom_panel\\n{\"title\":\"我的面板\",\"items\":[...]}```），系统会以通用卡片展示该 JSON 数据（标题+键值行/数组/嵌套对象均可展示），任何自定义结构都能在对话界面正常显示；内置 20 种类型已针对常见场景做好排版，能用内置类型优先用内置类型，特殊布局再自定义。\n\n");
+        sb.append("自定义组件：你可以自行编写 UI 组件——使用任意类型名（如 ```component:custom_panel\\n{\"title\":\"我的面板\",\"items\":[...]}```），系统会以通用卡片展示该 JSON 数据（标题+键值行/数组/嵌套对象均可展示），任何自定义结构都能在对话界面正常显示；内置 20 种类型已针对常见场景做好排版，能用内置类型优先用内置类型，特殊布局再自定义。\n");
+        sb.append("【组件输出硬性要求】\n");
+        sb.append("1. 组件标记必须用三反引号包裹且闭合：```component:类型\\n{JSON}\\n```，类型名只用小写字母/数字/下划线（如 info_card、custom_panel），不要带空格或特殊符号。\n");
+        sb.append("2. JSON 必须完整合法：双引号、括号闭合、无注释、无尾随逗号；props 键名与上方示例一致。\n");
+        sb.append("3. 无法保证 JSON 合法时，不要输出组件标记——用普通 markdown 表格或列表展示即可，禁止把 JSON 或 component: 源码直接裸露给用户。\n");
+        sb.append("4. 一个组件标记块只包含一个组件的 JSON，不要在一个块里放多个对象或数组外层包裹。\n\n");
         return sb.toString();
     }
 
