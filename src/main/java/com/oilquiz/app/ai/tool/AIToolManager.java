@@ -1021,7 +1021,23 @@ public class AIToolManager {
                     .category("tool")
                     .build();
             default:
-                return null;
+                // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/
+                // time_date/calculator 等）：从工具实例动态派生描述，保证 Agent 工具清单完整。
+                // 描述以工具类 getDescription/getParameterDescriptions 为准（单一来源）。
+                AITool tool = createToolInstance(toolName);
+                return tool != null ? createToolDefinitionFromAITool(tool) : null;
+        }
+    }
+
+    /** 通过注册的工厂创建工具实例（不缓存，仅用于派生描述/元数据） */
+    private AITool createToolInstance(String toolName) {
+        ToolFactory factory = toolFactories.get(toolName);
+        if (factory == null) return null;
+        try {
+            return factory.create(context);
+        } catch (Exception e) {
+            Log.w(TAG, "实例化工具失败 " + toolName + ": " + e.getMessage());
+            return null;
         }
     }
     
