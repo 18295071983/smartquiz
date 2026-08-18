@@ -37,12 +37,28 @@ public class AgentWorkspaceView {
         page.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // 标题行：标题 + 刷新按钮（Agent 后台新增文件后可手动刷新）
+        LinearLayout titleRow = new LinearLayout(context);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
         TextView title = new TextView(context);
         title.setText("📁 Agent 工作区");
         title.setTextSize(16);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));
-        page.addView(title);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView refreshBtn = new TextView(context);
+        refreshBtn.setText("🔄 刷新");
+        refreshBtn.setTextSize(12);
+        refreshBtn.setGravity(Gravity.CENTER);
+        refreshBtn.setTextColor(color(R.color.text_secondary));
+        refreshBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        refreshBtn.setOnClickListener(v -> refresh());
+        titleRow.addView(refreshBtn);
+        page.addView(titleRow);
 
         TextView desc = new TextView(context);
         AgentWorkspace ws = AgentWorkspace.getInstance(context);
