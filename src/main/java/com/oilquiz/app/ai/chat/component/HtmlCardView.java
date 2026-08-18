@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Color;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -82,10 +83,10 @@ public class HtmlCardView implements ChatComponent {
         webView.getSettings().setUseWideViewPort(false);
         webView.setWebChromeClient(new WebChromeClient());
 
-        // 初始高度：内容自适应前先用 120dp 占位，onPageFinished 后按内容高度调整
+        // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
         final int maxHeightPx = dp(context, maxHeightDp);
         final LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 120));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160));
         webView.setLayoutParams(wvLp);
 
         final WebView wvRef = webView;
@@ -93,27 +94,37 @@ public class HtmlCardView implements ChatComponent {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // 内容高度自适应：JS 读取 scrollHeight，限制在 maxHeight 内，超出内部滚动
-                view.evaluateJavascript(
-                        "(function(){var b=document.body;var d=document.documentElement;" +
-                                "var h=Math.max(b.scrollHeight,d.scrollHeight,200);" +
-                                "return String(h);})()",
-                        value -> {
-                            if (value == null || wvRef == null) return;
-                            try {
-                                String v = value.replace("\"", "").trim();
-                                int h = (int) (Float.parseFloat(v) * context.getResources().getDisplayMetrics().density);
-                                int target = Math.min(h + dp(context, 16), maxHeightPx);
-                                wvRef.post(() -> {
-                                    ViewGroup.LayoutParams lp = wvRef.getLayoutParams();
-                                    if (lp != null) {
-                                        lp.height = target;
-                                        wvRef.setLayoutParams(lp);
+                // 延迟取高度：等 JS/CSS 渲染完成，失败时保持初始高度（内容可滚动，不算渲染失败）
+                view.postDelayed(() -> {
+                    if (wvRef == null) return;
+                    try {
+                        wvRef.evaluateJavascript(
+                                "(function(){var b=document.body;var d=document.documentElement;" +
+                                        "var h=Math.max(b.scrollHeight,d.scrollHeight,200);" +
+                                        "return String(h);})()",
+                                value -> {
+                                    if (value == null || wvRef == null) return;
+                                    try {
+                                        String v = value.replace("\"", "").trim();
+                                        int h = (int) (Float.parseFloat(v)
+                                                * context.getResources().getDisplayMetrics().density);
+                                        int target = Math.min(h + dp(context, 16), maxHeightPx);
+                                        wvRef.post(() -> {
+                                            ViewGroup.LayoutParams lp = wvRef.getLayoutParams();
+                                            if (lp != null && lp.height != target) {
+                                                lp.height = target;
+                                                wvRef.setLayoutParams(lp);
+                                            }
+                                        });
+                                        Log.i("HtmlCardView", "html rendered, height=" + target
+                                                + "px (max " + maxHeightPx + "px)");
+                                    } catch (Exception ignored) {
                                     }
                                 });
-                            } catch (Exception ignored) {
-                            }
-                        });
+                    } catch (Throwable t) {
+                        Log.w("HtmlCardView", "height measure failed(keep initial): " + t.getMessage());
+                    }
+                }, 150L);
             }
         });
 
@@ -131,7 +142,9 @@ public class HtmlCardView implements ChatComponent {
         webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
 
         card.addView(webView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 120)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160)));
+        Log.i("HtmlCardView", "html component created, htmlLen=" + html.length()
+                + ", title=" + (title == null ? "" : title));
         return card;
     }
 
