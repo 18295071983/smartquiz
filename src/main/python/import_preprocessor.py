@@ -46,8 +46,81 @@ _HEADER_KEYWORDS = {
     "correctanswer", "options", "difficulty", "type", "score",
 }
 
-# 合并选项列分隔符（分号/竖线/顿号）
-_OPT_SPLIT_RE = re.compile(r"[;；|｜、]")
+# 候选分隔符（自动检测选用）：按优先级排列，检测时取拆分段数最多且无空段的
+_OPT_DELIMITERS = ["；", ";", "|", "｜", "、", "，", ",", "\t", "/", "／", "~", "～", "　", " "]
+
+
+def _split_options(raw):
+    """自动拆分聚合选项列：检测分隔符 + 字母前缀模式，返回拆分后的选项列表（去前缀、去空）。
+
+    检测算法（非硬编码单一分隔符）：
+    1. 字母前缀模式优先："A. xxx B. xxx" / "A、xxx" / "A) xxx" → 按字母分界拆分
+    2. 分隔符自动检测：遍历候选分隔符，按"拆分段数最多 + 无空段 + 各段长度合理"评分，
+       选最优者（如内容用分号则分号拆出的段数最合理，不会误用出现次数多的逗号）
+    3. 换行拆分
+    4. 整段视为单个选项
+    """
+    if not raw:
+        return []
+    text = str(raw).strip()
+    if not text:
+        return []
+
+    # 1. 字母前缀模式（A./A、/A)/A．/A: /A： 后跟内容，且至少 2 组）
+    letter_parts = re.split(
+        r"\s*(?=[A-Za-z][.、)．:：])\s*", text)
+    cleaned = [p.strip() for p in letter_parts if p.strip()]
+    if len(cleaned) >= 2:
+        parts = cleaned
+    else:
+        # 2. 分隔符自动检测：对每个候选分隔符尝试拆分，评分选择最优。
+        #    评分=段数*2 - 空段*10 - 短段轻罚 - 空格类降权。
+        #    段数权重最高（数值选项 "2；3；4；5"、单字选项 "是；否" 也能正确拆开），
+        #    空段重罚（连续分隔符/误拆），空格类分隔符额外降权（防误拆含空格长句）。
+        best_parts = None
+        best_score = 0
+        for d in _OPT_DELIMITERS:
+            if d not in text:
+                continue
+            raw_parts = [p.strip() for p in text.split(d)]
+            # 空段惩罚：真实分隔符不会产生空段（除非连续分隔符）
+            non_empty = [p for p in raw_parts if p]
+            if len(non_empty) < 2:
+                continue
+            empty_count = len(raw_parts) - len(non_empty)
+            avg_len = sum(len(p) for p in non_empty) / len(non_empty)
+            score = len(non_empty) * 2 - empty_count * 10
+            if avg_len < 2:
+                score -= 1
+            if d.isspace():
+                score -= 2
+            if score > best_score:
+                best_score = score
+                best_parts = non_empty
+        if best_parts is not None:
+            parts = best_parts
+        else:
+            # 3. 换行拆分
+            parts = [p.strip() for p in text.splitlines() if p.strip()]
+        # 若分隔拆分只有 1 段但内容明显多段（如换行），兜底换行
+        if len(parts) <= 1 and ("\n" in text or "\r" in text):
+            parts = [p.strip() for p in text.splitlines() if p.strip()]
+
+    # 剥离每段前缀：仅当字母/序号后有分隔符跟随（A. / A、/ 1. / 一、）。
+    # 无分隔符跟随的字母/数字（"2"、"TRUE"）一律保留；数字分支用 (?!\d)
+    # 防止把小数 "10.5" 的 "10." 误当序号前缀剥成 "5"。
+    result = []
+    for p in parts:
+        p2 = re.sub(
+            r"^\s*(?:[A-Za-z一二三四五六七八九十]{1,3}[.、)．:：]|[1-9][0-9]{0,2}[.、)．:：](?!\d))\s*",
+            "", p).strip()
+        if not p2:
+            continue
+        # 段尾残留分隔符剥除（字母前缀路径下 "A.甲；" 的分号残留）
+        p2 = re.sub(r"[；;|｜、，,\t/／~～　 ]+$", "", p2).strip()
+        if p2:
+            result.append(p2)
+    return result
 
 
 def _detect_header(rows):
@@ -146,6 +219,8 @@ def _kind_of(path):
         return "xlsx"
     if ext in (".csv", ".txt"):
         return "csv"
+    if ext in (".md", ".markdown"):
+        return "md"
     if ext == ".json":
         return "json"
     if ext == ".sql":
@@ -181,9 +256,11 @@ def _norm_cell(v):
 
 # ==================== 各格式行迭代器 ====================
 
-def _iter_xlsx(path):
+def _iter_xlsx(path, sheet_index=None):
     """流式读取 xlsx：两遍读（read_only 模式开销小）。
-    第一遍定位首个有效 sheet 的表头；第二遍逐 sheet 逐行产出数据，
+
+    指定 sheet_index 时只读该 sheet（用户已在 UI 选择工作表）；
+    否则自动扫全部 sheet：第一遍定位首个有效 sheet 的表头，第二遍逐 sheet 产出，
     跨 sheet 表头（列数+列名）不一致的 sheet 跳过，避免按首个表头错位合并。
     返回 (headers, 数据行生成器)。
     """
@@ -192,18 +269,63 @@ def _iter_xlsx(path):
     except ImportError:
         raise RuntimeError("openpyxl 不可用，无法解析 xlsx")
 
+    def _sheet_rows(ws):
+        it = ws.iter_rows(values_only=True)
+        head_rows = []
+        for r in it:
+            head_rows.append([_norm_cell(c) for c in r])
+            if len(head_rows) >= 12:
+                break
+        head_rows = [r for r in head_rows if any(x != "" for x in r)]
+        return head_rows, it
+
+    # 指定 sheet：直接读该 sheet 的表头
+    if sheet_index is not None:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            sheets = wb.worksheets
+            if sheet_index < 0 or sheet_index >= len(sheets):
+                return [], iter(())
+            head_rows, _ = _sheet_rows(sheets[sheet_index])
+            if not head_rows:
+                return [], iter(())
+            h, start = _detect_header(head_rows)
+            if not h:
+                return [], iter(())
+        finally:
+            wb.close()
+
+        def gen_single():
+            wb2 = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            try:
+                ws = wb2.worksheets[sheet_index]
+                it = ws.iter_rows(values_only=True)
+                head_rows = []
+                for r in it:
+                    head_rows.append([_norm_cell(c) for c in r])
+                    if len(head_rows) >= 12:
+                        break
+                head_rows = [r for r in head_rows if any(x != "" for x in r)]
+                _h, start = _detect_header(head_rows) if head_rows else (None, 0)
+                for r in head_rows[start:]:
+                    if any(x != "" for x in r):
+                        yield r
+                for r in it:
+                    row = [_norm_cell(c) for c in r]
+                    if any(x != "" for x in row):
+                        yield row
+            finally:
+                wb2.close()
+
+        return h, gen_single()
+
+    # 未指定 sheet：自动扫全部（原有逻辑）
     # 第一遍：定位首个有效 sheet 的表头
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     main_header = None
     try:
         for ws in wb.worksheets:
-            head_rows = []
-            it = ws.iter_rows(values_only=True)
-            for r in it:
-                head_rows.append([_norm_cell(c) for c in r])
-                if len(head_rows) >= 12:
-                    break
-            head_rows = [r for r in head_rows if any(x != "" for x in r)]
+            head_rows, _ = _sheet_rows(ws)
             if not head_rows:
                 continue
             h, _start = _detect_header(head_rows)
@@ -320,6 +442,47 @@ def _iter_csv(path):
             f.close()
             return [], iter(())
         return header, all_rows
+    except Exception:
+        f.close()
+        raise
+
+
+def _iter_md(path):
+    """流式读取 Markdown 表格文本（AI 导入导出的 .md 工作表）：
+    按 | 分隔符切分单元格，跳过 Markdown 分隔行（|---|---|）与空行。
+    返回 (headers, 数据行生成器)。"""
+    f = _open_text(path)
+    try:
+        lines = []
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            # Markdown 表格分隔行：|---|:---:|---| 等
+            if re.match(r"^\s*\|?[\s:\-]+\|[\s:\-|]+\|?\s*$", s) and "-" in s:
+                continue
+            lines.append(s)
+
+        if not lines:
+            f.close()
+            return [], iter(())
+
+        def parse_cells(line):
+            parts = line.strip().strip("|").split("|")
+            return [_norm_cell(c) for c in parts]
+
+        header = parse_cells(lines[0])
+
+        def gen():
+            try:
+                for line in lines[1:]:
+                    cells = parse_cells(line)
+                    if any(c for c in cells):
+                        yield cells
+            finally:
+                f.close()
+
+        return header, gen()
     except Exception:
         f.close()
         raise
@@ -470,16 +633,20 @@ def _pick_db_table(db_path):
 
 # ==================== 对外接口 ====================
 
-def sample_file(path, max_rows=15):
-    """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）"""
+def sample_file(path, max_rows=15, sheet_index=None):
+    """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）。
+    sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。"""
     try:
         max_rows = int(max_rows) if max_rows else 15
         kind = _kind_of(path)
         if kind == "xlsx":
-            headers, rows = _iter_xlsx(path)
+            headers, rows = _iter_xlsx(path, sheet_index)
             sampled = list(itertools.islice(rows, max_rows))
         elif kind == "csv":
             headers, rows = _iter_csv(path)
+            sampled = list(itertools.islice(rows, max_rows))
+        elif kind == "md":
+            headers, rows = _iter_md(path)
             sampled = list(itertools.islice(rows, max_rows))
         elif kind == "json":
             headers, rows = _iter_json(path)
@@ -534,21 +701,20 @@ def _update_breakpoint(bp_path, processed):
         pass
 
 
-def _map_row(headers, row, mapping, source_name, std_columns, option_fields):
-    """按映射规则把源行转换为标准字段字典"""
+def _map_row(headers, row, mapping, source_name, std_columns, option_fields, col_index=None):
+    """按映射规则把源行转换为标准字段字典。
+    col_index：表头→列索引映射，调用方构建一次传入（避免每行重复构建）。"""
     out = {c: "" for c in std_columns}
-    col_index = {h.strip(): i for i, h in enumerate(headers)} if headers else {}
+    if col_index is None:
+        col_index = {h.strip(): i for i, h in enumerate(headers)} if headers else {}
     for std, src in mapping.items():
         if not src:
             continue
         # 虚拟字段：合并选项列（分号/竖线/顿号分隔）拆分到 optionA~L
         if std == "optionsCombined":
             if src in col_index and col_index[src] < len(row):
-                parts = [p.strip() for p in
-                         _OPT_SPLIT_RE.split(str(row[col_index[src]])) if p.strip()]
-                if len(parts) <= 1:
-                    parts = [p.strip() for p in
-                             str(row[col_index[src]]).splitlines() if p.strip()]
+                raw = str(row[col_index[src]])
+                parts = _split_options(raw)
                 letters = list(option_fields.keys()) or list("ABCDEFGHIJKL")
                 for k, letter in enumerate(letters):
                     if k >= len(parts):
@@ -568,9 +734,27 @@ def _map_row(headers, row, mapping, source_name, std_columns, option_fields):
     return out
 
 
+def _ctx_summary(rec):
+    """相邻题目上下文摘要：供缺失字段的 LLM 推断参考（题型/难度/题干，简短）。"""
+    if not rec:
+        return None
+    parts = []
+    qt = rec.get("questionType", "")
+    if qt:
+        parts.append("题型=" + qt[:10])
+    df = rec.get("difficulty", "")
+    if df:
+        parts.append("难度=" + str(df)[:6])
+    q = rec.get("questionText", "")
+    if q:
+        parts.append("题干=" + q[:40])
+    return "; ".join(parts) if parts else None
+
+
 def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
-               breakpoint_path=None, spec_json=None):
+               breakpoint_path=None, spec_json=None, sheet_index=None):
     """全量解析：分片写标准化 CSV，实时写断点，收集缺失字段题目。
+    sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。
 
     spec_json：Java 侧根据 question 表实际结构动态下发的字段规格
     （std_columns/fill_fields/option_fields），为空时用内置默认值兜底。
@@ -585,9 +769,11 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
 
         kind = _kind_of(path)
         if kind == "xlsx":
-            headers, rows = _iter_xlsx(path)
+            headers, rows = _iter_xlsx(path, sheet_index)
         elif kind in ("csv",):
             headers, rows = _iter_csv(path)
+        elif kind == "md":
+            headers, rows = _iter_md(path)
         elif kind == "json":
             headers, rows = _iter_json(path)
         elif kind == "sql":
@@ -605,6 +791,8 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
                               ensure_ascii=False)
 
         source_name = os.path.basename(path)
+        # 表头→列索引映射只构建一次（表头全文件固定，避免每行重复构建）
+        col_index = {h.strip(): i for i, h in enumerate(headers)} if headers else {}
         # 流式解析：rows 为生成器，无法预知总数；total 由处理行数代替（Java 侧不消费 total_rows）
         total = 0
 
@@ -615,6 +803,8 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
         chunks = [os.path.join(out_dir, f) for f in existing]
 
         missing = []
+        skipped_log = []     # 跳过诊断（题干为空的行号+原因，最多 20 条）
+        pending_missing = None  # 待补 ctx_next 的缺失条目
         written = 0          # 本次新写行数
         processed = resume_row
         cur_file = None
@@ -640,17 +830,32 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
         # 断点语义：记录"已写入分片的最后源行号"（last_written），而非"已处理行号"。
         # 恢复时 resume_row=last_written，已写行绝不重写，杜绝检查点粒度重叠导致的 CSV 重复。
         last_written = resume_row
+        prev_rec = None   # 上一题完整记录（供缺失字段上下文推断）
         for idx, row in enumerate(rows):
             if idx < resume_row:
                 continue
             processed = idx + 1
 
-            rec = _map_row(headers, row, mapping, source_name, std_columns, option_fields)
+            rec = _map_row(headers, row, mapping, source_name, std_columns,
+                           option_fields, col_index)
             key = re.sub(r"\s+", "", rec.get("questionText", ""))
             # 题干为空或批内重复 → 丢弃（不写盘，不更新 last_written）
-            if not key or key in seen:
+            if not key:
+                # 诊断：记录跳过原因（题干列为空），仅首 20 条避免刷屏
+                if len(skipped_log) < 20:
+                    skipped_log.append(
+                        "row=%d 题干为空（questionText映射列=%s, 表头=%s）" % (
+                            idx + 1, mapping.get("questionText", "?"), headers))
+                continue
+            if key in seen:
                 continue
             seen.add(key)
+
+            # 当前题已写入：若上一题缺失字段，则当前题就是它的"下一题"上下文，补 ctx_next 并收尾
+            if pending_missing is not None:
+                pending_missing["ctx_next"] = _ctx_summary(rec)
+                missing.append(pending_missing)
+                pending_missing = None
 
             if cur_writer is None or cur_rows_in_file >= chunk_rows:
                 open_new_part()
@@ -661,11 +866,12 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
             cur_rows_in_file += 1
             written += 1
 
-            # 收集缺失可补充字段的题目（填充字段与选项字段均由 Java 动态指定）
+            # 收集缺失可补充字段的题目（填充字段由 Java 动态指定）：
+            # 当前题缺失 → 挂起 pending，等下一题补 ctx_next（若下一题存在）
             if len(missing) < MAX_MISSING:
                 need = any(not rec.get(f) for f in fill_fields)
                 if need:
-                    missing.append({
+                    pending_missing = {
                         "chunk": cur_file,
                         "row": row_in_chunk,
                         "questionText": rec.get("questionText", "")[:120],
@@ -673,17 +879,31 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
                             k: rec.get(v, "")[:40] for k, v in option_fields.items()
                         },
                         "has": {f: bool(rec.get(f)) for f in fill_fields},
-                    })
+                        "ctx_prev": _ctx_summary(prev_rec),
+                        "ctx_next": None,
+                    }
+
+            prev_rec = rec
 
             # 实时写断点（每 500 行一次，值为已写行号；降低 IO）
             bp_counter += 1
             if bp_counter % 500 == 0:
                 _update_breakpoint(breakpoint_path, last_written)
 
+        # 文件末尾：最后一条 pending 无下一题
+        if pending_missing is not None:
+            missing.append(pending_missing)
+            pending_missing = None
+
         if cur_writer:
             cur_writer[0].close()
 
         _update_breakpoint(breakpoint_path, last_written)
+
+        # 诊断：题干为空跳过的行（辅助定位"缺失字段题目被跳过"问题）
+        if skipped_log:
+            print("[import_preprocessor] 跳过诊断(题干为空): %d 条, 示例: %s" % (
+                len(skipped_log), " | ".join(skipped_log[:5])), flush=True)
 
         return json.dumps({
             "success": True,

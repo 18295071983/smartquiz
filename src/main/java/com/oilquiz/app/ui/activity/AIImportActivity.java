@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.ClipData;
 import android.net.Uri;
+import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
@@ -17,6 +18,7 @@ import com.oilquiz.app.ai.importing.AIImportOrchestrator;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.ui.dialog.OnlineModelConfigDialog;
+import com.oilquiz.app.util.render.ExcelUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,6 +59,14 @@ public class AIImportActivity extends BaseActivity {
 
     // 流式指标区（tok/s、token、已入库数在 v2 流程无回调，已在布局隐藏；仅保留进度）
     private TextView tvProgress;
+    // 实时监控：耗时 / 步骤 / 推理速度 / Token
+    private TextView tvMonitorElapsed;
+    private TextView tvMonitorStage;
+    private TextView tvMonitorSpeed;
+    private TextView tvMonitorTokens;
+    private android.os.Handler monitorHandler;
+    private Runnable monitorTick;
+    private long importStartTime = 0;
 
     // 结果统计区
     private MaterialCardView statsCard;
@@ -108,6 +118,13 @@ public class AIImportActivity extends BaseActivity {
 
         // 流式指标区（tok/s、token、已入库数已在布局隐藏，仅保留进度）
         tvProgress = findViewById(R.id.tvProgress);
+
+        // 实时监控：耗时 / 步骤 / 推理速度 / Token
+        tvMonitorElapsed = findViewById(R.id.tvMonitorElapsed);
+        tvMonitorStage = findViewById(R.id.tvMonitorStage);
+        tvMonitorSpeed = findViewById(R.id.tvMonitorSpeed);
+        tvMonitorTokens = findViewById(R.id.tvMonitorTokens);
+        monitorHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
         // 结果统计区
         statsCard = findViewById(R.id.statsCard);
@@ -195,9 +212,243 @@ public class AIImportActivity extends BaseActivity {
 
     /** 启动智能导入模式（使用 v2 导入管线，支持多文件 + 本地 AI 推理） */
     private void startSmartImport() {
+        // Excel 多工作表智能检测：识别题库 sheet（表头字段匹配最多），单表直接导入，
+        // 无匹配时弹选择对话框兜底。CSV/JSON 等无 sheet 概念，直接走 v2。
+        if (currentFile != null && selectedFiles.size() == 1 && isExcelFile(currentFile)) {
+            smartSelectSheetAndImport(currentFile);
+            return;
+        }
+        runV2Import();
+    }
+
+    private boolean isExcelFile(File file) {
+        if (file == null) return false;
+        String name = file.getName().toLowerCase();
+        return name.endsWith(".xlsx") || name.endsWith(".xls");
+    }
+
+    /**
+     * Excel 工作表智能检测：分析所有 sheet，选字段匹配最多（题干/答案/选项关键词）的表，
+     * 导出为 .md 后走 v2 导入；无匹配表时弹选择对话框兜底。
+     */
+    private void smartSelectSheetAndImport(File file) {
+        showToast("正在检测工作表...");
+        // 用独立线程池（不占 ExcelUtil 共享单线程池，避免与其他导入排队互相阻塞）
+        java.util.concurrent.ExecutorService detectExecutor =
+                java.util.concurrent.Executors.newSingleThreadExecutor();
+        detectExecutor.execute(() -> {
+            try {
+                List<com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile> profiles =
+                        com.oilquiz.app.ai.importing.ExcelSheetPicker.analyzeSheets(file);
+                if (profiles.isEmpty()) {
+                    runOnUiThread(() -> showToast("未能识别工作表，尝试直接导入"));
+                    runV2Import();
+                    return;
+                }
+
+                // 提取题库说明/模板说明 sheet 的字段约定（供映射推理参考），同时排除它们不参与选题
+                final String[] docHintHolder = {null};
+                StringBuilder docText = new StringBuilder();
+                for (com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p : profiles) {
+                    if (isDocSheet(p)) {
+                        String doc = com.oilquiz.app.ai.importing.ExcelSheetPicker.exportSheetAsMarkdown(
+                                file, p.sheetIndex, p.headerRowIndex, p.subHeaderRowIndex, p.dataStartRowIndex);
+                        if (doc != null && !doc.isEmpty()) {
+                            if (docText.length() > 0) docText.append("\n\n");
+                            docText.append("【").append(p.sheetName).append("】\n").append(doc);
+                        }
+                    }
+                }
+                if (docText.length() > 0) {
+                    // 截断：说明文本只取前 2000 字符（避免撑爆映射提示词）
+                    docHintHolder[0] = docText.length() > 2000
+                            ? docText.substring(0, 2000) : docText.toString();
+                }
+
+                // 选字段匹配最多的 sheet（题干/答案/选项等关键词命中数）。
+                // 说明/模板/示例类 sheet 已提取内容，不参与选题。
+                com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile best = null;
+                int bestScore = -1;
+                for (com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p : profiles) {
+                    if (isDocSheet(p)) continue; // 说明/模板/示例表不参与选题
+                    int score = scoreSheetProfile(p);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = p;
+                    }
+                }
+
+                final com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile selected = best;
+                // 得分≥3 且确有其数据行（rowCount 含表头，需 ≥ 表头+1 行真实数据）才算命中
+                boolean hasRealData = selected != null
+                        && selected.rowCount > selected.dataStartRowIndex + 1;
+                if (selected == null || bestScore < 3 || !hasRealData) {
+                    // 无足够匹配（封面/说明表或纯说明表）：弹选择对话框兜底
+                    runOnUiThread(() -> showSheetChoiceDialog(file, profiles, docHintHolder[0]));
+                    return;
+                }
+
+                // 命中题库表：直接把原文件 + 选定 sheet 索引传给 v2（Python 直接读取该 sheet，
+                // 不再中转 .md，保证数据完整）
+                final String docHint = docHintHolder[0];
+                final int sheetIdx = selected.sheetIndex;
+                runOnUiThread(() -> {
+                    showToast("已检测到题库工作表: " + selected.sheetName + "（" + selected.rowCount + "行）"
+                            + (docHint != null ? "，已解析题库说明" : ""));
+                    currentFile = file;
+                    runV2Import(sheetIdx, docHint);
+                });
+            } catch (Exception e) {
+                Log.e("AIImportActivity", "工作表检测失败: " + e.getMessage(), e);
+                runOnUiThread(() -> {
+                    showToast("工作表检测失败，尝试直接导入");
+                    runV2Import();
+                });
+            } finally {
+                detectExecutor.shutdown();
+            }
+        });
+    }
+
+    /** 评分：表头命中 题干/答案/选项 等题库关键词的次数 */
+    private int scoreSheetProfile(com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p) {
+        int score = 0;
+        if (p.headerColumns == null) return 0;
+        String[] strong = {"题干", "题目", "问题", "答案", "正确答案", "选项", "解析", "类型", "难度", "分类"};
+        for (String h : p.headerColumns) {
+            if (h == null) continue;
+            for (String kw : strong) {
+                if (h.contains(kw)) {
+                    score++;
+                    break;
+                }
+            }
+        }
+        return score;
+    }
+
+    /**
+     * 判断是否为说明/模板/示例类 sheet（"模板说明"、"题库说明"、"使用说明"等）。
+     * 这类表整表是文字说明，不应作为题库自动选中；sheet 名或表头含说明特征即判为文档表。
+     */
+    private boolean isDocSheet(com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p) {
+        if (p == null) return false;
+        String name = p.sheetName != null ? p.sheetName : "";
+        // sheet 名特征：说明/模板/示例/帮助/使用/指南/目录/封面
+        if (name.contains("说明") || name.contains("模板") || name.contains("示例")
+                || name.contains("帮助") || name.contains("使用") || name.contains("指南")
+                || name.contains("目录") || name.contains("封面") || name.contains("介绍")) {
+            return true;
+        }
+        // 表头特征：整行都是"字段+说明"型单列文本（如 题目 | 填写说明 | 示例）
+        if (p.headerColumns != null) {
+            int docHit = 0;
+            String[] docWords = {"说明", "填写", "示例", "举例", "注意", "提示", "请勿", "格式", "规范"};
+            for (String h : p.headerColumns) {
+                if (h == null) continue;
+                for (String w : docWords) {
+                    if (h.contains(w)) {
+                        docHit++;
+                        break;
+                    }
+                }
+            }
+            // 表头一半以上是说明词 → 判为文档表
+            if (docHit > 0 && docHit * 2 >= p.headerColumns.size()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 多 sheet 且无自动命中：弹选择对话框 */
+    private void showSheetChoiceDialog(File file, List<com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile> profiles) {
+        showSheetChoiceDialog(file, profiles, null);
+    }
+
+    private void showSheetChoiceDialog(File file, List<com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile> profiles,
+                                       String docHint) {
+        String[] names = new String[profiles.size()];
+        for (int i = 0; i < profiles.size(); i++) {
+            com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p = profiles.get(i);
+            names[i] = p.sheetName + "（" + p.rowCount + "行，表头第" + (p.headerRowIndex + 1) + "行）";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择题库工作表")
+                .setItems(names, (dialog, which) -> {
+                    com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p = profiles.get(which);
+                    // 直接把原文件 + 选定 sheet 索引传给 v2（Python 直接读取该 sheet）
+                    currentFile = file;
+                    runV2Import(p.sheetIndex, docHint);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 启动实时监控：计时器 + 每秒刷新耗时/推理速度/Token（真实数据，来自 LlamaHelper） */
+    private void startMonitor() {
+        importStartTime = System.currentTimeMillis();
+        if (tvMonitorStage != null) tvMonitorStage.setText("启动");
+        monitorTick = new Runnable() {
+            @Override
+            public void run() {
+                if (importStartTime <= 0) return;
+                // 耗时
+                long elapsed = System.currentTimeMillis() - importStartTime;
+                if (tvMonitorElapsed != null) {
+                    long s = elapsed / 1000;
+                    tvMonitorElapsed.setText(String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60));
+                }
+                // 推理速度与 Token：实时读取 LlamaHelper（真实数据）
+                try {
+                    float speed = com.oilquiz.app.ai.jni.LlamaHelper.getInferenceSpeed();
+                    if (tvMonitorSpeed != null) {
+                        tvMonitorSpeed.setText(speed > 0 ? String.format(java.util.Locale.US, "%.1f", speed) : "-");
+                    }
+                    int tokens = com.oilquiz.app.ai.jni.LlamaHelper.getTokenCount();
+                    if (tvMonitorTokens != null) {
+                        tvMonitorTokens.setText(String.valueOf(tokens));
+                    }
+                } catch (Throwable ignored) {
+                }
+                // 每秒刷新
+                if (monitorHandler != null) {
+                    monitorHandler.postDelayed(this, 1000);
+                }
+            }
+        };
+        monitorHandler.post(monitorTick);
+    }
+
+    /** 停止实时监控 */
+    private void stopMonitor() {
+        importStartTime = 0;
+        if (monitorHandler != null && monitorTick != null) {
+            monitorHandler.removeCallbacks(monitorTick);
+            monitorTick = null;
+        }
+    }
+
+    /** 执行 v2 导入管线（单文件/多文件，自动扫全部工作表） */
+    private void runV2Import() {
+        runV2Import(-1, null);
+    }
+
+    /**
+     * 执行 v2 导入管线。
+     * @param sheetIndex Excel 用户选定工作表索引（-1=自动扫全部）
+     * @param docHint    题库说明/模板说明提取的字段约定（映射推理参考），可为 null
+     */
+    private void runV2Import(final int sheetIndex, final String docHint) {
         // 使用本地 AI 引擎创建 v2 导入管线（避免 sign6 错误）
         com.oilquiz.app.ai.importing.v2.ImportMain v2Main =
             new com.oilquiz.app.ai.importing.v2.ImportMain(this, orchestrator);
+        if (docHint != null && !docHint.isEmpty()) {
+            v2Main.setDocHint(docHint);
+        }
+        if (sheetIndex >= 0) {
+            v2Main.setExcelSheetIndex(sheetIndex);
+        }
         activeV2Main = v2Main;
         
         // 显示并启动 Agent 执行视图
@@ -210,18 +461,30 @@ public class AIImportActivity extends BaseActivity {
                 int stepNumber = 1;
                 String stageName = stage.toUpperCase();
                 String emoji = "📄";
-                
+
                 if ("mapping".equals(stage)) { stepNumber = 1; emoji = "🔍"; }
                 else if ("parse".equals(stage)) { stepNumber = 2; emoji = "📄"; }
                 else if ("fill".equals(stage)) { stepNumber = 3; emoji = "⚙️"; }
                 else if ("ingest".equals(stage)) { stepNumber = 4; emoji = "💾"; }
                 else if ("done".equals(stage) || "all-done".equals(stage)) { stepNumber = 4; emoji = "✅"; }
-                
+
                 agentView.updateCurrentStep(stepNumber, stageName, emoji, message);
                 updateStageIndicator(stepNumber);
-                
+
+                // 实时监控：当前步骤
+                if (tvMonitorStage != null) {
+                    String label = "检测";
+                    if ("mapping".equals(stage)) label = "映射";
+                    else if ("parse".equals(stage)) label = "解析";
+                    else if ("fill".equals(stage)) label = "填充";
+                    else if ("ingest".equals(stage)) label = "入库";
+                    else if ("done".equals(stage) || "all-done".equals(stage)) label = "完成";
+                    tvMonitorStage.setText(label);
+                }
+
                 if ("done".equals(stage) || "all-done".equals(stage)) {
                     statsCard.setVisibility(View.VISIBLE);
+                    stopMonitor();
                 }
             }
 
@@ -246,6 +509,8 @@ public class AIImportActivity extends BaseActivity {
                 tvTotalCount.setText(String.valueOf(result.totalRows));
                 tvFailedCount.setText(String.valueOf(result.failed));
                 statsCard.setVisibility(View.VISIBLE);
+                if (tvMonitorStage != null) tvMonitorStage.setText("完成");
+                stopMonitor();
                 showToast("导入完成: 新增 " + result.imported + " 题");
             }
 
@@ -255,9 +520,13 @@ public class AIImportActivity extends BaseActivity {
                 importFinished = true;
                 btnCancel.setText("关闭");
                 agentView.failExecution(message);
+                stopMonitor();
                 showLongToast("导入失败: " + message);
             }
         };
+
+        // 启动实时监控（计时 + 推理速度/Token 轮询）
+        startMonitor();
 
         if (currentFile != null) {
             // 单文件导入（ImportMain 内部自行在后台线程执行）
@@ -489,6 +758,7 @@ public class AIImportActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopMonitor();
         if (orchestrator != null) {
             orchestrator.cancel();
         }

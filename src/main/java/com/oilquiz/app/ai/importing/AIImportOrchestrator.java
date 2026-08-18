@@ -1275,25 +1275,27 @@ public class AIImportOrchestrator {
     private Question parseMinimalQuestion(JSONObject jo) {
         if (jo == null) return null;
         Question q = new Question();
-        q.setQuestionText(jo.optString("questionText", ""));
-        q.setOptionA(jo.optString("optionA", ""));
-        q.setOptionB(jo.optString("optionB", ""));
-        q.setOptionC(jo.optString("optionC", ""));
-        q.setOptionD(jo.optString("optionD", ""));
-        q.setCorrectAnswer(jo.optString("correctAnswer", ""));
-        q.setQuestionType(jo.optString("questionType", ""));
-        q.setCategory(jo.optString("category", ""));
-        q.setSubCategory("");
-        q.setDifficulty(0);
-        q.setPoints(0);
-        q.setTimeLimit(0);
-        q.setHint("");
-        q.setExplanation("");
-        q.setAnalysis("");
-        q.setKnowledgePoint("");
-        q.setTags("");
-        q.setAuthor("");
-        q.setComment("");
+        // 只填充源数据中实际存在的字段：缺失字段保持 Question 默认值（不塞空串/0），
+        // 避免"源文件没有该字段"时也生成空值入库
+        if (jo.has("questionText")) q.setQuestionText(jo.optString("questionText", ""));
+        if (jo.has("optionA")) q.setOptionA(jo.optString("optionA", ""));
+        if (jo.has("optionB")) q.setOptionB(jo.optString("optionB", ""));
+        if (jo.has("optionC")) q.setOptionC(jo.optString("optionC", ""));
+        if (jo.has("optionD")) q.setOptionD(jo.optString("optionD", ""));
+        if (jo.has("correctAnswer")) q.setCorrectAnswer(jo.optString("correctAnswer", ""));
+        if (jo.has("questionType")) q.setQuestionType(jo.optString("questionType", ""));
+        if (jo.has("category")) q.setCategory(jo.optString("category", ""));
+        if (jo.has("subCategory")) q.setSubCategory(jo.optString("subCategory", ""));
+        if (jo.has("difficulty")) q.setDifficulty(jo.optInt("difficulty", 0));
+        if (jo.has("points")) q.setPoints(jo.optInt("points", 0));
+        if (jo.has("timeLimit")) q.setTimeLimit(jo.optInt("timeLimit", 0));
+        if (jo.has("hint")) q.setHint(jo.optString("hint", ""));
+        if (jo.has("explanation")) q.setExplanation(jo.optString("explanation", ""));
+        if (jo.has("analysis")) q.setAnalysis(jo.optString("analysis", ""));
+        if (jo.has("knowledgePoint")) q.setKnowledgePoint(jo.optString("knowledgePoint", ""));
+        if (jo.has("tags")) q.setTags(jo.optString("tags", ""));
+        if (jo.has("author")) q.setAuthor(jo.optString("author", ""));
+        if (jo.has("comment")) q.setComment(jo.optString("comment", ""));
         return q;
     }
 

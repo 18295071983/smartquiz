@@ -10,6 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 import com.oilquiz.app.ai.importing.FieldMappingRegistry;
 import com.oilquiz.app.database.AppDatabase;
+import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -47,7 +48,7 @@ public class ImportMain {
 
     /** CSV 分片行数（超大题库分片防内存溢出） */
     private static final int CHUNK_ROWS = 3000;
-    /** 填充任务单批上限 */
+    /** 智能填充单批题数（LLM 批量推理） */
     private static final int FILL_BATCH_SIZE = 10;
 
     /** PRAGMA 读取失败时的内置默认字段列表（兜底，流程不中断） */
@@ -70,7 +71,7 @@ public class ImportMain {
 
     /** AI 可填充字段（填充引擎输出结构固定为 category/difficulty/explanation，
      * 下发前与真实表列取交集） */
-    private static final String[] FILL_FIELD_CANDIDATES = {"category", "difficulty", "explanation"};
+    private static final String[] FILL_FIELD_CANDIDATES = {"questionType", "difficulty", "category", "explanation"};
 
     /** 虚拟映射字段：合并选项列（非数据库列，Python 解析层拆分到 optionA~L） */
     private static final String VIRTUAL_FIELD_OPTIONS_COMBINED = "optionsCombined";
@@ -112,6 +113,12 @@ public class ImportMain {
 
     private volatile boolean cancelled = false;
     private ImportLlmEngine engine;
+    /** 当前文件的字段映射（标准字段→源列名），fillMissingFields 据此判断源表是否有对应列 */
+    private Map<String, String> currentMapping;
+    /** 题库说明/模板说明提取的字段约定（映射推理时注入，帮助 AI 理解字段含义） */
+    private volatile String docHint = null;
+    /** Excel 用户选定工作表索引（-1=自动扫全部） */
+    private volatile int excelSheetIndex = -1;
     /** 批量模式标志：缺字段报告由批量入口统一生成一次，避免逐文件重复扫描 */
     private volatile boolean batchMode = false;
     /** 本地 AI 引擎（可选，用于字段映射 + 智能填充） */
@@ -133,6 +140,24 @@ public class ImportMain {
     }
 
     /** 异步执行单文件导入（自动断点续导） */
+    /**
+     * 注入题库说明/模板说明的字段约定文本（映射推理时参考）。
+     * 从 Excel 的"题库说明"等 sheet 提取：如"题干格式：...、答案：...、选项：A.xxx"，
+     * 帮助 AI 字段映射理解文件列的真实含义，提升映射准确率。
+     */
+    public void setDocHint(String docHintText) {
+        this.docHint = (docHintText == null || docHintText.trim().isEmpty())
+                ? null : docHintText.trim();
+    }
+
+    /**
+     * 设置 Excel 用户选定的工作表索引（Python 直接读取该 sheet）。
+     * @param sheetIndex 工作表索引（0-based）；-1 或 <0 表示自动扫全部
+     */
+    public void setExcelSheetIndex(int sheetIndex) {
+        this.excelSheetIndex = sheetIndex;
+    }
+
     public void run(File sourceFile, ImportListener listener) {
         cancelled = false;
         batchMode = false;
@@ -298,7 +323,7 @@ public class ImportMain {
 
         // 采样文件表头（映射推理与缓存指纹共用）
         // 容错：桥接层永不返回 null，失败时返回 {"error":...} 归一化错误对象
-        JSONObject sample = python.sampleFile(sourceFile.getAbsolutePath(), 15);
+        JSONObject sample = python.sampleFile(sourceFile.getAbsolutePath(), 15, excelSheetIndex);
         String sampleErr = extractError(sample);
         if (sampleErr != null) {
             emitError(listener, "文件采样失败: " + sampleErr);
@@ -327,7 +352,7 @@ public class ImportMain {
             }
         }
 
-        // ========== 步骤2：引擎字段映射推理 ==========
+        // ========== 步骤2：AI 字段映射（缓存命中跳过；否则 AI 推理，失败兜底词典） ==========
         if (mapping == null) {
             if (cancelled) return;
             emitStage(listener, "mapping", "启动字段映射推理...");
@@ -337,13 +362,23 @@ public class ImportMain {
             try {
                 aliasJson = new JSONObject(aliasJson)
                         .put(VIRTUAL_FIELD_OPTIONS_COMBINED,
-                                "选项合并在单列(分号/竖线分隔)时映射该列")
+                                "选项聚合列：表头为 可选项/选项/备选答案/ABCD选项 等且单列内含多个选项"
+                                + "（分号/竖线/顿号/换行/A.前缀 分隔）时，映射该列为 optionsCombined，"
+                                + "系统自动拆分为 optionA/B/C/D。"
+                                + "注意：只有 A/B/C/D 各占一列才分别映射 optionA/optionB/optionC/optionD")
                         .toString();
             } catch (Exception ignored) {
             }
 
+            // 附加修正提示：题库说明/模板说明提取的字段约定（如有），帮助 AI 理解列含义
+            String fixPrompt = null;
+            if (docHint != null && !docHint.isEmpty()) {
+                fixPrompt = "以下是题库文件中的【题库说明/模板说明】提取内容（描述字段填写约定），"
+                        + "请参考它理解各列的真实含义来完成字段映射：\n" + docHint;
+            }
+
             ImportLlmEngine.MappingResult mr = engine.runColumnMappingInfer(
-                    tableCols, aliasJson, sampleText, null, legalFields);
+                    tableCols, aliasJson, sampleText, fixPrompt, legalFields);
             if (mr.valid && mr.mapping != null) {
                 mapping = mr.mapping;
                 summary.mappingSource = "ai";
@@ -351,6 +386,8 @@ public class ImportMain {
                         + mr.toolCalls + " 次)");
                 // 映射值必须真实存在于文件表头，否则本地词典纠正
                 mapping = validateMappingAgainstHeaders(mapping, headers);
+                // 可选项列规则补全（缓存也存补全后的，避免下次命中缺 optionsCombined）
+                mapping = ensureCombinedOptionsMapping(mapping, headers);
                 ImportMapCache.save(cacheKey, mapping);
             } else {
                 emitLog(listener, "AI 映射失效(" + mr.failReason + ")，切换本地别名词典兜底");
@@ -365,6 +402,12 @@ public class ImportMain {
         }
 
         String mappingJson = new JSONObject(mapping).toString();
+        // 可选项列规则补全（纯程序，不依赖 LLM）：
+        // 若映射没有任何 optionA~L，但表头存在聚合选项列（可选项/选项等），
+        // 强制设为 optionsCombined —— 确保程序拆分一定生效，AI 漏识别也能兜住。
+        mapping = ensureCombinedOptionsMapping(mapping, headers);
+        mappingJson = new JSONObject(mapping).toString();
+        currentMapping = mapping;
         emitLog(listener, "字段映射: " + mappingJson);
 
         // 保存解析断点
@@ -386,7 +429,7 @@ public class ImportMain {
         JSONObject parseResult = python.parseFile(sourceFile.getAbsolutePath(), mappingJson,
                 sessionDir.getAbsolutePath(), resumeRow, CHUNK_ROWS,
                 ImportDirs.breakpointFile().getAbsolutePath(),
-                buildPythonFieldSpec(legalFields).toString());
+                buildPythonFieldSpec(legalFields).toString(), excelSheetIndex);
         String parseErr = extractError(parseResult);
         if (parseErr != null || !parseResult.optBoolean("success", false)) {
             // 永久性失败（文件损坏/格式不符等）：清断点，避免下次重跑时
@@ -420,26 +463,25 @@ public class ImportMain {
             return;
         }
 
-        // ========== 步骤4：独立会话 AI 智能补充缺失字段 ==========
-        // 循环分批填充直到扫不出缺失行：scanMissingFromChunks 每轮上限 500 条，
-        // 填充写回分片后下一轮不再收集，从而覆盖全量缺失（而非仅前 500 条落兜底值）。
-        // 同时自然覆盖断点续导后旧分片中的缺失行（Python missing 只含新分片）。
-        int filledTotal = 0;
-        final int FILL_TOTAL_CAP = 50000; // 安全上限，防异常死循环
-        int fillRounds = 0;
-        while (!cancelled && filledTotal < FILL_TOTAL_CAP) {
-            JSONArray scanned = scanMissingFromChunks(chunks);
-            if (scanned.length() == 0) break;
-            emitStage(listener, "fill", "AI 补充缺失字段(" + scanned.length() + " 题"
-                    + (filledTotal > 0 ? "，累计 " + filledTotal + ")" : ")") + "...");
-            fillMissingFields(scanned, listener);
-            filledTotal += scanned.length();
-            fillRounds++;
-            if (fillRounds > 100) break; // 单轮上限 500 条，100 轮=50000 条
+        // ========== 步骤4：缺失字段智能填充（LLM 结合上下文推断，只补缺失） ==========
+        // 原则：源表有该列但个别行缺失（题型/难度/分类/解析）时，LLM 参考前后题上下文推断；
+        // 整列缺失或字段映射不存在时跳过（缺失字段由入库层默认值兜底，不劳烦 LLM）。
+        // 仅当源文件确实存在可填充列（questionType/difficulty/category/explanation）时才值得推理。
+        try {
+            JSONArray missingArr = parseResult.optJSONArray("missing");
+            List<String> fillableCols = buildFillableColumns();
+            if (missingArr != null && missingArr.length() > 0 && !fillableCols.isEmpty()) {
+                // Python 已按 fill_fields 收集缺失行；仅当映射中存在可填充列时处理
+                emitStage(listener, "fill", "智能填充缺失字段(" + missingArr.length() + " 题)...");
+                fillMissingFieldsWithContext(missingArr, listener);
+                emitLog(listener, "缺失字段智能填充完成");
+            } else {
+                emitLog(listener, "无缺失字段或源文件无可填充列，跳过填充");
+            }
+        } catch (Exception e) {
+            emitLog(listener, "智能填充异常(不影响入库): " + e.getMessage());
         }
-        if (filledTotal > 0) {
-            emitLog(listener, "字段填充完成: 共处理 " + filledTotal + " 题");
-        }
+
         writeReadyFlag(sessionDir, sourceFile.getName(), processedRows);
 
         // ========== 步骤5：Java 事务批量入库（入库断点恢复） ==========
@@ -491,8 +533,40 @@ public class ImportMain {
         return outcome;
     }
 
-    /** 缺失字段批量填充：单批 10 题，失败固定兜底默认值 */
-    private void fillMissingFields(JSONArray missing, ImportListener listener) {
+    /**
+     * 归一化提取 Python/桥接层返回的错误信息：
+     * null、含 error 字段、success=false 均视为错误，返回可读原因；正常返回 null。
+     */
+    private static String extractError(JSONObject r) {
+        if (r == null) return "无返回结果";
+        String err = r.optString("error", "").trim();
+        if (!err.isEmpty()) return err;
+        if (r.has("success") && !r.optBoolean("success", true)) {
+            return "Python 返回失败状态";
+        }
+        return null;
+    }
+
+    /** 可 LLM 填充的列：字段映射中存在 questionType/difficulty/category/explanation 才可填 */
+    private List<String> buildFillableColumns() {
+        List<String> cols = new ArrayList<>();
+        if (currentMapping == null) return cols;
+        String[] candidates = {"questionType", "difficulty", "category", "explanation"};
+        for (String c : candidates) {
+            if (currentMapping.containsKey(c)) cols.add(c);
+        }
+        return cols;
+    }
+
+    /**
+     * 缺失字段智能填充（LLM 结合上下文推断）。
+     * Python missing 条目含 has(缺失字段)/ctx_prev/ctx_next(相邻题上下文)，
+     * 只对缺失字段跑 LLM，其他字段保持原值。
+     */
+    private void fillMissingFieldsWithContext(JSONArray missing, ImportListener listener) {
+        List<String> fillableCols = buildFillableColumns();
+        if (fillableCols.isEmpty()) return;
+
         // 按 chunk 分组收集
         Map<String, JSONObject> fillsByChunk = new LinkedHashMap<>();
         List<String> infos = new ArrayList<>();
@@ -507,7 +581,7 @@ public class ImportMain {
             for (int i = base; i < end; i++) {
                 JSONObject m = missing.optJSONObject(i);
                 if (m == null) continue;
-                infos.add(buildFillInfo(m));
+                infos.add(buildFillInfoWithContext(m));
                 pendingIdx.add(i);
             }
             if (infos.isEmpty()) continue;
@@ -519,18 +593,33 @@ public class ImportMain {
                 ImportLlmEngine.FillResult fr = k < fills.size() ? fills.get(k) : null;
                 JSONObject fill = new JSONObject();
                 try {
-                    if (fr != null && fr.valid) {
-                        fill.put("category", fr.category.isEmpty() ? "未分类" : fr.category);
+                    // 只填确实缺失的字段（has=false）；其余字段保持原值（不回写）
+                    JSONObject has = m.optJSONObject("has");
+                    boolean missingType = has == null || !has.optBoolean("questionType", false);
+                    boolean missingDiff = has == null || !has.optBoolean("difficulty", false);
+                    boolean missingCat = has == null || !has.optBoolean("category", false);
+                    boolean missingExp = has == null || !has.optBoolean("explanation", false);
+
+                    if (fillableCols.contains("questionType") && missingType && fr != null && fr.valid
+                            && !fr.questionType.isEmpty()) {
+                        fill.put("questionType", fr.questionType);
+                    }
+                    // difficulty/category/explanation 缺失：仅当 LLM 有效时才填（不硬编码默认值，
+                    // 遵循"题库有啥导啥"——LLM 推断不出就留空，入库层有默认值兜底）
+                    if (fillableCols.contains("difficulty") && missingDiff && fr != null && fr.valid) {
                         fill.put("difficulty", fr.difficulty);
+                    }
+                    if (fillableCols.contains("category") && missingCat && fr != null && fr.valid
+                            && !fr.category.isEmpty()) {
+                        fill.put("category", fr.category);
+                    }
+                    if (fillableCols.contains("explanation") && missingExp && fr != null && fr.valid
+                            && fr.explanation != null && !fr.explanation.isEmpty()) {
                         fill.put("explanation", fr.explanation);
-                    } else {
-                        // 固定兜底默认值
-                        fill.put("category", "未分类");
-                        fill.put("difficulty", 1);
-                        fill.put("explanation", "");
                     }
                 } catch (Exception ignored) {
                 }
+                if (fill.length() == 0) continue; // 无实际填充，跳过回写
                 String chunk = m.optString("chunk");
                 JSONObject chunkFills = fillsByChunk.get(chunk);
                 if (chunkFills == null) {
@@ -542,34 +631,53 @@ public class ImportMain {
                 } catch (Exception ignored) {
                 }
             }
-            emitProgress(listener, end, total, "字段填充");
+            emitProgress(listener, end, total, "智能填充");
         }
 
-        // 回写 CSV 分片（可填充字段列表由 Java 动态下发，与真实表列保持一致）
+        // 回写 CSV 分片
+        if (fillsByChunk.isEmpty()) return;
         ImportPythonBridge python = ImportPythonBridge.getInstance(context);
-        String fillFieldsJson = buildFillFieldsJson();
+        String fillFieldsJson = new JSONArray(fillableCols).toString();
         for (Map.Entry<String, JSONObject> e : fillsByChunk.entrySet()) {
             JSONObject r = python.applyFills(e.getKey(), e.getValue().toString(), fillFieldsJson);
             String err = extractError(r);
             if (err != null) {
-                // 回写失败不阻断入库：入库层对缺失字段有默认值兜底
                 emitLog(listener, "回写填充失败(不影响入库): " + err);
             }
         }
     }
 
-    /**
-     * 归一化提取 Python/桥接层返回的错误信息：
-     * null、含 error 字段、success=false 均视为错误，返回可读原因；正常返回 null。
-     */
-    private static String extractError(JSONObject r) {
-        if (r == null) return "无返回结果";
-        String err = r.optString("error", "").trim();
-        if (!err.isEmpty()) return err;
-        if (r.has("success") && !r.optBoolean("success", true)) {
-            return "Python 返回失败状态";
+    /** 构建填充提示信息：题干 + 选项 + 缺失字段 + 前后题上下文（供 LLM 参考推断） */
+    private String buildFillInfoWithContext(JSONObject m) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("题干:").append(m.optString("questionText", ""));
+        JSONObject options = m.optJSONObject("options");
+        if (options != null) {
+            java.util.Iterator<String> it = options.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                String v = options.optString(k, "");
+                if (!v.isEmpty()) sb.append(' ').append(k).append(':').append(v);
+            }
         }
-        return null;
+        JSONObject has = m.optJSONObject("has");
+        if (has != null) {
+            StringBuilder miss = new StringBuilder("缺失字段:");
+            java.util.Iterator<String> it = has.keys();
+            while (it.hasNext()) {
+                String f = it.next();
+                if (!has.optBoolean(f, false)) {
+                    if (miss.length() > 5) miss.append(",");
+                    miss.append(f);
+                }
+            }
+            if (miss.length() > 5) sb.append(' ').append(miss);
+        }
+        String prev = m.optString("ctx_prev", "");
+        String next = m.optString("ctx_next", "");
+        if (!prev.isEmpty()) sb.append(" 上一题[").append(prev).append("]");
+        if (!next.isEmpty()) sb.append(" 下一题[").append(next).append("]");
+        return sb.toString();
     }
 
     /**
@@ -619,106 +727,6 @@ public class ImportMain {
         }
         if (fills.isEmpty()) fills.addAll(Arrays.asList(FILL_FIELD_CANDIDATES));
         return fills;
-    }
-
-    /** 可填充字段列表 JSON（下发给 apply_fills） */
-    private String buildFillFieldsJson() {
-        List<String> cols = readTableColumns();
-        Set<String> set = cols.isEmpty() ? new HashSet<>() : new HashSet<>(cols);
-        return new JSONArray(buildFillFieldList(set)).toString();
-    }
-
-    private String buildFillInfo(JSONObject m) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("题干:").append(m.optString("questionText", ""));
-        JSONObject options = m.optJSONObject("options");
-        if (options != null) {
-            java.util.Iterator<String> it = options.keys();
-            while (it.hasNext()) {
-                String k = it.next();
-                String v = options.optString(k, "");
-                if (!v.isEmpty()) sb.append(' ').append(k).append(':').append(v);
-            }
-        }
-        return sb.toString();
-    }
-
-    /** 扫描已有 CSV 分片，收集缺失 category/difficulty/explanation 的题目（断点续导兼兼容） */
-    private JSONArray scanMissingFromChunks(List<File> chunks) {
-        JSONArray missing = new JSONArray();
-        final int cap = 500;
-        try {
-            for (File f : chunks) {
-                if (missing.length() >= cap) break;
-                java.io.BufferedReader br = null;
-                try {
-                    br = new java.io.BufferedReader(new java.io.InputStreamReader(
-                            new java.io.FileInputStream(f), StandardCharsets.UTF_8));
-                    String headerLine = ImportCsvIngestor.readLogicalLine(br);
-                    if (headerLine == null) continue;
-                    String[] headers = ImportCsvIngestor.parseCsvLine(headerLine);
-                    Map<String, Integer> idx = new HashMap<>();
-                    for (int i = 0; i < headers.length; i++) idx.put(headers[i].trim(), i);
-                    Integer qi = idx.get("questionText");
-                    Integer ci = idx.get("category");
-                    Integer di = idx.get("difficulty");
-                    Integer ei = idx.get("explanation");
-                    if (qi == null) continue;
-
-                    String line;
-                    int row = 0;
-                    while ((line = ImportCsvIngestor.readLogicalLine(br)) != null) {
-                        if (line.trim().isEmpty()) continue;
-                        String[] cells = ImportCsvIngestor.parseCsvLine(line);
-                        boolean need = (ci == null || cellEmpty(cells, ci))
-                                || (di == null || cellEmpty(cells, di))
-                                || (ei == null || cellEmpty(cells, ei));
-                        if (need) {
-                            JSONObject m = new JSONObject();
-                            m.put("chunk", f.getAbsolutePath());
-                            m.put("row", row);
-                            m.put("questionText", truncateSafe(cells[qi], 120));
-                            JSONObject options = new JSONObject();
-                            putOption(options, "A", cells, idx.get("optionA"));
-                            putOption(options, "B", cells, idx.get("optionB"));
-                            putOption(options, "C", cells, idx.get("optionC"));
-                            putOption(options, "D", cells, idx.get("optionD"));
-                            m.put("options", options);
-                            missing.put(m);
-                            if (missing.length() >= cap) break;
-                        }
-                        row++;
-                    }
-                } finally {
-                    if (br != null) {
-                        try {
-                            br.close();
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "扫描缺失字段异常: " + e.getMessage());
-        }
-        return missing;
-    }
-
-    private static boolean cellEmpty(String[] cells, int idx) {
-        return idx < 0 || idx >= cells.length || cells[idx] == null || cells[idx].trim().isEmpty();
-    }
-
-    private static void putOption(JSONObject options, String key, String[] cells, Integer idx) {
-        try {
-            options.put(key, (idx != null && idx >= 0 && idx < cells.length)
-                    ? truncateSafe(cells[idx], 40) : "");
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static String truncateSafe(String s, int max) {
-        if (s == null) return "";
-        return s.length() <= max ? s : s.substring(0, max);
     }
 
     private void finish(ImportListener listener, ImportSummary summary, long startMs,
@@ -875,17 +883,47 @@ public class ImportMain {
                 mapping.put(e.getKey(), headers.get(idx));
             }
         }
-        // 合并选项列兜底：无独立选项列且表头含"可选项/选项"时，映射为虚拟字段 optionsCombined
-        if (!mapping.containsKey("optionA")) {
-            for (String h : headers) {
-                String t = h == null ? "" : h.trim();
-                if ("可选项".equals(t) || "选项".equals(t)) {
-                    mapping.put(VIRTUAL_FIELD_OPTIONS_COMBINED, t);
+        // 聚合选项列规则识别（纯程序，不依赖 LLM）
+        mapping = ensureCombinedOptionsMapping(mapping, headers);
+        return mapping;
+    }
+
+    /**
+     * 可选项/聚合选项列规则识别（纯程序）：表头是聚合选项列（可选项/选项/备选答案等）且
+     * 映射中没有独立选项列时，设为虚拟字段 optionsCombined，Python 按分隔符自动拆分 A~L。
+     * 在任何映射路径（AI/词典）之后调用，确保程序拆分一定生效。
+     */
+    private Map<String, String> ensureCombinedOptionsMapping(Map<String, String> mapping,
+                                                             List<String> headers) {
+        if (mapping == null) mapping = new LinkedHashMap<>();
+        if (mapping.containsKey("optionA")) return mapping; // 已有独立选项列，无需聚合
+        if (mapping.containsKey(VIRTUAL_FIELD_OPTIONS_COMBINED)) return mapping;
+        if (headers == null) return mapping;
+
+        String[] aggregateHints = {"可选项", "选项", "备选答案", "备选项", "选项内容",
+                "abcd选项", "abcd", "options", "choices", "选择项"};
+        for (String h : headers) {
+            String t = h == null ? "" : h.trim().toLowerCase();
+            for (String hint : aggregateHints) {
+                // 精确匹配或"选项"前缀（如"选项列表"），排除"选项A/B/C/D"独立列
+                if (t.equals(hint) || (hint.equals("选项") && t.startsWith("选项")
+                        && !t.matches("选项[a-lA-L甲乙丙丁戊己庚辛壬癸子丑1-9一二三四五六七八九十].*"))) {
+                    mapping.put(VIRTUAL_FIELD_OPTIONS_COMBINED, h.trim());
+                    emitLog2("聚合选项列识别(规则): " + h.trim() + " → optionsCombined");
                     break;
                 }
             }
+            if (mapping.containsKey(VIRTUAL_FIELD_OPTIONS_COMBINED)) break;
         }
         return mapping;
+    }
+
+    /** 日志辅助（避免依赖具体 listener） */
+    private void emitLog2(String msg) {
+        try {
+            AILogger.i("ImportMain", msg);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 校验映射值是否为文件真实列名，非法值尝试本地词典纠正 */

@@ -173,7 +173,7 @@ public class ImportToolManager {
         if (filePath.isEmpty()) {
             return "{\"error\":\"缺少参数 file_path\"}";
         }
-        JSONObject sample = ImportPythonBridge.getInstance(context).sampleFile(filePath, 15);
+        JSONObject sample = ImportPythonBridge.getInstance(context).sampleFile(filePath, 15, -1);
         if (sample == null) {
             return "{\"error\":\"文件采样失败: " + filePath + "\"}";
         }
