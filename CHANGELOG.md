@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 修复图片预览仍转圈：BitmapFactory 优先解码本地文件
+用户反馈"一直转圈，链接的图片渲染器正常吗"——Glide 加载 file:// 在某些场景不回调。改为双路径：
+1. **AIChatActivity.showImagePreview**：优先 BitmapFactory 直接解码本地文件（thumbnailPath/localFilePath/file:// 路径），采样解码防 OOM（>2048 降采样）；本地文件不存在才回退 Glide（仍带 15s 超时+失败提示）。
+2. **ChatInputManager.showImagePreview**（输入区预览）：同样 BitmapFactory 优先，Glide 兜底。
+3. 诊断日志：Image preview target 打印实际加载路径（thumb/local/url）。
+- 验证：设备日志显示预览目标正确解析为本地 cache 路径，Bitmap 解码成功无转圈。
+
 ## [2026-08-16] 修复对话图片点击预览一直转圈
 用户反馈"对话中图片点击后一直转圈"——根因：预览用 Glide 加载 attachment.url（content:// 可能权限过期），失败前一直 loading。
 1. **预览优先本地路径**：showImagePreview 增加 thumbnailPath/localFilePath 参数，加载优先级 thumbnailPath → localFilePath → url；纯文件路径转 file:// 再给 Glide，避免 content:// 权限过期导致长时间转圈。
