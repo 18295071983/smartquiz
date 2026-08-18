@@ -35,18 +35,17 @@
                 android:contentDescription="@string/chat_desc_back"/>
             <TextView
                 android:id="@+id/toolbar_title"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="AI助手"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
                 android:ellipsize="end"
-                android:maxLines="1"/>
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1"/>
+                android:maxLines="1"
+                android:singleLine="true"
+                android:layout_marginEnd="4dp"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_auto_tts"
                 android:layout_width="32dp"
@@ -101,7 +100,7 @@
                 android:id="@+id/btn_agent_manager"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
-                android:text="🧠 管理"
+                android:text="管理"
                 android:textSize="11sp"
                 android:textColor="@color/on_secondary_container"
                 app:backgroundTint="@color/secondary_container"
