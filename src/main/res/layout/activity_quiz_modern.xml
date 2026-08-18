@@ -315,13 +315,24 @@
         android:background="?attr/colorSurface"
         android:elevation="8dp">
 
+        <!-- 题目导航 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="题目导航"
+            android:textSize="11sp"
+            android:textColor="@color/text_tertiary"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="0dp"/>
+
         <!-- 题目导航滚动条 -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:scrollbars="none"
             android:paddingHorizontal="16dp"
-            android:paddingTop="10dp"
+            android:paddingTop="6dp"
             android:paddingBottom="6dp">
             <LinearLayout
                 android:id="@+id/navigationLayout"
@@ -331,7 +342,6 @@
                 android:gravity="center">
             </LinearLayout>
         </HorizontalScrollView>
-
         <!-- 导航按钮 -->
         <LinearLayout
             android:layout_width="match_parent"
