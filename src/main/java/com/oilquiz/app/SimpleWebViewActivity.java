@@ -98,14 +98,18 @@ public class SimpleWebViewActivity extends BaseActivity {
 
             private boolean handleUrl(String url) {
                 if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    // App 内打开（WebViewActivity 完整界面，标题栏/前进后退），不再跳系统浏览器
                     try {
-                        startActivity(new android.content.Intent(
-                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+                        android.content.Intent intent = new android.content.Intent(
+                                SimpleWebViewActivity.this, com.oilquiz.app.WebViewActivity.class);
+                        intent.putExtra("url", url);
+                        startActivity(intent);
                     } catch (Exception e) {
-                        Log.e(TAG, "打开链接失败: " + url + " - " + e.getMessage());
+                        Log.e(TAG, "App 内打开链接失败: " + url + " - " + e.getMessage());
                     }
                     return true;
                 }
+                // file:// 与相对链接：交给 WebView 内部导航（可打开本地文件/同目录资源）
                 return false;
             }
 
