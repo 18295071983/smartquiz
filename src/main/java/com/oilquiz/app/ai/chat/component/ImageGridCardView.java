@@ -150,11 +150,43 @@ public class ImageGridCardView implements ChatComponent {
 
     /**
      * 加载图片：成功显示图片，失败显示可点击重试的提示层。
+     * 本地文件（file:// 或 / 开头）优先 BitmapFactory 直接解码（避免 Glide file:// 不回调导致转圈）；
+     * 网络 URL 走 Glide（15s 超时 + 失败提示）。
      */
     private void loadWithFeedback(FrameLayout root, ImageView iv, ProgressBar loading, String url, boolean single) {
         loading.setVisibility(View.VISIBLE);
         iv.setVisibility(View.GONE);
         iv.setImageDrawable(null);
+
+        // 本地文件优先直接解码
+        if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
+            try {
+                java.io.File localFile = url.startsWith("file://")
+                        ? new java.io.File(android.net.Uri.parse(url).getPath())
+                        : new java.io.File(url);
+                if (localFile.exists()) {
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    int sample = 1;
+                    while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                        sample *= 2;
+                    }
+                    opts.inJustDecodeBounds = false;
+                    opts.inSampleSize = sample;
+                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    if (bmp != null) {
+                        iv.setImageBitmap(bmp);
+                        loading.setVisibility(View.GONE);
+                        iv.setVisibility(View.VISIBLE);
+                        iv.setOnClickListener(v -> showFullImage(root.getContext(), url));
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("ImageGridCardView", "local bitmap decode failed: " + e.getMessage());
+            }
+        }
 
         RequestListener<android.graphics.drawable.Drawable> listener =
                 new RequestListener<android.graphics.drawable.Drawable>() {
@@ -261,27 +293,57 @@ public class ImageGridCardView implements ChatComponent {
             }
 
             // show 之后再加载（View 已 attach），loading 占位 + 失败提示
-            RequestListener<android.graphics.drawable.Drawable> listener =
-                    new RequestListener<android.graphics.drawable.Drawable>() {
-                        @Override
-                        public boolean onLoadFailed(GlideException e, Object model,
-                                                    Target<android.graphics.drawable.Drawable> target,
-                                                    boolean isFirstResource) {
-                            loading.setVisibility(View.GONE);
-                            android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
-                            return false;
+            // 本地文件优先 BitmapFactory 直接解码（避免 Glide file:// 不回调转圈）
+            boolean decoded = false;
+            if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
+                try {
+                    java.io.File localFile = url.startsWith("file://")
+                            ? new java.io.File(android.net.Uri.parse(url).getPath())
+                            : new java.io.File(url);
+                    if (localFile.exists()) {
+                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                        opts.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        int sample = 1;
+                        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                            sample *= 2;
                         }
+                        opts.inJustDecodeBounds = false;
+                        opts.inSampleSize = sample;
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        if (bmp != null) {
+                            photoView.setImageBitmap(bmp);
+                            loading.setVisibility(View.GONE);
+                            decoded = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("ImageGridCardView", "full bitmap decode failed: " + e.getMessage());
+                }
+            }
+            if (!decoded) {
+                RequestListener<android.graphics.drawable.Drawable> listener =
+                        new RequestListener<android.graphics.drawable.Drawable>() {
+                            @Override
+                            public boolean onLoadFailed(GlideException e, Object model,
+                                                        Target<android.graphics.drawable.Drawable> target,
+                                                        boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
+                                return false;
+                            }
 
-                        @Override
-                        public boolean onResourceReady(android.graphics.drawable.Drawable resource,
-                                                       Object model,
-                                                       Target<android.graphics.drawable.Drawable> target,
-                                                       DataSource dataSource, boolean isFirstResource) {
-                            loading.setVisibility(View.GONE);
-                            return false;
-                        }
-                    };
-            Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+                            @Override
+                            public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                           Object model,
+                                                           Target<android.graphics.drawable.Drawable> target,
+                                                           DataSource dataSource, boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                return false;
+                            }
+                        };
+                Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+            }
         } catch (Exception e) {
             android.util.Log.w("ImageGridCardView", "showFullImage failed: " + e.getMessage());
         }

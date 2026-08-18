@@ -160,7 +160,7 @@ public class FileCardView implements ChatComponent {
         return false;
     }
 
-    /** 应用内图片预览（PhotoView 双指缩放） */
+    /** 应用内图片预览（PhotoView 双指缩放）——本地文件优先 BitmapFactory 解码，Glide 兜底 */
     private static void showImagePreview(Context context, String target) {
         try {
             if (!(context instanceof android.app.Activity)) return;
@@ -168,9 +168,39 @@ public class FileCardView implements ChatComponent {
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(context);
             photoView.setBackgroundColor(android.graphics.Color.BLACK);
-            com.bumptech.glide.Glide.with(context).load(target)
-                    .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
-                    .into(photoView);
+
+            boolean decoded = false;
+            if (target != null && (target.startsWith("file://") || target.startsWith("/"))) {
+                try {
+                    java.io.File localFile = target.startsWith("file://")
+                            ? new java.io.File(android.net.Uri.parse(target).getPath())
+                            : new java.io.File(target);
+                    if (localFile.exists()) {
+                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                        opts.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        int sample = 1;
+                        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                            sample *= 2;
+                        }
+                        opts.inJustDecodeBounds = false;
+                        opts.inSampleSize = sample;
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        if (bmp != null) {
+                            photoView.setImageBitmap(bmp);
+                            decoded = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("FileCardView", "bitmap decode failed: " + e.getMessage());
+                }
+            }
+            if (!decoded) {
+                com.bumptech.glide.Glide.with(context).load(target)
+                        .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                        .into(photoView);
+            }
+
             dialog.setContentView(photoView, new android.view.ViewGroup.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
             photoView.setOnClickListener(v -> dialog.dismiss());

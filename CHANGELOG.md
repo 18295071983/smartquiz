@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] Agent 图片组件同样修复：BitmapFactory 优先解码本地文件
+用户询问"Agent 图片组件是否也有这个问题"——检查确认 ImageGridCardView / FileCardView / MarkdownRenderer 的图片预览同样用纯 Glide 加载，file:// 可能不回调转圈。统一修复：
+1. **ImageGridCardView**：loadWithFeedback（缩略图）+ showFullImage（全屏）——本地文件（file:// 或 / 开头）优先 BitmapFactory 采样解码，网络 URL 走 Glide（15s 超时+失败提示）。
+2. **FileCardView.showImagePreview**：同样 BitmapFactory 优先。
+3. **MarkdownRenderer** 图片预览：同样 BitmapFactory 优先。
+- 现在所有图片组件（对话附件/输入区/Agent 图片网格/文件卡/Markdown 预览）统一策略：本地文件直接解码，网络才 Glide。
+
 ## [2026-08-16] 修复图片预览仍转圈：BitmapFactory 优先解码本地文件
 用户反馈"一直转圈，链接的图片渲染器正常吗"——Glide 加载 file:// 在某些场景不回调。改为双路径：
 1. **AIChatActivity.showImagePreview**：优先 BitmapFactory 直接解码本地文件（thumbnailPath/localFilePath/file:// 路径），采样解码防 OOM（>2048 降采样）；本地文件不存在才回退 Glide（仍带 15s 超时+失败提示）。
