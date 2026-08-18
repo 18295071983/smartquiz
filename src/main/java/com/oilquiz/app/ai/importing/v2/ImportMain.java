@@ -121,6 +121,10 @@ public class ImportMain {
     private volatile int excelSheetIndex = -1;
     /** 批量模式标志：缺字段报告由批量入口统一生成一次，避免逐文件重复扫描 */
     private volatile boolean batchMode = false;
+    /** 多工作表模式标志：每 sheet 完成只累计统计不发 onComplete，全部完成后汇总一次 */
+    private volatile boolean multiSheetMode = false;
+    /** 多工作表累计统计 */
+    private volatile ImportSummary multiTotal;
     /** 本地 AI 引擎（可选，用于字段映射 + 智能填充） */
     private volatile com.oilquiz.app.ai.importing.AIImportOrchestrator localOrchestrator;
 
@@ -257,12 +261,16 @@ public class ImportMain {
         emitStage(listener, "init", "初始化导入引擎: " + sourceFile.getName());
 
         // ========== 步骤0：初始化准备 ==========
-        if (localOrchestrator != null) {
-            // 携带外部编排器（用于模型模式/信息展示；映射与填充推理仍由 ImportLlmEngine 本地模型完成）
-            emitLog(listener, "初始化导入引擎（本地模型推理）");
-            engine = new ImportLlmEngine(context, localOrchestrator);
-        } else {
-            engine = new ImportLlmEngine(context);
+        // 引擎复用：多工作表导入时同一 ImportMain 实例连续处理多个 sheet，
+        // 避免每个 sheet 重新加载本地模型（仅首次创建）
+        if (engine == null) {
+            if (localOrchestrator != null) {
+                // 携带外部编排器（用于模型模式/信息展示；映射与填充推理仍由 ImportLlmEngine 本地模型完成）
+                emitLog(listener, "初始化导入引擎（本地模型推理）");
+                engine = new ImportLlmEngine(context, localOrchestrator);
+            } else {
+                engine = new ImportLlmEngine(context);
+            }
         }
         engine.setListener(msg -> emitLog(listener, msg));
         ImportPythonBridge python = ImportPythonBridge.getInstance(context);
@@ -289,11 +297,14 @@ public class ImportMain {
 
         // ========== 步骤1：缓存匹配判断 ==========
         ImportBreakpointStore.State bp = ImportBreakpointStore.load();
+        // 断点按文件+工作表隔离：多工作表导入时 sheet 间的断点互不串扰
         boolean resumeParse = bp != null
                 && sourceFile.getAbsolutePath().equals(bp.sourceFile)
+                && bp.sheetIndex == excelSheetIndex
                 && ImportBreakpointStore.STAGE_PARSE.equals(bp.stage);
         boolean resumeIngest = bp != null
                 && sourceFile.getAbsolutePath().equals(bp.sourceFile)
+                && bp.sheetIndex == excelSheetIndex
                 && ImportBreakpointStore.STAGE_INGEST.equals(bp.stage);
 
         Map<String, String> mapping = null;
@@ -474,6 +485,7 @@ public class ImportMain {
         state.mappingJson = mappingJson;
         state.parseRowIndex = resumeParse ? bp.parseRowIndex : 0;
         state.headerRow = pythonHeaderRow;
+        state.sheetIndex = excelSheetIndex;
         ImportBreakpointStore.save(state);
 
         // ========== 步骤3：Python 全量解析（文件级断点续导） ==========
@@ -552,6 +564,7 @@ public class ImportMain {
         ingestState.mappingJson = mappingJson;
         ingestState.csvChunks = joinChunkFiles(chunks);
         ingestState.ingestOffset = 0;
+        ingestState.sheetIndex = excelSheetIndex;
         ImportBreakpointStore.save(ingestState);
 
         IngestOutcome outcome = doIngest(chunks, 0, sessionDir, listener, ingestState);
@@ -810,8 +823,73 @@ public class ImportMain {
         emitLog(listener, "统计: 新增 " + summary.imported + " / 重复 " + summary.duplicated
                 + " / 失败 " + summary.failed + " (耗时 " + summary.elapsedMs + "ms)");
         if (listener != null) {
-            mainHandler.post(() -> listener.onComplete(summary));
+            if (multiSheetMode) {
+                // 多工作表模式：累计统计，全部 sheet 完成后由 runSheets 统一回调 onComplete
+                ImportSummary t = multiTotal;
+                if (t == null) {
+                    t = new ImportSummary();
+                    multiTotal = t;
+                }
+                t.imported += summary.imported;
+                t.duplicated += summary.duplicated;
+                t.failed += summary.failed;
+                t.totalRows += summary.totalRows;
+                t.elapsedMs += summary.elapsedMs;
+                emitStage(listener, "sheet-done", "工作表完成: 新增 " + summary.imported
+                        + " 题（累计 " + t.imported + " 题）");
+            } else {
+                mainHandler.post(() -> listener.onComplete(summary));
+            }
         }
+    }
+
+    /**
+     * 多工作表导入：对选定工作表逐个执行完整导入流程（每个 sheet 独立采样/映射/解析/入库），
+     * 全部完成后汇总一次 onComplete；中间每个 sheet 完成发 sheet-done 阶段信号。
+     * 断点按文件+工作表隔离，sheet 间互不串扰；引擎复用避免重复加载本地模型。
+     */
+    public void runSheets(File sourceFile, List<Integer> sheetIndexes, ImportListener listener) {
+        cancelled = false;
+        batchMode = true; // 缺字段报告由本入口统一生成一次
+        multiSheetMode = true;
+        multiTotal = null;
+        executor.execute(() -> {
+            try {
+                if (sourceFile == null || !sourceFile.exists()) {
+                    emitError(listener, "源文件不存在");
+                    return;
+                }
+                if (sheetIndexes == null || sheetIndexes.isEmpty()) {
+                    emitError(listener, "未选择任何工作表");
+                    return;
+                }
+                int total = sheetIndexes.size();
+                int done = 0;
+                for (Integer idx : sheetIndexes) {
+                    if (cancelled) {
+                        emitLog(listener, "已取消，剩余工作表未导入");
+                        break;
+                    }
+                    done++;
+                    excelSheetIndex = idx;
+                    emitStage(listener, "sheet", "开始导入工作表 " + done + "/" + total);
+                    runSync(sourceFile, listener);
+                }
+                ImportSummary t = multiTotal != null ? multiTotal : new ImportSummary();
+                t.mappingSource = "ai";
+                t.issuesMessage = exportIssuesReport(listener);
+                emitStage(listener, "done", "全部工作表导入完成: 新增 " + t.imported + " 题");
+                if (listener != null) {
+                    mainHandler.post(() -> listener.onComplete(t));
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "多工作表导入异常: " + t.getMessage(), t);
+                emitError(listener, "多工作表导入异常: " + t.getMessage());
+            } finally {
+                multiSheetMode = false;
+                batchMode = false;
+            }
+        });
     }
 
     private void fillSummary(ImportSummary summary, IngestOutcome outcome) {

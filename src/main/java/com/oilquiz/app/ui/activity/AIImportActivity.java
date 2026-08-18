@@ -368,18 +368,41 @@ public class AIImportActivity extends BaseActivity {
 
     private void showSheetChoiceDialog(File file, List<com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile> profiles,
                                        String docHint) {
+        final boolean[] checked = new boolean[profiles.size()];
+        java.util.Arrays.fill(checked, true); // 默认全选，用户可取消勾选
         String[] names = new String[profiles.size()];
         for (int i = 0; i < profiles.size(); i++) {
             com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p = profiles.get(i);
             names[i] = p.sheetName + "（" + p.rowCount + "行，表头第" + (p.headerRowIndex + 1) + "行）";
         }
         new AlertDialog.Builder(this)
-                .setTitle("选择题库工作表")
-                .setItems(names, (dialog, which) -> {
-                    com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p = profiles.get(which);
-                    // 直接把原文件 + 选定 sheet 索引传给 v2（Python 直接读取该 sheet）
+                .setTitle("选择题库工作表（可多选）")
+                .setMultiChoiceItems(names, checked, (dialog, which, isChecked) ->
+                        checked[which] = isChecked)
+                .setPositiveButton("开始导入", (dialog, which) -> {
+                    // 收集选中的工作表
+                    java.util.List<Integer> selected = new java.util.ArrayList<>();
+                    for (int i = 0; i < profiles.size(); i++) {
+                        if (checked[i]) selected.add(i);
+                    }
+                    if (selected.isEmpty()) {
+                        showToast("请至少选择一个工作表");
+                        return;
+                    }
                     currentFile = file;
-                    runV2Import(p.sheetIndex, docHint);
+                    if (selected.size() == 1) {
+                        // 单选：走原单 sheet 流程
+                        com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p =
+                                profiles.get(selected.get(0));
+                        runV2Import(p.sheetIndex, docHint);
+                    } else {
+                        // 多选：逐 sheet 完整导入，最后汇总
+                        java.util.List<Integer> idxs = new java.util.ArrayList<>();
+                        for (int i : selected) {
+                            idxs.add(profiles.get(i).sheetIndex);
+                        }
+                        runV2ImportSheets(idxs, docHint);
+                    }
                 })
                 .setNegativeButton("取消", null)
                 .show();
@@ -455,7 +478,46 @@ public class AIImportActivity extends BaseActivity {
         agentView.show();
         agentView.startExecution();
         
-        com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener v2Listener = new com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener() {
+        com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener v2Listener = createV2Listener();
+
+        // 启动实时监控（计时 + 推理速度/Token 轮询）
+        startMonitor();
+
+        if (currentFile != null) {
+            // 单文件导入（ImportMain 内部自行在后台线程执行）
+            v2Main.run(currentFile, v2Listener);
+        } else if (!selectedFiles.isEmpty()) {
+            // 多文件批量导入
+            agentView.updateCurrentStep(0, "BATCH", "📦", "批量导入 " + selectedFiles.size() + " 个文件");
+            v2Main.runAllFromSourceFiles(selectedFiles, v2Listener);
+        }
+    }
+
+    /** 多工作表导入：选定多个 sheet 逐 sheet 完整导入，ImportMain 内部串行执行并汇总 */
+    private void runV2ImportSheets(final java.util.List<Integer> sheetIndexes,
+                                   final String docHint) {
+        com.oilquiz.app.ai.importing.v2.ImportMain v2Main =
+            new com.oilquiz.app.ai.importing.v2.ImportMain(this, orchestrator);
+        if (docHint != null && !docHint.isEmpty()) {
+            v2Main.setDocHint(docHint);
+        }
+        activeV2Main = v2Main;
+
+        agentView.show();
+        agentView.startExecution();
+
+        com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener v2Listener = createV2Listener();
+        startMonitor();
+
+        if (currentFile != null) {
+            agentView.updateCurrentStep(1, "SHEET", "📑", "多工作表导入 " + sheetIndexes.size() + " 个");
+            v2Main.runSheets(currentFile, sheetIndexes, v2Listener);
+        }
+    }
+
+    /** v2 导入公共回调：阶段指示/实时监控/统计卡/结果弹窗（单文件/多文件/多工作表共用） */
+    private com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener createV2Listener() {
+        return new com.oilquiz.app.ai.importing.v2.ImportMain.ImportListener() {
             @Override
             public void onStage(String stage, String message) {
                 int stepNumber = 1;
@@ -466,7 +528,9 @@ public class AIImportActivity extends BaseActivity {
                 else if ("parse".equals(stage)) { stepNumber = 2; emoji = "📄"; }
                 else if ("fill".equals(stage)) { stepNumber = 3; emoji = "⚙️"; }
                 else if ("ingest".equals(stage)) { stepNumber = 4; emoji = "💾"; }
-                else if ("done".equals(stage) || "all-done".equals(stage)) { stepNumber = 4; emoji = "✅"; }
+                else if ("sheet".equals(stage)) { stepNumber = 1; emoji = "📑"; }
+                else if ("done".equals(stage) || "all-done".equals(stage)
+                        || "sheet-done".equals(stage)) { stepNumber = 4; emoji = "✅"; }
 
                 agentView.updateCurrentStep(stepNumber, stageName, emoji, message);
                 updateStageIndicator(stepNumber);
@@ -478,7 +542,9 @@ public class AIImportActivity extends BaseActivity {
                     else if ("parse".equals(stage)) label = "解析";
                     else if ("fill".equals(stage)) label = "填充";
                     else if ("ingest".equals(stage)) label = "入库";
-                    else if ("done".equals(stage) || "all-done".equals(stage)) label = "完成";
+                    else if ("sheet".equals(stage)) label = "工作表";
+                    else if ("done".equals(stage) || "all-done".equals(stage)
+                            || "sheet-done".equals(stage)) label = "完成";
                     tvMonitorStage.setText(label);
                 }
 
@@ -524,18 +590,6 @@ public class AIImportActivity extends BaseActivity {
                 showLongToast("导入失败: " + message);
             }
         };
-
-        // 启动实时监控（计时 + 推理速度/Token 轮询）
-        startMonitor();
-
-        if (currentFile != null) {
-            // 单文件导入（ImportMain 内部自行在后台线程执行）
-            v2Main.run(currentFile, v2Listener);
-        } else if (!selectedFiles.isEmpty()) {
-            // 多文件批量导入
-            agentView.updateCurrentStep(0, "BATCH", "📦", "批量导入 " + selectedFiles.size() + " 个文件");
-            v2Main.runAllFromSourceFiles(selectedFiles, v2Listener);
-        }
     }
 
     /** 多文件批量导入 */
