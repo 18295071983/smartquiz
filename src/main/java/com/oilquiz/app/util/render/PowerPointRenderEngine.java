@@ -233,8 +233,16 @@ public class PowerPointRenderEngine implements FileRenderEngine {
                 if (text == null || text.trim().isEmpty()) continue;
                 hasContent = true;
 
-                boolean isTitle = textShape.getTextType() != null &&
-                                  textShape.getTextType().toString().contains("TITLE");
+                // POI 的 getTextType() toString 返回小写 nativeName（如 "title"/"body"），
+                // 统一转大写判断标题（原 contains("TITLE") 对全小写永不匹配）
+                boolean isTitle = false;
+                try {
+                    Object tp = textShape.getTextType();
+                    isTitle = tp != null
+                            && tp.toString().toUpperCase().contains("TITLE");
+                } catch (Exception e) {
+                    isTitle = false;
+                }
 
                 if (isTitle || titleText.length() == 0) {
                     if (titleText.length() > 0) titleText.append("<br>");

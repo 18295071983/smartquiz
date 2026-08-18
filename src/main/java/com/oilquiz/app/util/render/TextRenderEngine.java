@@ -73,35 +73,22 @@ public class TextRenderEngine implements FileRenderEngine {
     
     @Override
     public void render(File file, RenderCallback callback) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            StringBuilder content = new StringBuilder();
-            String line;
-            int lineCount = 0;
-            int contentLength = 0;
-            
-            // 读取文件内容
-            while ((line = reader.readLine()) != null && lineCount < MAX_LINES && contentLength < MAX_CONTENT_LENGTH) {
-                content.append(line).append("\n");
-                lineCount++;
-                contentLength += line.length() + 1;
-                
-                // 更新进度
-                int progress = Math.min(100, (lineCount * 100) / MAX_LINES);
-                callback.onProgress(progress);
-            }
-            
-            if (line != null) {
-                content.append("... 还有更多内容未显示\n");
-            }
-            
+        try {
+            // UTF-8 优先，GBK 回退（FileEncodingUtil 处理编码探测）
+            String content = FileEncodingUtil.readText(file, MAX_CONTENT_LENGTH);
+            int lineCount = content.split("\n", -1).length;
+
             // 收集文件信息
             Map<String, Object> textInfo = new HashMap<>();
-            textInfo.put("content", content.toString());
+            textInfo.put("content", content);
+            textInfo.put("htmlContent", "<pre style=\"font-family:monospace;font-size:13px;"
+                    + "white-space:pre-wrap;word-break:break-word;padding:8px;\">"
+                    + FileEncodingUtil.escapeHtml(content) + "</pre>");
             textInfo.put("lineCount", lineCount);
             textInfo.put("fileSize", file.length() / 1024 + "KB");
             textInfo.put("fileName", file.getName());
             textInfo.put("fileType", getFileTypeDescription(file));
-            
+
             callback.onProgress(100);
             callback.onSuccess(textInfo);
             
