@@ -53,7 +53,7 @@ public class ImageGridCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         int columns = Math.max(1, Math.min(4, p.optInt("columns", 3)));
         JSONArray images = p.optJSONArray("images");
 

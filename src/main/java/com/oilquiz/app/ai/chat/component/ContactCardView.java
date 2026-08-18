@@ -42,7 +42,7 @@ public class ContactCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String type = p.optString("type", "phone");
         String title = p.optString("title", "");
         final String value = p.optString("value", "");

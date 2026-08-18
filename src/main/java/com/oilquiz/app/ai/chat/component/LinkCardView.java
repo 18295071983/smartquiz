@@ -40,7 +40,7 @@ public class LinkCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         final String url = p.optString("url", "");
         String title = p.optString("title", "");
         String description = p.optString("description", "");

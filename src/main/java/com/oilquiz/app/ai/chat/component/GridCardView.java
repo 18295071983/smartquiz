@@ -40,7 +40,7 @@ public class GridCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         String title = p.optString("title", "");
         int columns = Math.max(2, Math.min(6, p.optInt("columns", 3)));
         JSONArray items = p.optJSONArray("items");
