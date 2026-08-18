@@ -5293,13 +5293,13 @@ public class AIChatActivity extends BaseActivity {
                     if (sum.length() > 0) sum.append("\n");
                     sum.append("工具：").append(String.join("、", agentToolNames));
                 }
-                // 输入/输出 token 统计（API usage 才有；Agent 引擎透传真实值）
+                // 输入/输出 token 统计（引擎累计的 API 真实 usage：含多轮工具调用全部消耗）
                 if (agentChatHandler != null) {
-                    int inTokens = agentChatHandler.getLastPromptTokens();
-                    int outTokens = agentChatHandler.getLastCompletionTokens();
+                    int inTokens = agentChatHandler.getExecTotalPromptTokens();
+                    int outTokens = agentChatHandler.getExecTotalCompletionTokens();
                     if (inTokens > 0 || outTokens > 0) {
                         if (sum.length() > 0) sum.append("\n");
-                        sum.append("📥 输入 ").append(inTokens).append(" · 📤 输出 ").append(outTokens).append(" tokens");
+                        sum.append("📥 输入 ").append(inTokens).append(" · 📤 输出 ").append(outTokens).append(" tokens（累计）");
                     }
                 }
                 // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
@@ -5401,9 +5401,12 @@ public class AIChatActivity extends BaseActivity {
                 // 更新 Token 统计（生成完成时累加到 session）
                 if (finalTokenCount > 0) {
                     int inputTokens = 0;
-                    // Agent 在线模式：优先使用引擎透传的 API 真实 usage（prompt/completion）
-                    if (agentChatHandler != null && agentChatHandler.getLastPromptTokens() > 0) {
-                        inputTokens = agentChatHandler.getLastPromptTokens();
+                    int outputTokens = finalTokenCount;
+                    // Agent 在线模式：使用引擎累计的真实 API usage（含多轮工具调用的全部输入输出）
+                    if (agentChatHandler != null && agentChatHandler.getExecTotalPromptTokens() > 0) {
+                        inputTokens = agentChatHandler.getExecTotalPromptTokens();
+                        int execOut = agentChatHandler.getExecTotalCompletionTokens();
+                        if (execOut > 0) outputTokens = execOut;
                     } else if (messageIndex >= 1 && chatHistory.get(messageIndex - 1) != null) {
                         String promptText = chatHistory.get(messageIndex - 1).content;
                         if (promptText != null && !promptText.isEmpty()) {
@@ -5413,8 +5416,8 @@ public class AIChatActivity extends BaseActivity {
                                     : LlamaHelper.countTokens(promptText);
                         }
                     }
-                    TokenStatsManager.getInstance().updateRequestStats(inputTokens, finalTokenCount);
-                    AppLogger.i(TAG, "Token统计 - 输入: " + inputTokens + ", 输出: " + finalTokenCount);
+                    TokenStatsManager.getInstance().updateRequestStats(inputTokens, outputTokens);
+                    AppLogger.i(TAG, "Token统计 - 输入: " + inputTokens + ", 输出: " + outputTokens);
                 }
 
                 if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled() && finalContent != null && !finalContent.isEmpty()) {

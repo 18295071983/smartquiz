@@ -85,6 +85,9 @@ public class OnlineAgentEngine {
     /** 最近一次推理的输入/输出 token（API usage，用于统计展示） */
     private volatile int lastPromptTokens = 0;
     private volatile int lastCompletionTokens = 0;
+    /** 本次执行（一次用户消息，含多轮工具调用）累计的输入/输出 token —— 真正的总消耗 */
+    private volatile int execTotalPromptTokens = 0;
+    private volatile int execTotalCompletionTokens = 0;
 
     public OnlineAgentEngine(Activity activity, OnlineToolManager toolManager) {
         this.activity = activity;
@@ -134,6 +137,12 @@ public class OnlineAgentEngine {
         thinkingChain.clear();
         toolLoopCount.set(0);
         totalTokenCount = 0;
+        // 重置本次执行的累计 token（一次用户消息 = 多轮工具调用 + 最终回答）
+        execTotalPromptTokens = 0;
+        execTotalCompletionTokens = 0;
+        lastPromptTokens = 0;
+        lastCompletionTokens = 0;
+        lastCacheHitTokens = 0;
         inferenceStartTime = System.currentTimeMillis();
 
         int effectiveMaxTokens = maxTokens > 0 ? maxTokens : MAX_TOKENS;
@@ -596,8 +605,13 @@ public class OnlineAgentEngine {
                     lastCacheHitTokens = cachedTokens;
                     lastPromptTokens = promptTokens;
                     lastCompletionTokens = completionTokens;
+                    // 累加本次执行的总消耗：API usage 每轮返回的是「本轮请求的完整输入」（含历史前缀），
+                    // 多轮工具调用时每轮输入都在增长，必须逐轮累加才是真实总输入
+                    execTotalPromptTokens += promptTokens;
+                    execTotalCompletionTokens += completionTokens;
                     AILogger.i(TAG, "Token usage: prompt=" + promptTokens + " completion=" + completionTokens
-                        + " total=" + totalTokens + " cache_hit=" + cachedTokens);
+                        + " total=" + totalTokens + " cache_hit=" + cachedTokens
+                        + " | exec累计: in=" + execTotalPromptTokens + " out=" + execTotalCompletionTokens);
                     notifyProgress();
                 }
             });
@@ -974,6 +988,16 @@ public class OnlineAgentEngine {
     /** 最近一次推理的输出 token（API usage） */
     public int getLastCompletionTokens() {
         return lastCompletionTokens;
+    }
+
+    /** 本次执行累计输入 token（一次用户消息含多轮工具调用的真实总输入） */
+    public int getExecTotalPromptTokens() {
+        return execTotalPromptTokens;
+    }
+
+    /** 本次执行累计输出 token（真实总输出） */
+    public int getExecTotalCompletionTokens() {
+        return execTotalCompletionTokens;
     }
 
     public OnlineThinkingChain getThinkingChain() {

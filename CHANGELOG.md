@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-08-16] 修正 token 统计：改为引擎累计真实 usage（修复只统计最后一轮）
+用户质疑"统计方式不正确"——确认正确，原实现用 getLastPromptTokens/getLastCompletionTokens（最后覆盖值），Agent 多轮（工具调用轮+回答轮）时中间轮次的输入输出全丢，严重低估总消耗。
+1. **引擎累计**：OnlineAgentEngine 新增 execTotalPromptTokens/execTotalCompletionTokens，onUsageWithCache 每轮累加（API 每轮返回的是本轮完整输入，含增长的历史前缀，逐轮累加才是真实总输入）；execute 开始重置。
+2. **透传**：AgentRouter / AgentChatHandler 新增 getExecTotalPromptTokens/getExecTotalCompletionTokens。
+3. **统计使用累计值**：
+   - TokenStatsManager.updateRequestStats：Agent 模式用引擎累计输入/输出（不再只取最后一轮）
+   - 气泡汇总：显示"📥 输入 X · 📤 输出 Y tokens（累计）"
+   - 顶部统计栏：基于 TokenStatsManager（已用累计值更新），自动正确
+- 命中率仍按单轮（cache_hit/该轮prompt）计算，语义正确。
+
 ## [2026-08-16] 增加缓存命中率显示
 在缓存命中统计基础上加命中率：
 1. **气泡汇总**：缓存命中显示改为"⚡ 缓存命中率 62%（3328/5335 tokens）"（命中/输入百分比）。
