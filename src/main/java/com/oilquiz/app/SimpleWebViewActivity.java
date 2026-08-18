@@ -110,8 +110,8 @@ public class SimpleWebViewActivity extends BaseActivity {
                     return true;
                 }
                 if (url != null && url.startsWith("file://")) {
-                    // 本地文件链接：html 由 WebView 内部渲染；其余类型交给通用文件预览
-                    // （SimpleFilePreviewActivity 支持文本/md/图片/PDF/Word/Excel）
+                    // 本地文件链接：html 由 WebView 内部渲染；其余类型用渲染引擎
+                    // （Markdown/Text/CSV/PDF/Word/Excel/PPT 等，渲染样式显示在当前页面）
                     try {
                         String path = android.net.Uri.parse(url).getPath();
                         if (path != null) {
@@ -121,14 +121,37 @@ public class SimpleWebViewActivity extends BaseActivity {
                             }
                             java.io.File f = new java.io.File(path);
                             if (f.exists() && f.isFile()) {
-                                Log.i(TAG, "文件链接 → 文件预览: " + path);
-                                android.content.Intent intent = new android.content.Intent(
-                                        SimpleWebViewActivity.this,
-                                        com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
-                                intent.putExtra(
-                                        com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.EXTRA_FILE_PATH,
-                                        path);
-                                startActivity(intent);
+                                com.oilquiz.app.util.render.FileRenderEngine engine =
+                                        com.oilquiz.app.util.PreviewRenderBridge.RenderEngineFactory
+                                                .getInstance().getEngineForFile(f);
+                                if (engine != null) {
+                                    Log.i(TAG, "文件链接 → 渲染引擎: " + engine.getEngineName() + " : " + path);
+                                    engine.render(f, new com.oilquiz.app.util.render.FileRenderEngine.RenderCallback() {
+                                        @Override
+                                        public void onSuccess(Object renderedContent) {
+                                            String html = extractHtml(renderedContent);
+                                            if (html != null) {
+                                                String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                                        .getInstance(SimpleWebViewActivity.this).getWorkspacePath() + "/";
+                                                webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
+                                            } else {
+                                                openGenericPreview(path);
+                                            }
+                                        }
+
+                                        @Override
+                                        public void onError(String message) {
+                                            Log.w(TAG, "渲染失败，回退通用预览: " + message);
+                                            openGenericPreview(path);
+                                        }
+
+                                        @Override
+                                        public void onProgress(int progress) {
+                                        }
+                                    });
+                                    return true;
+                                }
+                                openGenericPreview(path);
                                 return true;
                             }
                         }
@@ -136,8 +159,37 @@ public class SimpleWebViewActivity extends BaseActivity {
                         Log.w(TAG, "文件链接处理失败: " + url + " - " + e.getMessage());
                     }
                 }
-                // 相对链接：交给 WebView 内部导航（baseUrl 指向文件目录，可打开同目录资源）
+                // 相对链接：交给 WebView 内部导航（baseUrl 指向工作区，可打开同目录资源）
                 return false;
+            }
+
+            /** 从引擎返回对象提取 HTML（String 或 Map.htmlContent），非 HTML 返回 null */
+            private String extractHtml(Object renderedContent) {
+                try {
+                    if (renderedContent instanceof String) {
+                        return (String) renderedContent;
+                    }
+                    if (renderedContent instanceof java.util.Map) {
+                        Object hc = ((java.util.Map<?, ?>) renderedContent).get("htmlContent");
+                        if (hc instanceof String) return (String) hc;
+                    }
+                } catch (Exception ignored) {
+                }
+                return null;
+            }
+
+            /** 回退：通用文件预览（图片等引擎不返回 HTML 的类型） */
+            private void openGenericPreview(String path) {
+                try {
+                    android.content.Intent intent = new android.content.Intent(
+                            SimpleWebViewActivity.this,
+                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                    intent.putExtra(
+                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.EXTRA_FILE_PATH, path);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Log.w(TAG, "通用预览打开失败: " + e.getMessage());
+                }
             }
 
             @Override
