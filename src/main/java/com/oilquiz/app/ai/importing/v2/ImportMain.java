@@ -1028,30 +1028,56 @@ public class ImportMain {
      * 可选项/聚合选项列规则识别（纯程序）：表头是聚合选项列（可选项/选项/备选答案等）且
      * 映射中没有独立选项列时，设为虚拟字段 optionsCombined，Python 按分隔符自动拆分 A~L。
      * 在任何映射路径（AI/词典）之后调用，确保程序拆分一定生效。
+     * <p>纠正逻辑：AI/词典可能把聚合列误映射成 optionA（源列名本身是聚合选项列且无独立
+     * optionB~D），此时强制改为 optionsCombined，否则整串选项会原样落入 optionA。
      */
     private Map<String, String> ensureCombinedOptionsMapping(Map<String, String> mapping,
                                                              List<String> headers) {
         if (mapping == null) mapping = new LinkedHashMap<>();
-        if (mapping.containsKey("optionA")) return mapping; // 已有独立选项列，无需聚合
+        if (mapping.containsKey("optionA")) {
+            String srcA = mapping.get("optionA");
+            boolean hasOtherOptions = mapping.containsKey("optionB")
+                    || mapping.containsKey("optionC") || mapping.containsKey("optionD");
+            if (!hasOtherOptions && srcA != null && isAggregateHeader(srcA)) {
+                mapping.remove("optionA");
+                mapping.put(VIRTUAL_FIELD_OPTIONS_COMBINED, srcA);
+                emitLog2("聚合选项列识别(纠正): " + srcA + " → optionsCombined");
+            }
+            return mapping; // 真正独立选项列，无需聚合
+        }
         if (mapping.containsKey(VIRTUAL_FIELD_OPTIONS_COMBINED)) return mapping;
         if (headers == null) return mapping;
-
-        String[] aggregateHints = {"可选项", "选项", "备选答案", "备选项", "选项内容",
-                "abcd选项", "abcd", "options", "choices", "选择项"};
         for (String h : headers) {
-            String t = h == null ? "" : h.trim().toLowerCase();
-            for (String hint : aggregateHints) {
-                // 精确匹配或"选项"前缀（如"选项列表"），排除"选项A/B/C/D"独立列
-                if (t.equals(hint) || (hint.equals("选项") && t.startsWith("选项")
-                        && !t.matches("选项[a-lA-L甲乙丙丁戊己庚辛壬癸子丑1-9一二三四五六七八九十].*"))) {
-                    mapping.put(VIRTUAL_FIELD_OPTIONS_COMBINED, h.trim());
-                    emitLog2("聚合选项列识别(规则): " + h.trim() + " → optionsCombined");
-                    break;
-                }
+            if (isAggregateHeader(h)) {
+                mapping.put(VIRTUAL_FIELD_OPTIONS_COMBINED, h.trim());
+                emitLog2("聚合选项列识别(规则): " + h.trim() + " → optionsCombined");
+                break;
             }
-            if (mapping.containsKey(VIRTUAL_FIELD_OPTIONS_COMBINED)) break;
         }
         return mapping;
+    }
+
+    /** 聚合选项列判定：可选项/选项/备选答案/选项内容/ABCD选项/options/choices/选择项，
+     * 排除"选项A/B/C/D"等独立选项列。 */
+    private static boolean isAggregateHeader(String h) {
+        if (h == null) return false;
+        String t = h.trim().toLowerCase();
+        String[] hints = {"可选项", "选项", "备选答案", "备选项", "选项内容",
+                "abcd选项", "abcd", "options", "choices", "选择项"};
+        for (String hint : hints) {
+            if (t.equals(hint)) return true;
+        }
+        // 包含聚合词（如"可选项(多选)"、"选项列表"），但"选项A/B"独立列不算
+        if (t.contains("可选项") || t.contains("备选答案") || t.contains("备选项")
+                || t.contains("选择项") || t.contains("选项内容")) {
+            return true;
+        }
+        // "选项"前缀但非"选项A/B/C"独立列
+        if (t.startsWith("选项")
+                && !t.matches("选项[a-lA-L甲乙丙丁戊己庚辛壬癸子丑1-9一二三四五六七八九十].*")) {
+            return true;
+        }
+        return false;
     }
 
     /** 日志辅助（避免依赖具体 listener） */
