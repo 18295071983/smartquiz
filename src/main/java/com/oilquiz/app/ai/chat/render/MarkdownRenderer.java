@@ -287,26 +287,56 @@ public class MarkdownRenderer {
             }
 
             // show 之后再加载（View 已 attach），loading 占位 + 失败提示
-            com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
-                    new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
-                        @Override
-                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
-                            loading.setVisibility(View.GONE);
-                            android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
-                            return false;
+            // 本地文件优先 BitmapFactory 直接解码（避免 Glide file:// 不回调转圈）
+            boolean decoded = false;
+            if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
+                try {
+                    java.io.File localFile = url.startsWith("file://")
+                            ? new java.io.File(android.net.Uri.parse(url).getPath())
+                            : new java.io.File(url);
+                    if (localFile.exists()) {
+                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                        opts.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        int sample = 1;
+                        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                            sample *= 2;
                         }
+                        opts.inJustDecodeBounds = false;
+                        opts.inSampleSize = sample;
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        if (bmp != null) {
+                            photoView.setImageBitmap(bmp);
+                            loading.setVisibility(View.GONE);
+                            decoded = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("MarkdownRenderer", "bitmap decode failed: " + e.getMessage());
+                }
+            }
+            if (!decoded) {
+                com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
+                        new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                            @Override
+                            public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
+                                return false;
+                            }
 
-                        @Override
-                        public boolean onResourceReady(android.graphics.drawable.Drawable resource,
-                                                       Object model,
-                                                       com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                                       com.bumptech.glide.load.DataSource dataSource,
-                                                       boolean isFirstResource) {
-                            loading.setVisibility(View.GONE);
-                            return false;
-                        }
-                    };
-            com.bumptech.glide.Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+                            @Override
+                            public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                           Object model,
+                                                           com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                           com.bumptech.glide.load.DataSource dataSource,
+                                                           boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                return false;
+                            }
+                        };
+                com.bumptech.glide.Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+            }
         } catch (Exception e) {
             android.util.Log.w("MarkdownRenderer", "Image preview failed: " + e.getMessage());
         }
