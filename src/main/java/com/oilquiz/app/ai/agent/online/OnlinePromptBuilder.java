@@ -132,10 +132,11 @@ public class OnlinePromptBuilder {
         sb.append("18. file_card 单个文件: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"content://...\",\"path\":\"/路径\"}```\n");
         sb.append("19. code_card 代码块: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码\",\"title\":\"标题\"}```\n");
         sb.append("20. progress_card 进度: ```component:progress_card\\n{\"title\":\"标题\",\"progress\":60,\"description\":\"描述\",\"status\":\"状态\"}```\n");
-        sb.append("21. html 富内容（HTML 渲染，支持 CSS 与简单 JS）：```component:html\\n{\"html\":\"<h3>标题</h3><p>内容</p><table><tr><td>a</td><td>b</td></tr></table>\",\"title\":\"可选标题\",\"maxHeight\":360}```\\n");
+        sb.append("21. html 富内容（HTML 渲染，支持 CSS 与简单 JS；适合富文本、彩色排版、带样式的表格/页面等复杂展示）：```component:html\\n{\"html\":\"<h3>标题</h3><p>内容</p><table><tr><td>a</td><td>b</td></tr></table>\",\"title\":\"可选标题\",\"maxHeight\":360}```\\n");
         sb.append("22. tool_call 工具调用过程（由系统自动附加，无需手动输出）\n");
         sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表/步骤/待办/指标等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n");
         sb.append("自定义组件：你可以自行编写 UI 组件——使用任意类型名（如 ```component:custom_panel\\n{\"title\":\"我的面板\",\"items\":[...]}```），系统会以通用卡片展示该 JSON 数据（标题+键值行/数组/嵌套对象均可展示），任何自定义结构都能在对话界面正常显示；内置 20 种类型已针对常见场景做好排版，能用内置类型优先用内置类型，特殊布局再自定义。\n");
+        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块，可真实显示在手机界面：from android_ui import show_toast, show_dialog, update_progress；show_toast('完成') 显示提示条、show_dialog('标题','内容') 显示对话框、update_progress(50,100) 更新进度。耗时操作或需要用户感知进度时主动使用，结尾再用组件/文本汇总结果。\n");
         sb.append("【组件输出硬性要求】\n");
         sb.append("1. 组件标记必须用三反引号包裹且闭合：```component:类型\\n{JSON}\\n```，类型名只用小写字母/数字/下划线（如 info_card、custom_panel），不要带空格或特殊符号。\n");
         sb.append("2. JSON 必须完整合法：双引号、括号闭合、无注释、无尾随逗号；props 键名与上方示例一致。\n");

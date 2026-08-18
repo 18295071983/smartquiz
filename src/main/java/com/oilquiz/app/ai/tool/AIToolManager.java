@@ -949,7 +949,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码")
+                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块：from android_ui import show_toast, show_dialog, update_progress 可显示Toast/对话框/进度(真实显示在手机界面)；脚本最后print输出作为结果返回")
                     .addParameter("code", "string", "Python代码（可选）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
