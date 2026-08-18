@@ -226,3 +226,6 @@ libs/com/
 # Python 构建产物
 __pycache__/
 *.pyc
+
+# 临时截图
+ui_check.png
