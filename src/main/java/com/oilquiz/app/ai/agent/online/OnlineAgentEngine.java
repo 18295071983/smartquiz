@@ -190,6 +190,17 @@ public class OnlineAgentEngine {
             String systemPrompt = agentMode == AgentMode.TAKEOVER
                 ? promptBuilder.buildSystemPromptTakeover()
                 : promptBuilder.buildSystemPrompt();
+            // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式
+            try {
+                String wsPath = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                        .getInstance(activity).getWorkspacePath();
+                systemPrompt += "\n【工作区】你的文件工作目录: " + wsPath
+                        + "。file_generator/image_gen 生成的文件默认保存在此；"
+                        + "用 workspace 工具(list/read/delete)管理，或直接用 file_reader 读取工具返回的绝对路径。"
+                        + "不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录）。\n";
+            } catch (Throwable t) {
+                AILogger.w(TAG, "注入工作区信息失败: " + t.getMessage());
+            }
             JsonObject systemMsg = new JsonObject();
             systemMsg.addProperty("role", "system");
             systemMsg.addProperty("content", systemPrompt);
