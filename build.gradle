@@ -316,9 +316,9 @@ dependencies {
     }
     
     // TBS SDK - 需要从腾讯云官网下载后放入 libs/ 目录
-    // 腾讯 X5 内核 SDK（Maven Central 存量版 44286，静态集成；X5 已停止官方维护，
+    // 腾讯 X5 内核 SDK（Maven Central 最新版 54002-beta；X5 已停止官方维护，
     // 初始化失败时 QbSdk 自动回退系统 WebView）
-    implementation 'com.tencent.tbs:tbssdk:44286'
+    implementation 'com.tencent.tbs:tbssdk:54002-beta'
     // implementation files('libs/TbsFileSdk_base_universal_1.0.5.6000094.20250604183316.aar')
     
     // Bouncy Castle库，用于创建标准的X.509证书

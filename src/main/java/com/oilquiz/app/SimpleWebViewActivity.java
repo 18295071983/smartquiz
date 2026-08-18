@@ -116,6 +116,22 @@ public class SimpleWebViewActivity extends BaseActivity {
                 if (progressBar != null) {
                     progressBar.setVisibility(View.GONE);
                 }
+                // 诊断按钮/JS 交互：注入脚本检查按钮数量、onclick 绑定、脚本数量
+                view.postDelayed(() -> {
+                    try {
+                        String js = "(function(){"
+                                + "var btns=document.querySelectorAll('button,[onclick],a,[class*=btn],[class*=Btn]');"
+                                + "var b=document.querySelector('button,[onclick]');"
+                                + "return JSON.stringify({btns:btns.length,"
+                                + "firstOnclick:b?(b.onclick?'bound':'null'):'none',"
+                                + "scripts:document.scripts.length,"
+                                + "ready:document.readyState});})()";
+                        view.evaluateJavascript(js, value ->
+                                Log.i(TAG + "-JS", "页面诊断: " + value));
+                    } catch (Throwable t) {
+                        Log.w(TAG + "-JS", "诊断注入失败: " + t.getMessage());
+                    }
+                }, 600);
             }
         });
 
