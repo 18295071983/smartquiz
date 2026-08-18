@@ -224,6 +224,42 @@
                         android:textColor="@color/on_surface"
                         android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
                         android:importantForAutofill="no" />
+
+                    <!-- 缺失字段智能填充开关：默认开启，关闭后缺失字段留空直接入库 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="缺失字段智能填充"
+                                android:textSize="13sp"
+                                android:textColor="@color/on_surface" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="用 AI 补全缺失的题型/难度/分类/解析"
+                                android:textSize="11sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/swFillMissing"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -91,6 +91,8 @@ public class AIImportActivity extends BaseActivity {
     private OnlineModelManager onlineModelManager;
     // 用户题库说明输入区（可选，引导 AI 导入）
     private android.widget.EditText etUserGuide;
+    // 缺失字段智能填充开关
+    private androidx.appcompat.widget.SwitchCompat swFillMissing;
 
     @Override
     protected int getLayoutId() {
@@ -142,6 +144,8 @@ public class AIImportActivity extends BaseActivity {
 
         // 用户题库说明输入区
         etUserGuide = findViewById(R.id.etUserGuide);
+        // 缺失字段智能填充开关
+        swFillMissing = findViewById(R.id.swFillMissing);
     }
 
     @Override
@@ -475,6 +479,7 @@ public class AIImportActivity extends BaseActivity {
         if (effectiveDocHint != null && !effectiveDocHint.isEmpty()) {
             v2Main.setDocHint(effectiveDocHint);
         }
+        v2Main.setFillEnabled(swFillMissing == null || swFillMissing.isChecked());
         if (sheetIndex >= 0) {
             v2Main.setExcelSheetIndex(sheetIndex);
         }
@@ -508,6 +513,7 @@ public class AIImportActivity extends BaseActivity {
         if (effectiveDocHint != null && !effectiveDocHint.isEmpty()) {
             v2Main.setDocHint(effectiveDocHint);
         }
+        v2Main.setFillEnabled(swFillMissing == null || swFillMissing.isChecked());
         activeV2Main = v2Main;
 
         agentView.show();
