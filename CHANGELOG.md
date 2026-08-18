@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-08-16] 修复对话图片点击预览一直转圈
+用户反馈"对话中图片点击后一直转圈"——根因：预览用 Glide 加载 attachment.url（content:// 可能权限过期），失败前一直 loading。
+1. **预览优先本地路径**：showImagePreview 增加 thumbnailPath/localFilePath 参数，加载优先级 thumbnailPath → localFilePath → url；纯文件路径转 file:// 再给 Glide，避免 content:// 权限过期导致长时间转圈。
+2. **点击回调传完整附件**：onPreview 传 attachment.url + thumbnailPath + localFilePath。
+3. 失败仍有 15s 超时 + onLoadFailed 提示（不再无限转圈）。
+
 ## [2026-08-16] 修复附件（图片）发送不到对话
 用户反馈"图片发送不到对话中"——根因：两套附件列表不一致。
 1. **双列表 bug**：图库选图走 ChatInputManager.addAttachment（inputManager 内部列表），但 sendMessage 读的是 AIChatActivity.currentAttachments 字段（只被拍照/录音填充）→ 图库图片 sendMessage 拿不到，发不出去。
