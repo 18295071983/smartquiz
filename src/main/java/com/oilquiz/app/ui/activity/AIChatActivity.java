@@ -5279,8 +5279,10 @@ public class AIChatActivity extends BaseActivity {
             
             endGeneration();
             // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名 / 缓存命中
+            // 缓存命中独立判断：即使本轮无工具/多轮思考（简单追问），只要 API 返回缓存命中就显示
             boolean isAgentModeRun = agentGroupToolCount > 0 || thinkingRoundCount > 1;
-            if (isAgentModeRun) {
+            int cacheHitTokens = agentChatHandler != null ? agentChatHandler.getLastCacheHitTokens() : 0;
+            if (isAgentModeRun || cacheHitTokens > 0) {
                 StringBuilder sum = new StringBuilder();
                 if (agentGroupToolCount > 0) sum.append("🔧 调用工具 ").append(agentGroupToolCount).append(" 次");
                 if (thinkingRoundCount > 1) {
@@ -5291,16 +5293,24 @@ public class AIChatActivity extends BaseActivity {
                     if (sum.length() > 0) sum.append("\n");
                     sum.append("工具：").append(String.join("、", agentToolNames));
                 }
-                // 缓存命中统计（API 返回 usage 时才有；DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens）
+                // 输入/输出 token 统计（API usage 才有；Agent 引擎透传真实值）
                 if (agentChatHandler != null) {
-                    int cacheHit = agentChatHandler.getLastCacheHitTokens();
-                    if (cacheHit > 0) {
+                    int inTokens = agentChatHandler.getLastPromptTokens();
+                    int outTokens = agentChatHandler.getLastCompletionTokens();
+                    if (inTokens > 0 || outTokens > 0) {
                         if (sum.length() > 0) sum.append("\n");
-                        sum.append("⚡ 缓存命中 ").append(cacheHit).append(" tokens（本轮省去重复计费）");
+                        sum.append("📥 输入 ").append(inTokens).append(" · 📤 输出 ").append(outTokens).append(" tokens");
                     }
+                }
+                // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
+                if (cacheHitTokens > 0) {
+                    if (sum.length() > 0) sum.append("\n");
+                    sum.append("⚡ 缓存命中 ").append(cacheHitTokens).append(" tokens（本轮省去重复计费）");
                 }
                 if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
                     chatHistory.get(messageIndex).agentSummary = sum.toString();
+                    AppLogger.i(TAG, "Agent summary written: " + sum.toString()
+                        + " (cacheHit=" + cacheHitTokens + ")");
                 }
             }
             agentToolLoopCount = 0;
@@ -5384,7 +5394,10 @@ public class AIChatActivity extends BaseActivity {
                 // 更新 Token 统计（生成完成时累加到 session）
                 if (finalTokenCount > 0) {
                     int inputTokens = 0;
-                    if (messageIndex >= 1 && chatHistory.get(messageIndex - 1) != null) {
+                    // Agent 在线模式：优先使用引擎透传的 API 真实 usage（prompt/completion）
+                    if (agentChatHandler != null && agentChatHandler.getLastPromptTokens() > 0) {
+                        inputTokens = agentChatHandler.getLastPromptTokens();
+                    } else if (messageIndex >= 1 && chatHistory.get(messageIndex - 1) != null) {
                         String promptText = chatHistory.get(messageIndex - 1).content;
                         if (promptText != null && !promptText.isEmpty()) {
                             // 仅本地模型走 native 分词；在线模型用长度估算，避免 native 崩溃
@@ -6336,7 +6349,13 @@ public class AIChatActivity extends BaseActivity {
         if (tvTokenStats != null && stats != null) {
             if (stats.requestTotalTokens > 0) {
                 tvTokenStats.setVisibility(View.VISIBLE);
-                tvTokenStats.setText(String.format("🔵 %d tokens", stats.requestTotalTokens));
+                // 输入/输出分开统计：请求级（本轮）输入 prompt + 输出 completion
+                String text = String.format("📥 输入 %d · 📤 输出 %d tokens",
+                        stats.requestPromptTokens, stats.requestCompletionTokens);
+                if (stats.sessionTotalTokens > 0) {
+                    text += String.format("（会话累计 %d）", stats.sessionTotalTokens);
+                }
+                tvTokenStats.setText(text);
             } else {
                 tvTokenStats.setVisibility(View.GONE);
             }
@@ -6395,8 +6414,15 @@ public class AIChatActivity extends BaseActivity {
                 String statsText = String.format("%s %.1f t/s | %d tokens", sourceTag, displayTps, displayTokens);
                 tvTokenStats.setText(statsText);
             } else {
-                String statsText = String.format("✅ %d tokens", displayTokens);
-                tvTokenStats.setText(statsText);
+                // 完成态：在线模式优先显示 API 输入/输出统计（本请求）
+                if (useOnline && (onlinePromptTokens > 0 || onlineCompletionTokens > 0)) {
+                    String statsText = String.format("✅ 📥 输入 %d · 📤 输出 %d tokens",
+                            onlinePromptTokens, onlineCompletionTokens);
+                    tvTokenStats.setText(statsText);
+                } else {
+                    String statsText = String.format("✅ %d tokens", displayTokens);
+                    tvTokenStats.setText(statsText);
+                }
             }
         }
     }

@@ -82,6 +82,9 @@ public class OnlineAgentEngine {
     private int totalTokenCount;
     /** 最近一次推理的缓存命中 token 数（DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens） */
     private volatile int lastCacheHitTokens = 0;
+    /** 最近一次推理的输入/输出 token（API usage，用于统计展示） */
+    private volatile int lastPromptTokens = 0;
+    private volatile int lastCompletionTokens = 0;
 
     public OnlineAgentEngine(Activity activity, OnlineToolManager toolManager) {
         this.activity = activity;
@@ -95,6 +98,8 @@ public class OnlineAgentEngine {
             t.setDaemon(true);
             return t;
         });
+        // 恢复上次的对话历史（Activity 重建/应用重启后保持前缀稳定，利于服务商前缀缓存命中）
+        restoreHistory();
     }
 
     public void setCallback(AgentCallback callback) {
@@ -136,6 +141,8 @@ public class OnlineAgentEngine {
         executor.submit(() -> {
             try {
                 doExecute(userMessage, effectiveMaxTokens);
+                // 本轮 Agent 执行完成（含工具多轮），持久化对话历史，供 Activity 重建/重启后恢复
+                persistHistory();
             } catch (Throwable t) {
                 AILogger.e(TAG, "Execute failed: " + t.getMessage(), t);
                 finishGeneration();
@@ -587,6 +594,8 @@ public class OnlineAgentEngine {
                 public void onUsageWithCache(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {
                     totalTokenCount = totalTokens;
                     lastCacheHitTokens = cachedTokens;
+                    lastPromptTokens = promptTokens;
+                    lastCompletionTokens = completionTokens;
                     AILogger.i(TAG, "Token usage: prompt=" + promptTokens + " completion=" + completionTokens
                         + " total=" + totalTokens + " cache_hit=" + cachedTokens);
                     notifyProgress();
@@ -646,10 +655,12 @@ public class OnlineAgentEngine {
         StringBuilder sb = new StringBuilder();
         sb.append("【环境上下文】\n");
 
-        // 1. 当前日期时间（始终可用）
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy年M月d日 EEEE HH:mm", Locale.CHINA);
+        // 1. 当前日期时间（始终可用）。
+        // 注意：格式只到"日"级别，不含分钟——避免 Activity 重建后重新注入时
+        // 前缀因分钟变化而不同，导致服务商前缀缓存 miss
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINA);
         String dateTime = sdf.format(new Date());
-        sb.append("当前时间：").append(dateTime).append("\n");
+        sb.append("当前日期：").append(dateTime).append("\n");
 
         // 2. 获取位置（5秒超时）
         String locationInfo = null;
@@ -955,6 +966,16 @@ public class OnlineAgentEngine {
         return lastCacheHitTokens;
     }
 
+    /** 最近一次推理的输入 token（API usage） */
+    public int getLastPromptTokens() {
+        return lastPromptTokens;
+    }
+
+    /** 最近一次推理的输出 token（API usage） */
+    public int getLastCompletionTokens() {
+        return lastCompletionTokens;
+    }
+
     public OnlineThinkingChain getThinkingChain() {
         return thinkingChain;
     }
@@ -962,6 +983,61 @@ public class OnlineAgentEngine {
     public void clearHistory() {
         messageHistory.clear();
         thinkingChain.clear();
+        deleteHistoryFile();
+    }
+
+    // ==================== 对话历史持久化（跨 Activity 重建/重启保持前缀稳定，利于缓存命中） ====================
+
+    private java.io.File getHistoryFile() {
+        return new java.io.File(activity.getFilesDir(), "online_agent_history.json");
+    }
+
+    /** 保存当前对话历史到私有文件 */
+    private void persistHistory() {
+        try {
+            if (messageHistory.isEmpty()) {
+                deleteHistoryFile();
+                return;
+            }
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            JsonArray arr = new JsonArray();
+            for (JsonObject msg : messageHistory) {
+                arr.add(msg);
+            }
+            java.io.FileWriter writer = new java.io.FileWriter(getHistoryFile());
+            gson.toJson(arr, writer);
+            writer.close();
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to persist agent history: " + e.getMessage());
+        }
+    }
+
+    /** 从私有文件恢复对话历史 */
+    private void restoreHistory() {
+        try {
+            java.io.File file = getHistoryFile();
+            if (!file.exists()) return;
+            java.io.FileReader reader = new java.io.FileReader(file);
+            JsonArray arr = com.google.gson.JsonParser.parseReader(reader).getAsJsonArray();
+            reader.close();
+            messageHistory.clear();
+            for (int i = 0; i < arr.size(); i++) {
+                messageHistory.add(arr.get(i).getAsJsonObject());
+            }
+            if (!messageHistory.isEmpty()) {
+                AILogger.i(TAG, "Restored agent history: " + messageHistory.size() + " messages");
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to restore agent history: " + e.getMessage());
+            deleteHistoryFile();
+        }
+    }
+
+    private void deleteHistoryFile() {
+        try {
+            java.io.File file = getHistoryFile();
+            if (file.exists()) file.delete();
+        } catch (Exception ignored) {}
     }
 
     // ========== 内部通知方法 ==========
