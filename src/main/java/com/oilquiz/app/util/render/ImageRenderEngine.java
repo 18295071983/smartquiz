@@ -56,6 +56,11 @@ public class ImageRenderEngine implements FileRenderEngine {
             int width = options.outWidth;
             int height = options.outHeight;
             String mimeType = options.outMimeType;
+
+            if (width <= 0 || height <= 0) {
+                callback.onError("无法读取图片信息（文件可能损坏）");
+                return;
+            }
             
             // 计算采样率，避免OOM
             int maxDimension = 1024;
@@ -74,6 +79,10 @@ public class ImageRenderEngine implements FileRenderEngine {
             callback.onProgress(50);
             
             Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+            if (bitmap == null) {
+                callback.onError("图片解码失败（文件可能损坏或格式不支持）");
+                return;
+            }
             
             // 收集图片信息
             Map<String, Object> imageInfo = new HashMap<>();

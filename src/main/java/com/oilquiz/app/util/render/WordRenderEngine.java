@@ -79,10 +79,7 @@ public class WordRenderEngine implements FileRenderEngine {
             try (FileInputStream fis = new FileInputStream(file);
                  XWPFDocument document = new XWPFDocument(fis)) {
 
-                List<XWPFParagraph> paragraphs = document.getParagraphs();
-                List<XWPFTable> tables = document.getTables();
-
-                List<String> pageContents = paginateContent(paragraphs, tables, pageInfo);
+                List<String> pageContents = paginateContent(document, pageInfo);
 
                 for (int i = 0; i < pageContents.size(); i++) {
                     htmlContent.append("<div class='paper' id='paper-").append(i + 1).append("'>");
@@ -106,62 +103,40 @@ public class WordRenderEngine implements FileRenderEngine {
         }
     }
 
-    private List<String> paginateContent(List<XWPFParagraph> paragraphs, List<XWPFTable> tables, PageInfo pageInfo) {
+        /**
+     * 按文档真实顺序分页（getBodyElements：段落/表格交替，修复表格被平铺到段落前的错乱）
+     */
+    private List<String> paginateContent(XWPFDocument document, PageInfo pageInfo) {
         List<String> pages = new ArrayList<>();
         StringBuilder currentPage = new StringBuilder();
         int contentHeight = 0;
         int maxContentHeight = pageInfo.height - pageInfo.topMargin - pageInfo.bottomMargin - 60;
 
-        int tableIndex = 0;
-
-        for (int i = 0; i < paragraphs.size(); i++) {
-            XWPFParagraph paragraph = paragraphs.get(i);
-            String paragraphHtml = renderParagraph(paragraph);
-
-            if (!paragraphHtml.isEmpty()) {
+        for (org.apache.poi.xwpf.usermodel.IBodyElement element : document.getBodyElements()) {
+            if (element instanceof XWPFParagraph) {
+                XWPFParagraph paragraph = (XWPFParagraph) element;
+                String paragraphHtml = renderParagraph(paragraph);
+                if (paragraphHtml.isEmpty()) continue;
                 int estimatedHeight = estimateParagraphHeight(paragraph);
-
                 if (contentHeight + estimatedHeight > maxContentHeight && contentHeight > 0) {
                     pages.add(currentPage.toString());
                     currentPage = new StringBuilder();
                     contentHeight = 0;
                 }
-
                 currentPage.append(paragraphHtml);
                 contentHeight += estimatedHeight;
-            }
-
-            if (tableIndex < tables.size()) {
-                XWPFTable table = tables.get(tableIndex);
+            } else if (element instanceof XWPFTable) {
+                XWPFTable table = (XWPFTable) element;
                 String tableHtml = renderTable(table);
                 int estimatedTableHeight = estimateTableHeight(table);
-
                 if (contentHeight + estimatedTableHeight > maxContentHeight && contentHeight > 0) {
                     pages.add(currentPage.toString());
                     currentPage = new StringBuilder();
                     contentHeight = 0;
                 }
-
                 currentPage.append(tableHtml);
                 contentHeight += estimatedTableHeight;
-                tableIndex++;
             }
-        }
-
-        while (tableIndex < tables.size()) {
-            XWPFTable table = tables.get(tableIndex);
-            String tableHtml = renderTable(table);
-            int estimatedTableHeight = estimateTableHeight(table);
-
-            if (contentHeight + estimatedTableHeight > maxContentHeight && contentHeight > 0) {
-                pages.add(currentPage.toString());
-                currentPage = new StringBuilder();
-                contentHeight = 0;
-            }
-
-            currentPage.append(tableHtml);
-            contentHeight += estimatedTableHeight;
-            tableIndex++;
         }
 
         if (currentPage.length() > 0) {
@@ -174,8 +149,7 @@ public class WordRenderEngine implements FileRenderEngine {
 
         return pages;
     }
-
-    private int estimateParagraphHeight(XWPFParagraph paragraph) {
+private int estimateParagraphHeight(XWPFParagraph paragraph) {
         String text = paragraph.getText();
         if (text == null || text.isEmpty()) return 0;
 
@@ -367,6 +341,15 @@ public class WordRenderEngine implements FileRenderEngine {
         for (XWPFRun run : runs) {
             String runText = run.text();
             if (runText == null || runText.isEmpty()) continue;
+
+            // 段内换行（<w:br/>）支持：run 含换行符时先追加 <br/>
+            try {
+                if (run.getCTR() != null && run.getCTR().getBrList() != null
+                        && run.getCTR().getBrList().size() > 0) {
+                    content.append("<br/>");
+                }
+            } catch (Exception ignored) {
+            }
 
             String runClass = "";
 

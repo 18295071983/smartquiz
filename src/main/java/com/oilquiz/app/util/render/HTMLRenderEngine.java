@@ -65,17 +65,21 @@ public class HTMLRenderEngine implements FileRenderEngine {
                 content.append("... 还有更多内容未显示\n");
             }
             
-            // 直接返回原始HTML内容，让WebView来渲染
-            String htmlContent = content.toString();
-            
-            // 确保HTML内容包含viewport meta标签，支持自适应显示
-            if (!htmlContent.contains("viewport")) {
-                // 在head标签中添加viewport meta标签
-                if (htmlContent.contains("<head>")) {
-                    htmlContent = htmlContent.replace("<head>", "<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n<meta name=\"format-detection\" content=\"telephone=no, email=no, address=no\">");
-                } else if (htmlContent.contains("<html>")) {
-                    // 如果没有head标签，在html标签后添加
-                    htmlContent = htmlContent.replace("<html>", "<html>\n<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n<meta name=\"format-detection\" content=\"telephone=no, email=no, address=no\">\n</head>");
+            // 编码探测读取（UTF-8 优先 + GBK 回退）
+            String htmlContent = FileEncodingUtil.readText(file, MAX_CONTENT_LENGTH);
+
+            // 确保HTML内容包含viewport meta标签（大小写不敏感匹配 head/html）
+            if (!htmlContent.toLowerCase().contains("viewport")) {
+                java.util.regex.Matcher headMatcher =
+                        java.util.regex.Pattern.compile("(?i)<head>").matcher(htmlContent);
+                if (headMatcher.find()) {
+                    htmlContent = headMatcher.replaceFirst("<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n<meta name=\"format-detection\" content=\"telephone=no, email=no, address=no\">");
+                } else {
+                    java.util.regex.Matcher htmlMatcher =
+                            java.util.regex.Pattern.compile("(?i)<html>").matcher(htmlContent);
+                    if (htmlMatcher.find()) {
+                        htmlContent = htmlMatcher.replaceFirst("<html>\n<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n<meta name=\"format-detection\" content=\"telephone=no, email=no, address=no\">\n</head>");
+                    }
                 }
             }
             

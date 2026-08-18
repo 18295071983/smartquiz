@@ -12,6 +12,8 @@ import java.util.*;
 
 public class ExcelRenderEngine implements FileRenderEngine {
     private static final String TAG = "ExcelRenderEngine";
+    /** 单表渲染最大行数（防止超大表生成百 MB HTML 导致 OOM） */
+    private static final int MAX_RENDER_ROWS = 5000;
     /** 公式求值器（render 时创建，FORMULA 单元格显示计算结果而非原始公式） */
     private org.apache.poi.ss.usermodel.FormulaEvaluator formulaEvaluator;
     private static final String[] SUPPORTED_EXTENSIONS = {"xls", "xlsx", "xlsm", "xltx", "xlt"};
@@ -133,8 +135,10 @@ public class ExcelRenderEngine implements FileRenderEngine {
         int lastCol = -1;
 
         boolean hasData = false;
-        for (int r = firstRow; r <= lastRow; r++) {
-            Row row = sheet.getRow(r);
+        // 用 rowIterator 只遍历有数据的行（稀疏大表不再空转 20 万次）
+        java.util.Iterator<Row> rowIter = sheet.rowIterator();
+        while (rowIter.hasNext()) {
+            Row row = rowIter.next();
             if (row == null) continue;
 
             for (int c = row.getFirstCellNum(); c < row.getLastCellNum(); c++) {
@@ -219,9 +223,16 @@ public class ExcelRenderEngine implements FileRenderEngine {
         sb.append("<div class='table-wrapper'>");
         sb.append("<table class='excel-table' id='excel-table-").append(sheetInfo.index).append("'>");
 
+        int renderedRows = 0;
+        boolean truncated = false;
         for (int rowIdx = sheetInfo.firstRow; rowIdx <= sheetInfo.lastRow; rowIdx++) {
+            if (renderedRows >= MAX_RENDER_ROWS) {
+                truncated = true;
+                break;
+            }
             Row row = sheet.getRow(rowIdx);
             if (row == null) continue;
+            renderedRows++;
 
             boolean isRowHeader = false;
             if (row.getCell(sheetInfo.firstCol) != null) {
@@ -280,6 +291,11 @@ public class ExcelRenderEngine implements FileRenderEngine {
             sb.append("<td class='row-resize-handle' data-row='").append(rowIdx).append("'><div class='resize-handle-v' data-resize='row'></div></td>");
 
             sb.append("</tr>");
+        }
+        if (truncated) {
+            sb.append("<tr><td colspan='").append(sheetInfo.colCount)
+                    .append("' style='text-align:center;color:#666;padding:10px;'>")
+                    .append("⚠️ 表格过大，仅显示前 ").append(MAX_RENDER_ROWS).append(" 行</td></tr>");
         }
 
         sb.append("</table>");

@@ -123,7 +123,7 @@ public class PDFRenderEngine implements FileRenderEngine {
                         htmlContent.append("<span>").append(width).append(" × ").append(height).append("</span>");
                         htmlContent.append("</div>");
                         htmlContent.append("<div class='page-content'>");
-                        htmlContent.append("<img src='data:image/png;base64,").append(base64Image).append("' alt='第").append(i + 1).append("页'>");
+                        htmlContent.append("<img src='data:image/jpeg;base64,").append(base64Image).append("' alt='第").append(i + 1).append("页'>");
                         htmlContent.append("</div>");
                         htmlContent.append("</div>");
                         
@@ -190,11 +190,17 @@ public class PDFRenderEngine implements FileRenderEngine {
      * 将Bitmap转换为Base64字符串
      */
     private String bitmapToBase64(Bitmap bitmap) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        // 使用PNG格式，质量100%
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
-        byte[] byteArray = outputStream.toByteArray();
-        return Base64.encodeToString(byteArray, Base64.DEFAULT);
+        try {
+            // JPEG quality 85：体积比 PNG 小一个量级（50 页 PNG-Base64 可达百 MB，易 OOM）
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream);
+            byte[] byteArray = outputStream.toByteArray();
+            outputStream.close();
+            return Base64.encodeToString(byteArray, Base64.NO_WRAP);
+        } catch (Exception e) {
+            Log.e(TAG, "图片转Base64失败: " + e.getMessage());
+            return "";
+        }
     }
     
     /**
