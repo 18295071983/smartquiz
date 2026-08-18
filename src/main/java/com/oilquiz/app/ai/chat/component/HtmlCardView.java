@@ -93,6 +93,16 @@ public class HtmlCardView implements ChatComponent {
         webView.getSettings().setUseWideViewPort(false);
         webView.setWebChromeClient(new WebChromeClient());
 
+        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内部可滚动、可点击
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setOnTouchListener((v, event) -> {
+            if (v.getParent() != null) {
+                v.getParent().requestDisallowInterceptTouchEvent(true);
+            }
+            return false; // 不消费事件，由 WebView 自身处理（滚动/点击/JS）
+        });
+
         // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
         final int maxHeightPx = dp(context, maxHeightDp);
         final LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
@@ -101,6 +111,35 @@ public class HtmlCardView implements ChatComponent {
 
         final WebView wvRef = webView;
         webView.setWebViewClient(new WebViewClient() {
+            // 链接点击：http/https 用系统浏览器打开，其余放行（js: 等）
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleExternalUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                return handleExternalUrl(request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null);
+            }
+
+            private boolean handleExternalUrl(String url) {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    try {
+                        android.content.Intent i = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                        if (!(context instanceof android.app.Activity)) {
+                            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        }
+                        context.startActivity(i);
+                    } catch (Exception e) {
+                        Log.w("HtmlCardView", "打开链接失败: " + url + " - " + e.getMessage());
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
