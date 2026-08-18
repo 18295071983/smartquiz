@@ -34,6 +34,10 @@ public class SimpleWebViewActivity extends BaseActivity {
         webView = findViewById(R.id.webView);
         progressBar = findViewById(R.id.progressBar);
 
+        // 标题栏：优先取 intent title，默认"HTML 预览"
+        String title = getIntent().getStringExtra("title");
+        setupToolbar(title != null && !title.isEmpty() ? title : "HTML 预览");
+
         // 配置 WebView
         setupWebView();
 
@@ -122,13 +126,24 @@ public class SimpleWebViewActivity extends BaseActivity {
             }
         });
 
-        // 设置 WebChromeClient 显示进度
+        // 设置 WebChromeClient 显示进度 + 捕获 JS console（诊断按钮/交互失效）
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
                 if (progressBar != null) {
                     progressBar.setProgress(newProgress);
                 }
+            }
+
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+                String msg = consoleMessage.message();
+                if (consoleMessage.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR
+                        || consoleMessage.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.WARNING) {
+                    Log.w(TAG + "-JS", "[" + consoleMessage.messageLevel() + "] " + msg
+                            + " (" + consoleMessage.sourceId() + ":" + consoleMessage.lineNumber() + ")");
+                }
+                return true;
             }
         });
     }
