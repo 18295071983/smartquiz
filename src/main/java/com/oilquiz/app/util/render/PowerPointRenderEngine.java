@@ -251,6 +251,25 @@ public class PowerPointRenderEngine implements FileRenderEngine {
                     if (bodyText.length() > 0) bodyText.append("<br>");
                     bodyText.append(escapeHtml(text.trim()));
                 }
+            } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFPictureShape) {
+                // 渲染图片（base64 内联）
+                try {
+                    org.apache.poi.xslf.usermodel.XSLFPictureShape pic =
+                            (org.apache.poi.xslf.usermodel.XSLFPictureShape) shape;
+                    org.apache.poi.sl.usermodel.PictureData picData = pic.getPictureData();
+                    if (picData != null && picData.getData() != null) {
+                        String mime = picData.getContentType();
+                        if (mime == null || mime.isEmpty()) mime = "image/png";
+                        String b64 = android.util.Base64.encodeToString(
+                                picData.getData(), android.util.Base64.NO_WRAP);
+                        if (bodyText.length() > 0) bodyText.append("<br>");
+                        bodyText.append("<img src='data:").append(mime).append(";base64,")
+                                .append(b64).append("' style='max-width:100%;height:auto;border-radius:4px;'>");
+                        hasContent = true;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "幻灯片图片渲染失败: " + e.getMessage());
+                }
             }
         }
 
