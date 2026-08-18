@@ -43,6 +43,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildComponentGuideSection());
 
+        sb.append(buildMemoryGuideSection());
+
         sb.append("【图片生成】\n");
         sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，无需拼接 URL）；\n");
         sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 open_url 这种绕路方式。\n\n");
@@ -100,6 +102,24 @@ public class OnlinePromptBuilder {
 
         sb.append(buildComponentGuideSection());
 
+        sb.append(buildMemoryGuideSection());
+
+        return sb.toString();
+    }
+
+    /**
+     * 构建长期记忆管理指引：让 Agent 知道记忆能力、使用时机与操作方法，
+     * 无论当前是否有已保存的记忆都会注入（有记忆时引擎还会额外注入记忆摘要）。
+     */
+    private String buildMemoryGuideSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【长期记忆管理】\n");
+        sb.append("你拥有跨会话记忆能力（memory 工具），可记住用户信息并在后续对话中运用：\n");
+        sb.append("- 保存：用户明确要求记住、或主动告知个人信息/偏好（如名字、地址、喜好、习惯）时，调用 memory save（key 用英文短词如 user_name/preference_city，value 为内容）\n");
+        sb.append("- 回忆：需要用户历史信息（名字/偏好/事实）时，调用 memory recall（传 key），或直接参考对话开头已注入的【长期记忆】摘要\n");
+        sb.append("- 删除：用户要求忘记某条信息时，调用 memory delete（传 key）\n");
+        sb.append("- 查看：memory list 列出全部记忆\n");
+        sb.append("每次对话会自动注入已保存的记忆摘要，回答时自然运用；不要擅自把普通聊天内容存为记忆，仅在用户明确要求或主动告知时保存。\n\n");
         return sb.toString();
     }
 
