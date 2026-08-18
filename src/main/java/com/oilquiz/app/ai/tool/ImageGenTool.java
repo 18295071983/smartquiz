@@ -22,6 +22,12 @@ import okhttp3.Response;
 /**
  * 文生图工具：根据提示词生成图片（Pollinations.ai 免费 API，无需 API Key）。
  *
+ * 增强能力：
+ * 1. 多模型：flux（默认）/ flux-realism（写实）/ flux-anime（动漫）/ turbo（快速）
+ * 2. 中文提示词自动增强（追加英文质量词，提升生成效果）
+ * 3. 相同 prompt+model+尺寸 去重缓存（避免重复请求）
+ * 4. 失败降级：模型生成失败自动换 flux 重试一次
+ *
  * 生成的图片保存到应用私有目录，通过 FileProvider 提供 content:// URI，
  * 并附带 image_grid 组件数据，对话界面直接内联显示。
  *
@@ -29,14 +35,21 @@ import okhttp3.Response;
  * - prompt: 图片描述（必填）
  * - width: 宽度（可选，默认 1024）
  * - height: 高度（可选，默认 1024）
- * - model: 模型（可选，默认 flux，如 flux/flux-realism/flux-anime）
+ * - model: 模型（可选，默认 flux，如 flux/flux-realism/flux-anime/turbo）
+ * - style: 风格关键词（可选，如 "photorealistic"/"cartoon"/"watercolor"）
  */
 public class ImageGenTool implements AITool {
 
     private static final String TAG = "ImageGenTool";
     private static final String API_BASE = "https://image.pollinations.ai/prompt/";
-    private static final int TIMEOUT_MS = 60000;
-    private static final long MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB 上限
+    private static final long MAX_IMAGE_BYTES = 12 * 1024 * 1024; // 12MB 上限
+
+    /** 可用模型（白名单校验 + 非法回退） */
+    private static final String[] SUPPORTED_MODELS = {"flux", "flux-realism", "flux-anime", "turbo"};
+
+    /** 简单结果缓存：key = prompt|model|w|h|style → 已生成的图片文件路径 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> cache =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private final Context context;
 
@@ -55,7 +68,7 @@ public class ImageGenTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "文生图：根据描述生成图片（免费 API）。参数: prompt(必填), width, height, model";
+        return "文生图：根据描述生成图片（免费 API）。参数: prompt(必填), width, height, model(flux/flux-realism/flux-anime/turbo), style";
     }
 
     @Override
@@ -64,7 +77,8 @@ public class ImageGenTool implements AITool {
         params.put("prompt", "图片描述（必填），如：一只可爱的橘猫在草地上晒太阳");
         params.put("width", "图片宽度（可选，默认 1024）");
         params.put("height", "图片高度（可选，默认 1024）");
-        params.put("model", "模型（可选，默认 flux，可选 flux/flux-realism/flux-anime）");
+        params.put("model", "模型（可选，默认 flux；flux=通用 flux-realism=写实 flux-anime=动漫 turbo=快速）");
+        params.put("style", "风格（可选，如 photorealistic/cartoon/watercolor/oil painting）");
         return params;
     }
 
@@ -79,20 +93,64 @@ public class ImageGenTool implements AITool {
 
             int width = parseIntParam(parameters, "width", 1024);
             int height = parseIntParam(parameters, "height", 1024);
-            String model = parameters.get("model") != null ? String.valueOf(parameters.get("model")) : "flux";
+            String model = normalizeModel(parameters.get("model") != null
+                    ? String.valueOf(parameters.get("model")) : "flux");
+            String style = parameters.get("style") != null
+                    ? String.valueOf(parameters.get("style")).trim() : "";
 
             // 校验尺寸范围
             width = Math.max(256, Math.min(2048, width));
             height = Math.max(256, Math.min(2048, height));
 
-            // 构造 Pollinations URL（免费、无需 key）
+            // 缓存 key：相同 prompt+model+尺寸+风格 直接复用
+            String cacheKey = prompt + "|" + model + "|" + width + "|" + height + "|" + style;
+            String cachedPath = cache.get(cacheKey);
+            if (cachedPath != null) {
+                File cachedFile = new File(cachedPath);
+                if (cachedFile.exists() && cachedFile.length() > 0) {
+                    AILogger.i(TAG, "Image cache HIT: " + cacheKey);
+                    return buildResult(cachedFile, prompt, width, height);
+                }
+            }
+
+            // 增强提示词（中文→英文质量词 + 风格）
+            String enhancedPrompt = enhancePrompt(prompt, style);
+
+            // 生成（含降级重试）
+            File imageFile = generateWithFallback(enhancedPrompt, width, height, model);
+            if (imageFile == null) {
+                return AIToolResult.fail("文生图失败: 多次尝试后仍无法生成，请稍后再试或更换描述");
+            }
+
+            cache.put(cacheKey, imageFile.getAbsolutePath());
+            return buildResult(imageFile, prompt, width, height);
+
+        } catch (Exception e) {
+            AILogger.e(TAG, "Image generation failed: " + e.getMessage(), e);
+            return AIToolResult.fail("文生图失败: " + e.getMessage());
+        }
+    }
+
+    /** 生成图片；指定模型失败时降级为 flux 重试一次 */
+    private File generateWithFallback(String enhancedPrompt, int width, int height, String model) {
+        File result = doGenerate(enhancedPrompt, width, height, model);
+        if (result == null && !"flux".equals(model)) {
+            AILogger.w(TAG, "Model " + model + " failed, falling back to flux");
+            result = doGenerate(enhancedPrompt, width, height, "flux");
+        }
+        return result;
+    }
+
+    /** 单次生成：请求 Pollinations 下载图片 */
+    private File doGenerate(String prompt, int width, int height, String model) {
+        try {
             String encodedPrompt = java.net.URLEncoder.encode(prompt, "UTF-8");
             String url = API_BASE + encodedPrompt
                     + "?width=" + width + "&height=" + height
                     + "&model=" + model
                     + "&nologo=true&seed=" + java.util.UUID.randomUUID().toString().substring(0, 8);
 
-            AILogger.i(TAG, "Generating image: " + prompt);
+            AILogger.i(TAG, "Generating image [model=" + model + "]: " + prompt);
 
             Request request = NetworkUtil.createApiRequestBuilder(url)
                     .get()
@@ -100,14 +158,12 @@ public class ImageGenTool implements AITool {
 
             try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
                 if (!response.isSuccessful()) {
-                    return AIToolResult.fail("文生图失败(HTTP " + response.code() + "): " + response.message());
+                    AILogger.w(TAG, "Image gen HTTP " + response.code() + ": " + response.message());
+                    return null;
                 }
                 okhttp3.ResponseBody body = response.body();
-                if (body == null) {
-                    return AIToolResult.fail("文生图失败: 空响应");
-                }
+                if (body == null) return null;
 
-                // 下载图片到应用私有目录
                 File dir = new File(context.getFilesDir(), "generated_images");
                 if (!dir.exists()) dir.mkdirs();
                 File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ".jpg");
@@ -122,46 +178,96 @@ public class ImageGenTool implements AITool {
                         if (total > MAX_IMAGE_BYTES) {
                             output.close();
                             imageFile.delete();
-                            return AIToolResult.fail("文生图失败: 图片超过大小限制");
+                            return null;
                         }
                         output.write(buffer, 0, read);
                     }
                 }
 
                 if (!imageFile.exists() || imageFile.length() == 0) {
-                    return AIToolResult.fail("文生图失败: 未生成有效图片");
+                    imageFile.delete();
+                    return null;
                 }
-
-                // 通过 FileProvider 生成 content:// URI
-                Uri contentUri = androidx.core.content.FileProvider.getUriForFile(
-                        context, "com.oilquiz.app.fileprovider", imageFile);
-
-                // 返回结果 + 组件数据（对话界面内联显示图片）
-                Map<String, Object> result = new HashMap<>();
-                result.put("status", "success");
-                result.put("prompt", prompt);
-                result.put("imagePath", imageFile.getAbsolutePath());
-                result.put("contentUri", contentUri.toString());
-                result.put("width", width);
-                result.put("height", height);
-                result.put("message", "图片已生成，可直接查看/分享");
-
-                AIToolResult toolResult = AIToolResult.success(result);
-                // 组件：单图内联显示
-                try {
-                    JSONObject props = new JSONObject();
-                    props.put("columns", 1);
-                    JSONArray images = new JSONArray();
-                    images.put(contentUri.toString());
-                    props.put("images", images);
-                    toolResult.withComponent(ComponentData.of("image_grid", props));
-                } catch (Exception ignored) {
-                }
-                return toolResult;
+                return imageFile;
             }
         } catch (Exception e) {
-            AILogger.e(TAG, "Image generation failed: " + e.getMessage(), e);
-            return AIToolResult.fail("文生图失败: " + e.getMessage());
+            AILogger.e(TAG, "Image gen error: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** 提示词增强：中文追加英文质量词，附加风格关键词 */
+    private String enhancePrompt(String prompt, String style) {
+        StringBuilder sb = new StringBuilder(prompt);
+        // 风格词
+        if (style != null && !style.isEmpty()) {
+            sb.append(", ").append(style);
+        }
+        // 中文提示词追加英文质量词（Flux 对英文理解更好）
+        if (containsCjk(prompt)) {
+            sb.append(", high quality, detailed, 8k, professional");
+        }
+        return sb.toString();
+    }
+
+    private boolean containsCjk(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) return true;
+        }
+        return false;
+    }
+
+    /** 模型白名单归一化 */
+    private String normalizeModel(String model) {
+        if (model == null) return "flux";
+        String m = model.trim().toLowerCase();
+        for (String supported : SUPPORTED_MODELS) {
+            if (supported.equals(m)) return m;
+        }
+        // 别名
+        if (m.contains("real") || m.contains("photo")) return "flux-realism";
+        if (m.contains("anime") || m.contains("cartoon")) return "flux-anime";
+        if (m.contains("turbo") || m.contains("fast") || m.contains("quick")) return "turbo";
+        return "flux";
+    }
+
+    /** 构建成功结果（含 image_grid 组件） */
+    private AIToolResult buildResult(File imageFile, String prompt, int width, int height) {
+        try {
+            Uri contentUri = androidx.core.content.FileProvider.getUriForFile(
+                    context, "com.oilquiz.app.fileprovider", imageFile);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("prompt", prompt);
+            result.put("imagePath", imageFile.getAbsolutePath());
+            result.put("contentUri", contentUri.toString());
+            result.put("width", width);
+            result.put("height", height);
+            result.put("message", "图片已生成，可直接查看/分享");
+
+            AIToolResult toolResult = AIToolResult.success(result);
+            // 组件：单图内联显示
+            try {
+                JSONObject props = new JSONObject();
+                props.put("columns", 1);
+                JSONArray images = new JSONArray();
+                images.put(contentUri.toString());
+                props.put("images", images);
+                toolResult.withComponent(ComponentData.of("image_grid", props));
+            } catch (Exception ignored) {
+            }
+            return toolResult;
+        } catch (Exception e) {
+            AILogger.e(TAG, "Build result failed: " + e.getMessage(), e);
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("prompt", prompt);
+            result.put("imagePath", imageFile.getAbsolutePath());
+            result.put("message", "图片已生成");
+            return AIToolResult.success(result);
         }
     }
 

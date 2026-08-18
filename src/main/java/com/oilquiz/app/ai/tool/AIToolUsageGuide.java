@@ -125,7 +125,8 @@ public class AIToolUsageGuide {
         sb.append("  示例4 翻译：使用 translation，参数 text=Hello world、target_lang=zh\n");
         sb.append("  示例5 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
         sb.append("  示例6 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
-        sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n\n");
+        sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n");
+        sb.append("  示例8 生成图片：使用 image_gen，参数 prompt=一只在雪地里打滚的橘猫（描述越具体越好，可含风格）、width=1024、height=1024、model=flux（可选 flux-realism写实/flux-anime动漫/turbo快速）、style=photorealistic（可选）\n\n");
 
         // 5. 错误处理
         sb.append("【五、错误处理】\n");
