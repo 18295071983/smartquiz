@@ -374,6 +374,11 @@ public class SystemResourceTool implements AITool {
         }
         
         try {
+            // 兜底：打开 pollinations.ai 图片生成链接时，改为下载图片并内联显示（不弹浏览器）
+            if (url.contains("image.pollinations.ai")) {
+                return downloadAndShowImage(url, parameters);
+            }
+
             // 正确编码 URL 中的非 ASCII 字符，避免浏览器错误 Punycode 编码
             String encodedUrl = encodeInternationalUrl(url);
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(encodedUrl));
@@ -387,6 +392,69 @@ public class SystemResourceTool implements AITool {
         } catch (Exception e) {
             AILogger.e(TAG, "打开链接失败: " + e.getMessage());
             return new AIToolResult("打开链接失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /**
+     * 兜底：下载 pollinations 生成的图片到本地，返回 image_grid 组件（对话内联显示）。
+     * 防止模型用 open_url 打开图片链接而不是 image_gen 工具时，图片无法在对话中展示。
+     */
+    private AIToolResult downloadAndShowImage(String url, Map<String, Object> parameters) {
+        try {
+            okhttp3.Request request = com.oilquiz.app.ai.util.NetworkUtil.createApiRequestBuilder(url)
+                    .get().build();
+            try (okhttp3.Response response = com.oilquiz.app.ai.util.NetworkUtil.getClient().newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    return new AIToolResult("图片下载失败(HTTP " + response.code() + ")", parameters);
+                }
+                okhttp3.ResponseBody body = response.body();
+                if (body == null) return new AIToolResult("图片下载失败: 空响应", parameters);
+
+                java.io.File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context).getWorkspaceDir();
+                if (!dir.exists()) dir.mkdirs();
+                java.io.File imageFile = new java.io.File(dir, "gen_" + System.currentTimeMillis() + ".jpg");
+                try (java.io.InputStream input = body.byteStream();
+                     java.io.FileOutputStream output = new java.io.FileOutputStream(imageFile)) {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, read);
+                        if (imageFile.length() > 12 * 1024 * 1024) {
+                            output.close();
+                            imageFile.delete();
+                            return new AIToolResult("图片下载失败: 超过大小限制", parameters);
+                        }
+                    }
+                }
+                if (!imageFile.exists() || imageFile.length() == 0) {
+                    imageFile.delete();
+                    return new AIToolResult("图片下载失败: 未生成有效图片", parameters);
+                }
+
+                android.net.Uri contentUri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "com.oilquiz.app.fileprovider", imageFile);
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "success");
+                result.put("imagePath", imageFile.getAbsolutePath());
+                result.put("contentUri", contentUri.toString());
+                result.put("message", "图片已下载并在对话中展示");
+
+                AIToolResult toolResult = new AIToolResult(result, parameters);
+                try {
+                    org.json.JSONObject props = new org.json.JSONObject();
+                    props.put("columns", 1);
+                    org.json.JSONArray images = new org.json.JSONArray();
+                    images.put(contentUri.toString());
+                    props.put("images", images);
+                    toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("image_grid", props));
+                } catch (Exception ignored) {
+                }
+                return toolResult;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "图片下载失败: " + e.getMessage());
+            return new AIToolResult("图片下载失败: " + e.getMessage(), parameters);
         }
     }
     

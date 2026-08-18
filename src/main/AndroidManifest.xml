@@ -345,6 +345,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.AgentManagerActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.activity.TokenizerDemoActivity"
             android:exported="false" />
 

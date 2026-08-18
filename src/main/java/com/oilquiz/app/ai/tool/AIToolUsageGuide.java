@@ -114,7 +114,12 @@ public class AIToolUsageGuide {
         sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回文件不存在。\n");
         sb.append("  5. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
         sb.append("  6. 工具结果可能被自动摘要/截断，如需完整内容请细化查询条件。\n");
-        sb.append("  7. 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n\n");
+        sb.append("  7. 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n");
+        sb.append("  8. 【重要】生成图片优先调用 image_gen 工具（会自动下载并内联显示在对话中），或直接输出 image_grid 组件标记展示图片。\n");
+        sb.append("     尽量避免用 python_execute 拼 URL、用 system_resource open_url 打开浏览器等方式绕路（这些方式图片无法在对话内展示）。\n");
+        sb.append("     图片生成后直接内联展示给用户，不要让用户离开对话去浏览器查看。\n");
+        sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
+        sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n\n");
 
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");

@@ -93,6 +93,25 @@ public class AgentRouter {
         }
     }
 
+    /** 手动压缩对话历史：模型生成摘要，保留最近 keepRecent 条消息（长对话省 tokens） */
+    public void compressHistory(int keepRecent, java.util.function.Consumer<String> callback) {
+        ensureOnlineEngineCreated();
+        onlineEngine.compressHistory(keepRecent, callback);
+    }
+
+    /** 清空所有会话的历史（内存 + 全部历史文件） */
+    public void clearAllHistory() {
+        if (onlineEngine != null) {
+            onlineEngine.clearAllHistory();
+        }
+    }
+
+    /** 切换会话 ID（保存当前会话历史 → 恢复目标会话历史） */
+    public void setSessionId(String sessionId) {
+        ensureOnlineEngineCreated();
+        onlineEngine.setSessionId(sessionId);
+    }
+
     public boolean isGenerating() {
         return onlineEngine != null && onlineEngine.isGenerating();
     }
@@ -146,6 +165,7 @@ public class AgentRouter {
     private void ensureOnlineEngineCreated() {
         if (onlineEngine == null) {
             OnlineToolManager onlineToolManager = new OnlineToolManager(activity);
+            OnlineToolManager.setInstance(onlineToolManager);
             onlineEngine = new OnlineAgentEngine(activity, onlineToolManager);
             if (callback != null) {
                 onlineEngine.setCallback(callback);

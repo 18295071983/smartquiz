@@ -49,16 +49,16 @@
                 android:layout_weight="1"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_auto_tts"
-                android:layout_width="wrap_content"
+                android:layout_width="32dp"
                 android:layout_height="32dp"
-                android:text="🔇自动"
-                android:textSize="11sp"
+                android:text="🔇"
+                android:textSize="14sp"
                 android:textColor="@color/text_secondary"
                 app:backgroundTint="@color/surface_variant"
                 app:cornerRadius="16dp"
                 android:textAllCaps="false"
                 android:layout_marginEnd="4dp"
-                android:paddingHorizontal="6dp"
+                android:paddingHorizontal="0dp"
                 android:minWidth="0dp"
                 android:contentDescription="自动语音合成开关"/>
             <com.google.android.material.button.MaterialButton
@@ -97,6 +97,16 @@
                 app:iconSize="20dp"
                 app:iconTint="@color/text_primary"
                 android:contentDescription="@string/chat_desc_history"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_agent_manager"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="2dp"
+                style="@style/Widget.Material3.Button.IconButton"
+                app:icon="@drawable/ic_agent_settings"
+                app:iconSize="20dp"
+                app:iconTint="@color/text_primary"
+                android:contentDescription="Agent管理"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_chat"
                 android:layout_width="36dp"
@@ -897,6 +907,20 @@
                     android:textStyle="bold"
                     android:textColor="@color/text_primary"/>
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_new_conversation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:text="＋ 新建"
+                    android:textSize="12sp"
+                    android:textColor="@color/on_primary_container"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="16dp"
+                    android:textAllCaps="false"
+                    android:layout_marginEnd="8dp"
+                    android:paddingHorizontal="10dp"
+                    android:minWidth="0dp"
+                    android:contentDescription="新建对话"/>
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_close_history"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
@@ -908,6 +932,17 @@
                     app:iconTint="@color/text_primary"
                     android:contentDescription="关闭"/>
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/history_empty_view"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="暂无历史对话\n开始你的第一个对话吧"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:visibility="gone"/>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/history_list"

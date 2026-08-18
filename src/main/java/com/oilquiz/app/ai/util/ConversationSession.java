@@ -28,6 +28,9 @@ public class ConversationSession {
     /** 最后更新时间戳 */
     public long updatedAt;
 
+    /** 消息数量（列表加载时为节省内存会置空 messages，用此字段展示条数） */
+    public int messageCount;
+
     public ConversationSession() {
         this.messages = new ArrayList<>();
     }
@@ -36,6 +39,7 @@ public class ConversationSession {
         this.id = id;
         this.title = title;
         this.messages = messages != null ? new ArrayList<>(messages) : new ArrayList<>();
+        this.messageCount = this.messages.size();
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = this.createdAt;
         if (!this.messages.isEmpty()) {
@@ -44,9 +48,10 @@ public class ConversationSession {
         }
     }
 
-    /** 消息数量 */
+    /** 消息数量（messages 为空但已持久化 messageCount 时，返回持久化值） */
     public int getMessageCount() {
-        return messages != null ? messages.size() : 0;
+        if (messages != null) return messages.size();
+        return messageCount;
     }
 
     /** 从消息列表自动生成标题 */

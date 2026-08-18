@@ -310,9 +310,24 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.cancel();
     }
 
-    /** 清空对话历史（用于“新对话”/“清空对话”操作） */
+    /** 清空对话历史（用于"新对话"/"清空对话"操作） */
     public void clearHistory() {
         engine.clearHistory();
+    }
+
+    /** 手动压缩对话历史：模型生成摘要，保留最近 keepRecent 条消息 */
+    public void compressHistory(int keepRecent, java.util.function.Consumer<String> callback) {
+        engine.compressHistory(keepRecent, callback);
+    }
+
+    /** 清空所有会话的历史（内存 + 全部历史文件） */
+    public void clearAllHistory() {
+        engine.clearAllHistory();
+    }
+
+    /** 切换会话 ID（引擎按会话隔离历史：保存当前 → 恢复目标） */
+    public void setSessionId(String sessionId) {
+        engine.setSessionId(sessionId);
     }
 
     public boolean isGenerating() {

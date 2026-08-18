@@ -75,6 +75,8 @@ public class AIToolManager {
             registerToolFactories();
             Log.i(TAG, "AIToolManager initialized with lazy loading, " + toolFactories.size() + " tools registered, idle timeout: " + (idleTimeoutMs / 1000) + "s");
             startAutoCleanup();
+            // 恢复持久化的动态工具（模型创建的跨重启保留）
+            loadDynamicTools();
         } catch (Throwable e) {
             Log.e(TAG, "Error initializing tools: " + e.getMessage(), e);
         }
@@ -229,6 +231,8 @@ public class AIToolManager {
             registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
             registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
+            registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
+            registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
             Log.i(TAG, "Python tool factories registered");
         } catch (Throwable e) {
             Log.w(TAG, "Failed to register Python tool factories: " + e.getMessage());
@@ -526,6 +530,7 @@ public class AIToolManager {
     public void registerDynamicTool(AITool tool) {
         if (tool != null && tool.getName() != null) {
             dynamicTools.put(tool.getName(), tool);
+            persistDynamicTools();
             Log.i(TAG, "Dynamic tool registered: " + tool.getName());
         }
     }
@@ -551,7 +556,113 @@ public class AIToolManager {
      */
     public void unregisterDynamicTool(String name) {
         if (dynamicTools.remove(name) != null) {
+            persistDynamicTools();
             Log.i(TAG, "Dynamic tool unregistered: " + name);
+        }
+    }
+
+    // ==================== 动态工具持久化（跨重启保留模型创建的工具） ====================
+
+    /** 动态工具持久化文件 */
+    private java.io.File getDynamicToolsFile() {
+        return new java.io.File(context.getFilesDir(), "dynamic_tools.json");
+    }
+
+    /** 保存所有动态工具到磁盘（支持 DynamicAITool 与 PythonDynamicTool 两种类型） */
+    private synchronized void persistDynamicTools() {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (AITool tool : dynamicTools.values()) {
+                org.json.JSONObject obj = new org.json.JSONObject();
+                if (tool instanceof DynamicAITool) {
+                    DynamicAITool dyn = (DynamicAITool) tool;
+                    obj.put("type", "java");
+                    obj.put("name", dyn.getName());
+                    obj.put("description", dyn.getDescription());
+                    obj.put("logic", dyn.getExecutionLogic() != null ? dyn.getExecutionLogic() : "");
+                } else if (tool instanceof com.oilquiz.app.ai.python.PythonDynamicTool) {
+                    com.oilquiz.app.ai.python.PythonDynamicTool py = 
+                            (com.oilquiz.app.ai.python.PythonDynamicTool) tool;
+                    obj.put("type", "python");
+                    obj.put("name", py.getName());
+                    obj.put("description", py.getDescription());
+                    obj.put("code", py.getCode() != null ? py.getCode() : "");
+                } else {
+                    continue; // 其他类型不持久化
+                }
+                org.json.JSONObject params = new org.json.JSONObject();
+                Map<String, String> paramMap = tool.getParameterDescriptions();
+                if (paramMap != null) {
+                    for (Map.Entry<String, String> e : paramMap.entrySet()) {
+                        params.put(e.getKey(), e.getValue() != null ? e.getValue() : "");
+                    }
+                }
+                obj.put("parameters", params);
+                arr.put(obj);
+            }
+            java.io.FileWriter writer = new java.io.FileWriter(getDynamicToolsFile());
+            writer.write(arr.toString(2));
+            writer.close();
+            Log.i(TAG, "Dynamic tools persisted: " + dynamicTools.size());
+        } catch (Exception e) {
+            Log.e(TAG, "Persist dynamic tools failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** 启动时从磁盘恢复动态工具（按 type 重建对应实例，兼容旧文件无 type 字段 → 视为 Java 工具） */
+    private synchronized void loadDynamicTools() {
+        try {
+            java.io.File file = getDynamicToolsFile();
+            if (!file.exists()) return;
+            java.io.FileReader reader = new java.io.FileReader(file);
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[4096];
+            int read;
+            while ((read = reader.read(buf)) != -1) {
+                sb.append(buf, 0, read);
+            }
+            reader.close();
+            if (sb.length() == 0) return;
+
+            org.json.JSONArray arr = new org.json.JSONArray(sb.toString());
+            int restored = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                try {
+                    org.json.JSONObject obj = arr.getJSONObject(i);
+                    String name = obj.optString("name", "");
+                    if (name.isEmpty() || dynamicTools.containsKey(name)) continue;
+                    String description = obj.optString("description", "用户自定义工具");
+                    String type = obj.optString("type", "java");
+                    Map<String, String> params = new java.util.LinkedHashMap<>();
+                    org.json.JSONObject paramObj = obj.optJSONObject("parameters");
+                    if (paramObj != null) {
+                        java.util.Iterator<String> keys = paramObj.keys();
+                        while (keys.hasNext()) {
+                            String k = keys.next();
+                            params.put(k, paramObj.optString(k, ""));
+                        }
+                    }
+                    if ("python".equals(type)) {
+                        String code = obj.optString("code", "");
+                        com.oilquiz.app.ai.python.PythonDynamicTool pyTool =
+                                new com.oilquiz.app.ai.python.PythonDynamicTool(
+                                        context, name, description, params, code);
+                        dynamicTools.put(name, pyTool);
+                        restored++;
+                    } else {
+                        String logic = obj.optString("logic", "");
+                        DynamicAITool tool = new DynamicAITool(context, name, description, params, logic);
+                        dynamicTools.put(name, tool);
+                        restored++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            if (restored > 0) {
+                Log.i(TAG, "Dynamic tools restored: " + restored);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Load dynamic tools failed: " + e.getMessage());
         }
     }
     
