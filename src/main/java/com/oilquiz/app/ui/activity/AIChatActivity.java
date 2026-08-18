@@ -5304,8 +5304,15 @@ public class AIChatActivity extends BaseActivity {
                 }
                 // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
                 if (cacheHitTokens > 0) {
+                    int inTokens = agentChatHandler != null ? agentChatHandler.getLastPromptTokens() : 0;
                     if (sum.length() > 0) sum.append("\n");
-                    sum.append("⚡ 缓存命中 ").append(cacheHitTokens).append(" tokens（本轮省去重复计费）");
+                    if (inTokens > 0) {
+                        int hitRate = (int) Math.round(cacheHitTokens * 100.0 / inTokens);
+                        sum.append("⚡ 缓存命中率 ").append(hitRate).append("%（")
+                            .append(cacheHitTokens).append("/").append(inTokens).append(" tokens）");
+                    } else {
+                        sum.append("⚡ 缓存命中 ").append(cacheHitTokens).append(" tokens（本轮省去重复计费）");
+                    }
                 }
                 if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
                     chatHistory.get(messageIndex).agentSummary = sum.toString();
@@ -6352,6 +6359,15 @@ public class AIChatActivity extends BaseActivity {
                 // 输入/输出分开统计：请求级（本轮）输入 prompt + 输出 completion
                 String text = String.format("📥 输入 %d · 📤 输出 %d tokens",
                         stats.requestPromptTokens, stats.requestCompletionTokens);
+                // Agent 在线模式：追加缓存命中率（引擎透传 API usage）
+                if (agentChatHandler != null) {
+                    int hit = agentChatHandler.getLastCacheHitTokens();
+                    int in = agentChatHandler.getLastPromptTokens();
+                    if (hit > 0 && in > 0) {
+                        int hitRate = (int) Math.round(hit * 100.0 / in);
+                        text += String.format(" · ⚡命中率 %d%%", hitRate);
+                    }
+                }
                 if (stats.sessionTotalTokens > 0) {
                     text += String.format("（会话累计 %d）", stats.sessionTotalTokens);
                 }
