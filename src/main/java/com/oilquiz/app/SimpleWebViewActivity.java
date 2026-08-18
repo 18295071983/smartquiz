@@ -4,17 +4,19 @@ import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 
 import com.oilquiz.app.ui.base.BaseActivity;
-import com.tencent.smtt.sdk.WebChromeClient;
-import com.tencent.smtt.sdk.WebSettings;
-import com.tencent.smtt.sdk.WebView;
-import com.tencent.smtt.sdk.WebViewClient;
 
 /**
- * 简易 WebView Activity（腾讯 X5 内核，不可用时自动回退系统 WebView）
- * 专门用于加载导出的 HTML 文件 / html 组件全屏预览
+ * 简易 WebView Activity（系统内核）
+ * 专门用于加载导出的 HTML 文件 / html 组件全屏预览。
+ * 含标题栏、JS 启用、软件渲染（防 GPU 截断）、链接处理、JS 交互诊断。
  */
 public class SimpleWebViewActivity extends BaseActivity {
 
@@ -78,15 +80,20 @@ public class SimpleWebViewActivity extends BaseActivity {
         settings.setDisplayZoomControls(false);
 
         // 软件渲染：规避设备 GPU tile 内存超限导致长页面下半部分不绘制（空白/点击失效）
-        // 对静态 HTML 渲染性能足够
         webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
-        // 设置 WebViewClient：链接点击处理 + 页面进度
+        // WebViewClient：链接处理 + 页面进度 + JS 交互诊断
         webView.setWebViewClient(new WebViewClient() {
             // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return handleUrl(request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null);
             }
 
             private boolean handleUrl(String url) {
@@ -135,7 +142,7 @@ public class SimpleWebViewActivity extends BaseActivity {
             }
         });
 
-        // 设置 WebChromeClient 显示进度
+        // WebChromeClient 显示进度
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
