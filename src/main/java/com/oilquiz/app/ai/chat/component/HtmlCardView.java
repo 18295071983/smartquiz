@@ -39,14 +39,20 @@ public class HtmlCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null && data.props.has("html");
+        // 放宽：props 非空即可渲染（html/content/text 任意键有值），
+        // 键名不符时也由本组件兜底展示，避免直接"渲染失败"
+        return data != null && data.props != null && data.props.length() > 0;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props;
+        // html 键优先，兼容 content/text 键（Agent 可能用不同键名）
         String html = p.optString("html", "");
+        if (html.isEmpty()) html = p.optString("content", "");
+        if (html.isEmpty()) html = p.optString("text", "");
+        if (html.isEmpty()) html = p.toString();
         String title = p.optString("title", "");
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
