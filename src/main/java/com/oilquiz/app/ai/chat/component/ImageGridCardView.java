@@ -215,6 +215,11 @@ public class ImageGridCardView implements ChatComponent {
                 iv.setOnClickListener(v -> showFullImage(root.getContext(), url));
                 return;
             }
+            // 本地解码失败：直接显示失败层，不走 Glide
+            // （Glide 对 content:///无效本地 URI 可能不回调，导致无限转圈）
+            loading.setVisibility(View.GONE);
+            showFailedLayer(root, iv, url, single);
+            return;
         }
 
         RequestListener<android.graphics.drawable.Drawable> listener =
