@@ -1,59 +1,41 @@
 package com.oilquiz.app.ai.chat.component;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Typeface;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
+import android.graphics.Color;
 import android.text.TextUtils;
-import android.text.method.LinkMovementMethod;
-import android.text.style.ClickableSpan;
-import android.text.style.URLSpan;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
- * HTML 富内容组件（原生渲染，无 WebView）。
+ * HTML 富内容组件（系统原生 WebView 渲染，零第三方依赖）。
  *
- * Agent/Python 生成的 HTML 渲染为原生 View 卡片，与图表/表格等其他组件风格统一、
- * 无滚动冲突、随消息列表滚动：
- * - 标题/段落/列表/粗斜体/代码/引用/链接等 → TextView + Html.fromHtml
- * - 表格 → 原生表格行渲染（参考 table_card 风格）
- * - 图片 → 转换为可点击链接（点击打开）
- * - 复杂 CSS/JS 不支持（降级为文本），需完整交互时请使用其他方式
+ * 完整渲染 Agent/Python 生成的 HTML（支持 CSS、简单 JS、表格、图片等），
+ * 交互已修复：组件内可滚动/可点击/链接跳转，不与外层消息列表抢触摸。
+ * 内容高度自适应（JS 读取 scrollHeight，上限 maxHeight 内部滚动）。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
  * {
- *   "html": "&lt;h3&gt;标题&lt;/h3&gt;&lt;p&gt;内容&lt;/p&gt;&lt;table&gt;...&lt;/table&gt;",
- *   "title": "可选卡片标题"
+ *   "html": "&lt;h3&gt;标题&lt;/h3&gt;&lt;p&gt;内容&lt;/p&gt;",
+ *   "title": "可选卡片标题",
+ *   "maxHeight": 360   // 可选，内容区最大高度(dp)，超出内部滚动
  * }
  * </pre>
  */
 public class HtmlCardView implements ChatComponent {
 
-    /** 表格块（非贪婪，容忍属性与多行） */
-    private static final Pattern TABLE = Pattern.compile(
-            "(?is)<table[^>]*>(.*?)</table>");
-    /** 表格行 */
-    private static final Pattern TR = Pattern.compile(
-            "(?is)<tr[^>]*>(.*?)</tr>");
-    /** 单元格 th/td */
-    private static final Pattern TD = Pattern.compile(
-            "(?is)<t[dh][^>]*>(.*?)</t[dh]>");
-    /** 图片标签：<img src="url"> → 可点击链接 */
-    private static final Pattern IMG = Pattern.compile(
-            "(?is)<img[^>]*src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>");
+    /** 默认内容区最大高度(dp) */
+    private static final int DEFAULT_MAX_HEIGHT_DP = 360;
 
     @Override
     public String getType() {
@@ -65,6 +47,7 @@ public class HtmlCardView implements ChatComponent {
         return data != null;
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
@@ -72,10 +55,12 @@ public class HtmlCardView implements ChatComponent {
         if (html.isEmpty()) html = p.optString("content", "");
         if (html.isEmpty()) html = p.optString("text", "");
         String title = p.optString("title", "");
+        int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
+        if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
+        card.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8));
         card.setBackground(cardBackground(context));
 
         if (!TextUtils.isEmpty(title)) {
@@ -83,7 +68,7 @@ public class HtmlCardView implements ChatComponent {
             titleTv.setText(title);
             titleTv.setTextSize(14);
             titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(Typeface.DEFAULT_BOLD);
+            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
             card.addView(titleTv);
         }
@@ -98,170 +83,124 @@ public class HtmlCardView implements ChatComponent {
             return card;
         }
 
-        // 1. 表格块单独渲染为原生表格
-        List<String> tables = new ArrayList<>();
-        Matcher tableMatcher = TABLE.matcher(html);
-        while (tableMatcher.find()) {
-            tables.add(tableMatcher.group(1));
-        }
-        String rest = tableMatcher.reset(html).replaceAll("");
-        for (String tableInner : tables) {
-            View table = buildTable(context, tableInner);
-            if (table != null) {
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-                lp.bottomMargin = dp(context, 8);
-                card.addView(table, lp);
-            }
-        }
+        WebView webView = new WebView(context);
+        webView.setBackgroundColor(Color.TRANSPARENT);
+        webView.setVerticalScrollBarEnabled(true);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setDomStorageEnabled(true);
+        webView.getSettings().setLoadWithOverviewMode(true);
+        webView.getSettings().setUseWideViewPort(false);
+        webView.setWebChromeClient(new WebChromeClient());
 
-        // 2. 图片标签 → 可点击链接（点击打开，诚实降级不做假图）
-        rest = IMG.matcher(rest).replaceAll(m -> {
-            String src = m.group(1).trim();
-            if (src.startsWith("http://") || src.startsWith("https://")) {
-                return "<a href=\"" + src + "\">🖼 查看图片</a>";
+        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击/JS 交互
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setOnTouchListener((v, event) -> {
+            if (v.getParent() != null) {
+                v.getParent().requestDisallowInterceptTouchEvent(true);
             }
-            return "🖼 [图片]";
+            return false; // 不消费事件，由 WebView 自身处理
         });
 
-        // 3. 剩余 HTML → fromHtml 原生渲染（标题/段落/列表/粗斜体/链接/代码等）
-        if (!rest.trim().isEmpty()) {
-            TextView contentTv = new TextView(context);
-            contentTv.setTextSize(14);
-            contentTv.setTextColor(ComponentColors.textPrimary(context));
-            contentTv.setLinkTextColor(ComponentColors.accent(context));
-            contentTv.setText(makeClickableText(context, rest));
-            contentTv.setMovementMethod(LinkMovementMethod.getInstance());
-            card.addView(contentTv);
-        }
+        // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
+        final int maxHeightPx = dp(context, maxHeightDp);
+        final LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160));
+        webView.setLayoutParams(wvLp);
 
-        Log.i("HtmlCardView", "html component rendered natively, htmlLen=" + html.length()
-                + ", tables=" + tables.size());
+        final WebView wvRef = webView;
+        webView.setWebViewClient(new WebViewClient() {
+            // 链接点击：http/https 用系统浏览器打开，其余（js: 等）放行给 WebView
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleExternalUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                return handleExternalUrl(request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null);
+            }
+
+            private boolean handleExternalUrl(String url) {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    try {
+                        android.content.Intent i = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                        if (!(context instanceof android.app.Activity)) {
+                            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        }
+                        context.startActivity(i);
+                    } catch (Exception e) {
+                        Log.w("HtmlCardView", "打开链接失败: " + url + " - " + e.getMessage());
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // 延迟取高度：等 JS/CSS 渲染完成；失败保持初始高度（内容可滚动，不算失败）
+                view.postDelayed(() -> {
+                    if (wvRef == null) return;
+                    try {
+                        wvRef.evaluateJavascript(
+                                "(function(){var b=document.body;var d=document.documentElement;" +
+                                        "var h=Math.max(b.scrollHeight,d.scrollHeight,200);" +
+                                        "return String(h);})()",
+                                value -> {
+                                    if (value == null || wvRef == null) return;
+                                    try {
+                                        String v = value.replace("\"", "").trim();
+                                        int h = (int) (Float.parseFloat(v)
+                                                * context.getResources().getDisplayMetrics().density);
+                                        int target = Math.min(h + dp(context, 16), maxHeightPx);
+                                        wvRef.post(() -> {
+                                            ViewGroup.LayoutParams lp = wvRef.getLayoutParams();
+                                            if (lp != null && lp.height != target) {
+                                                lp.height = target;
+                                                wvRef.setLayoutParams(lp);
+                                            }
+                                        });
+                                        Log.i("HtmlCardView", "html rendered, height=" + target
+                                                + "px (max " + maxHeightPx + "px)");
+                                    } catch (Exception ignored) {
+                                    }
+                                });
+                    } catch (Throwable t) {
+                        Log.w("HtmlCardView", "height measure failed(keep initial): " + t.getMessage());
+                    }
+                }, 150L);
+            }
+        });
+
+        // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹基础样式适配浅色卡片背景
+        String lowerHtml = html.toLowerCase();
+        String fullHtml;
+        if (lowerHtml.contains("<!doctype") || lowerHtml.contains("<html")) {
+            fullHtml = html;
+        } else {
+            fullHtml = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
+                    + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
+                    + "<style>html,body{margin:0;padding:0;background:transparent;}"
+                    + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
+                    + "color:#333333;word-break:break-word;padding:2px;}"
+                    + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
+                    + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
+                    + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
+                    + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
+                    + "</style></head><body>" + html + "</body></html>";
+        }
+        webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
+
+        card.addView(webView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160)));
+        Log.i("HtmlCardView", "html component created (WebView), htmlLen=" + html.length()
+                + ", title=" + (title == null ? "" : title));
         return card;
-    }
-
-    /**
-     * fromHtml 渲染并替换链接为可点击的 ClickableSpan（点击打开浏览器，带异常保护）。
-     */
-    private static SpannableStringBuilder makeClickableText(Context context, String html) {
-        Spanned spanned = android.text.Html.fromHtml(html,
-                android.text.Html.FROM_HTML_MODE_COMPACT, null, null);
-        SpannableStringBuilder ssb = new SpannableStringBuilder(spanned);
-        URLSpan[] spans = ssb.getSpans(0, ssb.length(), URLSpan.class);
-        for (URLSpan span : spans) {
-            int start = ssb.getSpanStart(span);
-            int end = ssb.getSpanEnd(span);
-            int flags = ssb.getSpanFlags(span);
-            String url = span.getURL();
-            ssb.removeSpan(span);
-            ssb.setSpan(new ClickableSpan() {
-                @Override
-                public void onClick(View widget) {
-                    openUrl(context, url);
-                }
-
-                @Override
-                public void updateDrawState(android.text.TextPaint ds) {
-                    ds.setColor(ComponentColors.accent(context));
-                    ds.setUnderlineText(true);
-                }
-            }, start, end, flags);
-        }
-        return ssb;
-    }
-
-    /** 打开 http/https 链接（系统浏览器），其他协议忽略 */
-    private static void openUrl(Context context, String url) {
-        if (url == null || url.isEmpty()) return;
-        if (!(url.startsWith("http://") || url.startsWith("https://"))) return;
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
-            if (!(context instanceof android.app.Activity)) {
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            }
-            context.startActivity(intent);
-        } catch (Exception e) {
-            Log.w("HtmlCardView", "打开链接失败: " + url + " - " + e.getMessage());
-        }
-    }
-
-    /**
-     * 原生渲染表格：首行含 th 视为表头行，其余为数据行；列宽均分、边框网格。
-     * 解析失败返回 null（调用方跳过该表格）。
-     */
-    private View buildTable(Context context, String tableInner) {
-        try {
-            Matcher trMatcher = TR.matcher(tableInner);
-            List<List<String>> rows = new ArrayList<>();
-            boolean hasHeader = tableInner.toLowerCase().contains("<th");
-            while (trMatcher.find()) {
-                String trInner = trMatcher.group(1);
-                Matcher tdMatcher = TD.matcher(trInner);
-                List<String> cells = new ArrayList<>();
-                while (tdMatcher.find()) {
-                    cells.add(stripTags(tdMatcher.group(1)));
-                }
-                if (!cells.isEmpty()) {
-                    rows.add(cells);
-                }
-            }
-            if (rows.isEmpty()) return null;
-
-            int colCount = 0;
-            for (List<String> row : rows) {
-                colCount = Math.max(colCount, row.size());
-            }
-            if (colCount == 0) return null;
-
-            LinearLayout table = new LinearLayout(context);
-            table.setOrientation(LinearLayout.VERTICAL);
-            for (int i = 0; i < rows.size(); i++) {
-                List<String> row = rows.get(i);
-                boolean header = hasHeader && i == 0;
-                LinearLayout rowView = new LinearLayout(context);
-                rowView.setOrientation(LinearLayout.HORIZONTAL);
-                rowView.setBackgroundColor(header ? 0x1A4C8DFF : ComponentColors.background(context));
-                for (int c = 0; c < colCount; c++) {
-                    String text = c < row.size() ? row.get(c) : "";
-                    TextView cell = new TextView(context);
-                    cell.setText(text);
-                    cell.setTextSize(12);
-                    cell.setTextColor(header ? 0xFF1F2937 : ComponentColors.textPrimary(context));
-                    if (header) cell.setTypeface(Typeface.DEFAULT_BOLD);
-                    cell.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-                    cell.setPadding(dp(context, 6), dp(context, 5), dp(context, 6), dp(context, 5));
-                    cell.setBackground(borderBackground(context));
-                    rowView.addView(cell, new LinearLayout.LayoutParams(0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                }
-                table.addView(rowView, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
-            }
-            return table;
-        } catch (Exception e) {
-            Log.w("HtmlCardView", "table render failed: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /** 剥 HTML 标签 + 实体解码（转纯文本） */
-    private static String stripTags(String html) {
-        if (html == null) return "";
-        String cleaned = html.replaceAll("(?is)<br\\s*/?>", "\n")
-                .replaceAll("(?is)</p>|</div>|</h[1-6]>|</li>|</tr>", "\n")
-                .replaceAll("(?is)<[^>]+>", "");
-        Spanned spanned = android.text.Html.fromHtml(cleaned,
-                android.text.Html.FROM_HTML_MODE_COMPACT, null, null);
-        return spanned.toString().trim();
-    }
-
-    private static android.graphics.drawable.Drawable borderBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
     }
 
     private static android.graphics.drawable.Drawable cardBackground(Context context) {
