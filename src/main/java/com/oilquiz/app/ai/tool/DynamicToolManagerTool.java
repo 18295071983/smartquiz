@@ -26,7 +26,7 @@ import java.util.Map;
         @Param(name = "tool_name", type = "string", description = "工具名称(仅英文、数字和下划线)", required = false),
         @Param(name = "description", type = "string", description = "工具描述", required = false),
         @Param(name = "parameters", type = "string", description = "工具参数定义(JSON格式)", required = false),
-        @Param(name = "logic", type = "string", description = "执行逻辑脚本", required = false)
+        @Param(name = "logic", type = "string", description = "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，print输出/返回值作为结果)或DSL命令(echo/set/if/call_tool等)", required = false)
     }
 )
 public class DynamicToolManagerTool implements AITool {
