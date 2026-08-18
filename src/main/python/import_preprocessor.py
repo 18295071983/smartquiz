@@ -126,7 +126,9 @@ def _split_options(raw):
 def _detect_header(rows):
     """在前 12 行内定位真实表头行，兼容标题行/说明行置顶与选项字母双子行模板。
 
-    返回 (header_list, data_start_row)；无法识别时兜底第 0 行。
+    返回 (header_list, data_start_row, header_hits)；
+    header_hits 为命中表头关键词的单元格数，0/1 视为表头可疑（交由 LLM 识别）；
+    无法识别时兜底第 0 行（hits=0）。
     """
     n = len(rows)
     limit = min(n, 12)
@@ -139,7 +141,7 @@ def _detect_header(rows):
         if hits > best_hits:
             best_i, best_hits = i, hits
     if best_hits == 0:
-        return rows[0] if n else [], 1 if n else 0
+        return (rows[0] if n else []), (1 if n else 0), 0
     header = list(rows[best_i])
     data_start = best_i + 1
     # 双子行模板：表头下一行是连续选项字母 A/B/C... → 合并为 选项A/选项B...
@@ -161,7 +163,7 @@ def _detect_header(rows):
                     prefix = str(header[j]).strip() if j < len(header) and header[j] else "选项"
                     header[j] = prefix + letters[j]
             data_start += 1
-    return header, data_start
+    return header, data_start, best_hits
 
 
 def _iter_xls(path):
@@ -179,7 +181,7 @@ def _iter_xls(path):
         all_rows = [r for r in all_rows if any(x != "" for x in r)]
         if not all_rows:
             continue
-        h, start = _detect_header(all_rows)
+        h, start, _hits = _detect_header(all_rows)
         if not h:
             continue
         if not headers:
@@ -256,12 +258,17 @@ def _norm_cell(v):
 
 # ==================== 各格式行迭代器 ====================
 
-def _iter_xlsx(path, sheet_index=None):
+def _iter_xlsx(path, sheet_index=None, header_row=None):
     """流式读取 xlsx：两遍读（read_only 模式开销小）。
 
     指定 sheet_index 时只读该 sheet（用户已在 UI 选择工作表）；
     否则自动扫全部 sheet：第一遍定位首个有效 sheet 的表头，第二遍逐 sheet 产出，
     跨 sheet 表头（列数+列名）不一致的 sheet 跳过，避免按首个表头错位合并。
+
+    header_row：LLM 识别出的真实表头行号（0-based，仅 sheet_index 指定时生效）：
+      - None：自动检测表头（默认）
+      - >=0：直接以该行作为表头，数据从下一行开始（不再扫描）
+      - -1：无表头文件，首行即数据，用占位列名 "列1/列2/..."
     返回 (headers, 数据行生成器)。
     """
     try:
@@ -279,6 +286,59 @@ def _iter_xlsx(path, sheet_index=None):
         head_rows = [r for r in head_rows if any(x != "" for x in r)]
         return head_rows, it
 
+    # 指定 sheet + 指定表头行（LLM 识别结果）：不扫描，直接按行号取表头
+    if sheet_index is not None and header_row is not None:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            sheets = wb.worksheets
+            if sheet_index < 0 or sheet_index >= len(sheets):
+                return [], iter(())
+            ws = sheets[sheet_index]
+            need = (header_row + 1) if header_row >= 0 else 1
+            head_rows = []
+            it = ws.iter_rows(values_only=True)
+            for r in it:
+                head_rows.append([_norm_cell(c) for c in r])
+                if len(head_rows) >= need:
+                    break
+        finally:
+            wb.close()
+
+        if header_row == -1:
+            # 无表头：占位列名，首行即数据
+            first = next((r for r in head_rows if any(x != "" for x in r)), [])
+            h = ["列%d" % (i + 1) for i in range(len(first))]
+            start = 0
+        else:
+            if header_row >= len(head_rows) or not head_rows:
+                return [], iter(())
+            h = list(head_rows[header_row])
+            start = header_row + 1
+
+        def gen_specified():
+            wb2 = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            try:
+                ws = wb2.worksheets[sheet_index]
+                it = ws.iter_rows(values_only=True)
+                head_rows = []
+                need = (header_row + 1) if header_row >= 0 else 1
+                for r in it:
+                    head_rows.append([_norm_cell(c) for c in r])
+                    if len(head_rows) >= need:
+                        break
+                begin = 0 if header_row == -1 else (header_row + 1)
+                for r in head_rows[begin:]:
+                    if any(x != "" for x in r):
+                        yield r
+                for r in it:
+                    row = [_norm_cell(c) for c in r]
+                    if any(x != "" for x in row):
+                        yield row
+            finally:
+                wb2.close()
+
+        return h, gen_specified()
+
     # 指定 sheet：直接读该 sheet 的表头
     if sheet_index is not None:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -289,7 +349,7 @@ def _iter_xlsx(path, sheet_index=None):
             head_rows, _ = _sheet_rows(sheets[sheet_index])
             if not head_rows:
                 return [], iter(())
-            h, start = _detect_header(head_rows)
+            h, start, _hits = _detect_header(head_rows)
             if not h:
                 return [], iter(())
         finally:
@@ -306,7 +366,7 @@ def _iter_xlsx(path, sheet_index=None):
                     if len(head_rows) >= 12:
                         break
                 head_rows = [r for r in head_rows if any(x != "" for x in r)]
-                _h, start = _detect_header(head_rows) if head_rows else (None, 0)
+                _h, start, _hits = _detect_header(head_rows) if head_rows else (None, 0, 0)
                 for r in head_rows[start:]:
                     if any(x != "" for x in r):
                         yield r
@@ -328,7 +388,7 @@ def _iter_xlsx(path, sheet_index=None):
             head_rows, _ = _sheet_rows(ws)
             if not head_rows:
                 continue
-            h, _start = _detect_header(head_rows)
+            h, _start, _hits = _detect_header(head_rows)
             if h:
                 main_header = h
                 break
@@ -351,7 +411,7 @@ def _iter_xlsx(path, sheet_index=None):
                 head_rows = [r for r in head_rows if any(x != "" for x in r)]
                 if not head_rows:
                     continue
-                h, start = _detect_header(head_rows)
+                h, start, _hits = _detect_header(head_rows)
                 if not h:
                     continue
                 # 表头一致性校验（列数与列名），不一致的 sheet 跳过
@@ -369,6 +429,44 @@ def _iter_xlsx(path, sheet_index=None):
             wb2.close()
 
     return main_header, gen()
+
+
+def _raw_head_rows(path, sheet_index=None, max_rows=12):
+    """读取 Excel 前 max_rows 行原始内容（含空行，行号与工作表一致），
+    供表头可疑判断与 LLM 表头识别使用。sheet_index=None 时取首个非空 sheet。"""
+    try:
+        import openpyxl
+    except ImportError:
+        return []
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheets = wb.worksheets
+        if not sheets:
+            return []
+        target = None
+        if sheet_index is not None and 0 <= sheet_index < len(sheets):
+            target = sheets[sheet_index]
+        else:
+            # 自动：取首个非空 sheet
+            for ws in sheets:
+                for r in ws.iter_rows(values_only=True):
+                    if any(c is not None and str(c).strip() != "" for c in r):
+                        target = ws
+                        break
+                if target is not None:
+                    break
+            if target is None and sheets:
+                target = sheets[0]
+        if target is None:
+            return []
+        out = []
+        for r in target.iter_rows(values_only=True):
+            out.append([_norm_cell(c) for c in r])
+            if len(out) >= max_rows:
+                break
+        return out
+    finally:
+        wb.close()
 
 
 def _open_text(path):
@@ -635,13 +733,27 @@ def _pick_db_table(db_path):
 
 def sample_file(path, max_rows=15, sheet_index=None):
     """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）。
-    sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。"""
+    sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。
+
+    返回补充字段：
+    - header_suspicious：表头命中关键词 ≤1，自动检测不可信（交由 Java LLM 识别）
+    - header_hits：表头命中关键词数
+    - raw_rows：仅 suspicious 时返回，工作表前 12 行原始内容（含空行，行号与工作表一致），
+      供 LLM 判断真实表头行号与列含义。
+    """
     try:
         max_rows = int(max_rows) if max_rows else 15
         kind = _kind_of(path)
+        suspicious = False
+        hits = 0
+        raw = None
         if kind == "xlsx":
             headers, rows = _iter_xlsx(path, sheet_index)
             sampled = list(itertools.islice(rows, max_rows))
+            # 表头可信度检测：读取原始前 12 行重新判定
+            raw = _raw_head_rows(path, sheet_index)
+            _h, _start, hits = _detect_header(raw) if raw else (None, 0, 0)
+            suspicious = hits <= 1
         elif kind == "csv":
             headers, rows = _iter_csv(path)
             sampled = list(itertools.islice(rows, max_rows))
@@ -671,11 +783,16 @@ def sample_file(path, max_rows=15, sheet_index=None):
         else:
             return json.dumps({"error": "不支持的文件类型: %s" % kind},
                               ensure_ascii=False)
-        return json.dumps({
+        result = {
             "source_kind": kind,
             "headers": headers,
             "rows": sampled,
-        }, ensure_ascii=False)
+            "header_suspicious": suspicious,
+            "header_hits": hits,
+        }
+        if suspicious and raw:
+            result["raw_rows"] = raw
+        return json.dumps(result, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
@@ -752,9 +869,11 @@ def _ctx_summary(rec):
 
 
 def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
-               breakpoint_path=None, spec_json=None, sheet_index=None):
+               breakpoint_path=None, spec_json=None, sheet_index=None,
+               header_row=None):
     """全量解析：分片写标准化 CSV，实时写断点，收集缺失字段题目。
     sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。
+    header_row：LLM 识别的真实表头行号（0-based；-1=无表头；None=自动检测）。
 
     spec_json：Java 侧根据 question 表实际结构动态下发的字段规格
     （std_columns/fill_fields/option_fields），为空时用内置默认值兜底。
@@ -769,7 +888,7 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
 
         kind = _kind_of(path)
         if kind == "xlsx":
-            headers, rows = _iter_xlsx(path, sheet_index)
+            headers, rows = _iter_xlsx(path, sheet_index, header_row)
         elif kind in ("csv",):
             headers, rows = _iter_csv(path)
         elif kind == "md":

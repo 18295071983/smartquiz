@@ -156,6 +156,61 @@ public final class ImportOutputSanitizer {
         return out;
     }
 
+    /**
+     * 四层过滤主入口（表头识别任务）。
+     * 输出结构：{"header_row":行号或-1, "mapping":{"questionText":列索引,...}}
+     * header_row 必须落在 [-1, 11]（工作表前 12 行内）；mapping 的 key 必须合法、
+     * value 必须为非负整数列索引；非法项剔除，空 mapping 判无效。
+     */
+    public static SanitizedOutput sanitizeHeaderOutput(String raw, Set<String> legalFields) {
+        String block = trimToJsonBlock(raw);
+        if (block == null) {
+            return SanitizedOutput.fail("无合法JSON结构");
+        }
+        JSONObject json;
+        try {
+            json = new JSONObject(block);
+        } catch (Exception e) {
+            return SanitizedOutput.fail("JSON解析失败: " + e.getMessage());
+        }
+
+        if (!json.has("header_row")) {
+            return SanitizedOutput.fail("缺少 header_row");
+        }
+        int hr = json.optInt("header_row", -99);
+        if (hr < -1 || hr > 11) {
+            return SanitizedOutput.fail("header_row 越界: " + hr);
+        }
+        JSONObject mapping = json.optJSONObject("mapping");
+        if (mapping == null) {
+            return SanitizedOutput.fail("缺少 mapping");
+        }
+
+        SanitizedOutput out = new SanitizedOutput();
+        out.json = json;
+        // 字段合法性：剔除非法 key 与非法 value（非整数/负数列索引）
+        Iterator<String> it = mapping.keys();
+        java.util.List<String> illegal = new java.util.ArrayList<>();
+        while (it.hasNext()) {
+            String key = it.next();
+            boolean keyOk = legalFields == null || legalFields.isEmpty()
+                    || legalFields.contains(key);
+            Object v = mapping.opt(key);
+            if (!keyOk || !(v instanceof Number) || ((Number) v).intValue() < 0) {
+                illegal.add(key);
+            }
+        }
+        for (String key : illegal) {
+            mapping.remove(key);
+            out.removedIllegalFields++;
+        }
+        if (mapping.length() == 0) {
+            return SanitizedOutput.fail("mapping 为空");
+        }
+        out.valid = true;
+        return out;
+    }
+
     /** 文本格式难度 → 数值（简单/中等/困难等），无法识别返回 1 */
     public static int parseTextDifficulty(String text) {
         if (text == null) return 1;
