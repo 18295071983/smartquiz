@@ -67,7 +67,6 @@ import com.oilquiz.app.ai.chat.MessageAttachmentAdapter;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.chat.ChatAdapter;
-import com.oilquiz.app.ai.skill.SkillManager;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.CacheManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
@@ -203,7 +202,6 @@ public class AIChatActivity extends BaseActivity {
     private AgentChatHandler agentChatHandler;
     /** 独立 Agent 执行面板已移除：Agent 过程改为组件插入式显示在 AI 消息内 */
     private ModelExecutionBridge modelBridge;
-    private SkillManager skillManager;
     private AIConfig aiConfig;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
@@ -555,7 +553,6 @@ public class AIChatActivity extends BaseActivity {
             }
 
             cacheManager = new CacheManager(this);
-            skillManager = new SkillManager(this);
             weatherManager = new AIWeatherManager(this, AIWeatherManager.WeatherProvider.HEFENG);
             aiEntertainmentManager = new AIEntertainmentManager(this);
 
@@ -4255,13 +4252,6 @@ public class AIChatActivity extends BaseActivity {
             if (cached != null) { addAIMessage(cached); addSystemMessage("(来自缓存)"); return; }
         }
 
-        if (skillManager != null) {
-            List<SkillManager.Skill> matchedSkills = skillManager.matchSkills(message);
-            if (!matchedSkills.isEmpty()) {
-                message = skillManager.buildSkillPrompt(matchedSkills.get(0).id, message);
-            }
-        }
-
         synchronized (streamingLock) {
             agentToolLoopCount = 0;
             thinkingRoundEnded = false;
@@ -4527,13 +4517,6 @@ public class AIChatActivity extends BaseActivity {
                     AppLogger.aiW(TAG, "processChatMessageWithOnlineModel skipped, already generating");
                     showToast("AI正在生成中，请稍候");
                     return;
-                }
-            }
-
-            if (skillManager != null) {
-                List<SkillManager.Skill> matchedSkills = skillManager.matchSkills(message);
-                if (!matchedSkills.isEmpty()) {
-                    message = skillManager.buildSkillPrompt(matchedSkills.get(0).id, message);
                 }
             }
 
