@@ -187,6 +187,13 @@ public class AgentMemoryView {
         valueTv.setPadding(0, dp(2), 0, 0);
         textCol.addView(valueTv);
 
+        TextView timeTv = new TextView(context);
+        timeTv.setText("更新于 " + formatTime(entry.updatedAt));
+        timeTv.setTextSize(10);
+        timeTv.setTextColor(color(R.color.text_tertiary));
+        timeTv.setPadding(0, dp(2), 0, 0);
+        textCol.addView(timeTv);
+
         row.addView(textCol);
 
         TextView delBtn = new TextView(context);
@@ -205,6 +212,18 @@ public class AgentMemoryView {
     }
 
     // ==================== UI 工具 ====================
+
+    /** 时间戳 → 可读时间（旧格式无时间戳显示"较早"） */
+    private String formatTime(long updatedAt) {
+        if (updatedAt <= 0) return "较早";
+        try {
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault());
+            return sdf.format(new java.util.Date(updatedAt));
+        } catch (Exception e) {
+            return String.valueOf(updatedAt);
+        }
+    }
 
     private int color(int resId) {
         return context.getColor(resId);
