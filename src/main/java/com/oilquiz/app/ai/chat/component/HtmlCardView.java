@@ -211,9 +211,8 @@ public class HtmlCardView implements ChatComponent {
     }
 
     /**
-     * 点击组件 → 打开全屏页完整查看/交互：
-     * HTML 写入临时文件，交给 SimpleWebViewActivity（现成全屏 WebView 查看器，
-     * 支持 JS/缩放/链接跳转）。
+     * 点击组件 → 打开项目完整 WebView 界面完整查看/交互：
+     * HTML 写入临时文件，交给 WebViewActivity（标题栏/链接处理/多标签/分享等完整能力）。
      */
     private static void openFullScreen(Context context, String html, String title) {
         try {
@@ -232,8 +231,8 @@ public class HtmlCardView implements ChatComponent {
                 fos.close();
             }
             android.content.Intent intent = new android.content.Intent(context,
-                    com.oilquiz.app.SimpleWebViewActivity.class);
-            intent.putExtra("html_path", f.getAbsolutePath());
+                    com.oilquiz.app.WebViewActivity.class);
+            intent.putExtra("url", "file://" + f.getAbsolutePath());
             if (title != null && !title.isEmpty()) {
                 intent.putExtra("title", title);
             }
@@ -241,7 +240,7 @@ public class HtmlCardView implements ChatComponent {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             }
             context.startActivity(intent);
-            Log.i("HtmlCardView", "opened full screen: " + f.getAbsolutePath());
+            Log.i("HtmlCardView", "opened WebViewActivity: file://" + f.getAbsolutePath());
         } catch (Exception e) {
             Log.w("HtmlCardView", "打开全屏失败: " + e.getMessage());
         }
