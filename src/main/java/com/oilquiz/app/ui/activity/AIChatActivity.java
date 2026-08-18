@@ -5356,6 +5356,10 @@ public class AIChatActivity extends BaseActivity {
                         finalTokenCount = finalContent.length() / 4;
                     }
                 }
+                // Agent 在线模式：消息 token 数用引擎累计输出（多轮工具调用全部输出）
+                if (agentChatHandler != null && agentChatHandler.getExecTotalCompletionTokens() > 0) {
+                    finalTokenCount = agentChatHandler.getExecTotalCompletionTokens();
+                }
                 if (finalTokenCount > 0) {
                     finalMsg.tokensGenerated = finalTokenCount;
                 }
@@ -5399,14 +5403,16 @@ public class AIChatActivity extends BaseActivity {
                 saveHistoryAsync();
 
                 // 更新 Token 统计（生成完成时累加到 session）
-                if (finalTokenCount > 0) {
+                // Agent 在线模式：引擎累计真实 API usage（含多轮工具调用全部输入输出），
+                // 即使最终回答为空（纯工具操作）也要统计；本地模型走 native/估算
+                int agentExecIn = agentChatHandler != null ? agentChatHandler.getExecTotalPromptTokens() : 0;
+                int agentExecOut = agentChatHandler != null ? agentChatHandler.getExecTotalCompletionTokens() : 0;
+                if (finalTokenCount > 0 || agentExecIn > 0) {
                     int inputTokens = 0;
                     int outputTokens = finalTokenCount;
-                    // Agent 在线模式：使用引擎累计的真实 API usage（含多轮工具调用的全部输入输出）
-                    if (agentChatHandler != null && agentChatHandler.getExecTotalPromptTokens() > 0) {
-                        inputTokens = agentChatHandler.getExecTotalPromptTokens();
-                        int execOut = agentChatHandler.getExecTotalCompletionTokens();
-                        if (execOut > 0) outputTokens = execOut;
+                    if (agentExecIn > 0) {
+                        inputTokens = agentExecIn;
+                        if (agentExecOut > 0) outputTokens = agentExecOut;
                     } else if (messageIndex >= 1 && chatHistory.get(messageIndex - 1) != null) {
                         String promptText = chatHistory.get(messageIndex - 1).content;
                         if (promptText != null && !promptText.isEmpty()) {

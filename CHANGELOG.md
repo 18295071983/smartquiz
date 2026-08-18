@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-08-16] 核查并修正各路径 token 统计
+用户再次质疑统计正确性——逐路径核查：
+1. **在线 Agent（多轮）**：引擎 execTotalPromptTokens/execTotalCompletionTokens 累计 ✅（上轮已修）；本轮补两个残留：
+   - 移除 `if (finalTokenCount > 0)` 门控：Agent 纯工具操作（最终回答为空文本）时 finalTokenCount=0 会跳过统计 → 改为 `finalTokenCount > 0 || agentExecIn > 0` 才统计。
+   - 消息 tokensGenerated：Agent 路径 notifyComplete 不带 token 数（tokenCount=0）→ 补用引擎累计输出。
+2. **在线普通对话（单轮）**：onTokenStats API 统计 → updateRequestStats ✅（单轮覆盖=正确）。
+3. **本地模型**：LlamaHelper.countTokens 估算输入 + native getTokenCount 输出 ⚠️ 估算非精确（本地无 API 计数，可接受）。
+- 各路径统计现状：Agent 用 API 真实累计、在线普通用 API 单轮、本地用 native/估算。
+
 ## [2026-08-16] 修正 token 统计：改为引擎累计真实 usage（修复只统计最后一轮）
 用户质疑"统计方式不正确"——确认正确，原实现用 getLastPromptTokens/getLastCompletionTokens（最后覆盖值），Agent 多轮（工具调用轮+回答轮）时中间轮次的输入输出全丢，严重低估总消耗。
 1. **引擎累计**：OnlineAgentEngine 新增 execTotalPromptTokens/execTotalCompletionTokens，onUsageWithCache 每轮累加（API 每轮返回的是本轮完整输入，含增长的历史前缀，逐轮累加才是真实总输入）；execute 开始重置。
