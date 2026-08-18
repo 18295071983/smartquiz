@@ -110,7 +110,8 @@ public class SimpleWebViewActivity extends BaseActivity {
                     return true;
                 }
                 if (url != null && url.startsWith("file://")) {
-                    // 本地文件链接：html 由 WebView 内部渲染；md/txt/json/pdf/office 等交给文件预览
+                    // 本地文件链接：html 由 WebView 内部渲染；其余类型交给通用文件预览
+                    // （SimpleFilePreviewActivity 支持文本/md/图片/PDF/Word/Excel）
                     try {
                         String path = android.net.Uri.parse(url).getPath();
                         if (path != null) {
@@ -121,8 +122,13 @@ public class SimpleWebViewActivity extends BaseActivity {
                             java.io.File f = new java.io.File(path);
                             if (f.exists() && f.isFile()) {
                                 Log.i(TAG, "文件链接 → 文件预览: " + path);
-                                com.oilquiz.app.ui.activity.WebViewFilePreviewActivity.start(
-                                        SimpleWebViewActivity.this, path);
+                                android.content.Intent intent = new android.content.Intent(
+                                        SimpleWebViewActivity.this,
+                                        com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                                intent.putExtra(
+                                        com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.EXTRA_FILE_PATH,
+                                        path);
+                                startActivity(intent);
                                 return true;
                             }
                         }
