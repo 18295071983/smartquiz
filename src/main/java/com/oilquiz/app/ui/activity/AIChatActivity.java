@@ -7023,6 +7023,8 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             if (loadTarget == null) return;
+            android.util.Log.i("AIChatActivity", "Image preview target: " + loadTarget
+                    + " (thumb=" + thumbnailPath + ", local=" + localFilePath + ", url=" + url + ")");
 
             android.app.Dialog dialog = new android.app.Dialog(this);
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -7052,26 +7054,64 @@ public class AIChatActivity extends BaseActivity {
             }
 
             // show 之后再加载（View 已 attach），loading 占位 + 失败提示
-            com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
-                    new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
-                        @Override
-                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
-                            loading.setVisibility(android.view.View.GONE);
-                            showToast("图片加载失败");
-                            return false;
-                        }
+            // 优先直接解码本地文件（BitmapFactory），彻底绕开 Glide 对 file:// 的可能问题
+            boolean decoded = false;
+            try {
+                java.io.File localFile = null;
+                if (loadTarget != null && loadTarget.startsWith("file://")) {
+                    localFile = new java.io.File(Uri.parse(loadTarget).getPath());
+                }
+                if (localFile == null && thumbnailPath != null && !thumbnailPath.isEmpty()) {
+                    java.io.File f = new java.io.File(thumbnailPath);
+                    if (f.exists()) localFile = f;
+                }
+                if (localFile == null && localFilePath != null && !localFilePath.isEmpty()) {
+                    java.io.File f = new java.io.File(localFilePath);
+                    if (f.exists()) localFile = f;
+                }
+                if (localFile != null && localFile.exists()) {
+                    // 采样解码避免大图 OOM
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    int sample = 1;
+                    while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                        sample *= 2;
+                    }
+                    opts.inJustDecodeBounds = false;
+                    opts.inSampleSize = sample;
+                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    if (bmp != null) {
+                        photoView.setImageBitmap(bmp);
+                        loading.setVisibility(android.view.View.GONE);
+                        decoded = true;
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("AIChatActivity", "Bitmap decode failed, fallback Glide: " + e.getMessage());
+            }
+            if (!decoded) {
+                com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
+                        new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                            @Override
+                            public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                                loading.setVisibility(android.view.View.GONE);
+                                showToast("图片加载失败");
+                                return false;
+                            }
 
-                        @Override
-                        public boolean onResourceReady(android.graphics.drawable.Drawable resource,
-                                                       Object model,
-                                                       com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                                       com.bumptech.glide.load.DataSource dataSource,
-                                                       boolean isFirstResource) {
-                            loading.setVisibility(android.view.View.GONE);
-                            return false;
-                        }
-                    };
-            com.bumptech.glide.Glide.with(this).load(loadTarget).timeout(15000).listener(listener).into(photoView);
+                            @Override
+                            public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                           Object model,
+                                                           com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                           com.bumptech.glide.load.DataSource dataSource,
+                                                           boolean isFirstResource) {
+                                loading.setVisibility(android.view.View.GONE);
+                                return false;
+                            }
+                        };
+                com.bumptech.glide.Glide.with(this).load(loadTarget).timeout(15000).listener(listener).into(photoView);
+            }
         } catch (Exception e) {
             android.util.Log.w("AIChatActivity", "Image preview failed: " + e.getMessage());
         }

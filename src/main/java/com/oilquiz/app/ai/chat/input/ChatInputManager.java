@@ -358,16 +358,48 @@ public class ChatInputManager {
                 || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp");
     }
 
-    /** 应用内图片预览（PhotoView 双指缩放，点击关闭） */
+    /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——优先 BitmapFactory 解码本地文件，避免 Glide 转圈 */
     private void showImagePreview(String url) {
         try {
             android.app.Dialog dialog = new android.app.Dialog(activity);
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(activity);
             photoView.setBackgroundColor(android.graphics.Color.BLACK);
-            com.bumptech.glide.Glide.with(activity).load(url)
-                    .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
-                    .into(photoView);
+
+            // 尝试直接解码本地文件（file:// 或纯路径），绕开 Glide
+            boolean decoded = false;
+            try {
+                java.io.File localFile = null;
+                if (url != null && url.startsWith("file://")) {
+                    localFile = new java.io.File(Uri.parse(url).getPath());
+                } else if (url != null && url.startsWith("/")) {
+                    localFile = new java.io.File(url);
+                }
+                if (localFile != null && localFile.exists()) {
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    int sample = 1;
+                    while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                        sample *= 2;
+                    }
+                    opts.inJustDecodeBounds = false;
+                    opts.inSampleSize = sample;
+                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                    if (bmp != null) {
+                        photoView.setImageBitmap(bmp);
+                        decoded = true;
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("ChatInputManager", "Bitmap decode failed: " + e.getMessage());
+            }
+            if (!decoded) {
+                com.bumptech.glide.Glide.with(activity).load(url)
+                        .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                        .into(photoView);
+            }
+
             dialog.setContentView(photoView, new android.view.ViewGroup.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
             photoView.setOnClickListener(v -> dialog.dismiss());
