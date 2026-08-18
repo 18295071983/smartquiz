@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-08-16] 修复附件（图片）发送不到对话
+用户反馈"图片发送不到对话中"——根因：两套附件列表不一致。
+1. **双列表 bug**：图库选图走 ChatInputManager.addAttachment（inputManager 内部列表），但 sendMessage 读的是 AIChatActivity.currentAttachments 字段（只被拍照/录音填充）→ 图库图片 sendMessage 拿不到，发不出去。
+2. **统一数据源**：sendMessage 改为从 inputManager.getCurrentAttachments() 取附件（唯一权威）；拍照/录音也改走 inputManager.addAttachment（不再直接写 currentAttachments 字段）；发送后 inputManager.clearAttachments() 清空。
+3. **去掉重复用户消息**：handleMultimodalImage / handleOnlineMultimodalImage 里原 `addUserMessage(userText)` 会再插一条无附件用户消息（sendMessage 已加带附件的）→ 删除，只创建 AI 回复消息。
+- 现在图库/拍照/录音附件统一经 inputManager，sendMessage 能正确携带发送，对话中显示附件缩略图 + 单条用户消息 + AI 回复。
+
 ## [2026-08-16] 核查并修正各路径 token 统计
 用户再次质疑统计正确性——逐路径核查：
 1. **在线 Agent（多轮）**：引擎 execTotalPromptTokens/execTotalCompletionTokens 累计 ✅（上轮已修）；本轮补两个残留：
