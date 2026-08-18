@@ -23,6 +23,9 @@ public class ComponentRegistry {
     /** 已注册组件（type → 组件） */
     private final Map<String, ChatComponent> components = new ConcurrentHashMap<>();
 
+    /** 动态组件兜底渲染器：Agent/工具动态创建的自定义类型未注册时也用通用卡片展示 */
+    private final ChatComponent dynamicFallback = new DynamicCardView();
+
     private ComponentRegistry() {
         registerBuiltin();
     }
@@ -85,17 +88,19 @@ public class ComponentRegistry {
 
     /**
      * 按类型渲染组件 View。
+     * 未注册类型不返回 null：由通用兜底组件（DynamicCardView）渲染，
+     * 保证 Agent 动态创建的组件在对话界面可见可用。
      *
      * @param context Android Context
      * @param data    组件数据
-     * @return 组件 View；类型未注册或数据非法时返回 null（调用方自行降级）
+     * @return 组件 View；数据非法或渲染异常时返回 null（调用方自行降级）
      */
     public View render(Context context, ComponentData data) {
         if (data == null || data.type == null) return null;
         ChatComponent component = components.get(data.type);
         if (component == null) {
-            Log.w(TAG, "no component registered for type: " + data.type);
-            return null;
+            Log.i(TAG, "unregistered type, using dynamic fallback: " + data.type);
+            component = dynamicFallback;
         }
         try {
             if (component.canRender(data)) {
