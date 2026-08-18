@@ -37,6 +37,8 @@ public final class ImportBreakpointStore {
         public long parseRowIndex;
         /** LLM 识别的真实表头行号（0-based；-1=无表头；-2=未指定/自动检测），断点恢复时沿用 */
         public int headerRow = -2;
+        /** 断点对应的工作表索引（-1=自动扫全部），多工作表导入时按 sheet 隔离断点 */
+        public int sheetIndex = -1;
         /** 入库阶段：CSV 分片文件路径列表（逗号分隔） */
         public String csvChunks;
         /** 入库阶段：已入库的 CSV 数据行偏移量 */
@@ -51,6 +53,7 @@ public final class ImportBreakpointStore {
             o.put("mappingJson", mappingJson == null ? "" : mappingJson);
             o.put("parseRowIndex", parseRowIndex);
             o.put("headerRow", headerRow);
+            o.put("sheetIndex", sheetIndex);
             o.put("csvChunks", csvChunks == null ? "" : csvChunks);
             o.put("ingestOffset", ingestOffset);
             o.put("updatedAt", System.currentTimeMillis());
@@ -65,6 +68,7 @@ public final class ImportBreakpointStore {
             s.mappingJson = o.optString("mappingJson");
             s.parseRowIndex = o.optLong("parseRowIndex", 0);
             s.headerRow = o.optInt("headerRow", -2);
+            s.sheetIndex = o.optInt("sheetIndex", -1);
             s.csvChunks = o.optString("csvChunks");
             s.ingestOffset = o.optLong("ingestOffset", 0);
             s.updatedAt = o.optLong("updatedAt", 0);
