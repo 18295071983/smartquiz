@@ -347,7 +347,8 @@ public class ImportMain {
         if (sample.optBoolean("header_suspicious", false) && excelSheetIndex >= 0
                 && rawRows != null && rawRows.length() > 0 && !resumeParse) {
             emitStage(listener, "mapping", "表头无法自动识别，AI 智能识别表头行与字段...");
-            ImportLlmEngine.HeaderResult hr = engine.runHeaderInfer(rawRows, legalFields, docHint);
+            ImportLlmEngine.HeaderResult hr = engine.runHeaderInfer(
+                    rawRows, legalFields, docHint, buildAliasHint());
             if (hr != null && hr.valid) {
                 List<String> newHeaders = rebuildHeadersForHeaderRow(
                         rawRows, sample.optJSONArray("rows"), hr.headerRow);
