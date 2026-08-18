@@ -96,6 +96,17 @@ public class ImportLlmEngine {
         public String failReason;
     }
 
+    /** 表头行识别推理结果（表头无法自动检测时启用） */
+    public static class HeaderResult {
+        public boolean valid;
+        /** 真实表头行号（0-based）；-1 = 无表头（首行即数据） */
+        public int headerRow = -2;
+        /** 标准字段 → 源列索引（0-based） */
+        public Map<String, Integer> mapping = new java.util.LinkedHashMap<>();
+        public int rounds;
+        public String failReason;
+    }
+
     /** 引擎日志回调（可选） */
     public interface EngineListener {
         void onLog(String message);
@@ -499,6 +510,113 @@ public class ImportLlmEngine {
         }
         postInferHousekeeping();
         return results;
+    }
+
+    /**
+     * 表头行识别推理（独立隔离会话）：当文件表头无法自动检测（无表头/非标准表头）时，
+     * 根据工作表前 12 行原始内容判断真实表头行号与列映射。
+     *
+     * @param rawRows     工作表前 12 行原始内容（含空行，行号与工作表一致）
+     * @param legalFields 合法标准字段集合（用于硬过滤）
+     * @param docHint     题库说明/模板说明（可为空，帮助 AI 理解列含义）
+     * @return HeaderResult：headerRow(-1=无表头) + 标准字段→列索引映射
+     */
+    public HeaderResult runHeaderInfer(JSONArray rawRows, java.util.Set<String> legalFields,
+                                       String docHint) {
+        HeaderResult result = new HeaderResult();
+        if (rawRows == null || rawRows.length() == 0) {
+            result.failReason = "无原始行数据";
+            return result;
+        }
+        if (!ensureModel()) {
+            result.failReason = "模型不可用";
+            return result;
+        }
+        clearAllKvCache();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(BASE_RULE).append('\n');
+        sb.append("你是题库文件表头识别器。下面是 Excel 工作表前 12 行原始内容（每行用 | 分隔各列），");
+        sb.append("可能包含标题行、说明行、表头行、数据行。\n");
+        sb.append("任务：\n");
+        sb.append("1. 找出真正的表头行（列名行，如：题干/选项A/答案），返回其行号 header_row（从 0 开始计）。\n");
+        sb.append("2. 若第一行就是题目数据、整张表没有任何表头行，返回 header_row = -1。\n");
+        sb.append("3. 给出列映射 mapping：标准字段 -> 列索引（0 开始），如 {\"questionText\":1,\"optionA\":2}。\n");
+        if (legalFields != null && !legalFields.isEmpty()) {
+            sb.append("可映射字段：").append(truncate(joinFields(legalFields), 300)).append('\n');
+        } else {
+            sb.append("可映射字段：questionText, optionA~L, correctAnswer, category, difficulty, explanation, questionType, optionsCombined\n");
+        }
+        sb.append("   某列同时包含多个选项（分号/竖线/A.前缀 分隔）时映射为 optionsCombined；");
+        sb.append("无法判断的列不要映射。\n");
+        sb.append("原始内容：\n").append(buildRawRowsText(rawRows));
+        if (docHint != null && !docHint.isEmpty()) {
+            sb.append("题库说明（参考列含义）：").append(truncate(docHint, 300)).append('\n');
+        }
+        sb.append("只输出 JSON：{\"header_row\":N,\"mapping\":{...}}");
+
+        String prompt = sb.toString();
+        for (int round = 1; round <= MAX_INFER_ROUNDS; round++) {
+            result.rounds = round;
+            String p = prompt;
+            if (round == 2) p = prompt + "\n" + FIX_ROUND2;
+            if (round >= 3) p = prompt + "\n" + FIX_ROUND2 + "\n" + FIX_ROUND3;
+
+            String raw = inferOnce(p, MAPPING_MAX_TOKENS);
+            if (raw == null) {
+                result.failReason = "推理无输出";
+                continue;
+            }
+            ImportOutputSanitizer.SanitizedOutput clean =
+                    ImportOutputSanitizer.sanitizeHeaderOutput(raw, legalFields);
+            if (clean.valid) {
+                result.valid = true;
+                result.headerRow = clean.json.optInt("header_row", -2);
+                JSONObject mp = clean.json.optJSONObject("mapping");
+                if (mp != null) {
+                    java.util.Iterator<String> it = mp.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        result.mapping.put(k, mp.optInt(k, -1));
+                    }
+                }
+                postInferHousekeeping();
+                return result;
+            }
+            result.failReason = clean.failReason;
+            log("第" + round + "轮表头识别无效: " + clean.failReason);
+        }
+        postInferHousekeeping();
+        return result;
+    }
+
+    /** 前 12 行原始内容 → 文本（每行 "行N: 值1 | 值2 | ..."，单元格截断） */
+    private String buildRawRowsText(JSONArray rawRows) {
+        StringBuilder sb = new StringBuilder();
+        int max = Math.min(rawRows.length(), 12);
+        for (int i = 0; i < max; i++) {
+            sb.append("行").append(i).append(": ");
+            JSONArray row = rawRows.optJSONArray(i);
+            if (row != null) {
+                for (int j = 0; j < row.length(); j++) {
+                    if (j > 0) sb.append(" | ");
+                    String cell = row.optString(j, "");
+                    sb.append(cell.length() > 40 ? cell.substring(0, 40) + "…" : cell);
+                }
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    private static String joinFields(java.util.Set<String> fields) {
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (String f : fields) {
+            if (count++ > 0) sb.append(',');
+            sb.append(f);
+        }
+        return sb.toString();
     }
 
     // ==================== 内部实现 ====================

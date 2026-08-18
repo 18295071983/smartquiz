@@ -338,11 +338,66 @@ public class ImportMain {
         String headerFinger = ImportMapCache.headerFingerprint(headers);
         String cacheKey = ImportMapCache.buildCacheKey(tableFinger, headerFinger);
 
+        // ========== 步骤1.5：表头可疑时 LLM 识别表头行与列映射 ==========
+        // 触发条件：Python 表头关键词命中 ≤1（无表头/非标准表头）+ 用户已选定工作表 +
+        // 非断点恢复。LLM 根据前 12 行原始内容判断真实表头行号与列映射；
+        // 正常文件零额外调用（不增加导入压力）。
+        int pythonHeaderRow = -2; // -2=自动检测；>= -1 表示 LLM/断点指定
+        JSONArray rawRows = sample.optJSONArray("raw_rows");
+        if (sample.optBoolean("header_suspicious", false) && excelSheetIndex >= 0
+                && rawRows != null && rawRows.length() > 0 && !resumeParse) {
+            emitStage(listener, "mapping", "表头无法自动识别，AI 智能识别表头行与字段...");
+            ImportLlmEngine.HeaderResult hr = engine.runHeaderInfer(rawRows, legalFields, docHint);
+            if (hr != null && hr.valid) {
+                List<String> newHeaders = rebuildHeadersForHeaderRow(
+                        rawRows, sample.optJSONArray("rows"), hr.headerRow);
+                if (newHeaders != null && !newHeaders.isEmpty()) {
+                    headers = newHeaders;
+                    pythonHeaderRow = hr.headerRow;
+                    Map<String, String> newMapping = new LinkedHashMap<>();
+                    for (Map.Entry<String, Integer> e : hr.mapping.entrySet()) {
+                        int idx = e.getValue();
+                        if (idx >= 0 && idx < headers.size()) {
+                            newMapping.put(e.getKey(), headers.get(idx));
+                        }
+                    }
+                    newMapping = ensureCombinedOptionsMapping(newMapping, headers);
+                    if (newMapping.containsKey("questionText")) {
+                        mapping = newMapping;
+                        headerFinger = ImportMapCache.headerFingerprint(headers);
+                        cacheKey = ImportMapCache.buildCacheKey(tableFinger, headerFinger);
+                        summary.mappingSource = "ai";
+                        emitLog(listener, "AI 表头识别: header_row=" + hr.headerRow
+                                + (hr.headerRow == -1 ? "(无表头，占位列名)" : "")
+                                + ", 映射=" + new JSONObject(mapping));
+                    } else {
+                        emitLog(listener, "AI 表头识别缺少题干列，按原逻辑处理");
+                        pythonHeaderRow = -2;
+                        headers = toStringList(headersArr);
+                    }
+                } else {
+                    emitLog(listener, "AI 表头识别行号无效，按原逻辑处理");
+                }
+            } else {
+                emitLog(listener, "AI 表头识别失败(" + (hr == null ? "无结果" : hr.failReason)
+                        + ")，按原逻辑处理");
+            }
+        }
+
         if (resumeParse && bp.mappingJson != null && !bp.mappingJson.isEmpty()) {
             mapping = jsonToMap(bp.mappingJson);
             summary.resumed = true;
             summary.mappingSource = "breakpoint";
             emitLog(listener, "断点恢复：复用已推理映射，从第 " + bp.parseRowIndex + " 行续导");
+            // 断点恢复沿用 LLM 识别的表头行（若有），保证列对位一致
+            if (bp.headerRow >= -1) {
+                pythonHeaderRow = bp.headerRow;
+                List<String> newHeaders = rebuildHeadersForHeaderRow(
+                        rawRows, sample.optJSONArray("rows"), bp.headerRow);
+                if (newHeaders != null && !newHeaders.isEmpty()) {
+                    headers = newHeaders;
+                }
+            }
         } else {
             Map<String, String> cached = ImportMapCache.find(cacheKey);
             if (cached != null && cached.containsKey("questionText")) {
@@ -417,6 +472,7 @@ public class ImportMain {
         state.sourceName = sourceFile.getName();
         state.mappingJson = mappingJson;
         state.parseRowIndex = resumeParse ? bp.parseRowIndex : 0;
+        state.headerRow = pythonHeaderRow;
         ImportBreakpointStore.save(state);
 
         // ========== 步骤3：Python 全量解析（文件级断点续导） ==========
@@ -429,7 +485,8 @@ public class ImportMain {
         JSONObject parseResult = python.parseFile(sourceFile.getAbsolutePath(), mappingJson,
                 sessionDir.getAbsolutePath(), resumeRow, CHUNK_ROWS,
                 ImportDirs.breakpointFile().getAbsolutePath(),
-                buildPythonFieldSpec(legalFields).toString(), excelSheetIndex);
+                buildPythonFieldSpec(legalFields).toString(), excelSheetIndex,
+                pythonHeaderRow >= -1 ? Integer.valueOf(pythonHeaderRow) : null);
         String parseErr = extractError(parseResult);
         if (parseErr != null || !parseResult.optBoolean("success", false)) {
             // 永久性失败（文件损坏/格式不符等）：清断点，避免下次重跑时
@@ -1019,6 +1076,39 @@ public class ImportMain {
             }
         }
         return list;
+    }
+
+    /**
+     * 按 LLM 识别的表头行号重建表头列名。
+     * headerRow >= 0：取原始行该行内容为表头；headerRow == -1：无表头，
+     * 用占位列名 "列1/列2/..."（列数取首行实际列数）。无法重建返回 null。
+     */
+    private static List<String> rebuildHeadersForHeaderRow(JSONArray rawRows,
+                                                           JSONArray fallbackRows,
+                                                           int headerRow) {
+        if (headerRow >= 0) {
+            if (rawRows != null && headerRow < rawRows.length()) {
+                JSONArray h = rawRows.optJSONArray(headerRow);
+                if (h != null && h.length() > 0) {
+                    return toStringList(h);
+                }
+            }
+            return null;
+        }
+        // 无表头：占位列名
+        JSONArray first = null;
+        if (rawRows != null && rawRows.length() > 0) {
+            first = rawRows.optJSONArray(0);
+        }
+        if (first == null && fallbackRows != null && fallbackRows.length() > 0) {
+            first = fallbackRows.optJSONArray(0);
+        }
+        if (first == null) return null;
+        List<String> placeholders = new ArrayList<>();
+        for (int i = 1; i <= first.length(); i++) {
+            placeholders.add("列" + i);
+        }
+        return placeholders;
     }
 
     private static Map<String, String> jsonToMap(String json) {

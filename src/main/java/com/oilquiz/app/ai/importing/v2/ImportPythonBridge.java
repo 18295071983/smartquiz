@@ -86,16 +86,18 @@ public class ImportPythonBridge {
      * @param specJson     Java 根据 question 表实际结构动态下发的字段规格 JSON：
      *                     {"std_columns":[...],"fill_fields":[...],"option_fields":{...}}，
      *                     为 null 时 Python 用内置默认值兜底
+     * @param headerRow    LLM 识别的真实表头行号（0-based；-1=无表头；null=自动检测）
      * @return {"success":bool,"chunks":[...],"total_rows":n,"processed_rows":n,
      *          "missing":[{"chunk":path,"row":i,"questionText":..,"options":{..},"has":{..}}]}
      */
     public JSONObject parseFile(String filePath, String mappingJson, String outDir,
                                 long resumeRow, int chunkRows, String breakpointPath,
-                                String specJson, int sheetIndex) {
+                                String specJson, int sheetIndex, Integer headerRow) {
         return callWithRetry("parse_file", "全量解析",
                 py -> py.callAttr("parse_file", filePath, mappingJson, outDir,
                         resumeRow, chunkRows, breakpointPath, specJson,
-                        sheetIndex >= 0 ? Integer.valueOf(sheetIndex) : null));
+                        sheetIndex >= 0 ? Integer.valueOf(sheetIndex) : null,
+                        headerRow));
     }
 
     /**
