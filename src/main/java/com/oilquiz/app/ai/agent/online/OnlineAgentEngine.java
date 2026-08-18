@@ -368,10 +368,16 @@ public class OnlineAgentEngine {
             if (result.content != null && !result.content.isEmpty()) {
                 assistantMsg.addProperty("content", result.content);
             }
+            // 统一生成 tool_call id：assistant.tool_calls 与后续 tool 消息必须严格配对
+            // （模型未提供 id 时直接写回 tc.id，保证两处引用同一 id）
             JsonArray toolCallsArray = new JsonArray();
-            for (OnlineInferenceService.ToolCallInfo tc : result.toolCalls) {
+            for (int ci = 0; ci < result.toolCalls.size(); ci++) {
+                OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(ci);
+                if (tc.id == null || tc.id.trim().isEmpty()) {
+                    tc.id = "call_" + System.nanoTime() + "_" + ci;
+                }
                 JsonObject tcObj = new JsonObject();
-                tcObj.addProperty("id", tc.id != null ? tc.id : "call_" + System.nanoTime());
+                tcObj.addProperty("id", tc.id);
                 tcObj.addProperty("type", "function");
                 JsonObject funcObj = new JsonObject();
                 funcObj.addProperty("name", tc.name);
@@ -390,14 +396,14 @@ public class OnlineAgentEngine {
                     finishGeneration();
                     return;
                 }
-                // 通知 UI 工具调用开始
+                // 通知 UI 工具调用开始（id 已统一）
                 activity.runOnUiThread(() -> {
-                    final String callId = tc.id != null ? tc.id : "call_" + System.nanoTime();
+                    final String callId = tc.id;
                     if (callback != null) callback.onToolCallStart(callId, tc.name, tc.arguments);
                 });
 
-                // 并行执行
-                final String toolCallId = tc.id != null ? tc.id : "call_" + System.nanoTime();
+                // 并行执行（toolCallId 与 assistant.tool_calls 中的 id 一致）
+                final String toolCallId = tc.id;
                 CompletableFuture<OnlineToolResult> future = CompletableFuture.supplyAsync(
                     () -> executeToolCall(toolCallId, tc.name, tc.arguments), executor);
                 toolFutures.add(future);
@@ -415,6 +421,7 @@ public class OnlineAgentEngine {
                     notifyError("工具执行已中断");
                     return;
                 }
+                final OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(i);
                 try {
                     OnlineToolResult toolResult = toolFutures.get(i).get(5, TimeUnit.SECONDS);
                     // 通知 UI 工具调用完成
@@ -444,6 +451,19 @@ public class OnlineAgentEngine {
                     AILogger.i(TAG, "Tool " + tr.toolName + " done, success=" + tr.success);
                 } catch (Exception e) {
                     AILogger.e(TAG, "Tool future error: " + e.getMessage(), e);
+                    // 配对保障：工具执行异常/超时也必须补充对应的 tool 消息，
+                    // 否则 assistant.tool_calls 无响应（孤儿 tool_call）导致 API 拒绝或上下文错乱
+                    try {
+                        JsonObject toolMsg = new JsonObject();
+                        toolMsg.addProperty("role", "tool");
+                        toolMsg.addProperty("tool_call_id", tc.id);
+                        toolMsg.addProperty("name", tc.name);
+                        toolMsg.addProperty("content", "工具执行异常: " + e.getMessage());
+                        messageHistory.add(toolMsg);
+                        AILogger.i(TAG, "补充失败 tool 响应(配对保障): " + tc.id);
+                    } catch (Exception inner) {
+                        AILogger.w(TAG, "补充 tool 响应失败: " + inner.getMessage());
+                    }
                 }
             }
 
