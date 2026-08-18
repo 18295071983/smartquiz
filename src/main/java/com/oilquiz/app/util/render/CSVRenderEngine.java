@@ -128,24 +128,36 @@ public class CSVRenderEngine implements FileRenderEngine {
         }
     }
 
-    // 解析CSV行，处理包含逗号的字段
+    // 解析CSV行（RFC 4180：引号内逗号、"" 转义引号）
     private String[] parseCSVLine(String line) {
         List<String> fields = new ArrayList<>();
-        StringBuilder currentField = new StringBuilder();
+        StringBuilder current = new StringBuilder();
         boolean inQuotes = false;
-        
-        for (char c : line.toCharArray()) {
-            if (c == '"') {
-                inQuotes = !inQuotes;
-            } else if (c == ',' && !inQuotes) {
-                fields.add(currentField.toString());
-                currentField.setLength(0);
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                        current.append('"'); // "" 转义为字面引号
+                        i++;
+                    } else {
+                        inQuotes = false; // 引号结束
+                    }
+                } else {
+                    current.append(c);
+                }
             } else {
-                currentField.append(c);
+                if (c == '"') {
+                    inQuotes = true;
+                } else if (c == ',') {
+                    fields.add(current.toString());
+                    current.setLength(0);
+                } else {
+                    current.append(c);
+                }
             }
         }
-        
-        fields.add(currentField.toString());
+        fields.add(current.toString());
         return fields.toArray(new String[0]);
     }
 

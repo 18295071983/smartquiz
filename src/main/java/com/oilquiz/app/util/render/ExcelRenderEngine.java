@@ -12,6 +12,8 @@ import java.util.*;
 
 public class ExcelRenderEngine implements FileRenderEngine {
     private static final String TAG = "ExcelRenderEngine";
+    /** 公式求值器（render 时创建，FORMULA 单元格显示计算结果而非原始公式） */
+    private org.apache.poi.ss.usermodel.FormulaEvaluator formulaEvaluator;
     private static final String[] SUPPORTED_EXTENSIONS = {"xls", "xlsx", "xlsm", "xltx", "xlt"};
 
     private Map<String, String> themeColors = new HashMap<>();
@@ -54,6 +56,7 @@ public class ExcelRenderEngine implements FileRenderEngine {
 
             try (FileInputStream fis = new FileInputStream(file)) {
                 workbook = WorkbookFactory.create(fis);
+                formulaEvaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
                 if (workbook != null) {
                     for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
@@ -453,8 +456,31 @@ public class ExcelRenderEngine implements FileRenderEngine {
             case BOOLEAN:
                 return cell.getBooleanCellValue() ? "是" : "否";
             case FORMULA:
+                // 显示公式的计算结果（而非原始公式文本）
                 try {
-                    return cell.getCellFormula();
+                    if (formulaEvaluator != null) {
+                        org.apache.poi.ss.usermodel.CellValue cv = formulaEvaluator.evaluate(cell);
+                        if (cv != null) {
+                            switch (cv.getCellType()) {
+                                case STRING:
+                                    return cv.getStringValue();
+                                case NUMERIC:
+                                    double dv = cv.getNumberValue();
+                                    if (dv == Math.floor(dv) && !Double.isInfinite(dv)) {
+                                        return String.valueOf((long) dv);
+                                    }
+                                    return String.format(Locale.getDefault(), "%.4f", dv)
+                                            .replaceAll("0+$", "").replaceAll("\\.$", "");
+                                case BOOLEAN:
+                                    return cv.getBooleanValue() ? "是" : "否";
+                                case ERROR:
+                                    return "#错误!";
+                                default:
+                                    return "";
+                            }
+                        }
+                    }
+                    return cell.getCellFormula(); // 无 evaluator 时兜底显示公式
                 } catch (Exception e) {
                     return "#错误!";
                 }

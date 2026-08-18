@@ -73,6 +73,11 @@
 -keep class org.commonmark.** { *; }
 -dontwarn org.commonmark.**
 
+# flexmark（Markdown → HTML）：混淆会导致解析/渲染失效，静默回退纯文本预览
+-keep class com.vladsch.flexmark.** { *; }
+-dontwarn com.vladsch.flexmark.**
+-dontwarn org.jetbrains.annotations.**
+
 # Keep Picasso
 -keep class com.squareup.picasso.** { *; }
 -dontwarn com.squareup.picasso.**
