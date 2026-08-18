@@ -178,6 +178,55 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 题库说明输入区（可选）：用户引导 AI 导入，如字段约定/特殊规则 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📝 题库说明（可选）"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="填写字段约定或特殊规则，AI 导入时参考，识别列含义更准。"
+                        android:textSize="11sp"
+                        android:textColor="@color/on_surface_variant" />
+
+                    <EditText
+                        android:id="@+id/etUserGuide"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:minLines="2"
+                        android:maxLines="5"
+                        android:gravity="top"
+                        android:inputType="textMultiLine"
+                        android:background="@drawable/status_bar_background"
+                        android:padding="10dp"
+                        android:textSize="13sp"
+                        android:textColor="@color/on_surface"
+                        android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
+                        android:importantForAutofill="no" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 阶段指示：4 步（检测→映射→解析→入库），emoji + 文字 -->
             <LinearLayout
                 android:id="@+id/stageIndicatorContainer"
