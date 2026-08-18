@@ -40,20 +40,19 @@ public class HtmlCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        // 放宽：props 非空即可渲染（html/content/text 任意键有值），
-        // 键名不符时也由本组件兜底展示，避免直接"渲染失败"
-        return data != null && data.props != null && data.props.length() > 0;
+        // 恒可渲染：props 为空时展示"未获取到内容"提示，避免显示"空内容"
+        return data != null;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props;
+        JSONObject p = data.props != null ? data.props : new JSONObject();
         // html 键优先，兼容 content/text 键（Agent 可能用不同键名）
         String html = p.optString("html", "");
         if (html.isEmpty()) html = p.optString("content", "");
         if (html.isEmpty()) html = p.optString("text", "");
-        if (html.isEmpty()) html = p.toString();
+        if (html.isEmpty() && p.length() > 0) html = p.toString();
         String title = p.optString("title", "");
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
@@ -71,6 +70,17 @@ public class HtmlCardView implements ChatComponent {
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
             card.addView(titleTv);
+        }
+
+        if (html.isEmpty()) {
+            // props 未解析出内容：给出可读提示，不显示空白 WebView
+            TextView emptyTv = new TextView(context);
+            emptyTv.setText("⚠ 未获取到组件内容（html 数据解析为空）");
+            emptyTv.setTextSize(12);
+            emptyTv.setTextColor(ComponentColors.textTertiary(context));
+            card.addView(emptyTv);
+            Log.w("HtmlCardView", "html component: empty content, props=" + p.toString());
+            return card;
         }
 
         WebView webView = new WebView(context);
