@@ -149,42 +149,71 @@ public class ImageGridCardView implements ChatComponent {
     }
 
     /**
+     * 本地图片统一解码：file://、/ 开头路径、content:// URI 均走 BitmapFactory（采样防 OOM）。
+     * 返回 null 表示非本地源或解码失败（调用方回退 Glide）。
+     */
+    private static android.graphics.Bitmap decodeLocalImage(Context context, String url) {
+        if (url == null) return null;
+        try {
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            if (url.startsWith("content://")) {
+                try (java.io.InputStream is = context.getContentResolver().openInputStream(android.net.Uri.parse(url))) {
+                    if (is == null) return null;
+                    android.graphics.BitmapFactory.decodeStream(is, null, opts);
+                }
+            } else if (url.startsWith("file://") || url.startsWith("/")) {
+                java.io.File localFile = url.startsWith("file://")
+                        ? new java.io.File(android.net.Uri.parse(url).getPath())
+                        : new java.io.File(url);
+                if (!localFile.exists()) return null;
+                android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+            } else {
+                return null; // 网络 URL，走 Glide
+            }
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) return null;
+            int sample = 1;
+            while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                sample *= 2;
+            }
+            opts.inJustDecodeBounds = false;
+            opts.inSampleSize = sample;
+            if (url.startsWith("content://")) {
+                try (java.io.InputStream is = context.getContentResolver().openInputStream(android.net.Uri.parse(url))) {
+                    if (is == null) return null;
+                    return android.graphics.BitmapFactory.decodeStream(is, null, opts);
+                }
+            } else {
+                java.io.File localFile = url.startsWith("file://")
+                        ? new java.io.File(android.net.Uri.parse(url).getPath())
+                        : new java.io.File(url);
+                return android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("ImageGridCardView", "decodeLocalImage failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 加载图片：成功显示图片，失败显示可点击重试的提示层。
-     * 本地文件（file:// 或 / 开头）优先 BitmapFactory 直接解码（避免 Glide file:// 不回调导致转圈）；
-     * 网络 URL 走 Glide（15s 超时 + 失败提示）。
+     * 本地图片（file://、/ 开头、content://）优先 BitmapFactory 直接解码
+     * （避免 Glide 对本地 URI 不回调导致转圈）；网络 URL 走 Glide（15s 超时 + 失败提示）。
      */
     private void loadWithFeedback(FrameLayout root, ImageView iv, ProgressBar loading, String url, boolean single) {
         loading.setVisibility(View.VISIBLE);
         iv.setVisibility(View.GONE);
         iv.setImageDrawable(null);
 
-        // 本地文件优先直接解码
-        if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
-            try {
-                java.io.File localFile = url.startsWith("file://")
-                        ? new java.io.File(android.net.Uri.parse(url).getPath())
-                        : new java.io.File(url);
-                if (localFile.exists()) {
-                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                    opts.inJustDecodeBounds = true;
-                    android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
-                    int sample = 1;
-                    while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
-                        sample *= 2;
-                    }
-                    opts.inJustDecodeBounds = false;
-                    opts.inSampleSize = sample;
-                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
-                    if (bmp != null) {
-                        iv.setImageBitmap(bmp);
-                        loading.setVisibility(View.GONE);
-                        iv.setVisibility(View.VISIBLE);
-                        iv.setOnClickListener(v -> showFullImage(root.getContext(), url));
-                        return;
-                    }
-                }
-            } catch (Exception e) {
-                android.util.Log.w("ImageGridCardView", "local bitmap decode failed: " + e.getMessage());
+        // 本地图片优先直接解码（file:// / / 开头 / content://）
+        if (url != null && (url.startsWith("file://") || url.startsWith("/") || url.startsWith("content://"))) {
+            android.graphics.Bitmap bmp = decodeLocalImage(root.getContext(), url);
+            if (bmp != null) {
+                iv.setImageBitmap(bmp);
+                loading.setVisibility(View.GONE);
+                iv.setVisibility(View.VISIBLE);
+                iv.setOnClickListener(v -> showFullImage(root.getContext(), url));
+                return;
             }
         }
 
@@ -293,35 +322,12 @@ public class ImageGridCardView implements ChatComponent {
             }
 
             // show 之后再加载（View 已 attach），loading 占位 + 失败提示
-            // 本地文件优先 BitmapFactory 直接解码（避免 Glide file:// 不回调转圈）
-            boolean decoded = false;
-            if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
-                try {
-                    java.io.File localFile = url.startsWith("file://")
-                            ? new java.io.File(android.net.Uri.parse(url).getPath())
-                            : new java.io.File(url);
-                    if (localFile.exists()) {
-                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                        opts.inJustDecodeBounds = true;
-                        android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
-                        int sample = 1;
-                        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
-                            sample *= 2;
-                        }
-                        opts.inJustDecodeBounds = false;
-                        opts.inSampleSize = sample;
-                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
-                        if (bmp != null) {
-                            photoView.setImageBitmap(bmp);
-                            loading.setVisibility(View.GONE);
-                            decoded = true;
-                        }
-                    }
-                } catch (Exception e) {
-                    android.util.Log.w("ImageGridCardView", "full bitmap decode failed: " + e.getMessage());
-                }
-            }
-            if (!decoded) {
+            // 本地图片优先 BitmapFactory 直接解码（file:// / / 开头 / content://，避免 Glide 对本地 URI 不回调转圈）
+            android.graphics.Bitmap localBmp = decodeLocalImage(context, url);
+            if (localBmp != null) {
+                photoView.setImageBitmap(localBmp);
+                loading.setVisibility(View.GONE);
+            } else {
                 RequestListener<android.graphics.drawable.Drawable> listener =
                         new RequestListener<android.graphics.drawable.Drawable>() {
                             @Override

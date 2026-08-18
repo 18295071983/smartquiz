@@ -164,7 +164,7 @@ public class ImageGenTool implements AITool {
                 okhttp3.ResponseBody body = response.body();
                 if (body == null) return null;
 
-                File dir = new File(context.getFilesDir(), "generated_images");
+                File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context).getWorkspaceDir();
                 if (!dir.exists()) dir.mkdirs();
                 File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ".jpg");
 

@@ -375,6 +375,8 @@ public class ChatHistoryManager {
                 session.createdAt = System.currentTimeMillis();
             }
             session.updatedAt = System.currentTimeMillis();
+            // 持久化消息数：列表加载时为省内存会置空 messages，靠此字段展示条数
+            session.messageCount = session.messages != null ? session.messages.size() : session.messageCount;
 
             File dir = getConversationsDir();
             File file = new File(dir, session.id + ".json");
@@ -433,6 +435,10 @@ public class ChatHistoryManager {
                 ConversationSession session = gson.fromJson(reader, ConversationSession.class);
                 reader.close();
                 if (session != null && session.id != null) {
+                    // 兼容旧文件：无 messageCount 字段时从 messages 计算一次
+                    if (session.messageCount <= 0 && session.messages != null) {
+                        session.messageCount = session.messages.size();
+                    }
                     // 只保留摘要信息，不保留完整消息列表以节省内存
                     session.messages = null;
                     sessions.add(session);

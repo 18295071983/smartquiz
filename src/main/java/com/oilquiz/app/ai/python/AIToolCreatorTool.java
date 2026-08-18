@@ -6,6 +6,7 @@ import android.util.Log;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.tool.DynamicAITool;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
@@ -339,38 +340,47 @@ public class AIToolCreatorTool implements AITool {
     }
     
     private AIToolResult handleList(Map<String, Object> parameters) {
-        List<AIToolCreatorManager.ToolInfo> tools = creatorManager.listTools();
-        
+        // 统一列 AIToolManager 的全部动态工具（含 ai_create_tool 与 create_dynamic_tool 创建的），
+        // 避免只看 Python 侧导致清单不完整
+        List<String> toolNames = toolManager.getDynamicTools();
+        List<AITool> tools = new ArrayList<>();
+        for (String name : toolNames) {
+            AITool tool = toolManager.getTool(name);
+            if (tool != null) tools.add(tool);
+        }
+
         StringBuilder result = new StringBuilder();
-        result.append("📋 AI 创建的工具列表:\n\n");
-        
+        result.append("📋 动态工具列表:\n\n");
+
         if (tools.isEmpty()) {
-            result.append("(暂无 AI 创建的工具)\n");
-            result.append("\n使用 ai_create_tool 工具来创建新工具！");
+            result.append("(暂无动态工具)\n");
+            result.append("\n使用 ai_create_tool 或 create_dynamic_tool 来创建新工具！");
         } else {
-            for (AIToolCreatorManager.ToolInfo tool : tools) {
-                result.append("🔧 ").append(tool.name);
-                if (tool.version != null) {
-                    result.append(" (v").append(tool.version).append(")");
+            for (AITool tool : tools) {
+                result.append("🔧 ").append(tool.getName()).append("\n");
+                result.append("   描述: ").append(tool.getDescription()).append("\n");
+
+                Map<String, String> params = tool.getParameterDescriptions();
+                if (params != null && !params.isEmpty()) {
+                    result.append("   参数: ").append(String.join(", ", params.keySet())).append("\n");
                 }
-                result.append("\n");
-                
-                if (tool.description != null) {
-                    result.append("   描述: ").append(tool.description).append("\n");
-                }
-                if (tool.category != null) {
-                    result.append("   分类: ").append(tool.category).append("\n");
-                }
-                if (tool.parameters != null && !tool.parameters.isEmpty()) {
-                    result.append("   参数: ").append(String.join(", ", tool.parameters.keySet())).append("\n");
+
+                if (tool instanceof com.oilquiz.app.ai.python.PythonDynamicTool) {
+                    String code = ((com.oilquiz.app.ai.python.PythonDynamicTool) tool).getCode();
+                    if (code != null && !code.isEmpty()) {
+                        result.append("   类型: Python（代码已定义）\n");
+                    }
+                } else if (tool instanceof DynamicAITool) {
+                    String logic = ((DynamicAITool) tool).getExecutionLogic();
+                    result.append("   类型: 脚本" + (logic != null && !logic.isEmpty() ? "（逻辑已定义）" : "（逻辑未定义）") + "\n");
                 }
                 result.append("\n");
             }
         }
-        
+
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("count", tools.size());
-        additionalInfo.put("tools", tools);
+        additionalInfo.put("tools", toolNames);
 
         return AIToolResult.success(result.toString(), additionalInfo);
     }
@@ -384,18 +394,23 @@ public class AIToolCreatorTool implements AITool {
         if (!toolManager.hasTool(toolName)) {
             return createErrorResult("工具 " + toolName + " 不存在");
         }
-        
-        boolean deleted = creatorManager.deleteTool(toolName);
+
+        AITool tool = toolManager.getTool(toolName);
+        boolean deleted = true;
+        // Python 工具需同时删除 Python 侧；Java 脚本工具只需删 AIToolManager 侧
+        if (tool instanceof com.oilquiz.app.ai.python.PythonDynamicTool) {
+            deleted = creatorManager.deleteTool(toolName);
+        }
+        toolManager.unregisterDynamicTool(toolName);
+
+        Map<String, Object> additionalInfo = new HashMap<>();
+        additionalInfo.put("tool_name", toolName);
+        additionalInfo.put("success", deleted);
+
         if (deleted) {
-            toolManager.unregisterDynamicTool(toolName);
-            
-            Map<String, Object> additionalInfo = new HashMap<>();
-            additionalInfo.put("tool_name", toolName);
-            additionalInfo.put("success", true);
-            
             return AIToolResult.success("✅ 工具已删除: " + toolName, additionalInfo);
         } else {
-            return createErrorResult("工具删除失败: " + toolName);
+            return createErrorResult("工具删除失败: " + toolName + "（已从运行中移除，Python 侧清理失败）");
         }
     }
     

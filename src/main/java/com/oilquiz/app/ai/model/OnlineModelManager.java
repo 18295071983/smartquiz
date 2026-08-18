@@ -70,6 +70,7 @@ public class OnlineModelManager {
         public boolean supportsVision = false;    // 是否支持视觉理解
         public boolean supportsAudio = false;     // 是否支持音频处理
         public boolean supportsCode = false;      // 是否擅长代码生成
+        public boolean supportsFunctionCalling = false; // 是否支持原生 function calling（Agent 接管模式判定用）
         public double costPerMillionTokens = 0;   // 每百万token成本（美元）
         
         public OnlineModelConfig() {
@@ -102,6 +103,8 @@ public class OnlineModelManager {
                     return supportsAudio || capabilities.supportsAudioInput;
                 case "coding":
                     return supportsCode || capabilities.supportsCodeGeneration;
+                case "function_calling":
+                    return supportsFunctionCalling || capabilities.supportsFunctionCalling;
                 case "long_context":
                     return contextWindow >= 32768; // 32K+ 视为长上下文
                 default:
@@ -212,6 +215,7 @@ public class OnlineModelManager {
                     config.lastUsageFetchTime = obj.optLong("lastUsageFetchTime", 0);
                     config.supportsVision = obj.optBoolean("supportsVision", false);
                     config.supportsCode = obj.optBoolean("supportsCode", false);
+                    config.supportsFunctionCalling = obj.optBoolean("supportsFunctionCalling", false);
                     
                     // 加载使用量信息
                     if (obj.has("usageInfo")) {
@@ -238,6 +242,8 @@ public class OnlineModelManager {
         refreshAllSupportsAudio();
         // 统一刷新所有模型的 supportsVision 标记（按模型名自动推断视觉能力）
         refreshAllSupportsVision();
+        // 统一刷新所有模型的 supportsFunctionCalling 标记（按模型名自动推断 Agent 接管能力）
+        refreshAllSupportsFunctionCalling();
     }
 
     /**
@@ -258,6 +264,50 @@ public class OnlineModelManager {
         String m = modelName.toLowerCase();
         return m.contains("vl") || m.contains("vision") || m.contains("4o")
                 || m.contains("omni") || m.contains("gemini") || m.contains("glm-4v");
+    }
+
+    /**
+     * 按模型名关键词判断是否支持原生 function calling（Agent 接管模式判定用）。
+     * 名单与 OnlineAgentEngine 历史硬编码判定保持一致，收敛到此处统一维护；
+     * 未知模型保守返回 false（降级为本地辅助模式）。
+     */
+    public static boolean isFunctionCallingModelName(String modelName) {
+        if (modelName == null) return false;
+        String m = modelName.toLowerCase();
+        if (m.contains("gpt-4") || m.contains("gpt-5") || m.contains("gpt-4o")
+            || m.contains("gpt-3.5-turbo-1106") || m.contains("gpt-3.5-turbo-0125")
+            || (m.contains("gpt-3.5") && !m.contains("instruct"))
+            || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return true;
+        if (m.contains("claude-3") || m.contains("claude-sonnet") || m.contains("claude-opus")
+            || m.contains("claude-haiku") || m.contains("claude-3.5")) return true;
+        if (m.contains("deepseek-chat") || m.contains("deepseek-v2") || m.contains("deepseek-v3")
+            || m.contains("deepseek-reasoner") || m.contains("deepseek-coder")) return true;
+        if (m.contains("qwen-plus") || m.contains("qwen-max") || m.contains("qwen-turbo")
+            || m.contains("qwen2.5") || m.contains("qwen3") || m.contains("qwen-")) return true;
+        if (m.contains("glm-4") || m.contains("glm-5") || m.contains("glm4") || m.contains("glm5")) return true;
+        if (m.contains("moonshot") || m.contains("kimi") || m.contains("yi-large") || m.contains("yi-medium")) return true;
+        if (m.contains("doubao-pro") || m.contains("doubao-1")) return true;
+        if (m.contains("gemini-1.5") || m.contains("gemini-2")) return true;
+        if (m.contains("abab6") || m.contains("abab7")) return true;
+        if (m.contains("dbrx") || m.contains("command-r") || m.contains("mistral-large")
+            || m.contains("mixtral")) return true;
+        return false;
+    }
+
+    /**
+     * 刷新所有模型的 supportsFunctionCalling 标记。
+     * 按模型名关键词推断（modelName 优先，selectedModel 兜底），
+     * 使在线模型配置的 function calling 能力字段有真实值（此前恒为 false 的死字段），
+     * Agent 引擎判定接管/辅助模式时优先读该字段，模型名推断作为字段缺失时的兜底。
+     */
+    private void refreshAllSupportsFunctionCalling() {
+        for (OnlineModelConfig config : modelList) {
+            String probe = config.modelName;
+            if (!isFunctionCallingModelName(probe) && config.selectedModel != null) {
+                probe = config.selectedModel;
+            }
+            config.supportsFunctionCalling = isFunctionCallingModelName(probe);
+        }
     }
     
     /**
@@ -305,6 +355,7 @@ public class OnlineModelManager {
                 obj.put("lastUsageFetchTime", config.lastUsageFetchTime);
                 obj.put("supportsVision", config.supportsVision);
                 obj.put("supportsCode", config.supportsCode);
+                obj.put("supportsFunctionCalling", config.supportsFunctionCalling);
                 
                 // 保存使用量信息
                 if (config.usageInfo != null) {

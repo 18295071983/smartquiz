@@ -53,6 +53,77 @@ public class OnlineToolUsageTracker {
     private final AtomicInteger totalFailures = new AtomicInteger(0);
     private final AtomicLong totalExecutionTime = new AtomicLong(0);
 
+    // ==================== 持久化（跨重启保留统计，实现自进化） ====================
+
+    /** 统计持久化文件 */
+    private java.io.File statsFile;
+
+    /** 绑定持久化文件（由 OnlineToolManager 调用） */
+    public void attachStatsFile(java.io.File file) {
+        this.statsFile = file;
+        loadStats();
+    }
+
+    /** 持久化统计：共现计数（长期经验）落盘 */
+    public synchronized void persistStats() {
+        if (statsFile == null) return;
+        try {
+            org.json.JSONObject root = new org.json.JSONObject();
+            org.json.JSONObject co = new org.json.JSONObject();
+            for (Map.Entry<String, Integer> e : cooccurrenceCount.entrySet()) {
+                co.put(e.getKey(), e.getValue());
+            }
+            root.put("cooccurrence", co);
+            root.put("totalCalls", totalCalls.get());
+            root.put("totalSuccess", totalSuccess.get());
+            root.put("totalFailures", totalFailures.get());
+            java.io.FileWriter writer = new java.io.FileWriter(statsFile);
+            writer.write(root.toString());
+            writer.close();
+            AILogger.d(TAG, "Usage stats persisted: " + cooccurrenceCount.size() + " patterns");
+        } catch (Exception e) {
+            AILogger.w(TAG, "Persist usage stats failed: " + e.getMessage());
+        }
+    }
+
+    /** 启动时恢复历史统计（共现模式跨重启累积 → 组合建议越来越准） */
+    private synchronized void loadStats() {
+        if (statsFile == null || !statsFile.exists()) return;
+        try {
+            java.io.FileReader reader = new java.io.FileReader(statsFile);
+            org.json.JSONObject root = new org.json.JSONObject(new String(
+                    readAllBytes(statsFile), "UTF-8"));
+            reader.close();
+            org.json.JSONObject co = root.optJSONObject("cooccurrence");
+            if (co != null) {
+                java.util.Iterator<String> keys = co.keys();
+                while (keys.hasNext()) {
+                    String pair = keys.next();
+                    cooccurrenceCount.put(pair, co.optInt(pair, 0));
+                }
+            }
+            totalCalls.set(root.optInt("totalCalls", 0));
+            totalSuccess.set(root.optInt("totalSuccess", 0));
+            totalFailures.set(root.optInt("totalFailures", 0));
+            AILogger.i(TAG, "Usage stats restored: " + cooccurrenceCount.size() + " patterns");
+        } catch (Exception e) {
+            AILogger.w(TAG, "Load usage stats failed: " + e.getMessage());
+        }
+    }
+
+    private static byte[] readAllBytes(java.io.File file) throws java.io.IOException {
+        java.io.FileInputStream fis = new java.io.FileInputStream(file);
+        byte[] bytes = new byte[(int) file.length()];
+        int read = 0;
+        while (read < bytes.length) {
+            int r = fis.read(bytes, read, bytes.length - read);
+            if (r < 0) break;
+            read += r;
+        }
+        fis.close();
+        return bytes;
+    }
+
     // ==================== 记录 ====================
 
     /**

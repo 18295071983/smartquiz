@@ -50,15 +50,142 @@ public class OnlineToolManager {
     private final OnlineToolUsageTracker usageTracker;
     private final OnlineToolGuide guide;
 
-    // 工具结果缓存（toolName:arguments → result string）
-    private final Map<String, String> resultCache = new ConcurrentHashMap<>();
+    /** 全局实例（管理页访问统计/缓存用）；引擎创建时注入，避免重复构建 */
+    private static volatile OnlineToolManager instance;
+
+    /** 获取全局实例（不存在则创建） */
+    public static OnlineToolManager getInstance(Context context) {
+        if (instance == null) {
+            synchronized (OnlineToolManager.class) {
+                if (instance == null) {
+                    instance = new OnlineToolManager(context.getApplicationContext());
+                }
+            }
+        }
+        return instance;
+    }
+
+    /** 由引擎持有并共享（保证统计/缓存单一） */
+    public static void setInstance(OnlineToolManager manager) {
+        instance = manager;
+    }
+
+    // 工具结果缓存（toolName:arguments → 结果），带 TTL 与持久化：
+    // 只读工具（天气/搜索/图片等）结果可复用，减少重复请求；权限类动态工具跳过
+    private final Map<String, CacheEntry> resultCache = new ConcurrentHashMap<>();
+    /** 缓存有效期：5 分钟（天气/搜索等实时数据不宜过长） */
+    private static final long CACHE_TTL_MS = 5 * 60 * 1000;
+    /** 缓存最大条目数（超出淘汰最旧） */
+    private static final int CACHE_MAX_ENTRIES = 200;
+    private final java.io.File cacheFile;
 
     public OnlineToolManager(Context context) {
         this.aiToolManager = AIToolManager.getInstance(context);
         this.registry = new OnlineToolRegistry(context);
         this.chain = new OnlineToolChain(registry);
         this.usageTracker = new OnlineToolUsageTracker();
-        this.guide = new OnlineToolGuide(registry, chain);
+        // 绑定统计持久化文件：共现模式跨重启累积，实现自进化
+        this.usageTracker.attachStatsFile(new java.io.File(context.getFilesDir(), "agent_tool_stats.json"));
+        this.guide = new OnlineToolGuide(registry, chain, usageTracker);
+        this.cacheFile = new java.io.File(context.getFilesDir(), "agent_tool_cache.json");
+        loadCache();
+    }
+
+    // ==================== 工具结果缓存（TTL + 持久化） ====================
+
+    /** 缓存条目 */
+    private static class CacheEntry {
+        final String value;
+        final long timestamp;
+
+        CacheEntry(String value, long timestamp) {
+            this.value = value;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /** 读取缓存（过期返回 null） */
+    private String getCached(String cacheKey) {
+        CacheEntry entry = resultCache.get(cacheKey);
+        if (entry == null) return null;
+        if (System.currentTimeMillis() - entry.timestamp > CACHE_TTL_MS) {
+            resultCache.remove(cacheKey);
+            return null;
+        }
+        return entry.value;
+    }
+
+    /** 写入缓存（含淘汰与持久化） */
+    private void putCached(String cacheKey, String value) {
+        if (resultCache.size() >= CACHE_MAX_ENTRIES) {
+            // 淘汰最旧（ConcurrentHashMap 无序，随机移除一个）
+            String oldest = resultCache.keySet().iterator().next();
+            resultCache.remove(oldest);
+        }
+        resultCache.put(cacheKey, new CacheEntry(value, System.currentTimeMillis()));
+        persistCache();
+    }
+
+    /** 缓存持久化到磁盘（跨重启保留） */
+    private synchronized void persistCache() {
+        try {
+            org.json.JSONObject root = new org.json.JSONObject();
+            for (Map.Entry<String, CacheEntry> e : resultCache.entrySet()) {
+                org.json.JSONObject entry = new org.json.JSONObject();
+                entry.put("v", e.getValue().value);
+                entry.put("t", e.getValue().timestamp);
+                root.put(e.getKey(), entry);
+            }
+            java.io.FileWriter writer = new java.io.FileWriter(cacheFile);
+            writer.write(root.toString());
+            writer.close();
+            AILogger.d(TAG, "Tool cache persisted: " + resultCache.size() + " entries");
+        } catch (Exception e) {
+            AILogger.w(TAG, "Persist tool cache failed: " + e.getMessage());
+        }
+    }
+
+    /** 启动时从磁盘恢复缓存（跳过过期条目） */
+    private void loadCache() {
+        try {
+            if (!cacheFile.exists()) return;
+            java.io.FileReader reader = new java.io.FileReader(cacheFile);
+            org.json.JSONObject root = new org.json.JSONObject(new String(
+                    readAllBytes(cacheFile), "UTF-8"));
+            reader.close();
+            java.util.Iterator<String> keys = root.keys();
+            long now = System.currentTimeMillis();
+            int restored = 0;
+            while (keys.hasNext()) {
+                String key = keys.next();
+                try {
+                    org.json.JSONObject entry = root.optJSONObject(key);
+                    if (entry == null) continue;
+                    long ts = entry.optLong("t", 0);
+                    if (now - ts <= CACHE_TTL_MS) {
+                        resultCache.put(key, new CacheEntry(entry.optString("v", ""), ts));
+                        restored++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            AILogger.i(TAG, "Tool cache restored: " + restored + " entries");
+        } catch (Exception e) {
+            AILogger.w(TAG, "Load tool cache failed: " + e.getMessage());
+        }
+    }
+
+    private static byte[] readAllBytes(java.io.File file) throws java.io.IOException {
+        java.io.FileInputStream fis = new java.io.FileInputStream(file);
+        byte[] bytes = new byte[(int) file.length()];
+        int read = 0;
+        while (read < bytes.length) {
+            int r = fis.read(bytes, read, bytes.length - read);
+            if (r < 0) break;
+            read += r;
+        }
+        fis.close();
+        return bytes;
     }
 
     // ==================== 工具定义（委托 Registry） ====================
@@ -126,9 +253,9 @@ public class OnlineToolManager {
         // 权限工具的状态是动态的，不应缓存（避免缓存到过期结果）
         boolean isPermissionTool = "permission_manager".equals(toolName);
 
-        // 检查缓存（权限工具跳过缓存）
+        // 检查缓存（权限工具跳过缓存，带 TTL 过期）
         String cacheKey = toolName + ":" + arguments;
-        String cached = isPermissionTool ? null : resultCache.get(cacheKey);
+        String cached = isPermissionTool ? null : getCached(cacheKey);
         if (cached != null) {
             AILogger.d(TAG, "Tool cache HIT: " + toolName);
             long elapsed = 0;
@@ -173,9 +300,9 @@ public class OnlineToolManager {
                 String resultStr = formatResult(result);
                 boolean success = result.isSuccess();
 
-                // 缓存成功结果（权限工具不缓存，状态随时变化）
+                // 缓存成功结果（权限工具不缓存，状态随时变化；带 TTL 过期）
                 if (success && !isPermissionTool) {
-                    resultCache.put(cacheKey, resultStr);
+                    putCached(cacheKey, resultStr);
                 }
 
                 AILogger.i(TAG, "Tool " + toolName + " completed in " + elapsed + "ms, success=" + success
@@ -185,6 +312,8 @@ public class OnlineToolManager {
                 String summary = success ? resultStr
                     : (result.getErrorMessage() != null ? result.getErrorMessage() : "未知错误");
                 usageTracker.recordCall(toolName, arguments, success, elapsed, summary);
+                // 自进化：持久化统计（共现模式跨重启累积）
+                usageTracker.persistStats();
 
                 if (success) {
                     return OnlineToolResult.success(toolCallId, toolName, resultStr, elapsed);
@@ -266,6 +395,15 @@ public class OnlineToolManager {
      */
     public void clearCache() {
         resultCache.clear();
+        if (cacheFile != null && cacheFile.exists()) {
+            cacheFile.delete();
+        }
+        AILogger.i(TAG, "Tool cache cleared");
+    }
+
+    /** 当前缓存条目数 */
+    public int getCacheSize() {
+        return resultCache.size();
     }
 
     /**

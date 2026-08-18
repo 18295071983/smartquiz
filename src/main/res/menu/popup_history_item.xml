@@ -4,8 +4,4 @@
         android:title="打开" />
     <item android:id="@+id/menu_delete"
         android:title="删除" />
-    <item android:id="@+id/menu_share"
-        android:title="分享" />
-    <item android:id="@+id/menu_export"
-        android:title="导出" />
 </menu>

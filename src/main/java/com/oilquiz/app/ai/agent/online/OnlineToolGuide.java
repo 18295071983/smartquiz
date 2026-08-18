@@ -24,19 +24,26 @@ public class OnlineToolGuide {
 
     private final OnlineToolRegistry registry;
     private final OnlineToolChain chain;
+    private final OnlineToolUsageTracker usageTracker;
 
     /** 完整指南缓存 */
     private volatile String cachedGuide;
     private volatile int cachedToolCount = -1;
+
+    public OnlineToolGuide(OnlineToolRegistry registry, OnlineToolChain chain) {
+        this(registry, chain, null);
+    }
+
+    public OnlineToolGuide(OnlineToolRegistry registry, OnlineToolChain chain,
+                           OnlineToolUsageTracker usageTracker) {
+        this.registry = registry;
+        this.chain = chain;
+        this.usageTracker = usageTracker;
+    }
     private volatile boolean cacheDirty = true;
 
     /** 速查缓存 */
     private volatile String cachedQuickReference;
-
-    public OnlineToolGuide(OnlineToolRegistry registry, OnlineToolChain chain) {
-        this.registry = registry;
-        this.chain = chain;
-    }
 
     /** 标记缓存脏（工具或链变化时调用） */
     public void markCacheDirty() {
@@ -84,17 +91,31 @@ public class OnlineToolGuide {
             sb.append("\n");
         }
 
-        // 3. 工具组合示例（从 OnlineToolChain 获取）
+        // 3. 工具组合示例（静态链 + 学习到的历史模式）
         sb.append("【三、工具组合示例】\n");
         List<String[]> combos = chain.getCombinationPairs();
-        if (combos.isEmpty()) {
-            sb.append("  （暂无组合建议）\n\n");
-        } else {
+        if (!combos.isEmpty()) {
             for (String[] pair : combos) {
                 sb.append("  • ").append(pair[0]).append(" → ").append(pair[1]).append("\n");
             }
-            sb.append("\n");
         }
+        // 自进化：注入历史高频组合（持久化统计，跨会话累积）
+        List<OnlineToolUsageTracker.ToolPattern> learned = usageTracker != null
+                ? usageTracker.discoverPatterns() : new java.util.ArrayList<>();
+        if (!learned.isEmpty()) {
+            sb.append("  （经验提示：历史对话中以下组合效果良好，可优先参考）\n");
+            int shown = 0;
+            for (OnlineToolUsageTracker.ToolPattern p : learned) {
+                if (shown >= 5) break;
+                sb.append("  • ").append(p.toolA).append(" + ").append(p.toolB)
+                        .append("（用过 ").append(p.count).append(" 次）\n");
+                shown++;
+            }
+        }
+        if (combos.isEmpty() && learned.isEmpty()) {
+            sb.append("  （暂无组合建议）\n");
+        }
+        sb.append("\n");
 
         // 4. 错误处理指引
         sb.append("【四、错误处理】\n");

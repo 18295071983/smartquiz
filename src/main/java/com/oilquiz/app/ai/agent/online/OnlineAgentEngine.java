@@ -68,6 +68,9 @@ public class OnlineAgentEngine {
     /** 当前执行模式（每次 doExecute 开始时根据模型能力设定） */
     private volatile AgentMode agentMode = AgentMode.ASSISTED;
 
+    /** 当前会话 ID（null/空 = 默认单文件历史；非空 = 按会话隔离的历史文件） */
+    private volatile String sessionId;
+
     private AgentCallback callback;
     private InferenceProgressListener progressListener;
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
@@ -181,15 +184,27 @@ public class OnlineAgentEngine {
         // 0.5 刷新工具注册系统（必须在构建系统提示词之前，确保工具列表和指南不为空）
         toolManager.refreshRegistry();
 
-        // 1. 仅首次对话时添加系统提示词和环境上下文（连续对话时 messageHistory 非空，跳过）
-        if (messageHistory.isEmpty()) {
+        // 1. 无 system 消息时注入系统提示词和环境上下文（恢复历史时会丢弃旧 system，
+        //    保证始终使用当前版本的提示词；连续对话时已有 system，跳过）
+        if (!hasSystemMessage()) {
             String systemPrompt = agentMode == AgentMode.TAKEOVER
                 ? promptBuilder.buildSystemPromptTakeover()
                 : promptBuilder.buildSystemPrompt();
             JsonObject systemMsg = new JsonObject();
             systemMsg.addProperty("role", "system");
             systemMsg.addProperty("content", systemPrompt);
-            messageHistory.add(systemMsg);
+            // 插到最前（恢复的历史可能是 用户/助手 消息，system 必须在前）
+            messageHistory.add(0, systemMsg);
+
+            // 注入长期记忆摘要（跨会话持久化的用户偏好/事实），帮助模型"记得你"
+            String memorySummary = AgentMemoryStore.getInstance(activity).buildMemorySummary();
+            if (memorySummary != null && !memorySummary.isEmpty()) {
+                JsonObject memoryMsg = new JsonObject();
+                memoryMsg.addProperty("role", "system");
+                memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用（如需新增/更新，用 memory 工具保存）：\n" + memorySummary);
+                messageHistory.add(1, memoryMsg);
+                AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(activity).size() + " entries");
+            }
 
             // 获取环境上下文（日期、位置、天气），注入为系统消息辅助Agent思考
             notifyStep("环境感知", "正在获取位置和天气信息...");
@@ -201,8 +216,10 @@ public class OnlineAgentEngine {
                 messageHistory.add(envMsg);
                 AILogger.i(TAG, "Environment context injected: " + envContext.length() + " chars");
             }
-            AILogger.i(TAG, "New conversation started: system prompt + env context added");
+            AILogger.i(TAG, "System prompt injected: history=" + messageHistory.size() + " messages");
         } else {
+            // 已有 system：检查环境上下文日期是否过期（跨天继续对话时刷新"今天"）
+            refreshEnvIfStale();
             AILogger.i(TAG, "Continuing conversation: messageHistory size=" + messageHistory.size());
         }
 
@@ -494,10 +511,64 @@ public class OnlineAgentEngine {
         }
         int actualRemoved = cutoff - 1;
         if (actualRemoved > 0) {
+            // 短期记忆增强：将移除的旧消息压缩为摘要，替换为一条 system 摘要消息，
+            // 保留早期上下文要点（而非直接丢弃，避免长对话"失忆"）
+            String summary = buildHistorySummary(1, cutoff);
             messageHistory.subList(1, cutoff).clear();
+            if (summary != null && !summary.isEmpty()) {
+                JsonObject summaryMsg = new JsonObject();
+                summaryMsg.addProperty("role", "system");
+                summaryMsg.addProperty("content", "【对话历史摘要】以下是本对话更早内容的压缩摘要（详细内容已省略以节省上下文，回答可参考）：\n" + summary);
+                messageHistory.add(1, summaryMsg);
+            }
             AILogger.i(TAG, "Trimmed message history: removed " + actualRemoved
-                + " old messages, " + messageHistory.size() + " remaining");
+                + " old messages (summarized), " + messageHistory.size() + " remaining");
         }
+    }
+
+    /**
+     * 生成历史摘要：提取被移除范围内的 用户/助手 消息要点。
+     * 只保留首条用户消息 + 最近的几条 用户/助手 消息（含工具结果的关键信息），
+     * 丢弃中间重复与工具细节，控制摘要长度。
+     */
+    private String buildHistorySummary(int fromIndex, int toIndex) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            int userCount = 0;
+            int assistantCount = 0;
+            for (int i = fromIndex; i < toIndex && i < messageHistory.size(); i++) {
+                JsonObject msg = messageHistory.get(i);
+                String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                String content = msg.has("content") ? msg.get("content").getAsString() : "";
+                if (content == null || content.isEmpty()) continue;
+                // 只摘要 用户/助手 的正文（工具消息跳过，其信息已体现在后续助手回复中）
+                if ("user".equals(role)) {
+                    userCount++;
+                    if (userCount == 1 || i >= toIndex - 4) {
+                        // 首条用户消息（对话主题）+ 末尾最近的用户消息
+                        appendSummaryLine(sb, "用户", content);
+                    }
+                } else if ("assistant".equals(role)) {
+                    assistantCount++;
+                    if (i >= toIndex - 4) {
+                        appendSummaryLine(sb, "助手", content);
+                    }
+                }
+                if (sb.length() > 2000) break; // 摘要上限，防止摘要本身过长
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "buildHistorySummary failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void appendSummaryLine(StringBuilder sb, String who, String content) {
+        // 只取每段前 100 字符，避免工具输出/长文本撑爆摘要
+        String text = content.replace("\n", " ").trim();
+        if (text.length() > 100) text = text.substring(0, 100) + "...";
+        if (sb.length() > 0) sb.append("\n");
+        sb.append(who).append(": ").append(text);
     }
 
     /**
@@ -913,32 +984,13 @@ public class OnlineAgentEngine {
      */
     private boolean detectAgentCapability(OnlineModelManager.OnlineModelConfig cfg) {
         if (cfg == null) return false;
+        // 优先使用配置字段（由 OnlineModelManager.refreshAllSupportsFunctionCalling 按模型名推断并持久化）
+        if (cfg.supportsFunctionCalling) return true;
+        // 兜底：字段缺失（旧版本未刷新）时按模型名关键词推断
         // 优先使用 selectedModel，其次 modelName
         String model = cfg.selectedModel != null && !cfg.selectedModel.isEmpty()
             ? cfg.selectedModel : cfg.modelName;
-        if (model == null || model.isEmpty()) return false;
-
-        String m = model.toLowerCase();
-        // 已知支持 function calling 的模型族匹配
-        if (m.contains("gpt-4") || m.contains("gpt-5") || m.contains("gpt-4o")
-            || m.contains("gpt-3.5-turbo-1106") || m.contains("gpt-3.5-turbo-0125")
-            || (m.contains("gpt-3.5") && !m.contains("instruct"))
-            || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return true;
-        if (m.contains("claude-3") || m.contains("claude-sonnet") || m.contains("claude-opus")
-            || m.contains("claude-haiku") || m.contains("claude-3.5")) return true;
-        if (m.contains("deepseek-chat") || m.contains("deepseek-v2") || m.contains("deepseek-v3")
-            || m.contains("deepseek-reasoner") || m.contains("deepseek-coder")) return true;
-        if (m.contains("qwen-plus") || m.contains("qwen-max") || m.contains("qwen-turbo")
-            || m.contains("qwen2.5") || m.contains("qwen3") || m.contains("qwen-")) return true;
-        if (m.contains("glm-4") || m.contains("glm-5") || m.contains("glm4") || m.contains("glm5")) return true;
-        if (m.contains("moonshot") || m.contains("kimi") || m.contains("yi-large") || m.contains("yi-medium")) return true;
-        if (m.contains("doubao-pro") || m.contains("doubao-1")) return true;
-        if (m.contains("gemini-1.5") || m.contains("gemini-2")) return true;
-        if (m.contains("abab6") || m.contains("abab7")) return true;
-        if (m.contains("dbrx") || m.contains("command-r") || m.contains("mistral-large")
-            || m.contains("mixtral")) return true;
-        // 兜底：未知模型保守降级为辅助模式
-        return false;
+        return OnlineModelManager.isFunctionCallingModelName(model);
     }
 
     /**
@@ -1010,13 +1062,202 @@ public class OnlineAgentEngine {
         deleteHistoryFile();
     }
 
-    // ==================== 对话历史持久化（跨 Activity 重建/重启保持前缀稳定，利于缓存命中） ====================
+    /**
+     * 手动压缩对话：调用在线模型把早期对话生成摘要，替换为一条摘要消息 + 保留最近 N 条。
+     * 用于长对话节省 tokens（早期细节压缩为要点，上下文不丢失）。
+     *
+     * @param keepRecent 保留最近的对话条数（用户/助手消息，不含 system/tool）
+     * @param callback   完成回调（摘要文本或 null=失败）
+     */
+    public void compressHistory(final int keepRecent, final java.util.function.Consumer<String> callback) {
+        if (isGenerating.get()) {
+            if (callback != null) callback.accept(null);
+            return;
+        }
+        final OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
+        if (cfg == null) {
+            if (callback != null) callback.accept(null);
+            return;
+        }
 
+        executor.submit(() -> {
+            try {
+                // 1. 收集早期对话（跳过 system/记忆/env，只取 用户/助手 正文）
+                StringBuilder dialogue = new StringBuilder();
+                int userMsgCount = 0;
+                for (JsonObject msg : messageHistory) {
+                    String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                    String content = msg.has("content") ? msg.get("content").getAsString() : "";
+                    if (content == null || content.isEmpty()) continue;
+                    if ("user".equals(role)) {
+                        userMsgCount++;
+                        if (dialogue.length() > 0) dialogue.append("\n");
+                        dialogue.append("用户: ").append(truncateForSummary(content, 300));
+                    } else if ("assistant".equals(role)) {
+                        if (dialogue.length() > 0) dialogue.append("\n");
+                        dialogue.append("助手: ").append(truncateForSummary(content, 300));
+                    }
+                }
+                if (userMsgCount < 4) {
+                    // 对话太短，压缩意义不大
+                    if (callback != null) callback.accept(null);
+                    return;
+                }
+
+                // 2. 调用模型生成摘要（非流式单次请求）
+                String prompt = "请将以下AI对话压缩成一份简洁的中文摘要（保留关键信息：用户需求、结论、重要事实、未完成事项），" 
+                        + "不超过 500 字，直接输出摘要内容：\n\n" + dialogue;
+                String summary = onlineInferenceService.generateOnceAsync(prompt, cfg, 1024).get(60, java.util.concurrent.TimeUnit.SECONDS);
+                if (summary == null || summary.trim().isEmpty()) {
+                    if (callback != null) callback.accept(null);
+                    return;
+                }
+                summary = summary.trim();
+
+                // 3. 保留 system 消息 + 摘要消息 + 最近 keepRecent 条 用户/助手 消息
+                java.util.List<JsonObject> keepSystem = new java.util.ArrayList<>();
+                java.util.List<JsonObject> recent = new java.util.ArrayList<>();
+                int kept = 0;
+                for (int i = messageHistory.size() - 1; i >= 0 && kept < keepRecent; i--) {
+                    JsonObject msg = messageHistory.get(i);
+                    String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                    if ("user".equals(role) || "assistant".equals(role)) {
+                        recent.add(0, msg);
+                        kept++;
+                    }
+                }
+                java.util.List<JsonObject> newHistory = new java.util.ArrayList<>();
+                for (JsonObject msg : messageHistory) {
+                    String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                    if ("system".equals(role)) keepSystem.add(msg);
+                }
+                newHistory.addAll(keepSystem);
+                JsonObject summaryMsg = new JsonObject();
+                summaryMsg.addProperty("role", "system");
+                summaryMsg.addProperty("content", "【历史对话摘要】以下是你与用户此前对话的摘要（早期详情已压缩，回答时可参考）：\n" + summary);
+                newHistory.add(summaryMsg);
+                newHistory.addAll(recent);
+
+                messageHistory.clear();
+                messageHistory.addAll(newHistory);
+                persistHistory();
+                AILogger.i(TAG, "History compressed: " + messageHistory.size() + " messages remain (summary=" + summary.length() + " chars)");
+                if (callback != null) callback.accept(summary);
+            } catch (Exception e) {
+                AILogger.w(TAG, "compressHistory failed: " + e.getMessage());
+                if (callback != null) callback.accept(null);
+            }
+        });
+    }
+
+    private String truncateForSummary(String text, int max) {
+        if (text == null) return "";
+        String t = text.replace("\n", " ").trim();
+        return t.length() > max ? t.substring(0, max) + "..." : t;
+    }
+
+    /**
+     * 清空所有会话的历史（含内存与全部历史文件）。
+     * 用于"清空全部对话"操作（UI 层同时清空所有会话）。
+     */
+    public void clearAllHistory() {
+        messageHistory.clear();
+        thinkingChain.clear();
+        try {
+            java.io.File dir = activity.getFilesDir();
+            java.io.File[] files = dir.listFiles();
+            if (files != null) {
+                for (java.io.File f : files) {
+                    String name = f.getName();
+                    if (name.startsWith("online_agent_history") && name.endsWith(".json")) {
+                        f.delete();
+                    }
+                }
+            }
+            AILogger.i(TAG, "Cleared all agent history files");
+        } catch (Exception e) {
+            AILogger.w(TAG, "clearAllHistory failed: " + e.getMessage());
+        }
+    }
+
+    /** 当前历史是否已包含 system 消息（用于判断是否需要注入/重建系统提示词） */
+    private boolean hasSystemMessage() {
+        for (JsonObject msg : messageHistory) {
+            String role = msg.has("role") ? msg.get("role").getAsString() : "";
+            if ("system".equals(role)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 环境上下文过期刷新：跨天继续对话时，模型拿到的"当前日期"是上次对话的。
+     * 检测 env 消息（以【环境上下文】开头）中的日期，非今天则用最新环境上下文原位替换。
+     */
+    private void refreshEnvIfStale() {
+        try {
+            String today = new SimpleDateFormat("yyyy年M月d日", Locale.CHINA).format(new Date());
+            for (int i = 0; i < messageHistory.size(); i++) {
+                JsonObject msg = messageHistory.get(i);
+                String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                if ("system".equals(role)) {
+                    String content = msg.has("content") ? msg.get("content").getAsString() : "";
+                    if (content != null && content.startsWith("【环境上下文】")) {
+                        if (!content.contains(today)) {
+                            String envContext = buildEnvironmentContext();
+                            if (envContext != null && !envContext.isEmpty()) {
+                                JsonObject envMsg = new JsonObject();
+                                envMsg.addProperty("role", "system");
+                                envMsg.addProperty("content", envContext);
+                                messageHistory.set(i, envMsg);
+                                AILogger.i(TAG, "Environment context refreshed (date changed to " + today + ")");
+                            }
+                        }
+                        return; // 只处理第一个 env 消息
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "refreshEnvIfStale failed: " + e.getMessage());
+        }
+    }
+
+    // ==================== 对话历史持久化（按会话隔离，跨 Activity 重建/重启保持前缀稳定，利于缓存命中） ====================
+
+    /**
+     * 历史文件路径：非空 sessionId 时按会话隔离（online_agent_history_{id}.json），
+     * 否则使用默认文件（兼容旧版本/无会话场景）。
+     */
     private java.io.File getHistoryFile() {
+        if (sessionId != null && !sessionId.isEmpty()) {
+            String safeId = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+            return new java.io.File(activity.getFilesDir(), "online_agent_history_" + safeId + ".json");
+        }
         return new java.io.File(activity.getFilesDir(), "online_agent_history.json");
     }
 
-    /** 保存当前对话历史到私有文件 */
+    /**
+     * 设置当前会话 ID（会话切换时调用）。
+     * 保存当前会话历史 → 清空内存 → 切换目标文件 → 恢复目标会话历史。
+     * 传 null/空 表示回到默认会话。
+     */
+    public void setSessionId(String newSessionId) {
+        String old = this.sessionId;
+        boolean changed = (old == null) ? (newSessionId != null && !newSessionId.isEmpty())
+                : !old.equals(newSessionId);
+        if (!changed) return;
+
+        // 先持久化当前会话的历史，避免切换丢失
+        persistHistory();
+        this.sessionId = newSessionId;
+        // 清空并恢复目标会话历史
+        messageHistory.clear();
+        thinkingChain.clear();
+        restoreHistory();
+        AILogger.i(TAG, "Session switched: " + old + " -> " + newSessionId
+            + ", restored=" + messageHistory.size() + " messages");
+    }
+
+    /** 保存当前对话历史到私有文件（按会话隔离） */
     private void persistHistory() {
         try {
             if (messageHistory.isEmpty()) {
@@ -1031,12 +1272,18 @@ public class OnlineAgentEngine {
             java.io.FileWriter writer = new java.io.FileWriter(getHistoryFile());
             gson.toJson(arr, writer);
             writer.close();
+            AILogger.i(TAG, "Persisted agent history: " + messageHistory.size()
+                + " messages (session=" + sessionId + ")");
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to persist agent history: " + e.getMessage());
         }
     }
 
-    /** 从私有文件恢复对话历史 */
+    /**
+     * 从私有文件恢复对话历史（按会话隔离）。
+     * 丢弃旧版本 system 消息（含过期提示词与环境上下文）：
+     * 系统提示词会在下次 execute 时按当前版本重建，避免升级后旧提示词永久生效。
+     */
     private void restoreHistory() {
         try {
             java.io.File file = getHistoryFile();
@@ -1045,11 +1292,19 @@ public class OnlineAgentEngine {
             JsonArray arr = com.google.gson.JsonParser.parseReader(reader).getAsJsonArray();
             reader.close();
             messageHistory.clear();
+            int systemDiscarded = 0;
             for (int i = 0; i < arr.size(); i++) {
-                messageHistory.add(arr.get(i).getAsJsonObject());
+                JsonObject msg = arr.get(i).getAsJsonObject();
+                String role = msg.has("role") ? msg.get("role").getAsString() : "";
+                if ("system".equals(role)) {
+                    systemDiscarded++;
+                    continue; // 丢弃旧 system（提示词/环境上下文），下次 execute 重建
+                }
+                messageHistory.add(msg);
             }
             if (!messageHistory.isEmpty()) {
-                AILogger.i(TAG, "Restored agent history: " + messageHistory.size() + " messages");
+                AILogger.i(TAG, "Restored agent history: " + messageHistory.size()
+                    + " messages (session=" + sessionId + ", discarded_system=" + systemDiscarded + ")");
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to restore agent history: " + e.getMessage());

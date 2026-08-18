@@ -3210,20 +3210,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
     
     private boolean isAgentModeMessage(String messageId) {
-        // 先检查消息自身的agentMode标志
+        // 检查消息自身的 agentMode 标志（在线模型自动 Agent，不再有独立 Agent 模式）
         int position = findMessagePosition(messageId);
         if (position >= 0 && position < messages.size()) {
             ChatMessage message = messages.get(position);
             if (message != null && message.agentMode) return true;
-        }
-        // 消息可能还没添加到列表中，查询ChatOrchestrator
-        try {
-            ChatOrchestrator orchestrator = ChatOrchestrator.getInstance();
-            if (orchestrator != null) {
-                return orchestrator.isAgentMessage(messageId);
-            }
-        } catch (Exception e) {
-            // ignore
         }
         return false;
     }

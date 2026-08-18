@@ -3660,6 +3660,28 @@ public class AIService implements ComponentCallbacks2 {
         }
     }
 
+    /**
+     * 追加系统指令（用于模式切换等）：在现有 system 提示词后追加指令，
+     * 不污染对话历史、不触发生成（原实现用 chatSend 会把指令当用户消息进上下文）。
+     */
+    public boolean appendSystemInstruction(String instruction) {
+        if (instruction == null || instruction.isEmpty()) return false;
+        synchronized (chatContextLock) {
+            try {
+                String current = chatSystemPrompt != null ? chatSystemPrompt : "";
+                String updated = current.isEmpty() ? instruction : current + "\n\n" + instruction;
+                boolean ok = updateChatPrompts(null, updated, null);
+                if (ok) {
+                    chatSystemPrompt = updated;
+                }
+                return ok;
+            } catch (Exception e) {
+                AILogger.e(TAG, "Error appending system instruction: " + e.getMessage(), e);
+                return false;
+            }
+        }
+    }
+
     public void clearChatContext() {
         synchronized (chatContextLock) {
             try {
@@ -3899,25 +3921,6 @@ public class AIService implements ComponentCallbacks2 {
                 if (callback != null) {
                     mainHandler.post(() -> callback.onError("生成失败，可能是内存或模型问题"));
                 }
-            }
-        });
-    }
-
-    private void fallbackToSimpleGenerate(String message, int maxTokens, boolean enableThinking, LlamaHelper.TokenCallback callback) {
-        AILogger.i(TAG, "Fallback to generateStream: messageLen=" + message.length() + ", maxTokens=" + maxTokens);
-        List<PromptBuilder.Message> history = new ArrayList<>();
-        generateStream(message, history, maxTokens, new GenerateStreamCallback() {
-            @Override
-            public void onToken(String token) {
-                if (callback != null) callback.onToken(token);
-            }
-            @Override
-            public void onSuccess(String fullText) {
-                if (callback != null) callback.onComplete(fullText);
-            }
-            @Override
-            public void onError(Exception e) {
-                if (callback != null) callback.onError(e != null ? e.getMessage() : "Unknown error");
             }
         });
     }

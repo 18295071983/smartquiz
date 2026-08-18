@@ -43,9 +43,14 @@ public class OnlinePromptBuilder {
 
         sb.append(buildComponentGuideSection());
 
+        sb.append("【图片生成】\n");
+        sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，无需拼接 URL）；\n");
+        sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 open_url 这种绕路方式。\n\n");
+
         sb.append("【输出要求】\n");
         sb.append("- 用中文回答用户问题\n");
         sb.append("- 回答要简洁、准确、有条理\n");
+        sb.append("- 倾向用 UI 组件输出信息：凡是有结构的内容（列表、表格、指标、步骤、待办、联系方式、题目、天气、文件、代码等），优先输出组件标记渲染成卡片（见下方组件清单），而不是普通文本或 Markdown 表格\n");
         sb.append("- 如果使用了工具，在回答中自然地融入工具结果\n");
         sb.append("- 如果工具失败，向用户说明原因并提供替代建议\n\n");
 
@@ -89,7 +94,9 @@ public class OnlinePromptBuilder {
         sb.append("【输出要求】\n");
         sb.append("- 用中文回答用户问题\n");
         sb.append("- 回答要简洁、准确、有条理\n");
+        sb.append("- 倾向用 UI 组件输出信息：凡是有结构的内容（列表、表格、指标、步骤、待办、联系方式、题目、天气、文件、代码等），优先输出组件标记渲染成卡片（见下方组件清单），而不是普通文本或 Markdown 表格\n");
         sb.append("- 如果使用了工具，在回答中自然地融入工具结果\n");
+        sb.append("- 用户要求生成图片时优先调用 image_gen（自动内联显示），或输出 image_grid 组件标记展示；避免用 python_execute/open_url 绕路\n");
 
         sb.append(buildComponentGuideSection());
 
@@ -99,19 +106,34 @@ public class OnlinePromptBuilder {
     /**
      * 构建富内容组件渲染指引。
      *
-     * 告知模型可用的 UI 组件及内容流标记格式（```component:xxx {json}```），
+     * 告知模型可用的全部 UI 组件及内容流标记格式（```component:xxx {json}```），
      * 界面会将标记渲染为对应组件并插入到标记所在位置（插入式、流式生效）。
      */
     private String buildComponentGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【富内容组件】结构化数据用组件标记展示（工具结果会自动附加组件，无需手动输出）：\n");
-        sb.append("```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
-        sb.append("```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
-        sb.append("```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
-        sb.append("```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
-        sb.append("```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
-        sb.append("```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
-        sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n\n");
+        sb.append("\n【富内容组件】这是你的 UI 组件库：有结构的信息一律倾向用组件标记展示（```component:类型 {json}```），界面自动渲染为卡片，比纯文本更美观易读：\n");
+        sb.append("1. chart 图表: ```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
+        sb.append("2. info_card 信息卡: ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
+        sb.append("3. table_card 表格: ```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
+        sb.append("4. image_grid 图片网格: ```component:image_grid\\n{\"images\":[\"url1\",\"url2\"],\"columns\":2}```（图片生成工具会自动附加，也可手动输出）\n");
+        sb.append("5. link_card 链接: ```component:link_card\\n{\"url\":\"https://...\",\"title\":\"标题\",\"description\":\"描述\"}```\n");
+        sb.append("6. list_card 列表: ```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
+        sb.append("7. alert_card 提示: ```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
+        sb.append("8. metric_card 指标: ```component:metric_card\\n{\"title\":\"标题\",\"metrics\":[{\"label\":\"标签\",\"value\":\"值\",\"color\":\"success|warning|error|info\"}]}```\n");
+        sb.append("9. json_viewer JSON: ```component:json_viewer\\n{\"title\":\"标题\",\"data\":{...},\"maxHeight\":200}```\n");
+        sb.append("10. steps_card 步骤: ```component:steps_card\\n{\"title\":\"标题\",\"steps\":[{\"status\":\"done|current|failed|todo\",\"title\":\"步骤\",\"description\":\"描述\"}]}```\n");
+        sb.append("11. note_card 引用/备注: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"内容\",\"author\":\"作者\"}```\n");
+        sb.append("12. file_list 文件列表: ```component:file_list\\n{\"title\":\"标题\",\"files\":[{\"name\":\"文件名\",\"path\":\"/路径\",\"size\":\"大小\",\"type\":\"file|dir\"}]}```\n");
+        sb.append("13. grid_card 宫格: ```component:grid_card\\n{\"title\":\"标题\",\"columns\":3,\"items\":[{\"icon\":\"📁\",\"label\":\"标签\"}]}```\n");
+        sb.append("14. contact_card 联系方式: ```component:contact_card\\n{\"type\":\"phone|sms|email\",\"title\":\"标题\",\"value\":\"号码或地址\",\"description\":\"说明\"}```\n");
+        sb.append("15. todo_card 待办: ```component:todo_card\\n{\"title\":\"标题\",\"items\":[{\"done\":false,\"text\":\"任务\"}]}```\n");
+        sb.append("16. quiz_card 题目: ```component:quiz_card\\n{\"type\":\"single|multiple|judge\",\"question\":\"题干\",\"options\":[\"A. xxx\",\"B. xxx\"],\"answer\":\"答案\",\"analysis\":\"解析\"}```\n");
+        sb.append("17. weather_card 天气: ```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
+        sb.append("18. file_card 单个文件: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"content://...\",\"path\":\"/路径\"}```\n");
+        sb.append("19. code_card 代码块: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码\",\"title\":\"标题\"}```\n");
+        sb.append("20. progress_card 进度: ```component:progress_card\\n{\"title\":\"标题\",\"progress\":60,\"description\":\"描述\",\"status\":\"状态\"}```\n");
+        sb.append("21. tool_call 工具调用过程（由系统自动附加，无需手动输出）\n");
+        sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表/步骤/待办/指标等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n\n");
         return sb.toString();
     }
 

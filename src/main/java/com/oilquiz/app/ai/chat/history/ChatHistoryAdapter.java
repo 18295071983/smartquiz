@@ -39,8 +39,6 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         void onItemClick(ConversationSession session);
         void onItemLongClick(ConversationSession session);
         void onItemDelete(ConversationSession session);
-        void onItemShare(ConversationSession session);
-        void onItemExport(ConversationSession session);
         void onClearAllHistory();
     }
 
@@ -49,6 +47,8 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     private final OnHistoryItemClickListener clickListener;
     private final SimpleDateFormat dateFormat;
     private final SimpleDateFormat timeFormat;
+    /** 当前会话 ID（用于高亮"当前"项），null = 无当前会话 */
+    private String currentSessionId;
 
     public ChatHistoryAdapter(Context context, List<ConversationSession> sessions,
                               OnHistoryItemClickListener listener) {
@@ -57,6 +57,16 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         this.dateFormat = new SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault());
         this.timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
         this.items = groupByDate(sessions);
+    }
+
+    /** 设置当前会话 ID（列表刷新后高亮对应项） */
+    public void setCurrentSessionId(String sessionId) {
+        this.currentSessionId = sessionId;
+    }
+
+    /** 当前会话是否高亮显示 */
+    private boolean isCurrentSession(ConversationSession session) {
+        return currentSessionId != null && currentSessionId.equals(session.id);
     }
 
     /** 按日期分组会话 */
@@ -119,8 +129,8 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         // 标题
         holder.previewText.setText(session.title != null ? session.title : "新对话");
 
-        // 时间
-        holder.timeText.setText(timeFormat.format(new Date(session.updatedAt)));
+        // 时间：今天显示 HH:mm，昨天显示"昨天 HH:mm"，更早显示日期
+        holder.timeText.setText(formatItemTime(session.updatedAt));
 
         // 消息数
         holder.messageCountText.setText(String.format(Locale.getDefault(), "%d条消息", session.getMessageCount()));
@@ -128,8 +138,13 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         // 图标
         holder.iconText.setText("💬");
 
-        // 持续时间
-        holder.durationText.setVisibility(View.GONE);
+        // 当前会话高亮：背景 + "当前"标签
+        boolean isCurrent = isCurrentSession(session);
+        holder.cardView.setCardBackgroundColor(context.getColor(
+                isCurrent ? R.color.primary_container : R.color.surface));
+        if (holder.currentTag != null) {
+            holder.currentTag.setVisibility(isCurrent ? View.VISIBLE : View.GONE);
+        }
 
         // 点击切换
         holder.itemView.setOnClickListener(v -> {
@@ -141,6 +156,18 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             showPopupMenu(v, session);
             return true;
         });
+    }
+
+    /** 条目时间：今天→HH:mm，昨天→"昨天"，更早→M月d日 */
+    private String formatItemTime(long updatedAt) {
+        Calendar item = Calendar.getInstance();
+        item.setTimeInMillis(updatedAt);
+        Calendar today = Calendar.getInstance();
+        Calendar yesterday = Calendar.getInstance();
+        yesterday.add(Calendar.DAY_OF_MONTH, -1);
+        if (isSameDay(item, today)) return timeFormat.format(new Date(updatedAt));
+        if (isSameDay(item, yesterday)) return "昨天 " + timeFormat.format(new Date(updatedAt));
+        return new SimpleDateFormat("M月d日", Locale.getDefault()).format(new Date(updatedAt));
     }
 
     private String formatDateHeader(Date date) {
@@ -171,12 +198,6 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 return true;
             } else if (id == R.id.menu_delete) {
                 showDeleteConfirmDialog(session);
-                return true;
-            } else if (id == R.id.menu_share) {
-                if (clickListener != null) clickListener.onItemShare(session);
-                return true;
-            } else if (id == R.id.menu_export) {
-                if (clickListener != null) clickListener.onItemExport(session);
                 return true;
             }
             return false;
@@ -227,7 +248,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         TextView previewText;
         TextView timeText;
         TextView messageCountText;
-        TextView durationText;
+        TextView currentTag;
         ImageView arrowIcon;
 
         HistoryViewHolder(@NonNull View itemView) {
@@ -237,7 +258,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             previewText = itemView.findViewById(R.id.history_preview_text);
             timeText = itemView.findViewById(R.id.history_time_text);
             messageCountText = itemView.findViewById(R.id.history_message_count);
-            durationText = itemView.findViewById(R.id.history_duration);
+            currentTag = itemView.findViewById(R.id.history_current_tag);
             arrowIcon = itemView.findViewById(R.id.history_arrow);
         }
     }
