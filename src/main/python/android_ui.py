@@ -50,7 +50,11 @@ def _do_ui_action(action):
         return {'success': False, 'message': 'UI callback not set'}
     
     try:
-        result = _ui_callback(action)
+        # 兼容两种回调形式：Java 对象方法 handle(action) / Python 可调用对象 (action)
+        if hasattr(_ui_callback, 'handle'):
+            result = _ui_callback.handle(action)
+        else:
+            result = _ui_callback(action)
         return result if isinstance(result, dict) else {'success': True, 'result': result}
     except Exception as e:
         return {'success': False, 'message': str(e)}

@@ -69,6 +69,19 @@ public class PythonToolManager {
                 Log.e(TAG, "Failed to get AI tool instance - get_ai_tool returned null");
                 return false;
             }
+
+            // 注入 UI 动作回调：Python 代码里 show_toast/show_dialog/update_progress 等
+            // 通过 android_ui 模块转发到 Java 执行（Toast/Dialog/日志），不再空转
+            try {
+                PyObject uiModule = python.getModule("android_ui");
+                if (uiModule != null) {
+                    uiModule.callAttr("set_ui_callback",
+                            PyObject.fromJava(new AndroidUiActionHandler()));
+                    Log.i(TAG, "Android UI callback injected");
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "注入 UI 回调失败(不影响执行): " + t.getMessage());
+            }
             
             initialized = true;
             Log.i(TAG, "Python tool manager initialized successfully");
@@ -567,6 +580,88 @@ public class PythonToolManager {
                     ", filename='" + filename + '\'' +
                     ", modified='" + modified + '\'' +
                     '}';
+        }
+    }
+
+    /**
+     * Python UI 动作处理器（注入 android_ui.set_ui_callback）。
+     * Python 代码 show_toast/show_dialog/update_progress/notify_java 的 action dict
+     * 由 Chaquopy 以 PyObject 传入，本类在主线程执行 Toast/日志，返回执行结果 dict。
+     */
+    public class AndroidUiActionHandler {
+
+        public Object handle(PyObject action) {
+            Map<String, Object> reply = new HashMap<>();
+            try {
+                String type = "", message = "", title = "", duration = "short", eventType = "";
+                int current = 0, total = 0;
+                if (action != null) {
+                    Map<PyObject, PyObject> m = action.asMap();
+                    for (Map.Entry<PyObject, PyObject> e : m.entrySet()) {
+                        String k = e.getKey() == null ? "" : e.getKey().toString();
+                        String v = e.getValue() == null ? "" : e.getValue().toString();
+                        switch (k) {
+                            case "type": type = v; break;
+                            case "message": message = v; break;
+                            case "title": title = v; break;
+                            case "duration": duration = v; break;
+                            case "event_type": eventType = v; break;
+                            case "current": current = parseInt(v); break;
+                            case "total": total = parseInt(v); break;
+                            default: break;
+                        }
+                    }
+                }
+                switch (type) {
+                    case "toast":
+                        showToast(message, "long".equalsIgnoreCase(duration));
+                        break;
+                    case "dialog":
+                        // 无 Activity 上下文，对话框降级为 Toast 提示（标题+内容）
+                        showToast((title != null && !title.isEmpty() ? title + "：" : "") + message, true);
+                        Log.i(TAG, "[Python dialog] " + title + " - " + message);
+                        break;
+                    case "progress":
+                        Log.i(TAG, "[Python progress] " + current + "/" + total + " " + message);
+                        break;
+                    case "java_event":
+                        Log.i(TAG, "[Python event] " + eventType + " " + message);
+                        break;
+                    default:
+                        Log.i(TAG, "[Python UI] unknown action: " + type);
+                        break;
+                }
+                reply.put("success", true);
+                reply.put("result", "executed");
+                reply.put("message", "UI 动作已执行: " + type);
+            } catch (Throwable t) {
+                Log.w(TAG, "处理 Python UI 动作失败: " + t.getMessage());
+                reply.put("success", false);
+                reply.put("message", "UI 动作处理失败: " + t.getMessage());
+            }
+            return reply;
+        }
+
+        private void showToast(String msg, boolean longDuration) {
+            if (msg == null || msg.isEmpty()) return;
+            android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+            main.post(() -> {
+                try {
+                    android.widget.Toast.makeText(context, msg,
+                            longDuration ? android.widget.Toast.LENGTH_LONG : android.widget.Toast.LENGTH_SHORT)
+                            .show();
+                } catch (Throwable ignored) {
+                }
+            });
+        }
+
+        private int parseInt(String v) {
+            try {
+                // Python float/int toString 可能带 .0
+                return (int) Double.parseDouble(v.trim());
+            } catch (Exception e) {
+                return 0;
+            }
         }
     }
 }
