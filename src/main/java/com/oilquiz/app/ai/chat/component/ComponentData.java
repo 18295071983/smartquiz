@@ -161,8 +161,11 @@ public class ComponentData {
             if (start < 0 || end <= start) return null;
             cleaned = cleaned.substring(start, end + 1);
 
-            // 2. 单引号 → 双引号（容错：模型常输出单引号）
-            cleaned = cleaned.replace('\'', '"');
+            // 2. 智能引号修复：扫描式处理（关键！不能全局 replace 单引号——会破坏
+            //    html/content 等字符串值内部的单引号，如 <div style='color:red'>）。
+            //    只把「字符串边界」统一为双引号，字符串内部原样保留；
+            //    单引号字符串内部的未转义双引号自动转义。
+            cleaned = fixQuotes(cleaned);
 
             // 3. 属性名补引号：{key:value 或 ,key:value → {"key":value
             //    仅匹配「冒号前紧跟字母/下划线」的未加引号键（已加引号的键不受影响）
@@ -187,5 +190,49 @@ public class ComponentData {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 扫描式引号修复：字符串边界统一为双引号，字符串内部内容原样保留。
+     * - 字符串外的 ' 或 " 作为边界 → 输出双引号
+     * - 单引号字符串内的未转义双引号 → 转义为 \"
+     * - 双引号字符串内的单引号 → 原样保留（html 属性如 style='color:red'）
+     * - 转义序列（\\ 与 \x）跳过
+     */
+    private static String fixQuotes(String s) {
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        boolean inString = false;
+        boolean escaped = false;
+        char quoteChar = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (inString) {
+                if (escaped) {
+                    sb.append(c);
+                    escaped = false;
+                } else if (c == '\\') {
+                    sb.append(c);
+                    escaped = true;
+                } else if (c == quoteChar) {
+                    // 边界闭合 → 双引号
+                    inString = false;
+                    sb.append('"');
+                } else if (c == '"' && quoteChar == '\'') {
+                    // 单引号字符串内的双引号（未转义）→ 转义
+                    sb.append("\\\"");
+                } else {
+                    sb.append(c);
+                }
+            } else {
+                if (c == '\'' || c == '"') {
+                    inString = true;
+                    quoteChar = c;
+                    sb.append('"');
+                } else {
+                    sb.append(c);
+                }
+            }
+        }
+        return sb.toString();
     }
 }
