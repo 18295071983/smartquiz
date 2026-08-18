@@ -96,8 +96,12 @@ public class ComponentContentSplitter {
                 matched = true;
                 appendTextBefore(segments, content, lastEnd, loose.start());
                 String type = loose.group(1);
+                String rawBody = loose.group(2);
                 org.json.JSONObject props = ComponentData.parseJsonObject(
-                        extractJsonBody(loose.group(2)));
+                        extractJsonBody(rawBody));
+                if (props == null) {
+                    props = htmlBodyFallback(rawBody);
+                }
                 if (props == null) props = new org.json.JSONObject();
                 segments.add(Segment.component(new ComponentData(type, props)));
                 lastEnd = loose.end();
@@ -129,14 +133,42 @@ public class ComponentContentSplitter {
     /**
      * 从标记内容（group 捕获的 {json} 原始文本）解析组件 props。
      * 用大括号配对找到完整 JSON 主体，兼容多行、内部嵌套。
+     * JSON 解析失败但内容本身像 HTML 时（Agent 直接把 HTML 写在组件 body，
+     * 未包成 {"html": ...} JSON 对象），自动包装为 {"html": body} 供 html 组件渲染。
      */
     private static void addComponentSegment(List<Segment> segments, String type, String rawBody) {
         String body = rawBody != null ? rawBody.trim() : "";
         // 提取完整 {json} 主体（大括号配对，容忍开头说明文字）
         String json = extractJsonBody(body);
         org.json.JSONObject props = ComponentData.parseJsonObject(json);
+        if (props == null) {
+            props = htmlBodyFallback(body);
+        }
         if (props == null) props = new org.json.JSONObject();
         segments.add(Segment.component(new ComponentData(type, props)));
+    }
+
+    /**
+     * HTML body 兜底：内容不是 JSON 对象但看起来是 HTML（含标签/文档声明），
+     * 包装为 {"html": body}。返回 null 表示无法识别为 HTML。
+     */
+    private static org.json.JSONObject htmlBodyFallback(String body) {
+        if (body == null || body.isEmpty()) return null;
+        String t = body.trim();
+        boolean looksHtml = t.startsWith("<!DOCTYPE") || t.startsWith("<html")
+                || t.startsWith("<div") || t.startsWith("<h1") || t.startsWith("<h2")
+                || t.startsWith("<h3") || t.startsWith("<p") || t.startsWith("<ul")
+                || t.startsWith("<ol") || t.startsWith("<table") || t.startsWith("<span")
+                || t.startsWith("<section") || t.startsWith("<style") || t.startsWith("<script")
+                || t.contains("</") || t.matches("(?s)<\\s*[a-zA-Z]+[^>]*>.*");
+        if (!looksHtml) return null;
+        org.json.JSONObject props = new org.json.JSONObject();
+        try {
+            props.put("html", t);
+            return props;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

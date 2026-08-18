@@ -138,17 +138,25 @@ public class HtmlCardView implements ChatComponent {
             }
         });
 
-        // 包裹完整 HTML：基础样式适配深色/浅色背景
-        String fullHtml = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
-                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
-                + "<style>html,body{margin:0;padding:0;background:transparent;}"
-                + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
-                + "color:#333333;word-break:break-word;padding:2px;}"
-                + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
-                + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
-                + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
-                + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
-                + "</style></head><body>" + html + "</body></html>";
+        // 包裹完整 HTML：基础样式适配浅色卡片背景。
+        // Agent 输出完整文档（含 <!DOCTYPE>/<html>）时直接加载，不重复嵌套
+        String lowerHtml = html.toLowerCase();
+        boolean isFullDocument = lowerHtml.contains("<!doctype") || lowerHtml.contains("<html");
+        String fullHtml;
+        if (isFullDocument) {
+            fullHtml = html;
+        } else {
+            fullHtml = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
+                    + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
+                    + "<style>html,body{margin:0;padding:0;background:transparent;}"
+                    + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
+                    + "color:#333333;word-break:break-word;padding:2px;}"
+                    + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
+                    + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
+                    + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
+                    + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
+                    + "</style></head><body>" + html + "</body></html>";
+        }
         webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
 
         card.addView(webView, new LinearLayout.LayoutParams(
