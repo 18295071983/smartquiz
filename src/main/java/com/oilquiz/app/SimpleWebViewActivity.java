@@ -76,6 +76,31 @@ public class SimpleWebViewActivity extends BaseActivity {
 
         // 设置 WebViewClient，防止跳转到系统浏览器
         webView.setWebViewClient(new WebViewClient() {
+            // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                return handleUrl(request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null);
+            }
+
+            private boolean handleUrl(String url) {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    try {
+                        startActivity(new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+                    } catch (Exception e) {
+                        Log.e(TAG, "打开链接失败: " + url + " - " + e.getMessage());
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
@@ -105,11 +130,37 @@ public class SimpleWebViewActivity extends BaseActivity {
     }
 
     /**
-     * 加载 HTML 文件
+     * 加载 HTML 文件：读取内容后用 loadDataWithBaseURL 渲染
+     * （baseUrl 指向文件目录，相对路径资源可正常加载；与聊天内预览渲染方式一致）。
      */
     private void loadHtml() {
         Log.i(TAG, "Loading HTML from: " + htmlPath);
-        webView.loadUrl("file://" + htmlPath);
+        try {
+            java.io.File f = new java.io.File(htmlPath);
+            StringBuilder sb = new StringBuilder();
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            reader.close();
+            String content = sb.toString();
+            if (content.trim().isEmpty()) {
+                webView.loadDataWithBaseURL(null, "<html><body><h1>空文件</h1></body></html>",
+                        "text/html", "UTF-8", null);
+                return;
+            }
+            // baseUrl 指向文件所在目录（末尾补 /），相对路径图片/资源可加载
+            String dir = f.getParent();
+            String baseUrl = "file://" + dir + (dir.endsWith("/") ? "" : "/");
+            webView.loadDataWithBaseURL(baseUrl, content, "text/html", "UTF-8", null);
+        } catch (Exception e) {
+            Log.e(TAG, "读取 HTML 文件失败: " + e.getMessage(), e);
+            webView.loadDataWithBaseURL(null,
+                    "<html><body><h1>加载失败</h1><p>" + e.getMessage() + "</p></body></html>",
+                    "text/html", "UTF-8", null);
+        }
     }
 
     @Override
