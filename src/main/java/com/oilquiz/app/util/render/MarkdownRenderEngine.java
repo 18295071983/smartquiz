@@ -38,31 +38,14 @@ public class MarkdownRenderEngine implements FileRenderEngine {
     
     @Override
     public void render(File file, RenderCallback callback) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            StringBuilder content = new StringBuilder();
-            String line;
-            int lineCount = 0;
-            int contentLength = 0;
-            
-            // 读取文件内容
-            while ((line = reader.readLine()) != null && lineCount < MAX_LINES && contentLength < MAX_CONTENT_LENGTH) {
-                content.append(line).append("\n");
-                lineCount++;
-                contentLength += line.length() + 1;
-                
-                // 更新进度
-                int progress = Math.min(100, (lineCount * 100) / MAX_LINES);
-                callback.onProgress(progress);
-            }
-            
-            if (line != null) {
-                content.append("... 还有更多内容未显示\n");
-            }
-            
-            // 转换Markdown到HTML
-            String markdownContent = content.toString();
+        try {
+            // UTF-8 优先，GBK 回退（FileEncodingUtil 处理编码探测）
+            String markdownContent = FileEncodingUtil.readText(file, MAX_CONTENT_LENGTH);
+            int lineCount = markdownContent.split("\n", -1).length;
+
+            // 转换Markdown到HTML（flexmark 标准渲染）
             String htmlContent = convertMarkdownToHtml(markdownContent);
-            
+
             // 收集文件信息
             Map<String, Object> markdownInfo = new HashMap<>();
             markdownInfo.put("content", markdownContent);
@@ -70,10 +53,10 @@ public class MarkdownRenderEngine implements FileRenderEngine {
             markdownInfo.put("lineCount", lineCount);
             markdownInfo.put("fileSize", file.length() / 1024 + "KB");
             markdownInfo.put("fileName", file.getName());
-            
+
             callback.onProgress(100);
             callback.onSuccess(markdownInfo);
-            
+
         } catch (IOException e) {
             Log.e(TAG, "Error rendering Markdown file: " + e.getMessage(), e);
             callback.onError("渲染失败: " + e.getMessage());

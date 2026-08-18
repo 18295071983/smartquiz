@@ -105,7 +105,7 @@ public class CSVRenderEngine implements FileRenderEngine {
                 for (int i = 0; i < maxCols; i++) {
                     htmlContent.append("<td>");
                     if (i < row.length) {
-                        htmlContent.append(row[i]);
+                        htmlContent.append(FileEncodingUtil.escapeHtml(row[i]));
                     }
                     htmlContent.append("</td>");
                 }
