@@ -121,6 +121,8 @@ public class ImportMain {
     private volatile int excelSheetIndex = -1;
     /** 批量模式标志：缺字段报告由批量入口统一生成一次，避免逐文件重复扫描 */
     private volatile boolean batchMode = false;
+    /** 缺失字段智能填充开关：默认开启；关闭后缺失字段留空直接入库（导入更快，不调用 LLM） */
+    private volatile boolean fillEnabled = true;
     /** 多工作表模式标志：每 sheet 完成只累计统计不发 onComplete，全部完成后汇总一次 */
     private volatile boolean multiSheetMode = false;
     /** 多工作表累计统计 */
@@ -160,6 +162,14 @@ public class ImportMain {
      */
     public void setExcelSheetIndex(int sheetIndex) {
         this.excelSheetIndex = sheetIndex;
+    }
+
+    /**
+     * 设置缺失字段智能填充开关。
+     * @param enabled true=用 LLM 补全缺失的题型/难度/分类/解析（默认）；false=缺失留空直接入库
+     */
+    public void setFillEnabled(boolean enabled) {
+        this.fillEnabled = enabled;
     }
 
     public void run(File sourceFile, ImportListener listener) {
@@ -540,11 +550,14 @@ public class ImportMain {
         try {
             JSONArray missingArr = parseResult.optJSONArray("missing");
             List<String> fillableCols = buildFillableColumns();
-            if (missingArr != null && missingArr.length() > 0 && !fillableCols.isEmpty()) {
+            if (missingArr != null && missingArr.length() > 0 && !fillableCols.isEmpty()
+                    && fillEnabled) {
                 // Python 已按 fill_fields 收集缺失行；仅当映射中存在可填充列时处理
                 emitStage(listener, "fill", "智能填充缺失字段(" + missingArr.length() + " 题)...");
                 fillMissingFieldsWithContext(missingArr, listener);
                 emitLog(listener, "缺失字段智能填充完成");
+            } else if (missingArr != null && missingArr.length() > 0 && !fillableCols.isEmpty()) {
+                emitLog(listener, "智能填充已关闭，缺失字段留空直接入库");
             } else {
                 emitLog(listener, "无缺失字段或源文件无可填充列，跳过填充");
             }
