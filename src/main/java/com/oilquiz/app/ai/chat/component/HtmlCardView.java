@@ -93,14 +93,38 @@ public class HtmlCardView implements ChatComponent {
         webView.getSettings().setUseWideViewPort(false);
         webView.setWebChromeClient(new WebChromeClient());
 
-        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击/JS 交互
+        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
+        final String htmlFinal = html;
+        final String titleFinal = title;
+        final long[] downTime = {0};
+        final float[] downPos = {0, 0};
+        final int touchSlop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         webView.setOnTouchListener((v, event) -> {
             if (v.getParent() != null) {
                 v.getParent().requestDisallowInterceptTouchEvent(true);
             }
-            return false; // 不消费事件，由 WebView 自身处理
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    downTime[0] = event.getEventTime();
+                    downPos[0] = event.getX();
+                    downPos[1] = event.getY();
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                    float dx = event.getX() - downPos[0];
+                    float dy = event.getY() - downPos[1];
+                    long dt = event.getEventTime() - downTime[0];
+                    // 轻点（位移小、时间短）→ 打开全屏页完整查看/交互
+                    if (Math.abs(dx) < touchSlop && Math.abs(dy) < touchSlop && dt < 500) {
+                        openFullScreen(context, htmlFinal, titleFinal);
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return false; // 不消费事件，由 WebView 自身处理滚动
         });
 
         // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
@@ -111,33 +135,16 @@ public class HtmlCardView implements ChatComponent {
 
         final WebView wvRef = webView;
         webView.setWebViewClient(new WebViewClient() {
-            // 链接点击：http/https 用系统浏览器打开，其余（js: 等）放行给 WebView
+            // 预览内所有点击统一打开全屏页：阻止 WebView 内部导航
+            // （链接点击也走全屏，全屏页内再处理链接跳转/JS 交互）
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleExternalUrl(url);
+                return true;
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                return handleExternalUrl(request != null && request.getUrl() != null
-                        ? request.getUrl().toString() : null);
-            }
-
-            private boolean handleExternalUrl(String url) {
-                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                    try {
-                        android.content.Intent i = new android.content.Intent(
-                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
-                        if (!(context instanceof android.app.Activity)) {
-                            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                        }
-                        context.startActivity(i);
-                    } catch (Exception e) {
-                        Log.w("HtmlCardView", "打开链接失败: " + url + " - " + e.getMessage());
-                    }
-                    return true;
-                }
-                return false;
+                return true;
             }
 
             @Override
@@ -201,6 +208,43 @@ public class HtmlCardView implements ChatComponent {
         Log.i("HtmlCardView", "html component created (WebView), htmlLen=" + html.length()
                 + ", title=" + (title == null ? "" : title));
         return card;
+    }
+
+    /**
+     * 点击组件 → 打开全屏页完整查看/交互：
+     * HTML 写入临时文件，交给 SimpleWebViewActivity（现成全屏 WebView 查看器，
+     * 支持 JS/缩放/链接跳转）。
+     */
+    private static void openFullScreen(Context context, String html, String title) {
+        try {
+            if (html == null || html.isEmpty()) return;
+            java.io.File dir = new java.io.File(context.getCacheDir(), "html_preview");
+            if (!dir.exists() && !dir.mkdirs()) {
+                Log.w("HtmlCardView", "无法创建预览目录");
+                return;
+            }
+            java.io.File f = new java.io.File(dir,
+                    "preview_" + System.currentTimeMillis() + ".html");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+            try {
+                fos.write(html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } finally {
+                fos.close();
+            }
+            android.content.Intent intent = new android.content.Intent(context,
+                    com.oilquiz.app.SimpleWebViewActivity.class);
+            intent.putExtra("html_path", f.getAbsolutePath());
+            if (title != null && !title.isEmpty()) {
+                intent.putExtra("title", title);
+            }
+            if (!(context instanceof android.app.Activity)) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            context.startActivity(intent);
+            Log.i("HtmlCardView", "opened full screen: " + f.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w("HtmlCardView", "打开全屏失败: " + e.getMessage());
+        }
     }
 
     private static android.graphics.drawable.Drawable cardBackground(Context context) {
