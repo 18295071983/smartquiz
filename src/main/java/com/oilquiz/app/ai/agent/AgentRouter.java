@@ -105,6 +105,14 @@ public class AgentRouter {
         return onlineEngine != null ? onlineEngine.getLastCacheHitTokens() : 0;
     }
 
+    public int getLastPromptTokens() {
+        return onlineEngine != null ? onlineEngine.getLastPromptTokens() : 0;
+    }
+
+    public int getLastCompletionTokens() {
+        return onlineEngine != null ? onlineEngine.getLastCompletionTokens() : 0;
+    }
+
     public void shutdown() {
         if (onlineEngine != null) {
             onlineEngine.shutdown();

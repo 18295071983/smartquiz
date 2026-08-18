@@ -1689,9 +1689,8 @@ public class OnlineInferenceService {
                     if (json.has("usage") && !json.get("usage").isJsonNull()) {
                         try {
                             JsonObject usage = json.getAsJsonObject("usage");
-                            // 各服务商 token 计数字段兼容：
-                            // OpenAI 系: prompt_tokens/completion_tokens/total_tokens
-                            // Anthropic: input_tokens/output_tokens
+                            // 调试：打印原始 usage 结构（确认服务商字段名，正式可移除）
+                            AILogger.i(TAG, "API usage raw: " + usage.toString());
                             int promptTokens = firstInt(usage, "prompt_tokens", "input_tokens");
                             int completionTokens = firstInt(usage, "completion_tokens", "output_tokens");
                             int totalTokens = firstInt(usage, "total_tokens", "prompt_tokens", "input_tokens")

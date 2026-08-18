@@ -327,6 +327,14 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return engine.getLastCacheHitTokens();
     }
 
+    public int getLastPromptTokens() {
+        return engine.getLastPromptTokens();
+    }
+
+    public int getLastCompletionTokens() {
+        return engine.getLastCompletionTokens();
+    }
+
     public void shutdown() {
         isShutdown = true;
         engine.shutdown();

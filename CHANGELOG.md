@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-08-16] 增加输入/输出 token 统计显示
+用户要求"增加输入和输出统计"：
+1. **顶部 Token 统计栏**（updateTokenStatsUI）：完成态从"🔵 N tokens"改为"📥 输入 X · 📤 输出 Y tokens（会话累计 Z）"。
+2. **实时生成统计**（updateStreamingTokenStats）：在线模式完成态优先显示 API 返回的输入/输出（onlinePromptTokens/onlineCompletionTokens）。
+3. **Agent 引擎透传真实 usage**：OnlineAgentEngine 新增 lastPromptTokens/lastCompletionTokens（onUsageWithCache 记录）+ getter；AgentRouter / AgentChatHandler 透传。
+4. **Agent 汇总增强**：气泡内 agentSummary 追加"📥 输入 X · 📤 输出 Y tokens"（API 真实值）；TokenStatsManager.updateRequestStats 的输入 token 优先用 Agent 引擎真实 usage（不再用长度估算）。
+
+## [2026-08-16] 修复切出界面/重启后缓存命中失败（Agent 历史持久化）
+用户反馈"AI对话界面切出后及应用重启后都会导致缓存命中失败"——根因：Agent 引擎的 messageHistory 是内存字段，Activity 重建/重启后引擎重建 → 历史丢失 → system+env 前缀重新生成（env 时间戳含分钟，每次不同）→ 前缀变化 → 服务商缓存 miss。
+1. **env 时间戳改日级**：buildEnvironmentContext 的格式从"yyyy年M月d日 EEEE HH:mm"改为"yyyy年M月d日 EEEE"，同一天内重建前缀稳定。
+2. **Agent 历史持久化**：OnlineAgentEngine 新增 persistHistory/restoreHistory/deleteHistoryFile——messageHistory 以 Gson JsonArray 存到私有文件（online_agent_history.json），execute 完成后保存，构造时恢复；clearHistory 同步删文件。
+3. **生命周期衔接**：Activity 重建/重启后 initAgentChatHandlerIfNeeded 新建引擎 → restoreHistory 恢复历史 → system+env 前缀不变 → 缓存命中保持；clearChat/startNewConversation/switchToSession 均调 clearHistory 清持久化文件，与新会话同步。
+- 之前已验证：同会话连续提问缓存命中（cached_tokens=3328）；修复后切出/重启也应保持命中。
+
 ## [2026-08-16] 修复破坏缓存命中的关键点：工具定义顺序不稳定
 用户要求"检查模型调用时破坏缓存命中的地方"——逐点排查后确认并修复：
 1. **【已修】工具定义顺序随机（最严重）**：toolMetaIndex 是 ConcurrentHashMap，getToolDefinitions 每次构建遍历 values() 顺序不稳定；且引擎每轮 refreshRegistry() 重建索引，导致同一批工具每次 tools JSON 字节不同 → 前缀缓存 miss。修复：getAllToolMetas 按工具名排序（Collections.sort），tools 参数顺序确定。
