@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Tool(
     value = "location",
-    description = "定位工具，获取用户当前位置信息（经纬度、城市名等）",
+    description = "位置查询工具，获取当前位置信息",
     category = "location",
     aliases = {"get_location", "get_current_location", "get_city", "get_coordinates"},
     actions = {
@@ -134,7 +134,7 @@ public class LocationTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "定位工具，获取用户当前位置信息（经纬度、城市名等）";
+        return "位置查询工具，获取当前位置信息";
     }
     
     private void normalizeParameters(Map<String, Object> parameters) {

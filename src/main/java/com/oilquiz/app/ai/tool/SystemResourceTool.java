@@ -25,7 +25,7 @@ import java.util.Map;
 
 @Tool(
     value = "system_resource",
-    description = "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等系统级操作",
+    description = "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器",
     category = "system",
     aliases = {"open_app", "send_sms", "make_call", "launch_app"},
     actions = {
@@ -125,7 +125,7 @@ public class SystemResourceTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、分享内容等操作";
+        return "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器";
     }
     
     @Override

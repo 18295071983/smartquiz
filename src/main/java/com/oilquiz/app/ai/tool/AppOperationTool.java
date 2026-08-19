@@ -12,7 +12,7 @@ import java.util.Map;
 
 @Tool(
     value = "app_operation",
-    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面，支持获取应用信息、打开系统设置、分享内容",
+    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面",
     category = "app",
     aliases = {"navigate", "go_to", "open_page", "跳转", "页面导航", "设置", "分享"},
     actions = {
@@ -113,7 +113,7 @@ public class AppOperationTool implements AITool {
     public String getName() { return "app_operation"; }
 
     @Override
-    public String getDescription() { return "应用操作工具，执行页面跳转、应用信息查询等操作"; }
+    public String getDescription() { return "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面"; }
 
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {

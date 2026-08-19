@@ -12,7 +12,7 @@ import java.util.Map;
 
 @Tool(
     value = "create_dynamic_tool",
-    description = "动态创建和管理AI工具。可以定义新工具的名称、描述、参数和执行逻辑。",
+    description = "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list查看全部动态工具",
     category = "tool_management",
     aliases = {"dynamic_tool", "create_tool", "动态工具"},
     actions = {
@@ -48,7 +48,7 @@ public class DynamicToolManagerTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "动态创建和管理AI工具。可以定义新工具的名称、描述、参数和执行逻辑。";
+        return "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list查看全部动态工具";
     }
     
     @Override

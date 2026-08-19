@@ -29,7 +29,7 @@ import org.json.JSONObject;
 
 @Tool(
     value = "network_search",
-    description = "网络搜索工具（由秘塔搜索引擎驱动），支持网络搜索、智能问答、网页读取、内容提取、摘要生成和动态网页解析",
+    description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取",
     category = "search",
     aliases = {"search", "web_search", "bing_search"},
     actions = {
@@ -95,7 +95,7 @@ public class NetworkSearchTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "网络搜索工具，支持搜索网络信息、获取网页内容、内容切片、关键信息提取、智能摘要生成、动态网页解析和搜索结果详情阅读";
+        return "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取";
     }
     
     @Override

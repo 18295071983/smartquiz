@@ -18,7 +18,7 @@ import java.util.Map;
 
 @Tool(
     value = "ai_create_tool",
-    description = "AI 自动工具创建器。可以分析任务需求，自动创建、测试、修复和注册新工具。",
+    description = "AI创建工具，使用AI自动生成新工具",
     category = "tool_creation",
     aliases = {"create_tool", "tool_creator", "创建工具"},
     actions = {

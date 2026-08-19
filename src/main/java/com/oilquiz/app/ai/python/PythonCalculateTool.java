@@ -15,7 +15,7 @@ import java.util.Map;
 
 @Tool(
     value = "python_calculate",
-    description = "使用 Python 进行数学计算，支持复杂表达式、数学函数等",
+    description = "使用Python进行数学计算",
     category = "python",
     aliases = {"calculate", "math", "计算"},
     actions = {
@@ -33,7 +33,7 @@ public class PythonCalculateTool extends BaseAITool {
     private final PythonToolManager toolManager;
     
     public PythonCalculateTool(Context context) {
-        super("python_calculate", "使用 Python 进行数学计算，支持复杂表达式、数学函数等");
+        super("python_calculate", "使用Python进行数学计算");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
     }
