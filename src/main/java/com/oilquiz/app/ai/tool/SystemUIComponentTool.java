@@ -58,7 +58,19 @@ import java.util.Map;
         @Param(name = "default_value", type = "string", description = "默认值(input/date/time/image用)", required = false),
         @Param(name = "input_hint", type = "string", description = "输入框提示(input用)", required = false),
         @Param(name = "action_label", type = "string", description = "按钮文字(snackbar用)", required = false),
-        @Param(name = "props", type = "object", description = "内置组件参数(component_type为内置类型时用,如chart的chartType/categories/series)", required = false),
+        @Param(name = "props", type = "object", description = "内置组件参数(component_type为内置类型时用)。各类型字段："
+            + "chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; "
+            + "info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; "
+            + "image_grid:{images:[url],columns}; link_card:{url,title,description}; "
+            + "list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; "
+            + "metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; "
+            + "steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; "
+            + "note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; "
+            + "grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; "
+            + "todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; "
+            + "weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; "
+            + "file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; "
+            + "html:{html:'<h3>标题</h3>...',title,maxHeight}; 交互组件加 actions:[{label,value,action:'callback'}]", required = false),
         @Param(name = "wait_seconds", type = "int", description = "等待秒数(get_result用,默认30)", required = false),
         @Param(name = "auto_close", type = "int", description = "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", required = false)
     }

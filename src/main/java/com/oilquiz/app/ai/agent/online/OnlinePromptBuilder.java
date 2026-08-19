@@ -124,24 +124,20 @@ public class OnlinePromptBuilder {
     }
 
     /**
-     * 构建富内容组件渲染指引（精简版：类型名+一句话用途，不附完整 JSON 示例，省 token）。
-     *
-     * 告知模型可用的全部 UI 组件及内容流标记格式（```component:xxx {json}```），
-     * 界面会将标记渲染为对应组件并插入到标记所在位置（插入式、流式生效）。
-     * 模型根据类型名+用途自然生成 JSON 结构（与 tools 参数同理由模型推断），
-     * 不在此重复完整示例占 token。
+     * 构建富内容组件渲染指引（工具通道版：引导用 ui_component 工具创建组件，
+     * 结构由工具定义的 props 参数承载，不在此写 JSON 示例，省 token 且字段准确）。
      */
     private String buildComponentGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【富内容组件】有结构的信息一律倾向用组件标记展示（```component:类型\\n{JSON}```），界面自动渲染为卡片，比纯文本更美观易读。可用类型：\n");
-        sb.append("  chart(图表bar/line/pie) / info_card(信息卡) / table_card(表格) / image_grid(图片网格) /\n");
-        sb.append("  link_card(链接) / list_card(列表) / alert_card(提示success/warning/error/info) / metric_card(指标) /\n");
-        sb.append("  json_viewer(JSON) / steps_card(步骤) / note_card(引用/备注) / file_list(文件列表) / grid_card(宫格) /\n");
-        sb.append("  contact_card(联系phone/sms/email) / todo_card(待办) / quiz_card(题目) / weather_card(天气) /\n");
-        sb.append("  file_card(单个文件) / code_card(代码) / progress_card(进度) / html(富文本WebView) / tool_call(工具过程,系统自动附加)\n");
-        sb.append("  自定义：任意类型名(如 custom_panel)以通用卡片展示 JSON 数据；能用内置类型优先用内置。\n");
-        sb.append("  规则：标记单独成段、JSON 用双引号且必须完整合法；一个标记块只含一个组件；无法保证 JSON 合法时改用 markdown 表格/列表。\n\n");
-        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用，结尾再用组件/文本汇总结果。\n\n");
+        sb.append("\n【富内容组件】有结构的信息（列表/表格/图表/指标/步骤/待办/题目/天气/文件/代码等）一律用 ui_component 工具创建组件卡片展示，不要用纯文本或 Markdown 表格：\n");
+        sb.append("  调用方式：ui_component(action=create, component_type=组件类型, props={字段}, title=可选标题)\n");
+        sb.append("  可用组件类型：chart(图表) / info_card(信息卡) / table_card(表格) / image_grid(图片网格) / link_card(链接) /\n");
+        sb.append("  list_card(列表) / alert_card(提示) / metric_card(指标) / json_viewer(JSON) / steps_card(步骤) /\n");
+        sb.append("  note_card(引用) / file_list(文件列表) / grid_card(宫格) / contact_card(联系) / todo_card(待办) /\n");
+        sb.append("  quiz_card(题目) / weather_card(天气) / file_card(文件) / code_card(代码) / progress_card(进度) / html(富文本)\n");
+        sb.append("  各类型 props 字段结构详见 ui_component 工具定义（props 参数），按需填参即可；交互组件在 props 加 actions。\n");
+        sb.append("  原生组件（对话框/进度条/输入框/选择器等）同样用 ui_component 创建，需用户交互时用 get_result 取结果。\n\n");
+        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n\n");
         return sb.toString();
     }
 
