@@ -497,6 +497,22 @@ public class AIChatActivity extends BaseActivity {
             if (btnLogViewer != null) {
                 btnLogViewer.setOnClickListener(v -> startActivity(new Intent(AIChatActivity.this, LogViewerActivity.class)));
             }
+
+            // 通知权限：后台保活功能（Agent 任务/本地对话在界面关闭后完成时发通知提醒）需要
+            // Android 13+ 的 POST_NOTIFICATIONS 运行时权限；未授予则首次进入聊天页时申请
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(
+                            this, android.Manifest.permission.POST_NOTIFICATIONS)
+                            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        com.oilquiz.app.resource.PermissionResourceProvider
+                                .getInstance(this)
+                                .requestNotificationPermission(this);
+                    }
+                }
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "申请通知权限失败: " + t.getMessage());
+            }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing view: " + e.getMessage());
             showToast("界面初始化失败: " + e.getMessage());
@@ -4770,6 +4786,42 @@ public class AIChatActivity extends BaseActivity {
      * 创建Bridge回调 - 将模型执行结果路由到UI更新方法
      * 这是UI与模型之间的唯一回调通道
      */
+    /**
+     * 后台本地对话完成通知：界面已关闭时提醒结果，点击回到 AI 对话界面。
+     */
+    private void notifyBackgroundChatResult(boolean success, String content) {
+        try {
+            android.app.NotificationManager nm = (android.app.NotificationManager)
+                    getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String channelId = "ai_chat_result";
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                        channelId, "AI 回复完成", android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                channel.setDescription("本地对话在后台完成提醒");
+                nm.createNotificationChannel(channel);
+            }
+            android.content.Intent intent = new android.content.Intent(this, AIChatActivity.class);
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 1, intent,
+                    android.os.Build.VERSION.SDK_INT >= 23
+                            ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                            : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            String text = content != null && content.length() > 80 ? content.substring(0, 80) + "…" : (content != null ? content : "");
+            android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(this, channelId)
+                    : new android.app.Notification.Builder(this);
+            builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(success ? "✅ AI 回复完成" : "❌ AI 回复失败")
+                    .setContentText(text)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+            nm.notify((int) (System.currentTimeMillis() % 100000) + 1, builder.build());
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "后台对话通知失败: " + t.getMessage());
+        }
+    }
+
     private BridgeCallback createBridgeCallback(int streamingIndex, String streamingId) {
         final long[] startTime = {System.currentTimeMillis()};
         final int[] tokenCount = {0};
@@ -4777,11 +4829,18 @@ public class AIChatActivity extends BaseActivity {
         return new BridgeCallback() {
             @Override
             public void onGenerationStarted(String messageId) {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
                 runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
             }
 
             @Override
             public void onToken(String messageId, String token) {
+                // 后台保活：界面已销毁时忽略 token 流（任务继续，完成时统一通知）
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
                 tokenCount[0]++;
                 if (tokenCount[0] % 10 == 0) {
                     // 优先使用 native 层统计，更准确
@@ -4799,11 +4858,20 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onGenerationComplete(String messageId, String fullContent,
                                               int tokens, long elapsedMs, float tps) {
+                // 后台保活：界面已销毁时只发通知提醒，不操作 UI（本地对话任务继续完成后通知）
+                if (isFinishing() || isDestroyed()) {
+                    notifyBackgroundChatResult(true, fullContent);
+                    return;
+                }
                 completeGeneration(fullContent, tokens, startTime[0]);
             }
 
             @Override
             public void onGenerationError(String messageId, String error) {
+                if (isFinishing() || isDestroyed()) {
+                    notifyBackgroundChatResult(false, error);
+                    return;
+                }
                 runOnUiThread(() -> {
                     endGeneration();
                     boolean nativeInvalid = !modelBridge.isNativeStateValid();
@@ -4846,6 +4914,10 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onGenerationStopped(String messageId) {
+                // 界面已销毁：手动停止无需通知，直接忽略 UI 操作（后台任务已被用户主动停止）
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
                 runOnUiThread(() -> {
                     endGeneration();
                     final int idx = resolveStreamingIndex();
@@ -8566,8 +8638,9 @@ public class AIChatActivity extends BaseActivity {
                 currentAttachments.clear();
             }
 
-            // 取消所有生成任务
-            if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
+            // 后台保活：不取消正在进行的 Agent 任务/生成——引擎在 daemon 线程继续执行，
+            // 完成后若界面未回来则发系统通知提醒（AgentChatHandler.notifyBackgroundResult）。
+            // 用户显式点"停止"按钮的取消仍在原按钮回调里（此处不做）。
 
             // 清理附件管理器
             if (attachmentManager != null) {
@@ -8581,7 +8654,7 @@ public class AIChatActivity extends BaseActivity {
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
             if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
             if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
-            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+            // 不调用 modelBridge.stopGeneration()：后台保活，正在生成的推理继续完成
             uiHandler.removeCallbacksAndMessages(null);
             isGenerating = false; isDirectStreaming = false;
         } catch (Exception e) { AppLogger.aiE(TAG, "Error onDestroy: " + e.getMessage()); }

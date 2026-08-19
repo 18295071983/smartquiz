@@ -92,6 +92,8 @@ public class HtmlCardView implements ChatComponent {
         webView.getSettings().setLoadWithOverviewMode(true);
         webView.getSettings().setUseWideViewPort(false);
         webView.setWebChromeClient(new WebChromeClient());
+        // JS → Java 桥：HTML 组件内按钮可调用 Android.showToast/copy/openLink 回调应用
+        webView.addJavascriptInterface(new HtmlJsBridge(context), "Android");
 
         // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击
         webView.setFocusable(true);
@@ -101,8 +103,13 @@ public class HtmlCardView implements ChatComponent {
         final String titleFinal = title;
         final long[] downTime = {0};
         final float[] downPos = {0, 0};
+        final boolean[] interactiveDown = {false};
         final int touchSlop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         webView.setOnTouchListener((v, event) -> {
+            // 防护：event 为 null（WebView 快速滑动/组件回收等场景）直接放行，避免 NPE
+            if (event == null) {
+                return false;
+            }
             if (v.getParent() != null) {
                 v.getParent().requestDisallowInterceptTouchEvent(true);
             }
@@ -111,13 +118,21 @@ public class HtmlCardView implements ChatComponent {
                     downTime[0] = event.getEventTime();
                     downPos[0] = event.getX();
                     downPos[1] = event.getY();
+                    interactiveDown[0] = false;
+                    // 异步探测按下位置是否为可点击元素（a/button/onclick/表单控件）
+                    probeInteractive(webView, (int) event.getX(), (int) event.getY(), interactiveDown);
                     break;
                 case android.view.MotionEvent.ACTION_UP:
                     float dx = event.getX() - downPos[0];
                     float dy = event.getY() - downPos[1];
                     long dt = event.getEventTime() - downTime[0];
-                    // 轻点（位移小、时间短）→ 打开全屏页完整查看/交互
+                    // 轻点（位移小、时间短）：
+                    // 命中可交互元素（链接/按钮/onclick）→ 放行给 WebView 执行页内 JS，不跳全屏；
+                    // 其余区域 → 打开全屏页完整查看/交互
                     if (Math.abs(dx) < touchSlop && Math.abs(dy) < touchSlop && dt < 500) {
+                        if (interactiveDown[0]) {
+                            return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
+                        }
                         openFullScreen(context, htmlFinal, titleFinal);
                     }
                     break;
@@ -135,15 +150,29 @@ public class HtmlCardView implements ChatComponent {
 
         final WebView wvRef = webView;
         webView.setWebViewClient(new WebViewClient() {
-            // 预览内所有点击统一打开全屏页：阻止 WebView 内部导航
-            // （链接点击也走全屏，全屏页内再处理链接跳转/JS 交互）
+            // 页内链接点击：真实打开（http/https 应用内 WebView；file:// 系统打开），
+            // 不再吞掉（此前 return true 导致链接点了没反应）
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url == null) return true;
+                if (url.startsWith("http://") || url.startsWith("https://")
+                        || url.startsWith("file://") || url.startsWith("/")) {
+                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
+                    return true;
+                }
                 return true;
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                String url = request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null;
+                if (url == null) return true;
+                if (url.startsWith("http://") || url.startsWith("https://")
+                        || url.startsWith("file://") || url.startsWith("/")) {
+                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
+                    return true;
+                }
                 return true;
             }
 
@@ -219,6 +248,33 @@ public class HtmlCardView implements ChatComponent {
     }
 
     /**
+     * 异步探测坐标处是否为可交互元素（a/button/input/textarea/select/带 onclick 的元素）。
+     * 通过 elementFromPoint 查找并向上遍历祖先，结果写入 interactive[0]。
+     * WebView 未缩放时触摸坐标即 CSS 像素坐标；探测失败保持 false（不阻塞点击）。
+     */
+    private static void probeInteractive(final WebView webView, final int x, final int y,
+                                        final boolean[] interactive) {
+        try {
+            String js = "(function(px,py){"
+                    + "var el=document.elementFromPoint(px,py);"
+                    + "while(el){"
+                    + "var t=(el.tagName||'').toLowerCase();"
+                    + "if(t==='a'||t==='button'||t==='input'||t==='textarea'||t==='select'"
+                    + "||el.onclick||el.getAttribute&&el.getAttribute('onclick')"
+                    + "||el.getAttribute&&el.getAttribute('role')==='button'){return true;}"
+                    + "el=el.parentElement;}"
+                    + "return false;})(" + x + "," + y + ")";
+            webView.evaluateJavascript(js, value -> {
+                if (value != null) {
+                    interactive[0] = "true".equals(value.trim());
+                }
+            });
+        } catch (Throwable t) {
+            // 探测失败不影响 WebView 自身点击
+        }
+    }
+
+    /**
      * 点击组件 → 打开全屏页完整查看/交互：
      * HTML 写入临时文件，交给 SimpleWebViewActivity（受控 WebView：JS 启用、
      * 软件渲染防 GPU 截断、链接处理、标题栏返回；规避 WebViewActivity 的
@@ -268,5 +324,50 @@ public class HtmlCardView implements ChatComponent {
     private static int dp(Context context, float value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
                 context.getResources().getDisplayMetrics());
+    }
+
+    /**
+     * HTML 组件 JS → Java 桥：按钮 onclick 里可调用
+     * Android.showToast('...') / Android.copy('...') / Android.openLink('url')
+     * 让 Agent 生成的 HTML 组件按钮能真实回调应用（Toast/复制/打开链接），不再"点了没反应"。
+     */
+    public static class HtmlJsBridge {
+        private final Context context;
+
+        public HtmlJsBridge(Context context) {
+            this.context = context;
+        }
+
+        @android.webkit.JavascriptInterface
+        public void showToast(String message) {
+            try {
+                android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+                main.post(() -> android.widget.Toast.makeText(context,
+                        message != null ? message : "", android.widget.Toast.LENGTH_SHORT).show());
+            } catch (Throwable ignored) {
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        public void copy(String text) {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        context.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null && text != null) {
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("组件内容", text));
+                    showToast("已复制");
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        public void openLink(String url) {
+            try {
+                if (url == null || url.isEmpty()) return;
+                ComponentActions.openLink(context, url);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 }

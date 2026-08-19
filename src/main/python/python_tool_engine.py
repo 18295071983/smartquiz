@@ -255,54 +255,68 @@ class PythonToolEngine:
             result["fallback_message"] = fallback["message"]
             return result
         
-        # Android Chaquo Python 环境下 pip 可能不可用
+        # Android Chaquo Python 环境下无法用 subprocess 调 pip（无独立可执行文件），
+        # 改用 pip.main()/pip._internal.main() 直接调用，安装到应用可写目录
         try:
-            import subprocess
-        except ImportError:
-            result["message"] = f"pip 不可用（Android 环境限制），包 {package_name} 无法安装"
-            result["fallback_message"] = self._get_install_help(package_name)
-            return result
-        
-        # 尝试从国内镜像安装
-        success = False
-        last_error = ""
-        
-        for mirror_index in range(len(self.PIP_MIRRORS)):
-            mirror = self.PIP_MIRRORS[(self._current_mirror_index + mirror_index) % len(self.PIP_MIRRORS)]
-            install_cmd = [
-                sys.executable, "-m", "pip", "install",
-                "-i", mirror,  # 使用镜像源
-                "--trusted-host", mirror.split("://")[1].split("/")[0],  # 信任该主机
-                "--quiet"
-            ]
-            
-            if version:
-                install_cmd.append(f"{package_name}=={version}")
+            user_pkg_dir = os.path.join(self.work_dir, "user_packages")
+            os.makedirs(user_pkg_dir, exist_ok=True)
+            if user_pkg_dir not in sys.path:
+                sys.path.insert(0, user_pkg_dir)
+
+            def _pip_install(pkg_spec, index_url, trusted_host):
+                args = [
+                    'install', pkg_spec,
+                    '--target', user_pkg_dir,
+                    '-i', index_url,
+                    '--trusted-host', trusted_host,
+                    '--no-compile',
+                    '--disable-pip-version-check',
+                    '--quiet'
+                ]
+                try:
+                    import pip
+                    if hasattr(pip, 'main'):
+                        rc = pip.main(args)
+                    elif hasattr(pip, '_internal') and hasattr(pip._internal, 'main'):
+                        rc = pip._internal.main(args)
+                    else:
+                        from pip._internal.cli.base_command import main as pip_main
+                        rc = pip_main(args)
+                    return rc == 0 or rc is None, f'pip rc={rc}'
+                except SystemExit as e:
+                    return e.code == 0 or e.code is None, f'SystemExit: {e.code}'
+                except Exception as e:
+                    return False, str(e)
+
+            success = False
+            last_error = ""
+            for mirror_index in range(len(self.PIP_MIRRORS)):
+                mirror = self.PIP_MIRRORS[(self._current_mirror_index + mirror_index) % len(self.PIP_MIRRORS)]
+                host = mirror.split("://")[1].split("/")[0]
+                spec = package_name if not version else f"{package_name}=={version}"
+                ok, msg = _pip_install(spec, mirror, host)
+                if ok:
+                    success = True
+                    self._current_mirror_index = (self._current_mirror_index + mirror_index) % len(self.PIP_MIRRORS)
+                    break
+                last_error = msg
+
+            if success:
+                self._installed_packages[cache_key] = {
+                    "name": package_name,
+                    "version": version or "latest",
+                    "installed_at": time.time()
+                }
+                self._save_installed_packages()
+
+                result["success"] = True
+                result["message"] = f"成功安装 {package_name} (使用国内镜像)"
+                result["installed"] = True
             else:
-                install_cmd.append(package_name)
-            
-            try:
-                _ = subprocess.run(install_cmd, check=True, capture_output=True, text=True, timeout=120)
-                success = True
-                self._current_mirror_index = (self._current_mirror_index + mirror_index) % len(self.PIP_MIRRORS)
-                break
-            except Exception as e:
-                last_error = str(e)
-                continue  # 尝试下一个镜像
-        
-        if success:
-            self._installed_packages[cache_key] = {
-                "name": package_name,
-                "version": version or "latest",
-                "installed_at": time.time()
-            }
-            self._save_installed_packages()
-            
-            result["success"] = True
-            result["message"] = f"成功安装 {package_name} (使用国内镜像)"
-            result["installed"] = True
-        else:
-            result["message"] = f"安装失败: {last_error}"
+                result["message"] = f"安装失败: {last_error}"
+                result["fallback_message"] = self._get_install_help(package_name)
+        except Exception as e:
+            result["message"] = f"安装失败: {e}"
             result["fallback_message"] = self._get_install_help(package_name)
         
         return result

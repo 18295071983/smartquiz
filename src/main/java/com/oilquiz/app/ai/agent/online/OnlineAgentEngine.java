@@ -77,6 +77,9 @@ public class OnlineAgentEngine {
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
     private final AtomicInteger toolLoopCount = new AtomicInteger(0);
 
+    /** 框架是否已直接回答（预路由分支完成，主循环应跳过） */
+    private volatile boolean frameworkAnswered = false;
+
     // OpenAI 格式消息历史（直接使用 JsonObject，支持 tool 角色消息）
     private final List<JsonObject> messageHistory = new ArrayList<>();
 
@@ -245,10 +248,29 @@ public class OnlineAgentEngine {
         userMsg.addProperty("content", userMessage);
         messageHistory.add(userMsg);
 
+        // 2.5 框架预路由（减少对模型的依赖）：
+        // 高置信度单意图 + 需要工具 → 框架直接执行推荐工具，把真实结果注入第一轮推理，
+        // 模型基于结果回答，不必自己猜测/探索工具（省 token、更确定、更智能）。
+        // 复杂/未知/多意图 → 交回模型循环自主决策。
+        if (agentMode == AgentMode.ASSISTED) {
+            try {
+                frameworkPreroute(userMessage);
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Framework preroute failed (fallback to model loop): " + t.getMessage());
+            }
+        }
+
+        // 框架已直接回答（如时间/日期等确定性意图）→ 跳过模型循环
+        if (frameworkAnswered) {
+            finishGeneration();
+            AILogger.i(TAG, "Framework answered directly, skipping model loop");
+            return;
+        }
+
         // 3. 通过 OnlineToolManager 获取工具定义。
-        // 全量注入：在线 API 通常有 prompt caching（前缀缓存，system+工具定义不变即命中）且长上下文支持，
-        // 全量工具定义成本可忽略，且让模型自行探索/组合任意工具（不做关键词裁剪限制能力）。
-        String toolsJson = toolManager.getToolDefinitions();
+        // 按消息意图裁剪注入（类 MCP 按需：无明确意图才全量；命中意图只注入相关类别 + 基础类别），
+        // 大幅省 token。模型不确定工具细节时可调用 tool_registry 工具自行查找（list/search/get schema）。
+        String toolsJson = toolManager.getToolDefinitionsForMessage(userMessage);
         int toolCount = countToolsInJson(toolsJson);
         AILogger.i(TAG, "Tool definitions: count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {
@@ -291,6 +313,12 @@ public class OnlineAgentEngine {
             // 完成当前思考块
             thinkingChain.completeActiveBlock();
 
+            // 跨轮推理连贯性：本轮有工具调用时，把上一轮思考要点+工具结论回注下一轮
+            // （替换式，避免累积；模型据此知道"我上轮在想什么、工具返回了什么"）
+            if (result.toolCalls != null && !result.toolCalls.isEmpty()) {
+                injectReasoningSummary();
+            }
+
             // 检查是否有工具调用
             if (result.toolCalls == null || result.toolCalls.isEmpty()) {
                 // ========= 无 tool_calls =========
@@ -329,6 +357,8 @@ public class OnlineAgentEngine {
                     messageHistory.add(assistantMsg);
 
                     // 发一条系统提示：提醒它用标准的 tool_calls JSON 格式输出，而不是在内容里描述
+                    // （替换式注入：先移除旧格式提示，避免多轮累积）
+                    removeSystemHintMessages("【格式提示】");
                     JsonObject formatHint = new JsonObject();
                     formatHint.addProperty("role", "system");
                     formatHint.addProperty("content",
@@ -439,23 +469,34 @@ public class OnlineAgentEngine {
                 }
                 final OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(i);
                 try {
-                    OnlineToolResult toolResult = toolFutures.get(i).get(5, TimeUnit.SECONDS);
+                    // 75 秒工具执行超时：必须大于 OnlineToolManager 的单次总预算
+                    // （2×30s + 退避 ≈ 61s），否则工具在 Manager 内重试期间被引擎提前判失败，
+                    // 注入错误 tool 消息且真实结果丢失（竞态窗口）
+                    OnlineToolResult toolResult = toolFutures.get(i).get(75, TimeUnit.SECONDS);
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
                     activity.runOnUiThread(() -> {
                         if (callback != null) callback.onToolCallComplete(tr.toolCallId, tr.toolName, tr);
                     });
 
-                    // 在思考链中记录工具调用
+                    // 在思考链中记录工具调用（参数一并记录，原实现传空串导致记录缺参数）
                     String resultSummary = tr.success ? (tr.result != null ? tr.result.substring(0, Math.min(200, tr.result.length())) : "") : tr.error;
-                    thinkingChain.appendToolCall(tr.toolName, "", tr.success, resultSummary);
+                    String toolArgs = tc.arguments != null ? tc.arguments : "";
+                    thinkingChain.appendToolCall(tr.toolName, toolArgs, tr.success, resultSummary);
 
                     // 将工具结果加入消息历史（OpenAI tool 角色）
                     JsonObject toolMsg = new JsonObject();
                     toolMsg.addProperty("role", "tool");
                     toolMsg.addProperty("tool_call_id", tr.toolCallId);
                     toolMsg.addProperty("name", tr.toolName);
+                    // 工具结果上下文裁剪（对齐 Harness toolResultPruner）：超长结果只保留头部+尾部，
+                    // 避免巨型工具输出（如大文件内容/长列表）撑爆上下文窗口
                     String toolContent = tr.success ? tr.result : ("工具执行失败: " + tr.error);
+                    if (toolContent != null && toolContent.length() > 4000) {
+                        toolContent = toolContent.substring(0, 3000)
+                                + "\n…[内容过长已截断 " + toolContent.length() + " 字符，如需完整数据请用 file 工具分块读取]…\n"
+                                + toolContent.substring(Math.max(3000, toolContent.length() - 800));
+                    }
                     toolMsg.addProperty("content", toolContent != null ? toolContent : "");
                     messageHistory.add(toolMsg);
 
@@ -500,9 +541,12 @@ public class OnlineAgentEngine {
                     }
                 }
                 if (fallbackHint.length() > 0) {
+                    // 替换式注入（对齐 Harness runtime-context 思想）：先移除旧的回退建议，
+                    // 避免多轮工具失败累积大量 system 消息撑爆上下文
+                    removeSystemHintMessages("【工具回退建议】");
                     JsonObject hintMsg = new JsonObject();
                     hintMsg.addProperty("role", "system");
-                    hintMsg.addProperty("content", fallbackHint.toString());
+                    hintMsg.addProperty("content", "【工具回退建议】" + fallbackHint.toString());
                     messageHistory.add(hintMsg);
                     AILogger.i(TAG, "Injected fallback hint for failed tools: " + failedTools);
                 }
@@ -521,6 +565,42 @@ public class OnlineAgentEngine {
             notifyComplete(finalResult.content);
         } else {
             notifyComplete("已达到最大推理轮次。");
+        }
+    }
+
+    /**
+     * 回注上一轮推理摘要（跨轮连贯性）：替换式注入，前缀"【上轮推理】"。
+     * 只保留最新一轮，避免多轮累积膨胀上下文。
+     */
+    private void injectReasoningSummary() {
+        try {
+            String summary = thinkingChain.buildRecentSummary(600);
+            if (summary == null || summary.isEmpty()) return;
+            removeSystemHintMessages("【上轮推理】");
+            JsonObject msg = new JsonObject();
+            msg.addProperty("role", "system");
+            msg.addProperty("content", "【上轮推理】" + summary + "\n（基于以上思考与工具结果继续）");
+            messageHistory.add(msg);
+            AILogger.d(TAG, "Injected reasoning summary (" + summary.length() + " chars)");
+        } catch (Exception e) {
+            AILogger.w(TAG, "injectReasoningSummary failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 移除历史中指定前缀的系统提示消息（替换式注入，避免多轮累积）。
+     * 用于格式提示/回退建议等"本轮状态提示"——保留最新一条，删除旧的。
+     */
+    private void removeSystemHintMessages(String prefix) {
+        if (prefix == null || prefix.isEmpty()) return;
+        for (int i = messageHistory.size() - 1; i >= 0; i--) {
+            JsonObject msg = messageHistory.get(i);
+            String role = msg.has("role") ? msg.get("role").getAsString() : "";
+            if (!"system".equals(role)) continue;
+            String content = msg.has("content") ? msg.get("content").getAsString() : "";
+            if (content != null && content.startsWith(prefix)) {
+                messageHistory.remove(i);
+            }
         }
     }
 
@@ -577,7 +657,6 @@ public class OnlineAgentEngine {
                 String role = msg.has("role") ? msg.get("role").getAsString() : "";
                 String content = msg.has("content") ? msg.get("content").getAsString() : "";
                 if (content == null || content.isEmpty()) continue;
-                // 只摘要 用户/助手 的正文（工具消息跳过，其信息已体现在后续助手回复中）
                 if ("user".equals(role)) {
                     userCount++;
                     if (userCount == 1 || i >= toIndex - 4) {
@@ -588,6 +667,17 @@ public class OnlineAgentEngine {
                     assistantCount++;
                     if (i >= toIndex - 4) {
                         appendSummaryLine(sb, "助手", content);
+                    }
+                } else if ("tool".equals(role)) {
+                    // 工具消息只摘要成功/失败结论（正文已体现在后续助手回复，此处仅保留状态提示）
+                    if (i >= toIndex - 2) {
+                        String name = msg.has("name") ? msg.get("name").getAsString() : "工具";
+                        String c = content;
+                        if (c.length() > 120) c = c.substring(0, 120) + "…";
+                        if (sb.length() < 1800) {
+                            if (sb.length() > 0) sb.append("\n");
+                            sb.append("工具[").append(name).append("]: ").append(c);
+                        }
                     }
                 }
                 if (sb.length() > 2000) break; // 摘要上限，防止摘要本身过长
@@ -765,6 +855,175 @@ public class OnlineAgentEngine {
     private OnlineToolResult executeToolCall(String toolCallId, String toolName, String arguments) {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         return toolManager.executeTool(toolCallId, toolName, arguments);
+    }
+
+    /**
+     * 框架预路由：高置信度单意图 + 需要工具时，框架直接执行推荐工具。
+     * 把真实工具结果注入消息历史（role=tool + 摘要），模型第一轮就能基于结果回答，
+     * 无需自己猜测/探索工具。仅对"确定性单意图"生效，避免误路由复杂任务。
+     *
+     * 支持两类：
+     * 1. 推荐工具名已知（SmartIntentRecognizer.getRecommendedTool）
+     * 2. 天气/计算/时间等可通过工具直接获取的意图
+     */
+    /**
+     * 框架直接回答：确定性意图用环境上下文/规则直接给出答案，不消耗模型推理。
+     * 返回 null 表示无法直接回答（继续走工具路由或模型循环）。
+     */
+    private String buildDirectAnswer(com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent intent,
+                                     String userMessage) {
+        try {
+            switch (intent) {
+                case TIME: {
+                    java.text.SimpleDateFormat sdfDate =
+                            new java.text.SimpleDateFormat("yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+                    java.text.SimpleDateFormat sdfTime =
+                            new java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA);
+                    java.util.Date now = new java.util.Date();
+                    String answer = "📅 " + sdfDate.format(now) + " " + sdfTime.format(now);
+                    // 匹配"几点/什么时间"→ 时间；"几号/日期"→ 日期；都问 → 都给
+                    if (userMessage.contains("几") || userMessage.contains("时间") || userMessage.contains("几点")) {
+                        answer = "现在 " + sdfTime.format(now);
+                        if (userMessage.contains("日期") || userMessage.contains("几号")) {
+                            answer += "，" + sdfDate.format(now);
+                        }
+                    }
+                    return answer;
+                }
+                default:
+                    return null;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void frameworkPreroute(String userMessage) {
+        com.oilquiz.app.ai.agent.SmartIntentRecognizer recognizer =
+                com.oilquiz.app.ai.agent.SmartIntentRecognizer.getInstance(activity);
+        com.oilquiz.app.ai.agent.SmartIntentRecognizer.IntentResult intentResult =
+                recognizer.recognize(userMessage);
+        if (intentResult == null || intentResult.intent == null) return;
+        com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent intent = intentResult.intent;
+
+        // 框架直接回答：无需工具的确定性意图（时间/日期），框架用环境上下文直接给出答案，
+        // 不消耗模型推理 token，也避免模型为"现在几点"这种问题进工具循环
+        if (intentResult.confidence >= 0.6) {
+            String directAnswer = buildDirectAnswer(intent, userMessage);
+            if (directAnswer != null) {
+                AILogger.i(TAG, "Framework direct answer: intent=" + intent.id
+                        + " confidence=" + String.format("%.2f", intentResult.confidence));
+                notifyStep("框架直接回答", intent.displayName);
+                notifyComplete(directAnswer);
+                // 标记本轮已由框架完成（设置生成结束，主循环检测后退出）
+                frameworkAnswered = true;
+                return;
+            }
+        }
+
+        // 只路由"需要工具"且置信度达标（≥0.5）的单意图
+        if (!intent.needsTool || intentResult.confidence < 0.5) return;
+        // CHAT/UNKNOWN/CREATIVE/ANALYSIS 等无需或不应预路由
+        if (intent == com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent.CHAT
+                || intent == com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent.UNKNOWN
+                || intent == com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent.CREATIVE
+                || intent == com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent.ANALYSIS) {
+            return;
+        }
+
+        String toolName = recognizer.getRecommendedTool(intent);
+        if (toolName == null || toolName.isEmpty()) return;
+        // 跳过需要用户交互/复杂参数的工具（UI组件/权限/动态创建等不适合框架预执行）
+        if (toolName.equals("ui_component") || toolName.equals("permission_manager")
+                || toolName.equals("create_dynamic_tool") || toolName.equals("tool_registry")) {
+            return;
+        }
+
+        // 构造最小参数（按意图类型补默认参数）
+        String arguments = buildPrerouteArguments(intent, userMessage);
+        AILogger.i(TAG, "Framework preroute: intent=" + intent.id
+                + " confidence=" + String.format("%.2f", intentResult.confidence)
+                + " tool=" + toolName);
+
+        notifyStep("框架预执行", intent.displayName + " → " + toolName);
+        OnlineToolResult result = toolManager.executeTool("preroute_" + System.nanoTime(), toolName, arguments);
+
+        // 结果注入历史：模拟一次工具调用（assistant 无内容 + tool 消息），
+        // 模型下一轮看到真实结果，直接基于它回答
+        JsonObject assistantMsg = new JsonObject();
+        assistantMsg.addProperty("role", "assistant");
+        assistantMsg.addProperty("content", "");
+        JsonArray toolCallsArray = new JsonArray();
+        JsonObject tcObj = new JsonObject();
+        String tcId = "preroute_" + System.nanoTime();
+        tcObj.addProperty("id", tcId);
+        tcObj.addProperty("type", "function");
+        JsonObject funcObj = new JsonObject();
+        funcObj.addProperty("name", toolName);
+        funcObj.addProperty("arguments", arguments);
+        tcObj.add("function", funcObj);
+        toolCallsArray.add(tcObj);
+        assistantMsg.add("tool_calls", toolCallsArray);
+        messageHistory.add(assistantMsg);
+
+        JsonObject toolMsg = new JsonObject();
+        toolMsg.addProperty("role", "tool");
+        toolMsg.addProperty("tool_call_id", tcId);
+        toolMsg.addProperty("name", toolName);
+        String content = result != null && result.success
+                ? (result.result != null ? result.result : "成功")
+                : ("工具执行失败: " + (result != null && result.error != null ? result.error : "未知错误"));
+        if (content.length() > 4000) {
+            content = content.substring(0, 3000)
+                    + "\n…[内容过长已截断]…\n" + content.substring(content.length() - 800);
+        }
+        toolMsg.addProperty("content", content);
+        messageHistory.add(toolMsg);
+        toolLoopCount.incrementAndGet();
+        AILogger.i(TAG, "Preroute result: " + toolName + " success=" + (result != null && result.success));
+    }
+
+    /** 按意图构建预执行的最小工具参数 */
+    private String buildPrerouteArguments(com.oilquiz.app.ai.agent.SmartIntentRecognizer.Intent intent,
+                                          String userMessage) {
+        try {
+            // 从意图识别结果提取实体（如城市名），用于天气等参数
+            String entity = null;
+            try {
+                com.oilquiz.app.ai.agent.SmartIntentRecognizer.IntentResult ir =
+                        com.oilquiz.app.ai.agent.SmartIntentRecognizer.getInstance(activity).recognize(userMessage);
+                if (ir != null && ir.extractedEntity != null) entity = ir.extractedEntity;
+            } catch (Throwable ignored) {
+            }
+            switch (intent) {
+                case WEATHER: {
+                    String city = (entity != null && !entity.isEmpty()) ? entity : null;
+                    if (city == null) {
+                        // 兜底：从消息提取"XX市/县/区"
+                        java.util.regex.Matcher m = java.util.regex.Pattern
+                                .compile("([\\u4e00-\\u9fa5]{2,10}?[市县区])").matcher(userMessage);
+                        if (m.find()) city = m.group(1);
+                    }
+                    return city != null && !city.isEmpty()
+                            ? "{\"action\":\"current\",\"city\":\"" + city + "\"}"
+                            : "{\"action\":\"current\"}";
+                }
+                case CALCULATOR: {
+                    // 提取算式（简单提取数字和运算符）
+                    String expr = userMessage.replaceAll("[^0-9+\\-*/().%\\s]", "").trim();
+                    if (expr.isEmpty()) return "{}";
+                    return "{\"expression\":\"" + expr + "\"}";
+                }
+                case TIME:
+                    return "{}"; // time_date 工具无需参数
+                case SEARCH:
+                    return "{\"query\":\"" + userMessage + "\"}";
+                default:
+                    return "{}";
+            }
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 
     /**

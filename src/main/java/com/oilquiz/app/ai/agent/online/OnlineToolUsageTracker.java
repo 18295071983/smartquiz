@@ -49,9 +49,20 @@ public class OnlineToolUsageTracker {
 
     /** 全局统计 */
     private final AtomicInteger totalCalls = new AtomicInteger(0);
+
+    /** 使用统计版本号：每次成功工具调用递增，供 guide 缓存失效（自进化联动） */
+    private final AtomicInteger patternVersion = new AtomicInteger(0);
+
+    /** 当前使用统计版本号（成功调用次数），guide 缓存据此判断是否需要重建 */
+    public int getPatternVersion() {
+        return patternVersion.get();
+    }
     private final AtomicInteger totalSuccess = new AtomicInteger(0);
     private final AtomicInteger totalFailures = new AtomicInteger(0);
     private final AtomicLong totalExecutionTime = new AtomicLong(0);
+
+    /** 内存记录总数（全局上限控制，防止 recordsByTool 无限增长） */
+    private final AtomicInteger totalRecords = new AtomicInteger(0);
 
     // ==================== 持久化（跨重启保留统计，实现自进化） ====================
 
@@ -76,6 +87,7 @@ public class OnlineToolUsageTracker {
             root.put("cooccurrence", co);
             root.put("totalCalls", totalCalls.get());
             root.put("totalSuccess", totalSuccess.get());
+            root.put("patternVersion", patternVersion.get());
             root.put("totalFailures", totalFailures.get());
             java.io.FileWriter writer = new java.io.FileWriter(statsFile);
             writer.write(root.toString());
@@ -105,6 +117,9 @@ public class OnlineToolUsageTracker {
             totalCalls.set(root.optInt("totalCalls", 0));
             totalSuccess.set(root.optInt("totalSuccess", 0));
             totalFailures.set(root.optInt("totalFailures", 0));
+            // 版本号恢复为持久化的共现模式版本（与"新共现模式递增"语义一致，
+            // 不用 totalSuccess——那是成功调用总数，重启后会让 guide 缓存判断基线错位）
+            patternVersion.set(root.optInt("patternVersion", 0));
             AILogger.i(TAG, "Usage stats restored: " + cooccurrenceCount.size() + " patterns");
         } catch (Exception e) {
             AILogger.w(TAG, "Load usage stats failed: " + e.getMessage());
@@ -134,9 +149,10 @@ public class OnlineToolUsageTracker {
      * @param success       是否成功
      * @param executionTime 执行耗时（毫秒）
      * @param resultSummary 结果摘要（成功时为结果，失败时为错误信息）
+     * @param timeoutMs     本次调用使用的超时阈值（用于超时率统计，区分 30s/120s 档位）
      */
     public void recordCall(String toolName, String arguments, boolean success,
-                           long executionTime, String resultSummary) {
+                           long executionTime, String resultSummary, long timeoutMs) {
         if (toolName == null) return;
 
         ToolCallRecord record = new ToolCallRecord(
@@ -145,7 +161,8 @@ public class OnlineToolUsageTracker {
             success,
             executionTime,
             truncate(resultSummary),
-            System.currentTimeMillis()
+            System.currentTimeMillis(),
+            timeoutMs
         );
 
         // 记录到工具历史
@@ -153,7 +170,11 @@ public class OnlineToolUsageTracker {
             k -> new LinkedList<>());
         synchronized (list) {
             list.add(record);
-            while (list.size() > MAX_RECORDS_PER_TOOL) list.removeFirst();
+            totalRecords.incrementAndGet();
+            while (list.size() > MAX_RECORDS_PER_TOOL) {
+                list.removeFirst();
+                totalRecords.decrementAndGet();
+            }
         }
 
         // 更新全局统计
@@ -162,11 +183,17 @@ public class OnlineToolUsageTracker {
         else totalFailures.incrementAndGet();
         totalExecutionTime.addAndGet(executionTime);
 
-        // 共现分析
-        updateCooccurrence(toolName);
+        // 共现分析（仅成功调用参与，失败组合不污染"经验提示"）
+        boolean newPattern = updateCooccurrence(toolName, success);
 
-        // 全局记录数控制
-        if (totalCalls.get() > MAX_TOTAL_RECORDS) {
+        // 使用统计版本号：仅当出现"新的共现模式"时才递增（guide 缓存据此失效）。
+        // 修复：不能每次成功调用都递增——否则每轮生成都重建指南，提示词不稳定。
+        if (newPattern) {
+            patternVersion.incrementAndGet();
+        }
+
+        // 全局记录数控制（真实修剪最旧记录）
+        if (totalRecords.get() > MAX_TOTAL_RECORDS) {
             trimRecords();
         }
 
@@ -182,8 +209,11 @@ public class OnlineToolUsageTracker {
     /**
      * 更新工具共现计数。
      * 当前调用的工具与同一会话中最近 3 次调用的工具形成共现对。
+     * 仅成功调用参与：失败组合不应进入"经验提示"。
+     * @return true 表示出现了新的共现对（首次计数 0→1），调用方据此刷新指南缓存
      */
-    private void updateCooccurrence(String currentTool) {
+    private boolean updateCooccurrence(String currentTool, boolean success) {
+        if (!success) return false;
         List<String> snapshot;
         synchronized (sessionSequence) {
             // 取最近 3 个不同工具
@@ -200,10 +230,17 @@ public class OnlineToolUsageTracker {
             while (sessionSequence.size() > 20) sessionSequence.remove(0);
         }
 
+        boolean newPattern = false;
         for (String other : snapshot) {
             String pair = normalizePair(currentTool, other);
+            // 首次出现（0→1）才视为新模式
+            Integer prev = cooccurrenceCount.get(pair);
+            if (prev == null || prev == 0) {
+                newPattern = true;
+            }
             cooccurrenceCount.merge(pair, 1, Integer::sum);
         }
+        return newPattern;
     }
 
     /** 归一化工具对（按字典序），使 A|B 和 B|A 计为同一对 */
@@ -211,9 +248,39 @@ public class OnlineToolUsageTracker {
         return a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
     }
 
-    /** 修剪记录（移除最旧工具的最旧记录） */
+    /** 修剪记录：超全局上限时逐条移除最旧记录（同步回滚聚合计数），并收紧会话序列 */
     private void trimRecords() {
-        // 简单策略：每个工具保留最近 MAX_RECORDS_PER_TOOL 条已足够，此处仅重置会话序列
+        while (totalRecords.get() > MAX_TOTAL_RECORDS) {
+            String victim = null;
+            long oldest = Long.MAX_VALUE;
+            for (Map.Entry<String, LinkedList<ToolCallRecord>> e : recordsByTool.entrySet()) {
+                LinkedList<ToolCallRecord> list = e.getValue();
+                synchronized (list) {
+                    ToolCallRecord first = list.peekFirst();
+                    if (first != null && first.timestamp < oldest) {
+                        oldest = first.timestamp;
+                        victim = e.getKey();
+                    }
+                }
+            }
+            if (victim == null) break;
+            LinkedList<ToolCallRecord> list = recordsByTool.get(victim);
+            // 并发下该工具的记录可能已被 resetToolStats 移除，空则跳过重新扫描
+            if (list == null) continue;
+            synchronized (list) {
+                ToolCallRecord removed = list.pollFirst();
+                if (removed != null) {
+                    totalRecords.decrementAndGet();
+                    totalCalls.decrementAndGet();
+                    if (removed.success) totalSuccess.decrementAndGet();
+                    else totalFailures.decrementAndGet();
+                    totalExecutionTime.addAndGet(-removed.executionTime);
+                }
+            }
+            if (list.isEmpty()) {
+                recordsByTool.remove(victim, list);
+            }
+        }
         synchronized (sessionSequence) {
             if (sessionSequence.size() > 10) {
                 sessionSequence.subList(0, sessionSequence.size() - 10).clear();
@@ -240,7 +307,8 @@ public class OnlineToolUsageTracker {
             for (ToolCallRecord r : list) {
                 if (r.success) success++;
                 totalTime += r.executionTime;
-                if (r.executionTime > 30_000) timeoutCount++;
+                // 按记录自身超时阈值判定（权限类 120s 档位不再被 30s 误判）
+                if (r.timeoutMs > 0 && r.executionTime > r.timeoutMs) timeoutCount++;
                 if (r.timestamp > lastTime) lastTime = r.timestamp;
             }
             double successRate = calls > 0 ? (double) success / calls : 0;
@@ -329,6 +397,7 @@ public class OnlineToolUsageTracker {
         totalSuccess.set(0);
         totalFailures.set(0);
         totalExecutionTime.set(0);
+        totalRecords.set(0);
         AILogger.i(TAG, "Usage stats reset");
     }
 
@@ -339,6 +408,7 @@ public class OnlineToolUsageTracker {
         LinkedList<ToolCallRecord> list = recordsByTool.remove(toolName);
         if (list != null) {
             synchronized (list) {
+                totalRecords.addAndGet(-list.size());
                 for (ToolCallRecord r : list) {
                     totalCalls.decrementAndGet();
                     if (r.success) totalSuccess.decrementAndGet();
@@ -359,15 +429,17 @@ public class OnlineToolUsageTracker {
         public final long executionTime;
         public final String resultSummary;
         public final long timestamp;
+        public final long timeoutMs;
 
         public ToolCallRecord(String toolName, String arguments, boolean success,
-                              long executionTime, String resultSummary, long timestamp) {
+                              long executionTime, String resultSummary, long timestamp, long timeoutMs) {
             this.toolName = toolName;
             this.arguments = arguments;
             this.success = success;
             this.executionTime = executionTime;
             this.resultSummary = resultSummary;
             this.timestamp = timestamp;
+            this.timeoutMs = timeoutMs;
         }
     }
 

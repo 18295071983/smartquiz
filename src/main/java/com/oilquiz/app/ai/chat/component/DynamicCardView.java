@@ -72,6 +72,34 @@ public class DynamicCardView implements ChatComponent {
         appendProps(card, context, p, 0, new java.util.HashSet<String>(java.util.Arrays.asList(
                 "title", "content", "message", "text", "description", "summary", "items")));
 
+        // 动作行：自定义组件带 actions 时渲染真实可点击按钮（打开链接/复制等）
+        JSONArray actions = p.optJSONArray("actions");
+        if (actions == null || actions.length() == 0) {
+            // 兼容对话框类自定义组件：buttons/options 数组（字符串或 {label,...}）
+            JSONArray buttons = p.optJSONArray("buttons");
+            if (buttons == null || buttons.length() == 0) {
+                buttons = p.optJSONArray("options");
+            }
+            if (buttons != null && buttons.length() > 0) {
+                org.json.JSONArray normalized = new org.json.JSONArray();
+                for (int i = 0; i < buttons.length(); i++) {
+                    Object b = buttons.opt(i);
+                    if (b instanceof JSONObject) {
+                        normalized.put(b);
+                    } else if (b != null) {
+                        try {
+                            JSONObject jo = new JSONObject();
+                            jo.put("label", String.valueOf(b));
+                            normalized.put(jo);
+                        } catch (org.json.JSONException ignored) {
+                        }
+                    }
+                }
+                actions = normalized;
+            }
+        }
+        ComponentActions.renderActions(card, context, actions);
+
         // 空数据也给出可读占位
         if (card.getChildCount() <= 1) {
             addText(card, context, "（空内容）", 0);

@@ -62,13 +62,11 @@ public class ImageRenderEngine implements FileRenderEngine {
                 return;
             }
             
-            // 计算采样率，避免OOM
+            // 计算采样率，避免OOM（2 的幂采样，最长边限制 1024）
             int maxDimension = 1024;
             int sampleSize = 1;
-            if (width > maxDimension || height > maxDimension) {
-                int widthRatio = Math.round((float) width / (float) maxDimension);
-                int heightRatio = Math.round((float) height / (float) maxDimension);
-                sampleSize = Math.max(widthRatio, heightRatio);
+            while (width / sampleSize > maxDimension || height / sampleSize > maxDimension) {
+                sampleSize *= 2;
             }
             
             // 解码图片

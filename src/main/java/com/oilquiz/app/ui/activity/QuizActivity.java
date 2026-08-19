@@ -269,6 +269,7 @@ public class QuizActivity extends BaseActivity {
     private void initGestureDetector() {
         if (scrollViewContent == null) return;
         scrollViewContent.setOnTouchListener((v, event) -> {
+            if (event == null) return false;
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     swipeDownX = event.getX();
@@ -996,8 +997,8 @@ public class QuizActivity extends BaseActivity {
             
             // 尝试加载图片
             if (imageUri.startsWith("/")) {
-                // 本地文件路径
-                Bitmap bitmap = BitmapFactory.decodeFile(imageUri);
+                // 本地文件路径（采样解码，最长边 1024，避免大图全尺寸解码撑爆内存）
+                Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(new java.io.File(imageUri), 1024, 1024);
                 if (bitmap != null) {
                     questionImageView.setImageBitmap(bitmap);
                     optionsContainer.addView(questionImageView, 0);

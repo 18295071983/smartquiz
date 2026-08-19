@@ -228,7 +228,8 @@ public class OCRManager {
      */
     private String recognizeFileLocal(String filePath) {
         try {
-            Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(filePath);
+            // 采样解码：OCR 最长边限制 2048 已足够识别，避免大图全尺寸解码撑爆内存
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(new java.io.File(filePath), 2048, 2048);
             if (bitmap == null) return "无法解码图片文件";
 
             final String[] result = new String[1];

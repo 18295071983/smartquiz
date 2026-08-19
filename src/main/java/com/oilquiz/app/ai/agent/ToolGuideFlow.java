@@ -285,6 +285,7 @@ public class ToolGuideFlow {
                         new GuideStep.Option("浏览题目列表", "get_questions"),
                         new GuideStep.Option("按关键词搜索", "search_questions"),
                         new GuideStep.Option("按ID查题目", "get_question_by_id"),
+                        new GuideStep.Option("大批量导入题目", "bulk_import"),
                         new GuideStep.Option("列出所有表", "list_tables"),
                         new GuideStep.Option("查看表结构", "get_table_schema"),
                         new GuideStep.Option("获取所有分类", "get_all_categories"),
@@ -293,6 +294,16 @@ public class ToolGuideFlow {
                         new GuideStep.Option("获取统计信息", "get_question_statistics"),
                         new GuideStep.Option("获取数据库版本", "get_database_version")
                 )
+        ));
+        // 步骤2e：批量导入（仅 bulk_import：JSON数组或文件路径二选一）
+        steps.add(GuideStep.inputStep(
+                "要导入什么题目数据?",
+                "输入题目 JSON 数组，或提供 JSON 文件路径（file_path）",
+                "questions",
+                "如：[{\"questionText\":\"...\",\"optionA\":\"...\",\"correctAnswer\":\"A\"}] 或提供文件路径",
+                false,
+                false,
+                "action", "bulk_import"
         ));
         // 步骤2a：选择题分类（仅 get_questions，动态拉取分类列表供点选，可选）
         steps.add(GuideStep.inputStep(

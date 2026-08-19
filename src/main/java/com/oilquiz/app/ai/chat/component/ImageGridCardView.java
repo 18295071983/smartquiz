@@ -151,8 +151,9 @@ public class ImageGridCardView implements ChatComponent {
     /**
      * 本地图片统一解码：file://、/ 开头路径、content:// URI 均走 BitmapFactory（采样防 OOM）。
      * 返回 null 表示非本地源或解码失败（调用方回退 Glide）。
+     * @param maxDimension 最长边限制（像素），用于控制解码内存
      */
-    private static android.graphics.Bitmap decodeLocalImage(Context context, String url) {
+    private static android.graphics.Bitmap decodeLocalImage(Context context, String url, int maxDimension) {
         if (url == null) return null;
         try {
             android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
@@ -173,7 +174,7 @@ public class ImageGridCardView implements ChatComponent {
             }
             if (opts.outWidth <= 0 || opts.outHeight <= 0) return null;
             int sample = 1;
-            while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+            while (opts.outWidth / sample > maxDimension || opts.outHeight / sample > maxDimension) {
                 sample *= 2;
             }
             opts.inJustDecodeBounds = false;
@@ -207,7 +208,7 @@ public class ImageGridCardView implements ChatComponent {
 
         // 本地图片优先直接解码（file:// / / 开头 / content://）
         if (url != null && (url.startsWith("file://") || url.startsWith("/") || url.startsWith("content://"))) {
-            android.graphics.Bitmap bmp = decodeLocalImage(root.getContext(), url);
+            android.graphics.Bitmap bmp = decodeLocalImage(root.getContext(), url, 1024);
             if (bmp != null) {
                 iv.setImageBitmap(bmp);
                 loading.setVisibility(View.GONE);
@@ -245,8 +246,10 @@ public class ImageGridCardView implements ChatComponent {
                 };
         try {
             // 15s 超时：加载挂起（网络慢/URI 无效）时触发 onLoadFailed，避免无限转圈
+            // override 限制解码尺寸：超大网络图全尺寸解码会导致 Canvas 崩溃（too large bitmap）
             Glide.with(root.getContext()).load(url)
                     .timeout(15000)
+                    .override(1024, 1024)
                     .listener(listener)
                     .into(iv);
         } catch (Exception e) {
@@ -328,7 +331,7 @@ public class ImageGridCardView implements ChatComponent {
 
             // show 之后再加载（View 已 attach），loading 占位 + 失败提示
             // 本地图片优先 BitmapFactory 直接解码（file:// / / 开头 / content://，避免 Glide 对本地 URI 不回调转圈）
-            android.graphics.Bitmap localBmp = decodeLocalImage(context, url);
+            android.graphics.Bitmap localBmp = decodeLocalImage(context, url, 2048);
             if (localBmp != null) {
                 photoView.setImageBitmap(localBmp);
                 loading.setVisibility(View.GONE);
@@ -353,7 +356,7 @@ public class ImageGridCardView implements ChatComponent {
                                 return false;
                             }
                         };
-                Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+                Glide.with(context).load(url).timeout(15000).override(2048, 2048).listener(listener).into(photoView);
             }
         } catch (Exception e) {
             android.util.Log.w("ImageGridCardView", "showFullImage failed: " + e.getMessage());

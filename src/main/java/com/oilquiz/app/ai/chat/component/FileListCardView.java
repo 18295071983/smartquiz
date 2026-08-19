@@ -76,6 +76,15 @@ public class FileListCardView implements ChatComponent {
                 row.setPadding(0, dp(context, 4), 0, dp(context, 4));
 
                 String type = f.optString("type", "file");
+                final String rowPath = f.optString("path", "");
+                // 文件行可点击打开（file/目录均可，path 缺失时不可点）
+                if (!TextUtils.isEmpty(rowPath)) {
+                    row.setClickable(true);
+                    row.setFocusable(true);
+                    row.setOnClickListener(v ->
+                            com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, rowPath));
+                }
+
                 String icon = "dir".equals(type) ? "📁" : fileIcon(f.optString("name", ""));
                 TextView iconTv = new TextView(context);
                 iconTv.setText(icon);
@@ -97,10 +106,10 @@ public class FileListCardView implements ChatComponent {
                 nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
                 textCol.addView(nameTv);
 
-                String filePath = f.optString("path", "");
-                if (!TextUtils.isEmpty(filePath)) {
+                String pathText = f.optString("path", "");
+                if (!TextUtils.isEmpty(pathText)) {
                     TextView pathTv = new TextView(context);
-                    pathTv.setText(filePath);
+                    pathTv.setText(pathText);
                     pathTv.setTextSize(10);
                     pathTv.setTextColor(ComponentColors.textTertiary(context));
                     pathTv.setSingleLine(true);

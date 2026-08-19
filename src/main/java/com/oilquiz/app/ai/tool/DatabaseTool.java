@@ -42,15 +42,20 @@ import org.json.JSONObject;
         @Action(name = "search_questions", description = "搜索题目"),
         @Action(name = "get_question_count", description = "获取题目数量"),
         @Action(name = "get_question_statistics", description = "获取题目统计信息"),
+        @Action(name = "get_all_categories", description = "获取所有题目分类"),
+        @Action(name = "get_all_question_types", description = "获取所有题目类型"),
         @Action(name = "get_question_by_id", description = "根据ID获取题目"),
-        @Action(name = "add_questions", description = "添加题目(每次最多10道，超过须分批调用)"),
+        @Action(name = "add_questions", description = "添加题目(一次可传多道，数量不限)"),
+        @Action(name = "bulk_import", description = "大批量导入题目：接受JSON数组(questions)或JSON文件路径(file_path)，一次可导入数百道，自动跳过无效条目"),
         @Action(name = "update_question", description = "更新题目"),
         @Action(name = "delete_question", description = "删除题目"),
+        @Action(name = "clear_all_questions", description = "清空全部题目"),
         @Action(name = "get_user", description = "获取用户信息"),
         @Action(name = "add_user", description = "添加用户"),
         @Action(name = "get_score_history", description = "获取分数历史"),
         @Action(name = "add_score", description = "添加分数记录"),
-        @Action(name = "get_average_score", description = "获取平均分")
+        @Action(name = "get_average_score", description = "获取平均分"),
+        @Action(name = "get_database_version", description = "获取数据库版本")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
@@ -63,7 +68,9 @@ import org.json.JSONObject;
         @Param(name = "type", type = "string", description = "题目类型", required = false),
         @Param(name = "difficulty", type = "int", description = "难度: 1-简单, 2-中等, 3-困难", required = false),
         @Param(name = "page", type = "int", description = "页码", required = false),
-        @Param(name = "page_size", type = "int", description = "每页数量", required = false)
+        @Param(name = "page_size", type = "int", description = "每页数量", required = false),
+        @Param(name = "questions", type = "array", description = "题目列表(用于add_questions/bulk_import)", required = false),
+        @Param(name = "file_path", type = "string", description = "JSON文件路径(用于bulk_import)", required = false)
     }
 )
 public class DatabaseTool implements AITool {
@@ -80,7 +87,7 @@ public class DatabaseTool implements AITool {
     public String getName() { return "database"; }
     
     @Override
-    public String getDescription() { return "数据库操作工具。支持任意SQL查询、列出表、查看表结构、题目管理、用户管理、分数记录等"; }
+    public String getDescription() { return "数据库操作工具。支持任意SQL查询、列出表、查看表结构、题目管理(含大批量导入bulk_import)、用户管理、分数记录等"; }
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
@@ -116,6 +123,8 @@ public class DatabaseTool implements AITool {
                     return getQuestionById(parameters);
                 case "add_questions":
                     return addQuestions(parameters);
+                case "bulk_import":
+                    return bulkImport(parameters);
                 case "update_question":
                     return updateQuestion(parameters);
                 case "delete_question":
@@ -693,6 +702,176 @@ public class DatabaseTool implements AITool {
         }
     }
     
+    /**
+     * 大批量导入题目：接受 questions(JSON数组或字符串) 或 file_path(JSON文件路径)。
+     * 一次可导入数百道；自动跳过空题干与缺选项的选择题，返回成功/失败统计。
+     */
+    @SuppressWarnings("unchecked")
+    private AIToolResult bulkImport(Map<String, Object> parameters) {
+        try {
+            List<Map<String, Object>> questionMaps = null;
+
+            // 来源1：file_path —— 读取 JSON 文件（数组，或 {questions:[...]}）
+            Object filePathObj = parameters.get("file_path");
+            if (filePathObj != null && !filePathObj.toString().isEmpty()) {
+                java.io.File f = new java.io.File(filePathObj.toString());
+                if (!f.exists()) {
+                    // 尝试应用文件目录
+                    java.io.File appFile = new java.io.File(context.getFilesDir(), filePathObj.toString());
+                    if (appFile.exists()) f = appFile;
+                }
+                if (!f.exists()) {
+                    return new AIToolResult("文件不存在: " + filePathObj, parameters);
+                }
+                String content;
+                try (java.io.InputStream is = new java.io.FileInputStream(f)) {
+                    byte[] buf = new byte[(int) Math.min(f.length(), 20 * 1024 * 1024)];
+                    int read = is.read(buf);
+                    content = new String(buf, 0, Math.max(read, 0), java.nio.charset.StandardCharsets.UTF_8);
+                }
+                org.json.JSONObject root = new org.json.JSONObject(content);
+                if (root.has("questions")) {
+                    questionMaps = parseQuestionsJson(root.getJSONArray("questions").toString());
+                } else {
+                    questionMaps = parseQuestionsJson(content);
+                }
+            }
+
+            // 来源2：questions 参数
+            if (questionMaps == null) {
+                Object questionsObj = parameters.get("questions");
+                if (questionsObj == null) {
+                    return new AIToolResult("缺少参数: questions 或 file_path（bulk_import 需要二者之一）", parameters);
+                }
+                if (questionsObj instanceof List) {
+                    questionMaps = (List<Map<String, Object>>) questionsObj;
+                } else if (questionsObj instanceof String) {
+                    String jsonStr = ((String) questionsObj).trim();
+                    questionMaps = parseQuestionsJson(jsonStr);
+                    if (questionMaps == null) {
+                        return new AIToolResult("questions 参数 JSON 解析失败，请检查格式", parameters);
+                    }
+                } else {
+                    return new AIToolResult("questions 参数类型不支持: " + questionsObj.getClass().getSimpleName(), parameters);
+                }
+            }
+
+            if (questionMaps == null || questionMaps.isEmpty()) {
+                return new AIToolResult("没有题目数据", parameters);
+            }
+
+            List<Question> questions = new ArrayList<>();
+            int skippedEmpty = 0;
+            int skippedBadChoice = 0;
+            for (Map<String, Object> qm : questionMaps) {
+                Question q = new Question();
+                q.setQuestionText(getStr(qm, "questionText", "question_text", "question"));
+                q.setOptionA(getStr(qm, "optionA", "option_a", "A"));
+                q.setOptionB(getStr(qm, "optionB", "option_b", "B"));
+                q.setOptionC(getStr(qm, "optionC", "option_c", "C"));
+                q.setOptionD(getStr(qm, "optionD", "option_d", "D"));
+                q.setOptionE(getStr(qm, "optionE", "option_e", "E"));
+                q.setOptionF(getStr(qm, "optionF", "option_f", "F"));
+                q.setOptionG(getStr(qm, "optionG", "option_g", "G"));
+                q.setOptionH(getStr(qm, "optionH", "option_h", "H"));
+                q.setOptionI(getStr(qm, "optionI", "option_i", "I"));
+                q.setOptionJ(getStr(qm, "optionJ", "option_j", "J"));
+                q.setOptionK(getStr(qm, "optionK", "option_k", "K"));
+                q.setOptionL(getStr(qm, "optionL", "option_l", "L"));
+                q.setCorrectAnswer(normalizeAnswer(getStr(qm, "correctAnswer", "correct_answer", "answer")));
+                q.setExplanation(getStr(qm, "explanation", "解析"));
+                q.setCategory(getStr(qm, "category", "分类"));
+                q.setQuestionType(getStr(qm, "questionType", "question_type", "type"));
+                q.setAnswerText(getStr(qm, "answerText", "answer_text", "standard_answer"));
+                q.setImageUri(getStr(qm, "imageUri", "image_uri", "image"));
+                q.setAudioUri(getStr(qm, "audioUri", "audio_uri", "audio"));
+                q.setSource(getStr(qm, "source", "来源"));
+                q.setTags(getStr(qm, "tags", "标签"));
+                q.setAnalysis(getStr(qm, "analysis", "详细解析"));
+                q.setKnowledgePoint(getStr(qm, "knowledgePoint", "knowledge_point", "知识点"));
+                q.setSubCategory(getStr(qm, "subCategory", "sub_category", "子分类"));
+                q.setHint(getStr(qm, "hint", "提示"));
+                q.setAuthor(getStr(qm, "author", "作者"));
+                q.setComment(getStr(qm, "comment", "备注"));
+
+                Object diff = qm.get("difficulty");
+                if (diff instanceof Number) {
+                    q.setDifficulty(((Number) diff).intValue());
+                } else if (diff instanceof String) {
+                    try { q.setDifficulty(Integer.parseInt((String) diff)); } catch (Exception ignored) {}
+                }
+                Object pts = qm.get("points");
+                if (pts instanceof Number) {
+                    q.setPoints(((Number) pts).intValue());
+                } else if (pts instanceof String) {
+                    try { q.setPoints(Integer.parseInt((String) pts)); } catch (Exception ignored) {}
+                }
+                Object tl = qm.get("timeLimit");
+                if (tl instanceof Number) {
+                    q.setTimeLimit(((Number) tl).intValue());
+                } else if (tl instanceof String) {
+                    try { q.setTimeLimit(Integer.parseInt((String) tl)); } catch (Exception ignored) {}
+                }
+
+                if (q.getQuestionText() == null || q.getQuestionText().trim().isEmpty()) {
+                    skippedEmpty++;
+                    continue;
+                }
+                // 批量导入容错：缺选项的选择题跳过而不是整体失败（与 add_questions 的严格校验区分）
+                if (isChoiceType(q.getQuestionType()) && q.getOptionCount() < 2) {
+                    skippedBadChoice++;
+                    continue;
+                }
+                questions.add(q);
+            }
+
+            if (questions.isEmpty()) {
+                Map<String, Object> emptyResult = new HashMap<>();
+                emptyResult.put("status", "failed");
+                emptyResult.put("imported", 0);
+                emptyResult.put("skipped_empty", skippedEmpty);
+                emptyResult.put("skipped_bad_choice", skippedBadChoice);
+                emptyResult.put("message", "没有可导入的题目（空题干 " + skippedEmpty + " 条，缺选项选择题 " + skippedBadChoice + " 条）");
+                return new AIToolResult(emptyResult, parameters);
+            }
+
+            // 分批入库（每批 200 道，避免单次事务过大）
+            int imported = 0;
+            int failed = 0;
+            int batchSize = 200;
+            for (int i = 0; i < questions.size(); i += batchSize) {
+                List<Question> batch = questions.subList(i, Math.min(i + batchSize, questions.size()));
+                try {
+                    Future<Boolean> future = databaseManager.addQuestions(new ArrayList<>(batch));
+                    boolean ok = future.get(30, TimeUnit.SECONDS);
+                    if (ok) {
+                        imported += batch.size();
+                    } else {
+                        failed += batch.size();
+                    }
+                } catch (Exception e) {
+                    failed += batch.size();
+                    AILogger.e(TAG, "批量导入批次失败: " + e.getMessage(), e);
+                }
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", imported > 0 ? "success" : "failed");
+            result.put("total", questionMaps.size());
+            result.put("imported", imported);
+            result.put("failed", failed);
+            result.put("skipped_empty", skippedEmpty);
+            result.put("skipped_bad_choice", skippedBadChoice);
+            result.put("message", "导入完成：成功 " + imported + " 道，失败 " + failed + " 道"
+                    + (skippedEmpty > 0 ? "，空题干跳过 " + skippedEmpty + " 道" : "")
+                    + (skippedBadChoice > 0 ? "，缺选项选择题跳过 " + skippedBadChoice + " 道" : ""));
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "批量导入失败: " + e.getMessage(), e);
+            return new AIToolResult("批量导入失败: " + e.getMessage(), parameters);
+        }
+    }
+
     /** 从 Map 中按多个可能的键名获取字符串值 */
     private String getStr(Map<String, Object> map, String... keys) {
         for (String key : keys) {
@@ -1086,7 +1265,7 @@ public class DatabaseTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: execute_query, get_questions, search_questions, get_question_count, get_question_statistics, get_all_categories, get_all_question_types, get_question_by_id, add_questions, update_question, delete_question, clear_all_questions, get_user, add_user, get_score_history, add_score, get_average_score, get_database_version");
+        descriptions.put("action", "操作类型: execute_sql, list_tables, get_table_schema, execute_query, get_questions, search_questions, get_question_count, get_question_statistics, get_all_categories, get_all_question_types, get_question_by_id, add_questions, bulk_import, update_question, delete_question, clear_all_questions, get_user, add_user, get_score_history, add_score, get_average_score, get_database_version");
         descriptions.put("query", "SQL查询语句（用于execute_query操作）");
         descriptions.put("keyword", "搜索关键词（用于search_questions操作）");
         descriptions.put("page", "页码（用于get_questions操作）");
@@ -1095,7 +1274,8 @@ public class DatabaseTool implements AITool {
         descriptions.put("type", "题目类型（用于get_questions和search_questions操作）");
         descriptions.put("difficulty", "难度: 1-简单, 2-中等, 3-困难（用于get_questions和search_questions操作）");
         descriptions.put("id", "题目ID（用于get_question_by_id, update_question, delete_question操作）");
-        descriptions.put("questions", "题目列表（用于add_questions操作，格式：[{questionText, optionA, optionB, optionC, optionD, correctAnswer, explanation, category, questionType, difficulty}]）");
+        descriptions.put("questions", "题目列表（用于add_questions/bulk_import操作，格式：[{questionText, optionA, optionB, optionC, optionD, correctAnswer, explanation, category, questionType, difficulty}]）");
+        descriptions.put("file_path", "JSON文件路径（用于bulk_import操作，文件内容为题目数组或{questions:[...]}）");
         descriptions.put("username", "用户名（用于get_user和add_user操作）");
         descriptions.put("userId", "用户ID（用于get_score_history和get_average_score操作）");
         descriptions.put("questionText", "题目文本（用于update_question操作）");

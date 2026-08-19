@@ -23,7 +23,15 @@ from .android_ui import (
     show_dialog,
     update_progress,
     notify_java,
-    set_ui_callback
+    set_ui_callback,
+    create_component,
+    update_component,
+    close_component,
+    get_component_result,
+    show_progress,
+    update_progress_component,
+    ask_input,
+    ask_choice
 )
 
 __all__ = [
@@ -47,7 +55,15 @@ __all__ = [
     'show_dialog',
     'update_progress',
     'notify_java',
-    'set_ui_callback'
+    'set_ui_callback',
+    'create_component',
+    'update_component',
+    'close_component',
+    'get_component_result',
+    'show_progress',
+    'update_progress_component',
+    'ask_input',
+    'ask_choice'
 ]
 
 __version__ = '1.0.0'
