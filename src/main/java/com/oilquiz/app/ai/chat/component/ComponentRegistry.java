@@ -68,6 +68,8 @@ public class ComponentRegistry {
         register(new ProgressCardView());
         // HTML 富内容（Agent/Python 生成，WebView 渲染，支持 CSS/简单 JS）
         register(new HtmlCardView());
+        // Markdown 富文本（内容框架文本承载组件，渲染加粗/列表/链接/代码块等）
+        register(new MarkdownCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）
         register(new ToolCallCardView());
     }

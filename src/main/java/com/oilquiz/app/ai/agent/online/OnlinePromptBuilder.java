@@ -148,7 +148,8 @@ public class OnlinePromptBuilder {
         sb.append("  可用组件类型：chart(图表) / info_card(信息卡) / table_card(表格) / image_grid(图片网格) / link_card(链接) /\n");
         sb.append("  list_card(列表) / alert_card(提示) / metric_card(指标) / json_viewer(JSON) / steps_card(步骤) /\n");
         sb.append("  note_card(引用) / file_list(文件列表) / grid_card(宫格) / contact_card(联系) / todo_card(待办) /\n");
-        sb.append("  quiz_card(题目) / weather_card(天气) / file_card(文件) / code_card(代码) / progress_card(进度) / html(富文本)\n");
+        sb.append("  quiz_card(题目) / weather_card(天气) / file_card(文件) / code_card(代码) / progress_card(进度) / html(富文本) /\n");
+        sb.append("  markdown_card(Markdown富文本: 加粗/列表/链接/代码块, 长段落说明用它)\n");
         sb.append("  各类型 props 字段结构详见 ui_component 工具定义（props 参数），按需填参即可。\n");
         sb.append("  【交互组件】任务需要用户提供信息或反馈时，主动创建交互组件收集，不要替用户假设答案或直接略过：\n");
         sb.append("    需要用户确认/选择/输入/提供信息（如确认操作、选选项、填内容、点赞、打分、选文件等）时：\n");

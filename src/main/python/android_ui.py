@@ -231,7 +231,7 @@ def create_component(component_type, title="", message="", component_id=None,
         #   chart / info_card / table_card / image_grid / link_card / list_card /
         #   alert_card / metric_card / json_viewer / steps_card / note_card /
         #   file_list / grid_card / contact_card / todo_card / quiz_card /
-        #   weather_card / file_card / code_card / progress_card / html
+        #   weather_card / file_card / code_card / progress_card / html / markdown_card
         # 用法：create_component("类型", props={...参数...})
         # 例如：
         #   create_component("info_card", props={"title":"用户信息","items":[{"label":"姓名","value":"张三"}]})
