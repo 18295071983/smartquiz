@@ -1064,10 +1064,14 @@ public class PythonToolManager {
                     if ("web".equals(fType)) {
                         renderType = "html";
                         if (!propsObj.has("html") && !propsObj.has("url") && !fUrl.isEmpty()) {
-                            if (fUrl.startsWith("http://") || fUrl.startsWith("https://")) {
-                                propsObj.put("url", fUrl);
+                            String u = fUrl.trim();
+                            if (u.startsWith("http://") || u.startsWith("https://")) {
+                                propsObj.put("url", u);
+                            } else if (isLocalFilePath(u)) {
+                                // 本地网页文件：转 file:// 由 WebView 直接加载渲染（不当 HTML 字符串显示源码）
+                                propsObj.put("url", u.startsWith("file://") ? u : "file://" + u);
                             } else {
-                                propsObj.put("html", fUrl);
+                                propsObj.put("html", u);
                             }
                         }
                     } else if ("image".equals(fType)) {
@@ -1929,6 +1933,16 @@ public class PythonToolManager {
             } catch (Exception e) {
                 return 0;
             }
+        }
+
+        /** 判断是否本地文件路径（file:// 前缀、/ 开头绝对路径、常见网页扩展名） */
+        private static boolean isLocalFilePath(String s) {
+            if (s == null || s.isEmpty()) return false;
+            if (s.startsWith("file://") || s.startsWith("/")) return true;
+            String lower = s.toLowerCase();
+            return lower.endsWith(".html") || lower.endsWith(".htm")
+                    || lower.endsWith(".xhtml") || lower.endsWith(".mht")
+                    || lower.endsWith(".svg");
         }
     }
 }
