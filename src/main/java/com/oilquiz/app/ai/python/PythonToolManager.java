@@ -1051,21 +1051,38 @@ public class PythonToolManager {
                     // 用项目自带组件库渲染成真实 View，弹窗展示
                     com.oilquiz.app.ai.chat.component.ComponentRegistry registry =
                             com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance();
-                    if (registry.hasType(fType)) {
-                        org.json.JSONObject propsObj = new org.json.JSONObject();
-                        if (!fProps.isEmpty()) {
-                            try {
-                                propsObj = new org.json.JSONObject(fProps);
-                            } catch (Exception e) {
-                                Log.w(TAG, "内置组件 props 解析失败，使用空 props: " + e.getMessage());
+                    // web/image 别名映射（与 ui_component 工具一致）：web→html 卡片、image→image_grid 卡片
+                    String renderType = fType;
+                    org.json.JSONObject propsObj = new org.json.JSONObject();
+                    if (!fProps.isEmpty()) {
+                        try {
+                            propsObj = new org.json.JSONObject(fProps);
+                        } catch (Exception e) {
+                            Log.w(TAG, "内置组件 props 解析失败，使用空 props: " + e.getMessage());
+                        }
+                    }
+                    if ("web".equals(fType)) {
+                        renderType = "html";
+                        if (!propsObj.has("html") && !propsObj.has("url") && !fUrl.isEmpty()) {
+                            if (fUrl.startsWith("http://") || fUrl.startsWith("https://")) {
+                                propsObj.put("url", fUrl);
+                            } else {
+                                propsObj.put("html", fUrl);
                             }
                         }
+                    } else if ("image".equals(fType)) {
+                        renderType = "image_grid";
+                        if (!propsObj.has("images") && !fDefault.isEmpty()) {
+                            propsObj.put("images", new org.json.JSONArray().put(fDefault));
+                        }
+                    }
+                    if (registry.hasType(renderType)) {
                         // 未显式传 title 时用组件的 title 参数
                         if (title != null && !title.isEmpty() && !propsObj.has("title")) {
                             propsObj.put("title", title);
                         }
                         com.oilquiz.app.ai.chat.component.ComponentData data =
-                                new com.oilquiz.app.ai.chat.component.ComponentData(fType, propsObj);
+                                new com.oilquiz.app.ai.chat.component.ComponentData(renderType, propsObj);
                         android.view.View view = registry.render(fAct, data);
                         if (view == null) {
                             view = registry.renderFallback(fAct, data);
@@ -1103,7 +1120,7 @@ public class PythonToolManager {
                         dialog.show();
                         rt.dialog = dialog;
                         scheduleAutoClose(rt, main, autoCloseSeconds);
-                        Log.i(TAG, "[Python component] builtin UI component shown: " + fType + " (" + id + ")");
+                        Log.i(TAG, "[Python component] builtin UI component shown: " + renderType + " (" + id + ")");
                         return;
                     }
                     if ("progress".equals(fType)) {
