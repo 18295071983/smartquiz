@@ -1004,6 +1004,7 @@ public class AIToolManager {
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
                     .addParameter("props", "object", "内置组件参数(如chart的chartType/categories/series；带actions则交互，按钮点击值经get_result返回)", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
+                    .addParameter("auto_close", "integer", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", false)
                     .category("system")
                     .build();
             case "tool_registry":

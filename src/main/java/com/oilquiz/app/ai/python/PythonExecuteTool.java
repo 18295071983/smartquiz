@@ -46,6 +46,7 @@ import java.util.regex.Pattern;
         "  时间: cid=create_component('time','选时间',default_value='09:30')['component_id']; 结果=HH:mm\n" +
         "  图片预览: cid=create_component('image','预览',default_value='/sdcard/photo.jpg')['component_id']; 支持本地路径或http(s)url\n" +
         "  snackbar: cid=create_component('snackbar',message='已保存',action_label='打开')['component_id']; 结果='action'(点按钮)/'closed'(消失)\n" +
+        "  自动关闭: create_component('dialog',auto_close=5) 创建后5秒自动关闭(置result=closed),提示类组件建议加auto_close避免残留\n" +
         "  列表弹窗: cid=create_component('list','标题',items=['a','b','c'])['component_id']; 或 items=[{'title','description','icon'}]; 点选结果=选中项\n" +
         "  WebView富页面: cid=create_component('web','页面',url='https://...')['component_id']; url也可传HTML字符串\n" +
         "  系统通知栏: cid=create_component('notification','标题','内容')['component_id']; update_component(cid,progress=50,max=100,message=..)更新进度; close_component(cid)移除; 不依赖前台界面(后台任务可用)\n" +

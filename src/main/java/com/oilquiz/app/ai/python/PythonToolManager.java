@@ -814,6 +814,9 @@ public class PythonToolManager {
             final java.util.concurrent.atomic.AtomicReference<String> result =
                     new java.util.concurrent.atomic.AtomicReference<>("pending");
             final Object resultLock = new Object();
+            /** 自动关闭（auto_close 秒后 dismiss）：主线程 handler + 任务，close 时移除 */
+            volatile android.os.Handler autoCloseHandler;
+            volatile Runnable autoCloseTask;
         }
 
         /** Python 入口：把 PyObject 转为 Map 后统一走纯 Java 处理 */
@@ -842,6 +845,7 @@ public class PythonToolManager {
                 int current = 0, total = 0, max = 100, progress = 0, waitSeconds = 0;
                 String options = "", defaultValue = "", inputHint = "", props = "", actionLabel = "";
                 String items = "", url = "", clickAction = "";
+                int autoClose = 0;
                 if (action != null) {
                     for (Map.Entry<String, Object> e : action.entrySet()) {
                         String k = e.getKey() == null ? "" : e.getKey().toString();
@@ -869,6 +873,7 @@ public class PythonToolManager {
                             case "items": items = v; break;
                             case "url": url = v; break;
                             case "click_action": clickAction = v; break;
+                            case "auto_close": autoClose = parseInt(v); break;
                             default: break;
                         }
                     }
@@ -890,7 +895,7 @@ public class PythonToolManager {
                     case "create_component":
                         reply.putAll(createComponent(componentType, componentId, title, message,
                                 dialogType, max, options, defaultValue, inputHint, props, actionLabel,
-                                items, url, clickAction));
+                                items, url, clickAction, autoClose));
                         break;
                     case "update_component":
                         reply.putAll(updateComponent(componentId, title, message, progress, max));
@@ -920,13 +925,14 @@ public class PythonToolManager {
             return reply;
         }
 
-        /** 创建动态组件：dialog/progress/input/choice/snackbar/date/time/multi_choice/image/list/web/notification（系统原生）或内置 UI 组件(chart 等 22 种)。返回 component_id。 */
+        /** 创建动态组件：dialog/progress/input/choice/snackbar/date/time/multi_choice/image/list/web/notification（系统原生）或内置 UI 组件(chart 等 22 种)。返回 component_id。autoCloseSeconds>0 时创建后 N 秒自动关闭（并置 result=closed）。 */
         private Map<String, Object> createComponent(String componentType, String componentId,
                                                     String title, String message,
                                                     String dialogType, int max,
                                                     String options, String defaultValue, String inputHint,
                                                     String props, String actionLabel,
-                                                    String items, String url, String clickAction) {
+                                                    String items, String url, String clickAction,
+                                                    int autoCloseSeconds) {
             Map<String, Object> reply = new HashMap<>();
             String type = componentType != null ? componentType : "dialog";
             final String id = (componentId != null && !componentId.isEmpty())
@@ -1084,14 +1090,19 @@ public class PythonToolManager {
                         });
                         dialog.show();
                         rt.dialog = dialog;
+                        scheduleAutoClose(rt, main, autoCloseSeconds);
                         Log.i(TAG, "[Python component] builtin UI component shown: " + fType + " (" + id + ")");
                         return;
                     }
                     if ("progress".equals(fType)) {
-                        // 系统进度条对话框（水平进度条，可 update_component 更新）
+                        // 系统进度条对话框（水平进度条，可 update_component 更新；到 max 自动关闭，也可手动取消）
                         android.app.ProgressDialog pd = new android.app.ProgressDialog(fAct);
                         pd.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-                        pd.setCancelable(false);
+                        pd.setCancelable(true);
+                        pd.setOnCancelListener(d -> {
+                            rt.result.compareAndSet("pending", "cancelled");
+                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        });
                         if (title != null && !title.isEmpty()) pd.setTitle(title);
                         if (message != null && !message.isEmpty()) pd.setMessage(message);
                         pd.setMax(max > 0 ? max : 100);
@@ -1563,6 +1574,8 @@ public class PythonToolManager {
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] dialog created: " + id);
                     }
+                    // 统一自动关闭调度：auto_close 秒后 dismiss（所有系统组件类型通用）
+                    scheduleAutoClose(rt, main, autoCloseSeconds);
                 } catch (Throwable t) {
                     Log.w(TAG, "创建组件失败: " + t.getMessage());
                     rt.result.set("cancelled");
@@ -1580,8 +1593,28 @@ public class PythonToolManager {
             return reply;
         }
 
-        /** 更新组件：progress 更新进度/消息；dialog 更新标题/内容；notification 更新通知内容/进度。 */
-        private Map<String, Object> updateComponent(String componentId, String title,
+        /** 自动关闭调度：autoCloseSeconds>0 且组件已显示时，N 秒后 dismiss 并置 result=closed。
+         *  必须在主线程调用（createComponent 的 main.post 内）。 */
+        private void scheduleAutoClose(ComponentRuntime rt, android.os.Handler main, int autoCloseSeconds) {
+            if (autoCloseSeconds <= 0 || rt == null || main == null) return;
+            rt.autoCloseHandler = main;
+            rt.autoCloseTask = () -> {
+                try {
+                    if (rt.dialog != null && rt.dialog.isShowing()) {
+                        rt.dialog.dismiss();
+                    }
+                    rt.dialog = null;
+                    rt.result.compareAndSet("pending", "closed");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    Log.i(TAG, "[Python component] auto closed after " + autoCloseSeconds + "s");
+                } catch (Throwable t) {
+                    Log.w(TAG, "自动关闭组件失败: " + t.getMessage());
+                }
+            };
+            main.postDelayed(rt.autoCloseTask, autoCloseSeconds * 1000L);
+        }
+
+        /** 更新组件：progress 更新进度/消息；dialog 更新标题/内容；notification 更新通知内容/进度。 */        private Map<String, Object> updateComponent(String componentId, String title,
                                                     String message, int progress, int max) {
             Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
@@ -1650,11 +1683,15 @@ public class PythonToolManager {
                         if (progress >= 0) pd.setProgress(progress);
                         if (title != null && !title.isEmpty()) pd.setTitle(title);
                         if (message != null && !message.isEmpty()) pd.setMessage(message);
-                        if (progress >= 100) {
+                        // 到 max（默认100）自动关闭（保留注册表条目供 get_result 查询 completed）
+                        int target = pd.getMax() > 0 ? pd.getMax() : 100;
+                        if (progress >= target) {
+                            cancelAutoClose(rt);
                             pd.dismiss();
                             rt.dialog = null;
                             rt.result.compareAndSet("pending", "completed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                            Log.i(TAG, "[Python component] progress auto closed at max: " + componentId);
                         }
                     } else if (d instanceof android.app.AlertDialog) {
                         android.app.AlertDialog ad = (android.app.AlertDialog) d;
@@ -1671,6 +1708,19 @@ public class PythonToolManager {
             return reply;
         }
 
+        /** 取消自动关闭定时任务（组件被正常关闭/完成时调用，防止误关后续复用的 rt） */
+        private void cancelAutoClose(ComponentRuntime rt) {
+            if (rt == null) return;
+            try {
+                if (rt.autoCloseTask != null && rt.autoCloseHandler != null) {
+                    rt.autoCloseHandler.removeCallbacks(rt.autoCloseTask);
+                }
+                rt.autoCloseTask = null;
+                rt.autoCloseHandler = null;
+            } catch (Throwable ignored) {
+            }
+        }
+
         /** 关闭组件：dismiss 对话框并移除注册表条目。 */
         private Map<String, Object> closeComponent(String componentId) {
             Map<String, Object> reply = new HashMap<>();
@@ -1680,6 +1730,7 @@ public class PythonToolManager {
                 reply.put("message", "组件不存在: " + componentId);
                 return reply;
             }
+            cancelAutoClose(rt);
             android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
             main.post(() -> {
                 try {

@@ -59,7 +59,8 @@ import java.util.Map;
         @Param(name = "input_hint", type = "string", description = "输入框提示(input用)", required = false),
         @Param(name = "action_label", type = "string", description = "按钮文字(snackbar用)", required = false),
         @Param(name = "props", type = "object", description = "内置组件参数(component_type为内置类型时用,如chart的chartType/categories/series)", required = false),
-        @Param(name = "wait_seconds", type = "int", description = "等待秒数(get_result用,默认30)", required = false)
+        @Param(name = "wait_seconds", type = "int", description = "等待秒数(get_result用,默认30)", required = false),
+        @Param(name = "auto_close", type = "int", description = "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", required = false)
     }
 )
 public class SystemUIComponentTool implements AITool {
@@ -105,8 +106,7 @@ public class SystemUIComponentTool implements AITool {
                     }
                     // 系统原生组件 → 弹窗展示
                     Map<String, Object> params = extractCreateParams(parameters);
-                    Map<String, Object> result = pythonToolManager.createUiComponent(componentType, params);
-                    return new AIToolResult(result, parameters);
+                    Map<String, Object> result = pythonToolManager.createUiComponent(componentType, params);                    return new AIToolResult(result, parameters);
                 }
                 case "update": {
                     String componentId = str(parameters.get("component_id"));
@@ -264,6 +264,7 @@ public class SystemUIComponentTool implements AITool {
         putIfNotNull(params, "action_label", parameters.get("action_label"));
         putIfNotNull(params, "url", parameters.get("url"));
         putIfNotNull(params, "click_action", parameters.get("click_action"));
+        putIfNotNull(params, "auto_close", parameters.get("auto_close"));
         // props 可能是 Map 或 JSON 字符串：统一转成 JSON 字符串（handler 按 JSON 解析）
         Object propsObj = parameters.get("props");
         if (propsObj != null) {
@@ -324,6 +325,7 @@ public class SystemUIComponentTool implements AITool {
         desc.put("action_label", "按钮文字(snackbar用)");
         desc.put("props", "内置组件参数(如chart的chartType/categories/series)");
         desc.put("wait_seconds", "等待秒数(get_result用,默认30)");
+        desc.put("auto_close", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)");
         return desc;
     }
 }
