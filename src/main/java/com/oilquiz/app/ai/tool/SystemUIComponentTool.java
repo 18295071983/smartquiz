@@ -32,8 +32,9 @@ import java.util.Map;
  */
 @Tool(
     value = "ui_component",
-    description = "系统UI组件工具：Agent直接填参数调用系统原生UI组件（对话框/进度条/输入框/单选/多选/日期/时间/图片预览/底部提示条）"
-        + "和内置UI组件库（信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等22种卡片）。"
+    description = "系统UI组件工具：Agent直接填参数调用系统原生UI组件（对话框/进度条/输入框/单选/多选/日期/时间/底部提示条）"
+        + "和内置UI组件库（信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等21种卡片，渲染到聊天流展示，props带actions可交互）。"
+        + "web=网页卡片(等价html，传url或html)、image=图片卡片(等价image_grid，传default_value或props.images)。"
         + "组件握手：create→拿component_id→update/close→get_result阻塞取用户操作结果。"
         + "示例：create_component对话框→get_result等用户点确定/取消；create_component进度条→update推进；"
         + "create_component输入框→get_result得用户输入。"
@@ -47,7 +48,7 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "操作: create/update/close/get_result", required = true),
-        @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/内置组件类型(chart,info_card等)", required = false),
+        @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html); web=网页卡片, image=图片卡片", required = false),
         @Param(name = "component_id", type = "string", description = "组件ID（update/close/get_result用）", required = false),
         @Param(name = "title", type = "string", description = "标题", required = false),
         @Param(name = "message", type = "string", description = "内容/提示文本", required = false),
