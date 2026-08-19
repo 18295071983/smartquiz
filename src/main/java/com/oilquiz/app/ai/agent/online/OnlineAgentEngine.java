@@ -162,6 +162,14 @@ public class OnlineAgentEngine {
                 AILogger.e(TAG, "Execute failed: " + t.getMessage(), t);
                 finishGeneration();
                 notifyError("执行中断: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
+            } finally {
+                // 框架兜底：无论成功/失败/取消，本轮 Agent 结束后关闭全部动态 UI 组件，
+                // 防止 Agent 创建了组件（如进度条/对话框）却未 update/close 时残留卡住界面
+                try {
+                    com.oilquiz.app.ai.python.PythonToolManager
+                            .getInstance(activity).closeAllUiComponents();
+                } catch (Throwable ignored) {
+                }
             }
         });
     }
