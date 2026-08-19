@@ -116,6 +116,12 @@ public final class ComponentActions {
             btn.setOnClickListener(v -> {
                 if ("callback".equals(action) && !componentId.isEmpty()) {
                     // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）
+                    // 点击反馈：Toast 提示已记录（避免"点了没反应"的体验）
+                    try {
+                        Toast.makeText(context, "已选择: " + (value.isEmpty() ? label : value),
+                                Toast.LENGTH_SHORT).show();
+                    } catch (Throwable ignored) {
+                    }
                     notifyResult(context, componentId, value.isEmpty() ? label : value);
                     return;
                 }
