@@ -29,7 +29,7 @@ import java.util.Map;
  */
 @Tool(
     value = "tool_registry",
-    description = "工具注册表（MCP式工具发现）：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测。",
+    description = "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。",
     category = "meta",
     actions = {
         @Action(name = "list", description = "列出全部可用工具（名称+简短描述）"),
@@ -59,7 +59,7 @@ public class ToolRegistryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "工具注册表：列出可用工具/搜索工具/获取工具参数schema（MCP式发现）";
+        return "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。";
     }
 
     @Override

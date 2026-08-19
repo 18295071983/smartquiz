@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "file_analyzer",
-    description = "文件分析工具，提供文件统计、关键词提取、内容分析等功能",
+    description = "文件分析工具，分析文件内容",
     category = "file",
     actions = {
         @Action(name = "analyze", description = "分析文件"),
@@ -73,7 +73,7 @@ public class FileAnalyzerTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件分析工具，提供文件统计、关键词提取、内容分析等功能";
+        return "文件分析工具，分析文件内容";
     }
     
     @Override

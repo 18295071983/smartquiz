@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 @Tool(
     value = "app_toolkit",
-    description = "应用工具集合，提供天气查询、数学计算、OCR文字识别、图片处理、文件解析、网页解析等功能",
+    description = "应用工具集，聚合天气/计算/OCR/图像/文件/网页等能力，通过action指定具体操作",
     category = "utility",
     aliases = {"toolkit", "工具集", "工具箱"},
     actions = {
@@ -65,7 +65,7 @@ public class AppToolkitAITool implements AITool {
     
     @Override
     public String getDescription() {
-        return "应用工具集合，提供天气查询、数学计算、OCR文字识别、图片处理、文件解析、网页解析等功能";
+        return "应用工具集，聚合天气/计算/OCR/图像/文件/网页等能力，通过action指定具体操作";
     }
     
     @Override

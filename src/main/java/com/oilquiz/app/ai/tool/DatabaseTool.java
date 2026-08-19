@@ -27,11 +27,7 @@ import org.json.JSONObject;
 
 @Tool(
     value = "database",
-    description = "数据库操作工具。支持：执行任意SQL查询(execute_sql)、列出所有表(list_tables)、"
-        + "查看表结构(get_table_schema)、题目管理、用户管理、分数记录等。"
-        + "execute_sql可执行任意SELECT/INSERT语句。"
-        + "【重要】add_questions每次最多传10道题，超过10道必须分批调用。"
-        + "大批量导入建议用execute_sql执行INSERT语句，每次INSERT 20-30条。",
+    description = "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入用bulk_import(接受questions数组或file_path JSON文件路径，一次可导入数百道，自动跳过无效条目)，add_questions也可一次传多道题目(数量不限)",
     category = "data",
     actions = {
         @Action(name = "execute_sql", description = "执行任意SQL(SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)"),
@@ -87,7 +83,7 @@ public class DatabaseTool implements AITool {
     public String getName() { return "database"; }
     
     @Override
-    public String getDescription() { return "数据库操作工具。支持任意SQL查询、列出表、查看表结构、题目管理(含大批量导入bulk_import)、用户管理、分数记录等"; }
+    public String getDescription() { return "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入用bulk_import(接受questions数组或file_path JSON文件路径，一次可导入数百道，自动跳过无效条目)，add_questions也可一次传多道题目(数量不限)"; }
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {

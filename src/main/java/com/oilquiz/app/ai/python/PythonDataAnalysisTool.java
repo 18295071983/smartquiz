@@ -19,7 +19,7 @@ import java.util.Map;
 
 @Tool(
     value = "python_analyze_data",
-    description = "使用 Python 进行数据分析，支持统计、汇总、数据处理等",
+    description = "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时优先用本工具，复杂任务用python_execute",
     category = "python",
     aliases = {"data_analysis", "analyze", "数据分析"},
     actions = {
@@ -38,7 +38,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
     private final PythonToolManager toolManager;
     
     public PythonDataAnalysisTool(Context context) {
-        super("python_analyze_data", "使用 Python 进行数据分析，支持统计、汇总、数据处理等");
+        super("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时优先用本工具，复杂任务用python_execute");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
     }

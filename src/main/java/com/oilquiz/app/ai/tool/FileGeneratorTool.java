@@ -21,7 +21,7 @@ import java.util.Map;
 
 @Tool(
     value = "file_generator",
-    description = "文件生成工具，支持创建文本文件、JSON文件、配置文件等",
+    description = "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）",
     category = "file",
     actions = {
         @Action(name = "create", description = "创建文件"),
@@ -54,7 +54,7 @@ public class FileGeneratorTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件生成工具，支持创建文本文件、JSON文件、配置文件等";
+        return "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）";
     }
     
     @Override

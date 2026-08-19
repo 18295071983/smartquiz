@@ -12,7 +12,7 @@ import java.util.Map;
 
 @Tool(
     value = "translation",
-    description = "翻译工具，支持中英文、日文、韩文等多种语言互译",
+    description = "翻译工具，翻译文本",
     category = "utility",
     aliases = {"translate", "翻译", "language_translate"},
     actions = {
@@ -69,7 +69,7 @@ public class TranslationTool implements AITool {
     public String getName() { return "translation"; }
 
     @Override
-    public String getDescription() { return "翻译工具，支持多语言文本翻译，由AI模型驱动"; }
+    public String getDescription() { return "翻译工具，翻译文本"; }
 
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {

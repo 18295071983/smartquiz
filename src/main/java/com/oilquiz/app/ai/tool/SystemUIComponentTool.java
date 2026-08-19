@@ -32,13 +32,7 @@ import java.util.Map;
  */
 @Tool(
     value = "ui_component",
-    description = "系统UI组件工具：Agent直接填参数调用系统原生UI组件（对话框/进度条/输入框/单选/多选/日期/时间/底部提示条）"
-        + "和内置UI组件库（信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等21种卡片，渲染到聊天流展示，props带actions可交互）。"
-        + "web=网页卡片(等价html，传url或html)、image=图片卡片(等价image_grid，传default_value或props.images)。"
-        + "组件握手：create→拿component_id→update/close→get_result阻塞取用户操作结果。"
-        + "示例：create_component对话框→get_result等用户点确定/取消；create_component进度条→update推进；"
-        + "create_component输入框→get_result得用户输入。"
-        + "用途：需要用户确认/输入/选择、耗时任务进度反馈、展示结构化信息时使用。",
+    description = "系统UI组件工具（独立工具，无需Python）：创建系统原生组件(dialog确认框/progress进度条/input输入框/choice单选/multi_choice多选/date日期/time时间/image图片预览/snackbar提示条/list列表/web网页/notification通知)与内置组件(信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等21种卡片，进聊天流展示，props带actions可交互)。有结构的信息(列表/表格/图表/指标/题目/天气等)一律用它创建组件卡片展示，不要用纯文本/Markdown表格。组件握手：create→component_id→update/close→get_result取用户操作结果。",
     category = "system",
     actions = {
         @Action(name = "create", description = "创建系统UI组件（component_type=组件类型，返回component_id）"),
@@ -93,9 +87,7 @@ public class SystemUIComponentTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "系统UI组件工具：创建系统对话框/进度条/输入框/选择器/图片预览/提示条，或展示内置UI组件卡片。"
-            + "组件握手：create→component_id→update/close→get_result取用户操作结果。"
-            + "需要用户确认/输入/选择、任务进度反馈、展示结构化信息时使用。";
+        return "系统UI组件工具（独立工具，无需Python）：创建系统原生组件(dialog确认框/progress进度条/input输入框/choice单选/multi_choice多选/date日期/time时间/image图片预览/snackbar提示条/list列表/web网页/notification通知)与内置组件(信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等21种卡片，进聊天流展示，props带actions可交互)。有结构的信息(列表/表格/图表/指标/题目/天气等)一律用它创建组件卡片展示，不要用纯文本/Markdown表格。组件握手：create→component_id→update/close→get_result取用户操作结果。";
     }
 
     @Override

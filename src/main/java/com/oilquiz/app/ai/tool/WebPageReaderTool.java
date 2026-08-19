@@ -25,7 +25,7 @@ import org.json.JSONObject;
 
 @Tool(
     value = "webpage_reader",
-    description = "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要，可与网络搜索工具配合使用",
+    description = "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要",
     category = "web",
     actions = {
         @Action(name = "read", description = "读取网页内容"),
@@ -101,7 +101,7 @@ public class WebPageReaderTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要，可与网络搜索工具配合使用";
+        return "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要";
     }
     
     @Override

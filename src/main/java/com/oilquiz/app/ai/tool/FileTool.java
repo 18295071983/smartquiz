@@ -40,7 +40,7 @@ public class FileTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件操作工具，用于获取文件信息、读取文件内容等";
+        return "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件";
     }
     
     @Override

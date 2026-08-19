@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "file_reader",
-    description = "文件阅读工具，支持读取文本文件、解析结构化内容、提取关键信息",
+    description = "文件阅读工具，支持读取文本文件、按行读取、搜索文本、提取实体、预览",
     category = "file",
     actions = {
         @Action(name = "read", description = "读取文件内容"),
@@ -71,7 +71,7 @@ public class FileReaderTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件阅读工具，支持读取文本文件、解析结构化内容、提取关键信息";
+        return "文件阅读工具，支持读取文本文件、按行读取、搜索文本、提取实体、预览";
     }
     
     @Override
