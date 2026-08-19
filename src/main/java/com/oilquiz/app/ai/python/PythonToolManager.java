@@ -1814,8 +1814,10 @@ public class PythonToolManager {
             Log.i(TAG, "[Python component] setComponentResult cid=" + componentId + " value=" + value);
             ComponentRuntime rt = dynamicComponents.get(componentId);
             if (rt == null) {
-                Log.w(TAG, "[Python component] setComponentResult 组件不存在: " + componentId);
-                return;
+                // 历史会话/重启后注册表可能丢失该组件：自动重新注册，保证点击结果仍可被 Agent get_result 取回
+                Log.w(TAG, "[Python component] setComponentResult 组件不存在, 自动重注册: " + componentId);
+                rt = new ComponentRuntime();
+                dynamicComponents.put(componentId, rt);
             }
             rt.result.set(value != null ? value : "closed");
             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
