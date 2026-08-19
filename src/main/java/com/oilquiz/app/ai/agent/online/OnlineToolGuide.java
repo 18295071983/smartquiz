@@ -29,7 +29,6 @@ public class OnlineToolGuide {
     /** 完整指南缓存 */
     private volatile String cachedGuide;
     private volatile int cachedToolCount = -1;
-    private volatile int cachedPatternVersion = -1;
 
     public OnlineToolGuide(OnlineToolRegistry registry, OnlineToolChain chain) {
         this(registry, chain, null);
@@ -60,9 +59,7 @@ public class OnlineToolGuide {
      */
     public String buildGuide() {
         int currentCount = registry.getEnabledToolCount();
-        int currentPatternVersion = usageTracker != null ? usageTracker.getPatternVersion() : 0;
-        if (!cacheDirty && cachedGuide != null && currentCount == cachedToolCount
-                && currentPatternVersion == cachedPatternVersion) {
+        if (!cacheDirty && cachedGuide != null && currentCount == cachedToolCount) {
             return cachedGuide;
         }
 
@@ -80,27 +77,19 @@ public class OnlineToolGuide {
         sb.append("  • 参数为 JSON 对象，严格匹配下方工具定义的参数名与类型\n");
         sb.append("  • 必填参数缺失会导致执行失败，请确保参数完整\n\n");
 
-        // 2. 工具清单（按类别分组，仅列工具名——描述/参数在 function 定义与 tool_registry 中，避免系统提示词冗余）
-        sb.append("【二、工具清单（按类别，仅工具名，全量参考）】\n");
+        // 2. 工具清单（按类别分组）
+        sb.append("【二、工具清单（按类别）】\n");
         Map<String, List<String>> categoryIndex = registry.getCategoryIndex();
         for (Map.Entry<String, List<String>> e : categoryIndex.entrySet()) {
-            sb.append("  ▸ ").append(categoryDisplayName(e.getKey())).append(": ");
-            boolean firstTool = true;
+            sb.append("  ▸ ").append(categoryDisplayName(e.getKey())).append("\n");
             for (String toolName : e.getValue()) {
-                if (!firstTool) sb.append(", ");
-                sb.append(toolName);
-                firstTool = false;
+                OnlineToolRegistry.ToolMeta meta = registry.getToolMeta(toolName);
+                if (meta == null) continue;
+                sb.append("    - ").append(toolName);
+                sb.append("  ").append(meta.description != null ? meta.description : "").append("\n");
             }
             sb.append("\n");
         }
-
-        // 2.5 工具发现（MCP 式）：工具定义按消息意图裁剪注入（省 token），
-        // 模型不确定工具细节时可调用 tool_registry 自行查找
-        sb.append("【工具发现】当前轮的 function calling 定义已按消息意图裁剪注入（只含相关工具）。"
-                + "【重要】只能调用 tools 参数中实际提供的工具（function 定义），不能调用清单里有但本轮未注入的工具——"
-                + "如需清单中的其他工具，先调 tool_registry 的 get 获取其参数 schema，再决定是否调用（系统会动态补充定义）。"
-                + "tool_registry 用法：list 列出全部工具（含描述）、search 按关键词查找、get 获取单个工具完整参数 schema。"
-                + "UI 组件：需要用户确认/输入/选择/进度反馈/展示结构化信息时，直接用 ui_component 工具（系统原生组件弹窗 + 内置组件进聊天流，详见组件清单）。\n\n");
 
         // 3. 工具组合示例（静态链 + 学习到的历史模式）
         sb.append("【三、工具组合示例】\n");
@@ -147,9 +136,8 @@ public class OnlineToolGuide {
 
         cachedGuide = sb.toString();
         cachedToolCount = currentCount;
-        cachedPatternVersion = currentPatternVersion;
         cacheDirty = false;
-        AILogger.i(TAG, "Built guide for " + currentCount + " tools (pattern v" + currentPatternVersion + ")");
+        AILogger.i(TAG, "Built guide for " + currentCount + " tools");
         return cachedGuide;
     }
 

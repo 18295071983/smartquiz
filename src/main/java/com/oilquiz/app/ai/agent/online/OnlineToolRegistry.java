@@ -303,18 +303,22 @@ public class OnlineToolRegistry {
     }
 
     /**
-     * 按类别子集构建工具定义 JSON（省 token，MCP 式按需注入）。
-     * 只包含指定类别 + 唯一核心基础类别（file）。
-     * 模型不确定工具细节时用 tool_registry 工具自行查询，不再全量兜底注入。
+     * 按类别子集构建工具定义 JSON（省 token）。
+     * 只包含指定类别 + 始终保留的基础类别（file/database 等通用能力）。
      */
     public String getToolDefinitionsByCategories(java.util.Set<String> categories) {
         if (categories == null || categories.isEmpty()) return getToolDefinitions();
         try {
-            // 唯一始终保留的基础类别：file（Agent 常读写文件，跨场景必需）
+            // 基础类别始终包含（通用能力，避免模型无法处理文件/查询）
             java.util.Set<String> include = new java.util.LinkedHashSet<>(categories);
             include.add("file");
-            // tool_registry 始终可用（MCP 式发现，成本极低且是查工具的入口）
+            include.add("data");
+            include.add("general");
             include.add("meta");
+            include.add("toolkit");
+            include.add("system");
+            include.add("app");
+            include.add("tool");
 
             // 类别细分映射：搜索意图包含 search/research/web；python 归 code 类
             if (include.contains("search")) {
@@ -343,28 +347,6 @@ public class OnlineToolRegistry {
         } catch (Exception e) {
             AILogger.e(TAG, "Failed to build subset tool definitions: " + e.getMessage(), e);
             return getToolDefinitions();
-        }
-    }
-
-    /**
-     * 按工具名精确构建定义 JSON（MCP 式按需：最小集/特定工具）。
-     * 不存在的名字自动忽略。
-     */
-    public String getToolDefinitionsByName(java.util.Set<String> names) {
-        if (names == null || names.isEmpty()) return "[]";
-        try {
-            JSONArray tools = new JSONArray();
-            for (ToolMeta meta : getAllToolMetas()) {
-                if (names.contains(meta.name)) {
-                    JSONObject tool = buildToolJsonObject(meta);
-                    if (tool != null) tools.put(tool);
-                }
-            }
-            AILogger.i(TAG, "Built tool definitions by name: " + tools.length() + " tools");
-            return tools.toString();
-        } catch (Exception e) {
-            AILogger.e(TAG, "Failed to build by-name tool definitions: " + e.getMessage(), e);
-            return "[]";
         }
     }
 
