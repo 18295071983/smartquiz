@@ -274,7 +274,8 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
         try {
             if (imageUri.startsWith("/")) {
-                Bitmap bitmap = BitmapFactory.decodeFile(imageUri);
+                // 采样解码：题目配图最长边限制 1024，避免大图全尺寸解码撑爆内存
+                android.graphics.Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(new java.io.File(imageUri), 1024, 1024);
                 if (bitmap != null) {
                     h.questionImageView.setImageBitmap(bitmap);
                     h.questionImageView.setVisibility(View.VISIBLE);

@@ -226,7 +226,13 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             if ("file".equals(uri.getScheme())) {
                 File file = new File(uri.getPath());
                 if (file.exists()) {
-                    holder.imageView.setImageURI(uri);
+                    // file:// 手动采样解码，避免大图全尺寸解码撑爆内存
+                    android.graphics.Bitmap bmp = com.oilquiz.app.util.ImageParserUtil.parseImage(file, 1024, 1024);
+                    if (bmp != null) {
+                        holder.imageView.setImageBitmap(bmp);
+                    } else {
+                        holder.imageView.setImageURI(uri);
+                    }
                 } else {
                     holder.imageView.setImageResource(android.R.drawable.ic_menu_gallery);
                 }

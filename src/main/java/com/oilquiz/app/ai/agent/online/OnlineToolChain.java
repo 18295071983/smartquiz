@@ -104,6 +104,9 @@ public class OnlineToolChain {
      */
     public synchronized void addChain(ChainType type, String toolName, String... relatedTools) {
         if (type == null || toolName == null || relatedTools == null) return;
+        if (registry != null && !registry.isToolEnabled(toolName)) {
+            AILogger.w(TAG, "Adding " + type.displayName + " for unknown/disabled tool: " + toolName);
+        }
         addChainInternal(type, toolName, relatedTools);
         AILogger.i(TAG, "Added " + type.displayName + " for " + toolName + ": " + Arrays.toString(relatedTools));
     }
@@ -160,11 +163,13 @@ public class OnlineToolChain {
 
     /**
      * 获取某工具某类型的关联工具（经存在性验证）。
+     * 源工具本身不存在/未启用时，关联建议无意义，返回空。
      */
     private List<String> getValidatedRelated(ChainType type, String toolName) {
         if (toolName == null) return Collections.emptyList();
         Map<String, List<String>> typeChains = chains.get(type);
         if (typeChains == null) return Collections.emptyList();
+        if (registry != null && !registry.isToolEnabled(toolName)) return Collections.emptyList();
         List<String> related = typeChains.get(toolName);
         if (related == null || related.isEmpty()) return Collections.emptyList();
 
@@ -183,9 +188,10 @@ public class OnlineToolChain {
     public Map<ChainType, Map<String, List<String>>> getAllChains() {
         Map<ChainType, Map<String, List<String>>> snapshot = new LinkedHashMap<>();
         for (Map.Entry<ChainType, Map<String, List<String>>> e : chains.entrySet()) {
-            // 仅保留经验证存在的链
+            // 仅保留经验证存在的链（源工具与关联工具都需启用）
             Map<String, List<String>> validated = new LinkedHashMap<>();
             for (Map.Entry<String, List<String>> entry : e.getValue().entrySet()) {
+                if (registry != null && !registry.isToolEnabled(entry.getKey())) continue;
                 List<String> valid = new ArrayList<>();
                 for (String name : entry.getValue()) {
                     if (registry == null || registry.isToolEnabled(name)) valid.add(name);

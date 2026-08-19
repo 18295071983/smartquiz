@@ -186,10 +186,21 @@ def db_connect(db_path):
     conn.row_factory = sqlite3.Row
     return conn
 
+def _connect_db(db_path):
+    """连接 SQLite 数据库（Room WAL 兼容：busy_timeout + 重试）"""
+    import sqlite3 as _s
+    conn = _s.connect(db_path, timeout=10)
+    conn.row_factory = _s.Row
+    try:
+        conn.execute('PRAGMA busy_timeout = 10000')
+        conn.execute('PRAGMA journal_mode = WAL')
+    except Exception:
+        pass
+    return conn
+
 def db_query(db_path, sql, params=None):
     """执行SQL查询，返回字典列表"""
-    conn = sqlite3.connect(db_path, timeout=10)
-    conn.row_factory = sqlite3.Row
+    conn = _connect_db(db_path)
     try:
         cursor = conn.cursor()
         cursor.execute(sql, params or [])
@@ -200,11 +211,20 @@ def db_query(db_path, sql, params=None):
         conn.close()
 
 def db_execute(db_path, sql, params=None):
-    """执行SQL写操作"""
-    conn = sqlite3.connect(db_path, timeout=10)
+    """执行SQL写操作（WAL 下自动重试，避免与 Room 并发写锁冲突）"""
+    conn = _connect_db(db_path)
     try:
         cursor = conn.cursor()
-        cursor.execute(sql, params or [])
+        for attempt in range(3):
+            try:
+                cursor.execute(sql, params or [])
+                break
+            except Exception as e:
+                if 'locked' in str(e).lower() and attempt < 2:
+                    import time as _t
+                    _t.sleep(0.5)
+                    continue
+                raise
         conn.commit()
         return {'affected_rows': cursor.rowcount, 'last_id': cursor.lastrowid}
     finally:
@@ -263,7 +283,7 @@ def data_stats(data, key=None):
 # ==================== 应用数据目录 ====================
 
 def get_app_dir():
-    """获取应用数据目录"""
+    """获取应用数据目录（files/ 目录）"""
     try:
         # 常见Android应用数据路径
         for p in ['/data/user/0/com.oilquiz.app/files',
@@ -275,17 +295,26 @@ def get_app_dir():
     return '.'
 
 def get_db_path(db_name='smartquiz_database'):
-    """获取数据库文件路径"""
+    """获取数据库文件路径。
+
+    Room 数据库实际位于 <app_data>/databases/<name>（不是 files/ 下），
+    此前候选路径全部错误导致 Python 连不上真实库（新建了空库，导入无效）。
+    """
     app_dir = get_app_dir()
+    # 优先 databases/ 目录（Room 默认位置）
     candidates = [
+        os.path.join(os.path.dirname(app_dir), 'databases', db_name),
         os.path.join(app_dir, 'databases', db_name),
         os.path.join(app_dir, db_name),
         os.path.join(app_dir, 'oilquiz', db_name),
+        os.path.join('/data/data/com.oilquiz.app', 'databases', db_name),
+        os.path.join('/data/user/0/com.oilquiz.app', 'databases', db_name),
     ]
     for c in candidates:
         if os.path.exists(c):
             return c
-    return candidates[0]
+    # 找不到时返回最可能的路径（Room 默认），调用方会因文件不存在得到明确错误
+    return os.path.join(os.path.dirname(app_dir), 'databases', db_name)
 
 def bulk_import_questions(data, db_name='smartquiz_database'):
     """
@@ -346,7 +375,7 @@ def bulk_import_questions(data, db_name='smartquiz_database'):
     bool_fields = {'favorite'}
     
     # 使用timeout避免与Room的WAL模式锁定冲突
-    conn = sqlite3.connect(db_path, timeout=10)
+    conn = _connect_db(db_path)
     imported = 0
     failed = 0
     errors = []
@@ -443,29 +472,39 @@ def bulk_import_questions(data, db_name='smartquiz_database'):
 # ==================== Python 文件执行 ====================
 
 def run_python_file(file_path, args=None):
-    """执行一个 Python 文件，返回其 stdout 输出"""
-    import subprocess, sys
+    """执行一个 Python 文件，返回其 stdout 输出。
+
+    Chaquopy 环境下无法用 sys.executable 启动子进程（Android 无独立 python 可执行文件），
+    改为在当前解释器内 exec 执行，并捕获 stdout/stderr。
+    """
+    import io as _io
+    from contextlib import redirect_stdout, redirect_stderr
     if not os.path.exists(file_path):
         return f"错误: 文件不存在 {file_path}"
-    cmd = [sys.executable, file_path]
+    with open(file_path, 'r', encoding='utf-8') as f:
+        code = f.read()
+
+    namespace = {
+        '__name__': '__main__',
+        '__builtins__': __builtins__,
+    }
     if args:
-        if isinstance(args, list):
-            cmd.extend(args)
-        elif isinstance(args, dict):
-            for k, v in args.items():
-                cmd.extend([f'--{k}', str(v)])
+        namespace['sys_argv'] = args
+        namespace['args'] = args
+
+    stdout_buf = _io.StringIO()
+    stderr_buf = _io.StringIO()
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        output = result.stdout
-        if result.stderr:
-            output += '\n[STDERR] ' + result.stderr
-        if result.returncode != 0:
-            output += f'\n[EXIT CODE] {result.returncode}'
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exec(compile(code, file_path, 'exec'), namespace, namespace)
+        output = stdout_buf.getvalue()
+        err = stderr_buf.getvalue()
+        if err:
+            output += '\n[STDERR] ' + err
         return output if output else '(无输出)'
-    except subprocess.TimeoutExpired:
-        return '错误: 执行超时 (120秒)'
     except Exception as e:
-        return f'错误: {e}'
+        import traceback as _tb
+        return f'错误: {e}\n{_tb.format_exc()}'
 
 def create_python_file(name, code, directory=None):
     """创建一个 Python 文件并返回路径"""

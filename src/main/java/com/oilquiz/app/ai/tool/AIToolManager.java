@@ -222,6 +222,8 @@ public class AIToolManager {
         registerToolFactory("ai_weather", AIWeatherManager.class, AIWeatherManager::new);
         registerToolFactory("app_toolkit", AppToolkitAITool.class, AppToolkitAITool::new);
         registerToolFactory("create_dynamic_tool", DynamicToolManagerTool.class, DynamicToolManagerTool::new);
+        registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
+        registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
@@ -874,8 +876,8 @@ public class AIToolManager {
                     .category("file")
                     .build();
             case "database":
-                return ToolDefinition.builder("database", "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入建议用execute_sql执行INSERT语句，每次INSERT 20-30条。add_questions每次最多10道题")
-                    .addParameter("action", "string", "操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_all_categories/get_all_question_types/get_question_by_id/add_questions/update_question/delete_question/clear_all_questions/get_user/add_user/get_score_history/add_score/get_average_score/get_database_version", true)
+                return ToolDefinition.builder("database", "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入用bulk_import(接受questions数组或file_path JSON文件路径，一次可导入数百道，自动跳过无效条目)，add_questions也可一次传多道题目(数量不限)")
+                    .addParameter("action", "string", "操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_all_categories/get_all_question_types/get_question_by_id/add_questions/bulk_import/update_question/delete_question/clear_all_questions/get_user/add_user/get_score_history/add_score/get_average_score/get_database_version", true)
                     .addParameter("sql", "string", "SQL语句(execute_sql用，SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)", false)
                     .addParameter("table_name", "string", "表名(get_table_schema用)", false)
                     .addParameter("query", "string", "SQL查询语句(execute_query用，兼容旧接口)", false)
@@ -886,7 +888,8 @@ public class AIToolManager {
                     .addParameter("difficulty", "integer", "难度: 1-简单, 2-中等, 3-困难", false)
                     .addParameter("page", "integer", "页码(get_questions用)", false)
                     .addParameter("page_size", "integer", "每页数量(get_questions用)", false)
-                    .addParameter("questions", "array", "题目列表(add_questions用): [{questionText,optionA,optionB,optionC,optionD,correctAnswer,explanation,category,questionType,difficulty}]", false)
+                    .addParameter("questions", "array", "题目列表(add_questions/bulk_import用): [{questionText,optionA,optionB,optionC,optionD,correctAnswer,explanation,category,questionType,difficulty}]", false)
+                    .addParameter("file_path", "string", "JSON文件路径(bulk_import用，文件内容为题目数组或{questions:[...]})", false)
                     .addParameter("username", "string", "用户名(get_user/add_user用)", false)
                     .addParameter("userId", "string", "用户ID(get_score_history/get_average_score用)", false)
                     .addParameter("email", "string", "邮箱(add_user用)", false)
@@ -949,7 +952,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块：from android_ui import show_toast, show_dialog, update_progress 可显示Toast/对话框/进度(真实显示在手机界面)；脚本最后print输出作为结果返回")
+                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库22种(create_component('类型', props={...}) 渲染成卡片弹窗)：chart/info_card/table_card/alert_card/metric_card/steps_card/list_card/note_card/todo_card/progress_card/json_viewer/code_card/link_card/grid_card/contact_card/file_card/file_list/image_grid/quiz_card/weather_card/html；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回")
                     .addParameter("code", "string", "Python代码（可选）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
@@ -982,6 +985,33 @@ public class AIToolManager {
                     .addParameter("parameters", "string", "参数定义JSON", false)
                     .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数)或DSL命令(echo/set/if/call_tool等)", false)
                     .category("tool")
+                    .build();
+            case "ui_component":
+                return ToolDefinition.builder("ui_component", "系统UI组件工具（独立工具，无需Python）：创建系统原生组件(dialog确认框/progress进度条/input输入框/choice单选/multi_choice多选/date日期/time时间/image图片预览/snackbar提示条/list列表/web网页/notification通知)与内置组件(信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等，进聊天流展示，props带actions可交互)。组件握手：create→component_id→update/close→get_result取用户操作结果。具体组件类型与参数详见系统提示词【富内容组件】清单，按需选用。")
+                    .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)", true)
+                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/web/notification/内置组件类型(chart/info_card等)", false)
+                    .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)
+                    .addParameter("title", "string", "标题", false)
+                    .addParameter("message", "string", "内容/提示文本", false)
+                    .addParameter("dialog_type", "string", "对话框类型: info/confirm/warning", false)
+                    .addParameter("max_value", "integer", "进度最大值(progress/notification用)", false)
+                    .addParameter("progress", "integer", "进度值(update用)", false)
+                    .addParameter("options", "array", "选项列表(choice/multi_choice用)", false)
+                    .addParameter("default_value", "string", "默认值(input/date/time/image用)", false)
+                    .addParameter("input_hint", "string", "输入框提示(input用)", false)
+                    .addParameter("action_label", "string", "按钮文字(snackbar用)", false)
+                    .addParameter("items", "array", "列表项(list用)", false)
+                    .addParameter("url", "string", "网址或HTML内容(web用)", false)
+                    .addParameter("props", "object", "内置组件参数(如chart的chartType/categories/series；带actions则交互，按钮点击值经get_result返回)", false)
+                    .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
+                    .category("system")
+                    .build();
+            case "tool_registry":
+                return ToolDefinition.builder("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。")
+                    .addParameter("action", "string", "操作: list(列出)/search(搜索)/get(取schema)", true)
+                    .addParameter("keyword", "string", "搜索关键词(仅search用)", false)
+                    .addParameter("tool", "string", "工具名(仅get用)", false)
+                    .category("meta")
                     .build();
             case "permission_manager":
                 return ToolDefinition.builder("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能")

@@ -109,6 +109,8 @@ public class AlertCardView implements ChatComponent {
             textCol.addView(contentTv);
         }
 
+        // 动作行：actions 按钮（打开链接/复制等），点击真实响应
+        ComponentActions.renderActions(textCol, context, p.optJSONArray("actions"));
         card.addView(textCol);
         return card;
     }

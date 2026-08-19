@@ -79,6 +79,18 @@ public class GridCardView implements ChatComponent {
                 cell.setLayoutParams(new LinearLayout.LayoutParams(0,
                         LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
+                // 格子可点击：item.link（http/file 路径）→ 打开；item.copy → 复制
+                String cellLink = item.optString("link", "");
+                String cellCopy = item.optString("copy", "");
+                if (!TextUtils.isEmpty(cellLink) || !TextUtils.isEmpty(cellCopy)) {
+                    cell.setClickable(true);
+                    cell.setFocusable(true);
+                    final String link = cellLink;
+                    final String copy = cellCopy;
+                    cell.setOnClickListener(v ->
+                            com.oilquiz.app.ai.chat.component.ComponentActions.execute(context, link, copy, ""));
+                }
+
                 String icon = item.optString("icon", "•");
                 TextView iconTv = new TextView(context);
                 iconTv.setText(icon);

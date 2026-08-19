@@ -194,12 +194,18 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     private void bindImageAttachment(ImageAttachmentViewHolder holder, ChatMessage.Attachment attachment) {
         boolean loaded = false;
 
-        // 优先使用本地缩略图文件
+        // 优先使用本地缩略图文件（采样解码，避免大图全尺寸 setImageURI 崩溃）
         if (attachment.thumbnailPath != null && !attachment.thumbnailPath.isEmpty()) {
             File thumbFile = new File(attachment.thumbnailPath);
             if (thumbFile.exists()) {
-                holder.imageView.setImageURI(Uri.fromFile(thumbFile));
-                loaded = true;
+                android.graphics.Bitmap thumb = com.oilquiz.app.util.ImageParserUtil.parseImage(thumbFile, 1024, 1024);
+                if (thumb != null) {
+                    holder.imageView.setImageBitmap(thumb);
+                    loaded = true;
+                } else {
+                    holder.imageView.setImageURI(Uri.fromFile(thumbFile));
+                    loaded = true;
+                }
             }
         }
 
@@ -218,8 +224,55 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
                 } else {
                     uri = Uri.parse(attachment.url);
                 }
-                holder.imageView.setImageURI(uri);
-                loaded = true;
+                if ("file".equals(uri.getScheme())) {
+                    // file:// 手动采样解码，避免大图全尺寸解码撑爆内存
+                    File localFile = new File(uri.getPath());
+                    if (localFile.exists()) {
+                        android.graphics.Bitmap bmp = com.oilquiz.app.util.ImageParserUtil.parseImage(localFile, 1024, 1024);
+                        if (bmp != null) {
+                            holder.imageView.setImageBitmap(bmp);
+                            loaded = true;
+                        }
+                    }
+                    if (!loaded) {
+                        android.graphics.Bitmap bmp2 = com.oilquiz.app.util.ImageParserUtil.parseImage(localFile, 1024, 1024);
+                        if (bmp2 != null) {
+                            holder.imageView.setImageBitmap(bmp2);
+                            loaded = true;
+                        }
+                    }
+                } else {
+                    // content:// 也采样解码（setImageURI 会全尺寸解码超大图导致 Canvas 崩溃）
+                    try {
+                        android.content.Context ctx = holder.imageView.getContext();
+                        java.io.InputStream is = ctx.getContentResolver().openInputStream(uri);
+                        if (is != null) {
+                            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                            opts.inJustDecodeBounds = true;
+                            android.graphics.BitmapFactory.decodeStream(is, null, opts);
+                            is.close();
+                            int sample = 1;
+                            while (opts.outWidth / sample > 1024 || opts.outHeight / sample > 1024) sample *= 2;
+                            opts.inJustDecodeBounds = false;
+                            opts.inSampleSize = sample;
+                            java.io.InputStream is2 = ctx.getContentResolver().openInputStream(uri);
+                            if (is2 != null) {
+                                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(is2, null, opts);
+                                is2.close();
+                                if (bmp != null) {
+                                    holder.imageView.setImageBitmap(bmp);
+                                    loaded = true;
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 采样失败回退 setImageURI（小图无碍）
+                    }
+                    if (!loaded) {
+                        holder.imageView.setImageURI(uri);
+                        loaded = true;
+                    }
+                }
             } catch (SecurityException e) {
                 // content:// URI 权限已过期，无法访问
                 android.util.Log.w("MessageAttachmentAdapter", "无法访问图片URI（权限过期）: " + attachment.url, e);

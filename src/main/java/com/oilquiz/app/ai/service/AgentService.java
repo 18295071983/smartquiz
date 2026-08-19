@@ -275,8 +275,10 @@ public class AgentService {
         registerToolSchema("file_generator", "生成文件", "file_name(文件名,必填), content(内容,必填), format(格式,可选)");
         registerToolSchema("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能", "action(操作类型: check/check_all/request/request_and_wait/get_status/list_permissions/explain_permission/can_request,默认check), permission(权限名称:camera/位置/录音/存储/拨打电话/发送短信等,可选), permissions(权限列表,可选)");
         registerToolSchema("create_dynamic_tool", "动态创建和管理AI工具", "action(操作类型: create/update/delete/list,默认list), tool_name(工具名称,可选), description(工具描述,可选), parameters(参数定义JSON,可选), logic(执行逻辑脚本:支持Python脚本自动识别,脚本内用script_args['参数名']读取工具参数;或DSL命令echo/set/if/call_tool等,可选)");
+        registerToolSchema("ui_component", "系统UI组件工具（独立工具，无需Python）：创建系统原生组件(dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/web/notification)与内置组件(信息卡/表格/图表等22种，进聊天流展示，props带actions可交互)。组件握手：create→component_id→update/close→get_result取用户操作结果", "action(create/update/close/get_result,必填), component_type(组件类型,create用), component_id(组件ID), title(标题), message(内容), dialog_type(info/confirm/warning), options(选项列表), default_value(默认值), input_hint(输入提示), items(列表项), url(网址), props(内置组件参数), wait_seconds(等待秒数)");
+        registerToolSchema("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用", "action(list/search/get,必填), keyword(搜索关键词,search用), tool(工具名,get用)");
         registerToolSchema("app_toolkit", "应用工具集，提供多种实用功能", "action(操作类型: weather_current/weather_forecast/calculate/ocr_recognize等,必填)");
-        registerToolSchema("python_execute", "执行Python代码。脚本内置android_ui模块：from android_ui import show_toast, show_dialog, update_progress 可显示Toast/对话框/进度(真实显示在手机界面)", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
+        registerToolSchema("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：show_toast提示条；系统UI组件API：create_component('dialog'/'progress',...)创建系统对话框/进度条→component_id，update_component更新进度，get_component_result阻塞获取用户点击，close_component关闭", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
         registerToolSchema("python_analyze_data", "使用Python分析数据", "data(数据,可选), task(任务描述,可选)");
         registerToolSchema("ai_create_tool", "AI创建工具，使用AI自动生成新工具", "tool_name(工具名称,必填), description(工具描述,必填), parameters(参数定义,可选), logic(执行逻辑,可选)");
 

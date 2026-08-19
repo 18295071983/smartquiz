@@ -988,6 +988,7 @@ public class WeatherTrendChartView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (event == null) return false;
         if (isHourlyMode && hourlyDataList.isEmpty()) return false;
         if (!isHourlyMode && dailyDataList.isEmpty()) return false;
 

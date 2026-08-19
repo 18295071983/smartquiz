@@ -82,6 +82,10 @@ public class SimpleWebViewActivity extends BaseActivity {
         // 软件渲染：规避设备 GPU tile 内存超限导致长页面下半部分不绘制（空白/点击失效）
         webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
+        // JS → Java 桥：页内按钮可调用 Android.showToast/copy/openLink 回调应用
+        webView.addJavascriptInterface(
+                new com.oilquiz.app.ai.chat.component.HtmlCardView.HtmlJsBridge(this), "Android");
+
         // WebViewClient：链接处理 + 页面进度 + JS 交互诊断
         webView.setWebViewClient(new WebViewClient() {
             // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）

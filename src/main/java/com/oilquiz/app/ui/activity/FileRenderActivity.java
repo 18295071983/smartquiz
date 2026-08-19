@@ -84,6 +84,7 @@ public class FileRenderActivity extends AppCompatActivity {
         });
 
         ivImage.setOnTouchListener((v, event) -> {
+            if (event == null) return false;
             scaleGestureDetector.onTouchEvent(event);
             return true;
         });

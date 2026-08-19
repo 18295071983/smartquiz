@@ -131,32 +131,15 @@ public class OnlinePromptBuilder {
      */
     private String buildComponentGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【富内容组件】这是你的 UI 组件库：有结构的信息一律倾向用组件标记展示（```component:类型 {json}```），界面自动渲染为卡片，比纯文本更美观易读：\n");
-        sb.append("1. chart 图表: ```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
-        sb.append("2. info_card 信息卡: ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
-        sb.append("3. table_card 表格: ```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
-        sb.append("4. image_grid 图片网格: ```component:image_grid\\n{\"images\":[\"url1\",\"url2\"],\"columns\":2}```（图片生成工具会自动附加，也可手动输出）\n");
-        sb.append("5. link_card 链接: ```component:link_card\\n{\"url\":\"https://...\",\"title\":\"标题\",\"description\":\"描述\"}```\n");
-        sb.append("6. list_card 列表: ```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
-        sb.append("7. alert_card 提示: ```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
-        sb.append("8. metric_card 指标: ```component:metric_card\\n{\"title\":\"标题\",\"metrics\":[{\"label\":\"标签\",\"value\":\"值\",\"color\":\"success|warning|error|info\"}]}```\n");
-        sb.append("9. json_viewer JSON: ```component:json_viewer\\n{\"title\":\"标题\",\"data\":{...},\"maxHeight\":200}```\n");
-        sb.append("10. steps_card 步骤: ```component:steps_card\\n{\"title\":\"标题\",\"steps\":[{\"status\":\"done|current|failed|todo\",\"title\":\"步骤\",\"description\":\"描述\"}]}```\n");
-        sb.append("11. note_card 引用/备注: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"内容\",\"author\":\"作者\"}```\n");
-        sb.append("12. file_list 文件列表: ```component:file_list\\n{\"title\":\"标题\",\"files\":[{\"name\":\"文件名\",\"path\":\"/路径\",\"size\":\"大小\",\"type\":\"file|dir\"}]}```\n");
-        sb.append("13. grid_card 宫格: ```component:grid_card\\n{\"title\":\"标题\",\"columns\":3,\"items\":[{\"icon\":\"📁\",\"label\":\"标签\"}]}```\n");
-        sb.append("14. contact_card 联系方式: ```component:contact_card\\n{\"type\":\"phone|sms|email\",\"title\":\"标题\",\"value\":\"号码或地址\",\"description\":\"说明\"}```\n");
-        sb.append("15. todo_card 待办: ```component:todo_card\\n{\"title\":\"标题\",\"items\":[{\"done\":false,\"text\":\"任务\"}]}```\n");
-        sb.append("16. quiz_card 题目: ```component:quiz_card\\n{\"type\":\"single|multiple|judge\",\"question\":\"题干\",\"options\":[\"A. xxx\",\"B. xxx\"],\"answer\":\"答案\",\"analysis\":\"解析\"}```\n");
-        sb.append("17. weather_card 天气: ```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
-        sb.append("18. file_card 单个文件: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"content://...\",\"path\":\"/路径\"}```\n");
-        sb.append("19. code_card 代码块: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码\",\"title\":\"标题\"}```\n");
-        sb.append("20. progress_card 进度: ```component:progress_card\\n{\"title\":\"标题\",\"progress\":60,\"description\":\"描述\",\"status\":\"状态\"}```\n");
-        sb.append("21. html 富内容（系统 WebView 完整渲染，支持 CSS/表格/图片/简单 JS；适合富文本、彩色排版、带样式的表格/页面等复杂展示；用户在聊天里看到预览，点击组件可打开全屏页完整交互）：```component:html\\n{\"html\":\"<h3>标题</h3><p>内容</p><table><tr><td>a</td><td>b</td></tr></table>\",\"title\":\"可选标题\",\"maxHeight\":360}```\\n");
-        sb.append("22. tool_call 工具调用过程（由系统自动附加，无需手动输出）\n");
-        sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表/步骤/待办/指标等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n");
-        sb.append("自定义组件：你可以自行编写 UI 组件——使用任意类型名（如 ```component:custom_panel\\n{\"title\":\"我的面板\",\"items\":[...]}```），系统会以通用卡片展示该 JSON 数据（标题+键值行/数组/嵌套对象均可展示），任何自定义结构都能在对话界面正常显示；内置 20 种类型已针对常见场景做好排版，能用内置类型优先用内置类型，特殊布局再自定义。\n");
-        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块，可真实显示在手机界面：from android_ui import show_toast, show_dialog, update_progress；show_toast('完成') 显示提示条、show_dialog('标题','内容') 显示对话框、update_progress(50,100) 更新进度。耗时操作或需要用户感知进度时主动使用，结尾再用组件/文本汇总结果。\n");
+        sb.append("\n【富内容组件】有结构的信息用组件标记展示（```component:类型 {json}```），界面自动渲染为卡片。可用类型：\n");
+        sb.append("  chart(图表: chartType=bar|line|pie,title,categories,series[{'name','data'}])、info_card(信息卡: title,items[{'label','value'}])、table_card(表格: title,headers,rows)、\n");
+        sb.append("  alert_card(提示: type=success|warning|error|info,title,content)、metric_card(指标: title,metrics[{'label','value','color'}])、steps_card(步骤: title,steps[{'status','title','description'}])、\n");
+        sb.append("  list_card(列表: title,items[{'icon','title','description','value'}])、note_card(引用: type=note|quote|tip|summary,content)、todo_card(待办: title,items[{'text','done'}])、\n");
+        sb.append("  progress_card(进度: title,progress,description)、json_viewer(JSON: title,data)、code_card(代码: language,code,title)、link_card(链接: title,url,description)、\n");
+        sb.append("  grid_card(宫格: title,columns,items[{'icon','label'}])、contact_card(联系: type=phone|sms|email,title,value)、file_card(文件: name,size,path)、file_list(文件列表: title,files[{'name','path','size'}])\n");
+        sb.append("  image_grid(图片网格: images,columns)、quiz_card(题目: type,question,options,answer,analysis)、weather_card(天气: city,temp,text,icon)、html(富内容: html,title,maxHeight)。\n");
+        sb.append("  示例：```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```；自定义类型(如 custom_panel)自动通用卡片兜底。\n");
+        sb.append("  交互组件（确认/输入/选择/进度/通知等）用 ui_component 工具直接创建系统 UI，不写组件标记。\n");
         sb.append("【组件输出硬性要求】\n");
         sb.append("1. 组件标记必须用三反引号包裹且闭合：```component:类型\\n{JSON}\\n```，类型名只用小写字母/数字/下划线（如 info_card、custom_panel），不要带空格或特殊符号。\n");
         sb.append("2. JSON 必须完整合法：双引号、括号闭合、无注释、无尾随逗号；props 键名与上方示例一致。\n");
@@ -201,39 +184,5 @@ public class OnlinePromptBuilder {
         }
         sb.append("请判断是否适合后调用，也可向用户澄清需求。\n");
         return sb.toString();
-    }
-
-    /**
-     * 构建工具组合建议提示词。
-     * 提示模型可搭配使用其他工具。
-     *
-     * @param toolName      当前工具名
-     * @param combinations  建议的组合工具列表
-     * @return 组合建议提示词
-     */
-    public String buildCombinationHint(String toolName, List<String> combinations) {
-        if (toolName == null || combinations == null || combinations.isEmpty()) {
-            return null;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("【工具组合建议】\n");
-        sb.append("调用 ").append(toolName).append(" 后，可考虑搭配使用以下工具：\n");
-        for (String tool : combinations) {
-            sb.append("  - ").append(tool).append("\n");
-        }
-        sb.append("根据任务需要决定是否调用。\n");
-        return sb.toString();
-    }
-
-    /**
-     * 构建单工具的按需查看提示词。
-     * 用于模型主动获取某工具的详细参数说明。
-     *
-     * @param toolName 工具名
-     * @return 工具详细说明，若工具不存在返回 null
-     */
-    public String buildToolInfoHint(String toolName) {
-        if (guide == null) return null;
-        return guide.buildToolDetail(toolName);
     }
 }

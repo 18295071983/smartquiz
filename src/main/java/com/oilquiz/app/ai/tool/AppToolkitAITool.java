@@ -386,7 +386,8 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            // 采样解码：图像识别最长边限制 2048，避免大图全尺寸解码撑爆内存
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(imageFile, 2048, 2048);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }
@@ -536,7 +537,8 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            // 采样解码：目标检测最长边限制 2048，避免大图全尺寸解码撑爆内存
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(imageFile, 2048, 2048);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }
@@ -702,7 +704,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(inputFile, 4096, 4096);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }
@@ -753,7 +755,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(inputFile, 4096, 4096);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }
@@ -807,7 +809,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(inputFile, 4096, 4096);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }
@@ -854,7 +856,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(inputFile, 4096, 4096);
             if (bitmap == null) {
                 return new AIToolResult("无法解码图片文件", parameters);
             }

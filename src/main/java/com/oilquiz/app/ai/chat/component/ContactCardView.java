@@ -81,7 +81,8 @@ public class ContactCardView implements ChatComponent {
             card.addView(descTv);
         }
 
-        // 动作行：默认按 type 生成，可被 actions 覆盖
+        // 动作行：优先用自定义 actions（action 支持 dial/sms/email/map，或 link/copy），
+        // 未提供时按 type 生成默认动作
         JSONArray actions = p.optJSONArray("actions");
         if (actions == null || actions.length() == 0) {
             LinearLayout row = new LinearLayout(context);
@@ -96,6 +97,38 @@ public class ContactCardView implements ChatComponent {
                 row.addView(actionButton(context, "🗺️ 打开地图", v -> openMap(context, value)));
             }
             if (row.getChildCount() > 0) {
+                card.addView(row);
+            }
+        } else {
+            // 自定义 actions：把 action 名映射到真实 Intent 动作
+            for (int i = 0; i < actions.length(); i++) {
+                JSONObject a = actions.optJSONObject(i);
+                if (a == null) continue;
+                final String label = a.optString("label", "操作");
+                String act = a.optString("action", "");
+                final String link = a.optString("link", "");
+                final String copy = a.optString("copy", "");
+                String target = a.optString("value", value);
+                View.OnClickListener listener;
+                if (!copy.isEmpty()) {
+                    listener = v -> com.oilquiz.app.ai.chat.component.ComponentActions.execute(context, "", copy, "");
+                } else if (!link.isEmpty()) {
+                    listener = v -> com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, link);
+                } else if ("dial".equals(act) || "phone".equals(act)) {
+                    listener = v -> dial(context, target);
+                } else if ("sms".equals(act)) {
+                    listener = v -> sms(context, target);
+                } else if ("email".equals(act)) {
+                    listener = v -> email(context, target);
+                } else if ("map".equals(act)) {
+                    listener = v -> openMap(context, target);
+                } else {
+                    listener = v -> Toast.makeText(context, "未知动作: " + act, Toast.LENGTH_SHORT).show();
+                }
+                LinearLayout row = new LinearLayout(context);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setPadding(0, dp(context, 8), 0, 0);
+                row.addView(actionButton(context, label, listener));
                 card.addView(row);
             }
         }

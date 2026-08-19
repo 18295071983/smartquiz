@@ -32,6 +32,33 @@ import java.util.regex.Pattern;
         + "db_query/db_execute/db_tables/db_schema/data_stats/get_db_path/\n" +
         "  bulk_import_questions(批量导入题目到数据库，接受JSON文件路径或字典列表，一次可导入数百道)\n" +
         "  create_python_file(创建.py文件)/run_python_file(执行.py文件)/create_and_run(创建并执行)\n" +
+        "【动态系统UI组件API】android_ui 模块提供系统UI组件握手接口(create→update/close→get_result)：\n" +
+        "  from android_ui import create_component, update_component, close_component, get_component_result\n" +
+        "  系统原生组件: dialog(对话框)/progress(进度条)/input(文本输入)/choice(单选)/multi_choice(多选)/date(日期)/time(时间)/image(图片预览)/snackbar(底部提示条)/list(列表弹窗)/web(WebView富页面)/notification(系统通知栏)\n" +
+        "  对话框: cid=create_component('dialog','标题','内容',dialog_type='confirm')['component_id'];\n" +
+        "    r=get_component_result(cid, wait_seconds=30); r['result']='positive|negative|cancelled'\n" +
+        "  进度条: cid=create_component('progress','导出中','准备...',max_value=100)['component_id'];\n" +
+        "    update_component(cid, progress=50, message='处理一半'); update_component(cid, progress=100) 自动关闭\n" +
+        "  文本输入: cid=create_component('input','输入文件名',input_hint='如report.xlsx')['component_id']; get_component_result(cid,30) 得用户输入文本\n" +
+        "  单选: cid=create_component('choice','选格式',options=['xlsx','csv'])['component_id']; get_component_result 得选中项\n" +
+        "  多选: cid=create_component('multi_choice','选标签',options=['a','b','c'])['component_id']; get_component_result 得选中项JSON数组(需json.loads)\n" +
+        "  日期: cid=create_component('date','选日期',default_value='2026-08-20')['component_id']; 结果=YYYY-MM-DD\n" +
+        "  时间: cid=create_component('time','选时间',default_value='09:30')['component_id']; 结果=HH:mm\n" +
+        "  图片预览: cid=create_component('image','预览',default_value='/sdcard/photo.jpg')['component_id']; 支持本地路径或http(s)url\n" +
+        "  snackbar: cid=create_component('snackbar',message='已保存',action_label='打开')['component_id']; 结果='action'(点按钮)/'closed'(消失)\n" +
+        "  列表弹窗: cid=create_component('list','标题',items=['a','b','c'])['component_id']; 或 items=[{'title','description','icon'}]; 点选结果=选中项\n" +
+        "  WebView富页面: cid=create_component('web','页面',url='https://...')['component_id']; url也可传HTML字符串\n" +
+        "  系统通知栏: cid=create_component('notification','标题','内容')['component_id']; update_component(cid,progress=50,max=100,message=..)更新进度; close_component(cid)移除; 不依赖前台界面(后台任务可用)\n" +
+        "  【内置UI组件库】(项目自带22种组件，create_component('类型', props={...}) 直接填参数渲染成卡片弹窗展示)：\n" +
+        "  chart(图表: chartType=bar|line|pie,title,categories,series[{'name','data'}])/info_card(信息卡: title,items[{'label','value'}])/table_card(表格: title,headers,rows)/\n" +
+        "  alert_card(提示: type=success|warning|error|info,title,content)/metric_card(指标: title,metrics[{'label','value','color'}])/steps_card(步骤: title,steps[{'status','title','description'}])\n" +
+        "  list_card(列表: title,items[{'icon','title','description','value'}])/note_card(引用: type=note|quote|tip|summary,content)/todo_card(待办: title,items[{'text','done'}])\n" +
+        "  progress_card(进度卡: title,progress,description)/json_viewer(JSON: title,data)/code_card(代码: language,code,title)/link_card(链接: title,url,description)\n" +
+        "  grid_card(宫格: title,columns,items[{'icon','label','link'}])/contact_card(联系: type=phone|sms|email,title,value)/file_card(文件: name,size,path)\n" +
+        "  file_list(文件列表: title,files[{'name','size','path'}])/image_grid(图片网格: images,columns)/quiz_card(题目: type,question,options,answer,analysis)/\n" +
+        "  weather_card(天气: city,temp,text,icon)/html(富内容: html,title,maxHeight)/custom_任意名(通用卡片自动兜底)\n" +
+        "  便捷函数: ask_input('标题',input_hint=..) 返回输入文本; ask_choice('标题',['a','b']) 返回选中项; show_progress('标题') 返回cid\n" +
+        "  close_component(cid) 手动关闭; show_toast 轻提示\n" +
         "【批量导入】Excel/CSV解析+导入数据库：用openpyxl读取→构建列表→bulk_import_questions()一次入库，无需分批\n" +
         "【文件执行】run_file action: 提供code自动创建.py并执行，或提供file_path执行已有文件\n" +
         "【pip安装】可通过pip_install action安装额外Python包",

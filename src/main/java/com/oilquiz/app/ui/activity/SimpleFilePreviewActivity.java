@@ -290,7 +290,8 @@ public class SimpleFilePreviewActivity extends AppCompatActivity {
         progressBar.setVisibility(View.GONE);
         statusText.setVisibility(View.GONE);
         try {
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
+            // 采样解码：大图全尺寸解码会撑爆 Java 堆（如 4000x3000 ARGB ≈ 48MB）
+            android.graphics.Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(file, 1600, 1600);
             if (bitmap != null) {
                 previewImageView.setImageBitmap(bitmap);
                 previewImageView.setVisibility(View.VISIBLE);

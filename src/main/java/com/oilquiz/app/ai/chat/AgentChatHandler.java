@@ -115,6 +115,9 @@ public class AgentChatHandler {
             public void onComplete(AgentResponse response) {
                 if (isValid()) {
                     callback.onComplete(response.finalAnswer);
+                } else if (response != null && response.finalAnswer != null
+                        && !response.finalAnswer.trim().isEmpty()) {
+                    notifyBackgroundResult(true, response.finalAnswer);
                 }
             }
 
@@ -122,6 +125,8 @@ public class AgentChatHandler {
             public void onError(String error) {
                 if (isValid()) {
                     callback.onError(error);
+                } else if (error != null && !error.trim().isEmpty()) {
+                    notifyBackgroundResult(false, error);
                 }
             }
 
@@ -203,12 +208,22 @@ public class AgentChatHandler {
 
             @Override
             public void onComplete(String fullText) {
-                if (isValid()) callback.onComplete(fullText);
+                if (isValid()) {
+                    callback.onComplete(fullText);
+                } else if (fullText != null && !fullText.trim().isEmpty()) {
+                    // 界面已关闭，任务在后台完成 → 通知提醒（点击回会话查看）
+                    notifyBackgroundResult(true, fullText);
+                }
             }
 
             @Override
             public void onError(String error) {
-                if (isValid()) callback.onError(error);
+                if (isValid()) {
+                    callback.onError(error);
+                } else if (error != null && !error.trim().isEmpty()) {
+                    // 界面已关闭，后台任务失败 → 通知提醒
+                    notifyBackgroundResult(false, error);
+                }
             }
 
             // ========== 新增回调方法 ==========
@@ -268,11 +283,54 @@ public class AgentChatHandler {
     }
 
     /**
-     * 检查 AgentChatHandler 是否有效
-     * 防止 callback=null 导致的崩溃
+     * 检查 AgentChatHandler 是否有效（UI 回调可用）。
+     * 注意：Activity 销毁/回调失效仅跳过 UI 更新，不阻止引擎后台继续执行任务。
      */
     public boolean isValid() {
-        return !isShutdown && callback != null && activity != null && !activity.isFinishing();
+        return !isShutdown && callback != null && activity != null && !activity.isFinishing() && !activity.isDestroyed();
+    }
+
+    /** Activity 是否仍存活（用于判断后台完成时是否需要通知提醒） */
+    public boolean isActivityAlive() {
+        return activity != null && !activity.isFinishing() && !activity.isDestroyed();
+    }
+
+    /**
+     * 后台完成提醒：Activity 已销毁时发系统通知，点击回到 AI 对话界面查看结果。
+     */
+    private void notifyBackgroundResult(boolean success, String summary) {
+        try {
+            if (activity == null) return;
+            android.app.NotificationManager nm = (android.app.NotificationManager)
+                    activity.getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String channelId = "ai_agent_result";
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                        channelId, "AI 任务结果", android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                channel.setDescription("Agent 后台任务完成提醒");
+                nm.createNotificationChannel(channel);
+            }
+            android.content.Intent intent = new android.content.Intent(activity,
+                    com.oilquiz.app.ui.activity.AIChatActivity.class);
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(activity, 0, intent,
+                    android.os.Build.VERSION.SDK_INT >= 23
+                            ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                            : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            String text = summary != null && summary.length() > 80 ? summary.substring(0, 80) + "…" : (summary != null ? summary : "");
+            android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(activity, channelId)
+                    : new android.app.Notification.Builder(activity);
+            builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(success ? "✅ AI 任务完成" : "❌ AI 任务失败")
+                    .setContentText(text)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+            nm.notify((int) (System.currentTimeMillis() % 100000), builder.build());
+        } catch (Throwable t) {
+            AILogger.w(TAG, "后台完成通知失败: " + t.getMessage());
+        }
     }
 
     /**

@@ -12,7 +12,8 @@ public class ImagePreviewEngine extends BasePreviewEngine {
 
     @Override
     protected Bitmap generatePreview(Context context, File file, PreviewProgressCallback progressCallback) throws Exception {
-        return BitmapFactory.decodeFile(file.getAbsolutePath());
+        // 采样解码：预览图限制在 1280px 内，避免大图全尺寸解码撑爆内存
+        return com.oilquiz.app.util.ImageParserUtil.parseImage(file, 1280, 1280);
     }
 
     @Override

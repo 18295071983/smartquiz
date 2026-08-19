@@ -264,6 +264,7 @@ public class WeatherChartView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (event == null) return false;
         float pointInterval = chartWidth / (temperatures.size() - 1);
         float touchX = event.getX() - padding;
 
