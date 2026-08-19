@@ -195,7 +195,7 @@ def notify_java(event_type, data=None):
 def create_component(component_type, title="", message="", component_id=None,
                      dialog_type="info", max_value=100, options=None,
                      default_value="", input_hint="", props=None, action_label="",
-                     items=None, url="", click_action=""):
+                     items=None, url="", click_action="", auto_close=0):
     """
     创建动态系统 UI 组件。
 
@@ -269,6 +269,7 @@ def create_component(component_type, title="", message="", component_id=None,
         input_hint: 仅 input 使用: 输入框提示文字
         action_label: 仅 snackbar 使用: 操作按钮文字（不传则无按钮）
         props: 内置 UI 组件参数字典（component_type 为内置类型时使用）
+        auto_close: 自动关闭秒数（>0 时创建 N 秒后自动关闭，默认 0 不自动关）
     
     返回:
         dict: {'success': bool, 'component_id': str, 'result': {'component_id': str, 'type': str}, 'message': str}
@@ -288,6 +289,7 @@ def create_component(component_type, title="", message="", component_id=None,
         'action_label': str(action_label) if action_label else "",
         'url': str(url) if url else "",
         'click_action': str(click_action) if click_action else "",
+        'auto_close': int(auto_close) if auto_close else 0,
     }
     if options is not None:
         action['options'] = json.dumps(options, ensure_ascii=False)
