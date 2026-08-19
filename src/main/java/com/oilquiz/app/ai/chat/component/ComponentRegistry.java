@@ -112,19 +112,22 @@ public class ComponentRegistry {
             component = dynamicFallback;
         }
         View view = null;
+        ChatComponent renderedBy = component;
         try {
             if (component.canRender(data)) {
                 view = component.createView(context, data);
             } else if (component != dynamicFallback && dynamicFallback.canRender(data)) {
                 Log.w(TAG, "registered type data mismatch, using dynamic fallback: " + data.type);
                 view = dynamicFallback.createView(context, data);
+                renderedBy = dynamicFallback;
             }
         } catch (Exception e) {
             Log.e(TAG, "component render failed: " + data.type, e);
         }
         if (view == null) return null;
-        // 统一附加 actions 按钮行（已有类型自身渲染 actions 的跳过，避免重复）
-        if (!selfRendersActions(data.type)
+        // 统一附加 actions 按钮行（由 DynamicCardView 渲染的组件其内部已渲染 actions，跳过避免重复）
+        boolean renderedByDynamic = renderedBy == dynamicFallback;
+        if (!renderedByDynamic
                 && data.props != null && data.props.optJSONArray("actions") != null
                 && data.props.optJSONArray("actions").length() > 0) {
             try {
@@ -143,13 +146,9 @@ public class ComponentRegistry {
     }
 
     /** 自身已渲染 actions 按钮的类型（避免外层重复附加）：
-     *  alert_card/contact_card 内部自带 actions 渲染；*dynamic* 是通用兜底组件，
-     *  未注册类型/数据不匹配时由它兜底渲染且其内部也渲染 actions，外层跳过。 */
+     *  alert_card/contact_card 内部自带 actions 渲染。 */
     private boolean selfRendersActions(String type) {
-        return type == null
-                || "alert_card".equals(type)
-                || "contact_card".equals(type)
-                || "*dynamic*".equals(type);
+        return "alert_card".equals(type) || "contact_card".equals(type);
     }
 
     /**
