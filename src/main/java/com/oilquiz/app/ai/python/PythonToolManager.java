@@ -141,6 +141,18 @@ public class PythonToolManager {
         }
     }
 
+    /** 关闭全部动态组件（Agent 任务结束兜底，防止组件残留卡界面）。线程安全，可任意线程调用。 */
+    public void closeAllUiComponents() {
+        try {
+            AndroidUiActionHandler h = uiActionHandler;
+            if (h != null) {
+                h.closeAllComponents();
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "关闭全部UI组件失败: " + t.getMessage(), t);
+        }
+    }
+
     /** 获取系统 UI 组件结果（阻塞等待用户操作） */
     public Map<String, Object> getUiComponentResult(String componentId, int waitSeconds) {
         try {
@@ -1755,6 +1767,17 @@ public class PythonToolManager {
             reply.put("component_id", componentId);
             reply.put("message", "组件已关闭");
             return reply;
+        }
+
+        /** 关闭全部动态组件（Agent 任务结束兜底：防止创建后未 close 的组件残留卡界面）。 */
+        public void closeAllComponents() {
+            for (String id : new java.util.ArrayList<>(dynamicComponents.keySet())) {
+                try {
+                    closeComponent(id);
+                } catch (Throwable ignored) {
+                }
+            }
+            Log.i(TAG, "[Python component] closed all dynamic components, remaining=" + dynamicComponents.size());
         }
 
         /** 注册无对话框的待处理组件（聊天流内置组件用），结果由外部回调写入 */
