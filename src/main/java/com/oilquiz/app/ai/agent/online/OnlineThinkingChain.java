@@ -176,39 +176,4 @@ public class OnlineThinkingChain {
         }
         return sb.toString();
     }
-
-    /**
-     * 构建最近一轮推理的紧凑摘要（供回注下一轮，提升跨轮推理连贯性）。
-     * 包含：本轮思考要点（尾部最近内容）+ 工具调用结论。
-     * 控制总长不超过 maxChars，避免上下文膨胀。
-     */
-    public synchronized String buildRecentSummary(int maxChars) {
-        if (blocks.isEmpty()) return null;
-        ThinkingBlock last = blocks.get(blocks.size() - 1);
-        StringBuilder sb = new StringBuilder();
-        // 思考要点：取推理内容尾部（最近的思考，避免超长）
-        if (last.reasoningContent != null && !last.reasoningContent.trim().isEmpty()) {
-            String think = last.reasoningContent.trim();
-            if (think.length() > 300) {
-                think = "…" + think.substring(think.length() - 300);
-            }
-            sb.append("本轮已思考：").append(think);
-        }
-        // 工具结论
-        for (ToolCallRecord tc : last.toolCalls) {
-            String summary = tc.resultSummary;
-            if (summary != null && summary.length() > 120) {
-                summary = summary.substring(0, 120) + "…";
-            }
-            sb.append("\n工具[").append(tc.toolName).append("] ")
-              .append(tc.success ? "成功" : "失败").append(": ")
-              .append(summary != null ? summary : "");
-        }
-        String result = sb.toString().trim();
-        if (result.isEmpty()) return null;
-        if (result.length() > maxChars) {
-            result = result.substring(0, maxChars);
-        }
-        return result;
-    }
 }

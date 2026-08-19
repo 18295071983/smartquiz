@@ -81,14 +81,10 @@ public class AgentMemoryStore {
         return true;
     }
 
-    /** 读取一条记忆（刷新访问计数，供重要性排序） */
+    /** 读取一条记忆 */
     public String get(String key) {
         if (key == null) return null;
         MemoryEntry e = memories.get(key.trim());
-        if (e != null) {
-            e.accessCount++;
-            e.lastAccess = System.currentTimeMillis();
-        }
         return e != null ? e.value : null;
     }
 
@@ -124,8 +120,8 @@ public class AgentMemoryStore {
     public String buildMemorySummary() {
         if (memories.isEmpty()) return null;
         List<MemoryEntry> all = new ArrayList<>(memories.values());
-        // 重要性优先（访问次数 + 更新新鲜度），比纯按更新时间更能保留"重要的"记忆
-        all.sort((a, b) -> Double.compare(b.importance(), a.importance()));
+        // 最近更新优先
+        all.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (MemoryEntry e : all) {
@@ -144,20 +140,17 @@ public class AgentMemoryStore {
         return sb.toString();
     }
 
-    /** 找重要性最低的条目（淘汰用）；无则 null */
+    /** 找 updatedAt 最早的条目（淘汰用）；无则 null */
     private MemoryEntry findOldest() {
-        MemoryEntry lowest = null;
-        double lowestScore = Double.MAX_VALUE;
+        MemoryEntry oldest = null;
         Iterator<MemoryEntry> it = memories.values().iterator();
         while (it.hasNext()) {
             MemoryEntry e = it.next();
-            double score = e.importance();
-            if (score < lowestScore) {
-                lowestScore = score;
-                lowest = e;
+            if (oldest == null || e.updatedAt < oldest.updatedAt) {
+                oldest = e;
             }
         }
-        return lowest;
+        return oldest;
     }
 
     // ==================== 持久化 ====================
@@ -207,13 +200,11 @@ public class AgentMemoryStore {
         }
     }
 
-    /** 记忆条目（key/value + 最近更新时间 + 访问次数，用于重要性排序/淘汰） */
+    /** 记忆条目（key/value + 最近更新时间） */
     public static class MemoryEntry {
         public final String key;
         public final String value;
         public final long updatedAt;
-        public int accessCount;
-        public long lastAccess;
 
         public MemoryEntry(String key, String value) {
             this(key, value, System.currentTimeMillis());
@@ -223,16 +214,6 @@ public class AgentMemoryStore {
             this.key = key;
             this.value = value;
             this.updatedAt = updatedAt;
-            this.accessCount = 0;
-            this.lastAccess = updatedAt;
-        }
-
-        /** 综合重要性分数：访问越频繁/越新越重要（淘汰时优先移除低分） */
-        public double importance() {
-            long now = System.currentTimeMillis();
-            long age = Math.max(1, now - lastAccess);
-            // 访问次数为主 + 更新新鲜度加成
-            return accessCount + (1000.0 / age);
         }
     }
 }
