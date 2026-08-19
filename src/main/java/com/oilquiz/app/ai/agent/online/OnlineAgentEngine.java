@@ -246,9 +246,10 @@ public class OnlineAgentEngine {
         messageHistory.add(userMsg);
 
         // 3. 通过 OnlineToolManager 获取工具定义。
-        // 全量注入：在线 API 通常有 prompt caching（前缀缓存，system+工具定义不变即命中）且长上下文支持，
-        // 全量工具定义成本可忽略，且让模型自行探索/组合任意工具（不做关键词裁剪限制能力）。
-        String toolsJson = toolManager.getToolDefinitions();
+        // 按意图注入子集：根据用户消息关键词只注入相关类别 + 基础类别（省 token，
+        // 全量30工具定义约19KB，裁剪后普通对话可降至5-8KB）；无意图命中时全量注入保证能力。
+        // 执行侧有防护：模型调用未注入的工具会得到明确错误提示并回注（见 OnlineToolManager.executeTool）。
+        String toolsJson = toolManager.getToolDefinitionsForMessage(userMessage);
         int toolCount = countToolsInJson(toolsJson);
         AILogger.i(TAG, "Tool definitions: count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {

@@ -77,19 +77,19 @@ public class OnlineToolGuide {
         sb.append("  • 参数为 JSON 对象，严格匹配下方工具定义的参数名与类型\n");
         sb.append("  • 必填参数缺失会导致执行失败，请确保参数完整\n\n");
 
-        // 2. 工具清单（按类别分组）
-        sb.append("【二、工具清单（按类别）】\n");
+        // 2. 工具清单（按类别分组，仅列名称——完整描述与参数已通过 API tools 参数提供，避免重复占 token）
+        sb.append("【二、工具清单（按类别，完整定义见 tools 参数）】\n");
         Map<String, List<String>> categoryIndex = registry.getCategoryIndex();
         for (Map.Entry<String, List<String>> e : categoryIndex.entrySet()) {
-            sb.append("  ▸ ").append(categoryDisplayName(e.getKey())).append("\n");
-            for (String toolName : e.getValue()) {
-                OnlineToolRegistry.ToolMeta meta = registry.getToolMeta(toolName);
-                if (meta == null) continue;
-                sb.append("    - ").append(toolName);
-                sb.append("  ").append(meta.description != null ? meta.description : "").append("\n");
+            sb.append("  ▸ ").append(categoryDisplayName(e.getKey())).append(": ");
+            List<String> names = e.getValue();
+            for (int i = 0; i < names.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(names.get(i));
             }
             sb.append("\n");
         }
+        sb.append("\n");
 
         // 3. 工具组合示例（静态链 + 学习到的历史模式）
         sb.append("【三、工具组合示例】\n");
