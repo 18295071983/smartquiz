@@ -364,7 +364,7 @@ public class SystemUIComponentTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> desc = new HashMap<>();
         desc.put("action", "操作: create/update/close/get_result");
-        desc.put("component_type", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/内置组件(chart,info_card,table_card等22种)");
+        desc.put("component_type", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/notification/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html); web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)");
         desc.put("component_id", "组件ID（update/close/get_result用）");
         desc.put("title", "标题");
         desc.put("message", "内容/提示文本");
@@ -375,7 +375,7 @@ public class SystemUIComponentTool implements AITool {
         desc.put("default_value", "默认值(input/date/time/image用)");
         desc.put("input_hint", "输入框提示(input用)");
         desc.put("action_label", "按钮文字(snackbar用)");
-        desc.put("props", "内置组件参数(如chart的chartType/categories/series)");
+        desc.put("props", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; 交互组件加 actions:[{label,value,action:'callback'}]");
         desc.put("wait_seconds", "等待秒数(get_result用,默认30)");
         desc.put("auto_close", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)");
         return desc;
