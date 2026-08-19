@@ -25,7 +25,6 @@ public class OnlinePromptBuilder {
     public String buildSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一个智能AI助手，拥有多种工具来帮助用户完成任务。\n\n");
-        sb.append("【工具调用约束】只能调用本轮 tools 参数中提供的工具（系统按意图裁剪注入）；若需要其他能力，直接告知用户或改用已有工具完成，不要调用未提供的工具。\n\n");
 
         // 集成工具指南（原生 function calling 格式）
         if (guide != null) {
@@ -77,7 +76,6 @@ public class OnlinePromptBuilder {
     public String buildSystemPromptTakeover() {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一个具备完整 Agent 能力的智能助手，通过原生 function calling 自主完成任务。\n\n");
-        sb.append("【工具调用约束】只能调用本轮 tools 参数中提供的工具（系统按意图裁剪注入）；若需要其他能力，直接告知用户或改用已有工具完成，不要调用未提供的工具。\n\n");
 
         // 仅提供工具清单（按类别），不附加调用规则和错误处理指引
         if (guide != null) {
@@ -126,24 +124,44 @@ public class OnlinePromptBuilder {
     }
 
     /**
-     * 构建富内容组件渲染指引（精简版：类型名+一句话用途，不附完整 JSON 示例，省 token）。
+     * 构建富内容组件渲染指引。
      *
      * 告知模型可用的全部 UI 组件及内容流标记格式（```component:xxx {json}```），
      * 界面会将标记渲染为对应组件并插入到标记所在位置（插入式、流式生效）。
-     * JSON 结构按工具定义/示例自然生成，不在此重复占 token。
      */
     private String buildComponentGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【富内容组件】有结构的信息一律倾向用组件标记展示（```component:类型\\n{JSON}```），界面自动渲染为卡片：\n");
-        sb.append("  可用类型：chart(图表bar/line/pie) / info_card(信息卡) / table_card(表格) / image_grid(图片网格) /\n");
-        sb.append("  link_card(链接) / list_card(列表) / alert_card(提示success/warning/error/info) / metric_card(指标) /\n");
-        sb.append("  json_viewer(JSON) / steps_card(步骤) / note_card(引用/备注) / file_list(文件列表) / grid_card(宫格) /\n");
-        sb.append("  contact_card(联系方式phone/sms/email) / todo_card(待办) / quiz_card(题目) / weather_card(天气) /\n");
-        sb.append("  file_card(单个文件) / code_card(代码块) / progress_card(进度) / html(富文本WebView,支持CSS/表格/图片) /\n");
-        sb.append("  tool_call(工具调用过程,系统自动附加)\n");
-        sb.append("  自定义：任意类型名(如 custom_panel)以通用卡片展示 JSON 数据；能用内置类型优先用内置。\n");
-        sb.append("  规则：标记单独成段、JSON 用双引号且必须完整合法；一个标记块只含一个组件；无法保证 JSON 合法时改用 markdown。\n\n");
-        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n\n");
+        sb.append("\n【富内容组件】这是你的 UI 组件库：有结构的信息一律倾向用组件标记展示（```component:类型 {json}```），界面自动渲染为卡片，比纯文本更美观易读：\n");
+        sb.append("1. chart 图表: ```component:chart\\n{\"chartType\":\"bar|line|pie\",\"title\":\"标题\",\"categories\":[\"分类\"],\"series\":[{\"name\":\"系列\",\"data\":[数值]}]}```\n");
+        sb.append("2. info_card 信息卡: ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
+        sb.append("3. table_card 表格: ```component:table_card\\n{\"title\":\"表名\",\"headers\":[\"列1\",\"列2\"],\"rows\":[[\"值1\",\"值2\"]]}```\n");
+        sb.append("4. image_grid 图片网格: ```component:image_grid\\n{\"images\":[\"url1\",\"url2\"],\"columns\":2}```（图片生成工具会自动附加，也可手动输出）\n");
+        sb.append("5. link_card 链接: ```component:link_card\\n{\"url\":\"https://...\",\"title\":\"标题\",\"description\":\"描述\"}```\n");
+        sb.append("6. list_card 列表: ```component:list_card\\n{\"title\":\"标题\",\"items\":[{\"icon\":\"🔍\",\"title\":\"条目\",\"description\":\"描述\",\"value\":\"右侧值\"}]}```\n");
+        sb.append("7. alert_card 提示: ```component:alert_card\\n{\"type\":\"success|warning|error|info\",\"title\":\"标题\",\"content\":\"内容\"}```\n");
+        sb.append("8. metric_card 指标: ```component:metric_card\\n{\"title\":\"标题\",\"metrics\":[{\"label\":\"标签\",\"value\":\"值\",\"color\":\"success|warning|error|info\"}]}```\n");
+        sb.append("9. json_viewer JSON: ```component:json_viewer\\n{\"title\":\"标题\",\"data\":{...},\"maxHeight\":200}```\n");
+        sb.append("10. steps_card 步骤: ```component:steps_card\\n{\"title\":\"标题\",\"steps\":[{\"status\":\"done|current|failed|todo\",\"title\":\"步骤\",\"description\":\"描述\"}]}```\n");
+        sb.append("11. note_card 引用/备注: ```component:note_card\\n{\"type\":\"note|quote|tip|summary\",\"content\":\"内容\",\"author\":\"作者\"}```\n");
+        sb.append("12. file_list 文件列表: ```component:file_list\\n{\"title\":\"标题\",\"files\":[{\"name\":\"文件名\",\"path\":\"/路径\",\"size\":\"大小\",\"type\":\"file|dir\"}]}```\n");
+        sb.append("13. grid_card 宫格: ```component:grid_card\\n{\"title\":\"标题\",\"columns\":3,\"items\":[{\"icon\":\"📁\",\"label\":\"标签\"}]}```\n");
+        sb.append("14. contact_card 联系方式: ```component:contact_card\\n{\"type\":\"phone|sms|email\",\"title\":\"标题\",\"value\":\"号码或地址\",\"description\":\"说明\"}```\n");
+        sb.append("15. todo_card 待办: ```component:todo_card\\n{\"title\":\"标题\",\"items\":[{\"done\":false,\"text\":\"任务\"}]}```\n");
+        sb.append("16. quiz_card 题目: ```component:quiz_card\\n{\"type\":\"single|multiple|judge\",\"question\":\"题干\",\"options\":[\"A. xxx\",\"B. xxx\"],\"answer\":\"答案\",\"analysis\":\"解析\"}```\n");
+        sb.append("17. weather_card 天气: ```component:weather_card\\n{\"city\":\"城市\",\"temp\":\"26℃\",\"text\":\"多云\",\"icon\":\"⛅\",\"humidity\":\"60%\",\"windDir\":\"东南风\",\"windScale\":\"3级\",\"forecast\":[{\"date\":\"周一\",\"text\":\"晴\",\"tempMin\":\"18℃\",\"tempMax\":\"28℃\"}]}```\n");
+        sb.append("18. file_card 单个文件: ```component:file_card\\n{\"name\":\"文件名\",\"size\":\"大小\",\"type\":\"类型\",\"uri\":\"content://...\",\"path\":\"/路径\"}```\n");
+        sb.append("19. code_card 代码块: ```component:code_card\\n{\"language\":\"java\",\"code\":\"代码\",\"title\":\"标题\"}```\n");
+        sb.append("20. progress_card 进度: ```component:progress_card\\n{\"title\":\"标题\",\"progress\":60,\"description\":\"描述\",\"status\":\"状态\"}```\n");
+        sb.append("21. html 富内容（系统 WebView 完整渲染，支持 CSS/表格/图片/简单 JS；适合富文本、彩色排版、带样式的表格/页面等复杂展示；用户在聊天里看到预览，点击组件可打开全屏页完整交互）：```component:html\\n{\"html\":\"<h3>标题</h3><p>内容</p><table><tr><td>a</td><td>b</td></tr></table>\",\"title\":\"可选标题\",\"maxHeight\":360}```\\n");
+        sb.append("22. tool_call 工具调用过程（由系统自动附加，无需手动输出）\n");
+        sb.append("规则：标记单独成段、JSON 用双引号；图表/表格/列表/步骤/待办/指标等结构化数据必须用组件标记，一个标记块一个组件，不要把 JSON 原文展示给用户。\n");
+        sb.append("自定义组件：你可以自行编写 UI 组件——使用任意类型名（如 ```component:custom_panel\\n{\"title\":\"我的面板\",\"items\":[...]}```），系统会以通用卡片展示该 JSON 数据（标题+键值行/数组/嵌套对象均可展示），任何自定义结构都能在对话界面正常显示；内置 20 种类型已针对常见场景做好排版，能用内置类型优先用内置类型，特殊布局再自定义。\n");
+        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块，可真实显示在手机界面：from android_ui import show_toast, show_dialog, update_progress；show_toast('完成') 显示提示条、show_dialog('标题','内容') 显示对话框、update_progress(50,100) 更新进度。耗时操作或需要用户感知进度时主动使用，结尾再用组件/文本汇总结果。\n");
+        sb.append("【组件输出硬性要求】\n");
+        sb.append("1. 组件标记必须用三反引号包裹且闭合：```component:类型\\n{JSON}\\n```，类型名只用小写字母/数字/下划线（如 info_card、custom_panel），不要带空格或特殊符号。\n");
+        sb.append("2. JSON 必须完整合法：双引号、括号闭合、无注释、无尾随逗号；props 键名与上方示例一致。\n");
+        sb.append("3. 无法保证 JSON 合法时，不要输出组件标记——用普通 markdown 表格或列表展示即可，禁止把 JSON 或 component: 源码直接裸露给用户。\n");
+        sb.append("4. 一个组件标记块只包含一个组件的 JSON，不要在一个块里放多个对象或数组外层包裹。\n\n");
         return sb.toString();
     }
 
