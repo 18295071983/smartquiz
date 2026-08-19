@@ -127,7 +127,65 @@ public class ToolGuideFlow {
             case "python_calculate":
                 return buildPythonCalculate();
             default:
+                // 动态兜底：未定义精细引导的工具，从 AIToolManager 工具定义自动生成通用引导
+                // （枚举参数→选项步骤、必填参数→输入步骤、其余→可选输入步骤、最后确认步骤）。
+                // 保证工具描述/参数始终与模型 tools 参数同一真相源，新增工具无需手写引导。
+                return buildDynamicFlow(toolName);
+        }
+    }
+
+    /**
+     * 从 AIToolManager 工具定义动态生成通用引导流程（兜底）。
+     * 数据源与模型 tools 参数一致（AIToolManager.getToolDefinition），
+     * 保证引导界面展示的描述/参数与模型实际看到的完全同步。
+     */
+    private static ToolGuideFlow buildDynamicFlow(String toolName) {
+        try {
+            com.oilquiz.app.ai.tool.AIToolManager manager =
+                    com.oilquiz.app.ai.tool.AIToolManager.getInstance(
+                            com.oilquiz.app.SmartQuizApplication.getAppContext());
+            com.oilquiz.app.ai.tool.openai.ToolDefinition def = manager.getToolDefinition(toolName);
+            if (def == null) {
                 return null;
+            }
+            List<GuideStep> steps = new ArrayList<>();
+            List<com.oilquiz.app.ai.tool.openai.ParamDefinition> params = def.getParameters();
+            if (params != null) {
+                for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : params) {
+                    String title = (p.getDescription() != null && !p.getDescription().isEmpty())
+                            ? p.getDescription() : ("填写 " + p.getName());
+                    // 枚举参数 → 选项步骤（选择列表）
+                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                        List<GuideStep.Option> options = new ArrayList<>();
+                        for (String enumVal : p.getEnumValues()) {
+                            options.add(new GuideStep.Option(enumVal, enumVal));
+                        }
+                        steps.add(GuideStep.optionStep(title, title, p.getName(), options));
+                        continue;
+                    }
+                    // 必填参数 → 必填输入步骤
+                    if (p.isRequired()) {
+                        steps.add(GuideStep.inputStep(title, title, p.getName(),
+                                p.getDescription() != null ? p.getDescription() : "请输入",
+                                true, false));
+                        continue;
+                    }
+                    // 可选参数 → 可选输入步骤（带默认值提示）
+                    String hint = p.getDescription() != null ? p.getDescription() : "可留空";
+                    if (p.getDefaultValue() != null) {
+                        hint = "默认: " + p.getDefaultValue() + "（" + hint + "）";
+                    }
+                    steps.add(GuideStep.inputStep(title, title, p.getName(), hint, false, false));
+                }
+            }
+            // 确认步骤
+            steps.add(GuideStep.confirmStep("确认执行", "参数填写完成，点击执行"));
+            String displayName = toolName;
+            String desc = def.getDescription() != null ? def.getDescription() : "";
+            return new ToolGuideFlow(toolName, displayName, desc, steps);
+        } catch (Throwable t) {
+            android.util.Log.w("ToolGuideFlow", "动态生成引导失败: " + t.getMessage());
+            return null;
         }
     }
 
