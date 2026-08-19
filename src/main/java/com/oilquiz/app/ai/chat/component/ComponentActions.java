@@ -42,9 +42,41 @@ public final class ComponentActions {
         resultCallback = callback;
     }
 
-    /** 通知组件结果（组件按钮 action=callback 时调用） */
-    private static void notifyResult(String componentId, String value) {
+    /** 确保回调已注册：app 重启/历史会话恢复后静态回调丢失，点击时自动补注册兜底。 */
+    private static java.util.function.BiConsumer<String, String> ensureResultCallback(android.content.Context context) {
         java.util.function.BiConsumer<String, String> cb = resultCallback;
+        if (cb != null) return cb;
+        synchronized (ComponentActions.class) {
+            if (resultCallback == null) {
+                try {
+                    android.content.Context appCtx = context != null
+                            ? context.getApplicationContext()
+                            : com.oilquiz.app.SmartQuizApplication.getAppContext();
+                    if (appCtx == null) return null;
+                    com.oilquiz.app.ai.python.PythonToolManager ptm =
+                            com.oilquiz.app.ai.python.PythonToolManager.getInstance(appCtx);
+                    resultCallback = (cid, value) -> {
+                        if (cid != null && value != null) {
+                            ptm.notifyChatComponentResult(cid, value);
+                        }
+                    };
+                } catch (Throwable t) {
+                    android.util.Log.w("ComponentActions", "兜底注册回调失败: " + t.getMessage());
+                }
+            }
+            return resultCallback;
+        }
+    }
+
+    /** 通知组件结果（组件按钮 action=callback 时调用）。回调为空时用 context 兜底注册。 */
+    private static void notifyResult(Context context, String componentId, String value) {
+        android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
+                + " cb=" + (resultCallback != null));
+        java.util.function.BiConsumer<String, String> cb = resultCallback;
+        if (cb == null) {
+            cb = ensureResultCallback(context);
+            android.util.Log.i("ComponentActions", "兜底注册后 cb=" + (cb != null));
+        }
         if (cb != null && componentId != null && value != null) {
             try {
                 cb.accept(componentId, value);
@@ -84,7 +116,7 @@ public final class ComponentActions {
             btn.setOnClickListener(v -> {
                 if ("callback".equals(action) && !componentId.isEmpty()) {
                     // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）
-                    notifyResult(componentId, value.isEmpty() ? label : value);
+                    notifyResult(context, componentId, value.isEmpty() ? label : value);
                     return;
                 }
                 execute(context, link, copy, action);

@@ -1811,8 +1811,12 @@ public class PythonToolManager {
 
         /** 写入组件结果并唤醒等待者（聊天流组件按钮回调） */
         public void setComponentResult(String componentId, String value) {
+            Log.i(TAG, "[Python component] setComponentResult cid=" + componentId + " value=" + value);
             ComponentRuntime rt = dynamicComponents.get(componentId);
-            if (rt == null) return;
+            if (rt == null) {
+                Log.w(TAG, "[Python component] setComponentResult 组件不存在: " + componentId);
+                return;
+            }
             rt.result.set(value != null ? value : "closed");
             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
         }
