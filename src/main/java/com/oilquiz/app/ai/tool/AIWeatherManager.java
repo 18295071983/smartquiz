@@ -29,7 +29,7 @@ import java.util.HashMap;
 
 @Tool(
     value = "ai_weather",
-    description = "Weather query tool, supports current weather, forecast, hourly weather, air quality, weather alerts, life indices",
+    description = "天气查询工具，获取指定城市的天气信息",
     category = "weather",
     aliases = {"weather", "get_weather"},
     actions = {
@@ -3064,7 +3064,7 @@ public class AIWeatherManager implements AITool {
     
     @Override
     public String getDescription() {
-        return "AI天气管理工具，支持实时天气查询、天气预报、24小时预报、空气质量、天气预警、生活指数等功能，支持和风天气和OpenWeatherMap两个API提供商";
+        return "天气查询工具，获取指定城市的天气信息";
     }
     
     private void normalizeParameters(Map<String, Object> parameters) {
