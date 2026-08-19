@@ -217,9 +217,13 @@ public class SystemUIComponentTool implements AITool {
             if ("web".equals(componentType)) {
                 Object urlObj = parameters.get("url");
                 if (urlObj != null && !props.has("html") && !props.has("url")) {
-                    String url = urlObj.toString();
+                    String url = urlObj.toString().trim();
                     if (url.startsWith("http://") || url.startsWith("https://")) {
                         props.put("url", url);
+                    } else if (isLocalFilePath(url)) {
+                        // 本地网页文件：转 file:// 让 WebView 直接加载渲染（不再当 HTML 字符串显示源码）
+                        String path = url.startsWith("file://") ? url : "file://" + url;
+                        props.put("url", path);
                     } else {
                         props.put("html", url);
                     }
@@ -351,6 +355,16 @@ public class SystemUIComponentTool implements AITool {
 
     private String str(Object o) {
         return o == null ? null : o.toString();
+    }
+
+    /** 判断是否本地文件路径（file:// 前缀、/ 开头绝对路径、含 .html/.htm 等扩展名） */
+    private static boolean isLocalFilePath(String s) {
+        if (s == null || s.isEmpty()) return false;
+        if (s.startsWith("file://") || s.startsWith("/")) return true;
+        String lower = s.toLowerCase();
+        return lower.endsWith(".html") || lower.endsWith(".htm")
+                || lower.endsWith(".xhtml") || lower.endsWith(".mht")
+                || lower.endsWith(".svg");
     }
 
     @Override

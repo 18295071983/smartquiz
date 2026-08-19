@@ -137,7 +137,12 @@ public class HtmlCardView implements ChatComponent {
                             return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
                         }
                         if (!urlFinal.isEmpty()) {
-                            com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, urlFinal);
+                            // 本地文件模式：点空白 → 全屏加载原文件完整查看；http(s) → 应用内打开
+                            if (urlFinal.startsWith("file://")) {
+                                openLocalFileFullScreen(context, urlFinal, titleFinal);
+                            } else {
+                                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, urlFinal);
+                            }
                         } else {
                             openFullScreen(context, htmlFinal, titleFinal);
                         }
@@ -156,14 +161,21 @@ public class HtmlCardView implements ChatComponent {
         webView.setLayoutParams(wvLp);
 
         final WebView wvRef = webView;
+        // 本地文件模式：file:// 导航在 WebView 内部加载（不拦截系统打开），否则外部打开
+        final boolean isFileMode = url.startsWith("file://");
         webView.setWebViewClient(new WebViewClient() {
-            // 页内链接点击：真实打开（http/https 应用内 WebView；file:// 系统打开），
-            // 不再吞掉（此前 return true 导致链接点了没反应）
+            // 页内链接点击：真实打开（http/https 应用内 WebView；本地文件模式 file:// 内部导航）
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url == null) return true;
                 if (url.startsWith("http://") || url.startsWith("https://")
-                        || url.startsWith("file://") || url.startsWith("/")) {
+                        || url.startsWith("/")) {
+                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
+                    return true;
+                }
+                if (url.startsWith("file://")) {
+                    // 本地文件模式：file:// 链接继续在 WebView 内加载；非本地文件模式外部打开
+                    if (isFileMode) return false;
                     com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
                     return true;
                 }
@@ -176,7 +188,12 @@ public class HtmlCardView implements ChatComponent {
                         ? request.getUrl().toString() : null;
                 if (url == null) return true;
                 if (url.startsWith("http://") || url.startsWith("https://")
-                        || url.startsWith("file://") || url.startsWith("/")) {
+                        || url.startsWith("/")) {
+                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
+                    return true;
+                }
+                if (url.startsWith("file://")) {
+                    if (isFileMode) return false;
                     com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
                     return true;
                 }
@@ -222,8 +239,16 @@ public class HtmlCardView implements ChatComponent {
 
         // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹 viewport + 基础样式
         // （缺 viewport 时 WebView/浏览器按 980px 默认宽度渲染，手机上会显示成"横屏"）
-        if (!url.isEmpty() && (url.startsWith("http://") || url.startsWith("https://"))) {
-            // url 模式：直接加载网页（web 组件映射，onPageFinished 自适应高度逻辑复用）
+        // url 模式：http(s) 加载网页 / file:// 加载本地文件（web 组件映射，
+        // onPageFinished 自适应高度逻辑复用）。其余内容按 HTML 字符串渲染。
+        if (!url.isEmpty()
+                && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://"))) {
+            // 本地文件需开启文件访问（WebView 默认允许 file:// 自身加载，但需允许相对资源）
+            if (url.startsWith("file://")) {
+                webView.getSettings().setAllowFileAccess(true);
+                webView.getSettings().setAllowFileAccessFromFileURLs(true);
+                webView.getSettings().setAllowUniversalAccessFromFileURLs(true);
+            }
             webView.loadUrl(url);
         } else {
             String fullHtml = wrapHtml(html);
@@ -292,8 +317,34 @@ public class HtmlCardView implements ChatComponent {
      * 软件渲染防 GPU 截断、链接处理、标题栏返回；规避 WebViewActivity 的
      * X5/文件重定向/硬件加速链路对 file:// 页面 JS 交互的干扰）。
      */
-    private static void openFullScreen(Context context, String html, String title) {
+    /** 本地文件全屏查看：直接加载原文件路径到 SimpleWebViewActivity（保留相对资源解析） */
+    private static void openLocalFileFullScreen(Context context, String fileUrl, String title) {
         try {
+            String path = fileUrl;
+            if (path.startsWith("file://")) {
+                path = android.net.Uri.parse(path).getPath();
+            }
+            if (path == null || path.isEmpty() || !new java.io.File(path).exists()) {
+                Log.w("HtmlCardView", "本地文件不存在: " + fileUrl);
+                return;
+            }
+            android.content.Intent intent = new android.content.Intent(context,
+                    com.oilquiz.app.SimpleWebViewActivity.class);
+            intent.putExtra("html_path", path);
+            if (title != null && !title.isEmpty()) {
+                intent.putExtra("title", title);
+            }
+            if (!(context instanceof android.app.Activity)) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            context.startActivity(intent);
+            Log.i("HtmlCardView", "opened local file full screen: " + path);
+        } catch (Exception e) {
+            Log.w("HtmlCardView", "打开本地文件全屏失败: " + e.getMessage());
+        }
+    }
+
+    private static void openFullScreen(Context context, String html, String title) {        try {
             if (html == null || html.isEmpty()) return;
             java.io.File dir = new java.io.File(context.getCacheDir(), "html_preview");
             if (!dir.exists() && !dir.mkdirs()) {
