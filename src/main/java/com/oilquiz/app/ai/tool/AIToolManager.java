@@ -959,9 +959,9 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_analyze_data":
-                return ToolDefinition.builder("python_analyze_data", "使用Python分析数据")
-                    .addParameter("data", "string", "数据（可选）", false)
-                    .addParameter("task", "string", "任务描述（可选）", false)
+                return ToolDefinition.builder("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时优先用本工具，复杂任务用python_execute")
+                    .addParameter("data", "string", "数据（可选，要分析的数据内容）", false)
+                    .addParameter("task", "string", "任务描述（可选，如统计/求平均/去重/排序/转换格式等）", false)
                     .category("python")
                     .build();
             case "file":
@@ -978,7 +978,7 @@ public class AIToolManager {
                     .category("app")
                     .build();
             case "create_dynamic_tool":
-                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具")
+                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list查看全部动态工具")
                     .addParameter("action", "string", "操作类型: create/update/delete/list", false, "list")
                     .addParameter("tool_name", "string", "工具名称", false)
                     .addParameter("description", "string", "工具描述", false)

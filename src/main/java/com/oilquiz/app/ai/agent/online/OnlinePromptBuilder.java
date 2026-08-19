@@ -39,6 +39,13 @@ public class OnlinePromptBuilder {
             sb.append("5. 同一工具连续失败2次应更换策略或向用户澄清。\n\n");
         }
 
+        // 工具发现：模型不确定有哪些工具/参数时主动查（MCP 式）
+        sb.append("【工具发现】不确定有哪些工具可用、或某工具的参数怎么填时，调用 tool_registry 工具：\n");
+        sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");
+        sb.append("  - tool_registry(action=search, keyword=关键词) 按需找工具\n");
+        sb.append("  - tool_registry(action=get, tool=工具名) 取单个工具完整参数 schema\n");
+        sb.append("  不要凭空猜测工具名或参数，先查再调。\n\n");
+
         sb.append(buildKnowledgeStrategySection());
 
         sb.append(buildComponentGuideSection());
@@ -83,6 +90,13 @@ public class OnlinePromptBuilder {
             sb.append(guide.buildQuickReference()).append("\n\n");
             sb.append("工具的完整参数定义已通过 API 的 tools 参数提供，可直接发起 tool_calls 调用。\n\n");
         }
+
+        // 工具发现：不确定有哪些工具/参数时主动查（MCP 式）
+        sb.append("【工具发现】不确定有哪些工具可用、或某工具的参数怎么填时，调用 tool_registry 工具：\n");
+        sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");
+        sb.append("  - tool_registry(action=search, keyword=关键词) 按需找工具\n");
+        sb.append("  - tool_registry(action=get, tool=工具名) 取单个工具完整参数 schema\n");
+        sb.append("  不要凭空猜测工具名或参数，先查再调。\n\n");
 
         sb.append(buildKnowledgeStrategySection());
 
