@@ -50,6 +50,10 @@ public class OnlineToolManager {
     private final OnlineToolUsageTracker usageTracker;
     private final OnlineToolGuide guide;
 
+    /** 本轮注入给模型的工具名集合（按意图裁剪后；全量注入时=全部启用工具）。
+     *  用于执行前防护：模型调用未注入的工具时给出明确提示而非静默失败（方向A）。 */
+    private volatile java.util.Set<String> injectedToolNames = java.util.Collections.emptySet();
+
     /** 全局实例（管理页访问统计/缓存用）；引擎创建时注入，避免重复构建 */
     private static volatile OnlineToolManager instance;
 
@@ -195,7 +199,14 @@ public class OnlineToolManager {
      * 委托给 {@link OnlineToolRegistry#getToolDefinitions()}。
      */
     public String getToolDefinitions() {
-        return registry.getToolDefinitions();
+        String json = registry.getToolDefinitions();
+        // 全量注入：记录全部启用工具名（执行防护用）
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (OnlineToolRegistry.ToolMeta meta : registry.getAllToolMetas()) {
+            names.add(meta.name);
+        }
+        injectedToolNames = names;
+        return json;
     }
 
     /**
@@ -204,6 +215,7 @@ public class OnlineToolManager {
      * - 无关键词命中 → 全量（保证能力完整）
      * - 命中 → 相关类别 + 基础类别（file/database/general 视场景）
      * 大幅减少每轮推理的工具定义 token（20+ 工具全量定义可达数千 token）。
+     * 同时记录注入的工具名集合，供 executeTool 防护"调用未注入工具"。
      */
     public String getToolDefinitionsForMessage(String message) {
         if (message == null || message.trim().isEmpty()) return getToolDefinitions();
@@ -224,7 +236,31 @@ public class OnlineToolManager {
             // 无明确意图：全量注入保证能力
             return getToolDefinitions();
         }
-        return registry.getToolDefinitionsByCategories(matchedCategories);
+        String json = registry.getToolDefinitionsByCategories(matchedCategories);
+        // 解析本轮注入的工具名（防护用）
+        java.util.Set<String> names = new java.util.HashSet<>();
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject tool = arr.optJSONObject(i);
+                if (tool != null) {
+                    org.json.JSONObject fn = tool.optJSONObject("function");
+                    if (fn != null && fn.optString("name") != null) {
+                        names.add(fn.optString("name"));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "解析注入工具名失败: " + e.getMessage());
+        }
+        injectedToolNames = names;
+        AILogger.i(TAG, "Injected tools: " + names.size() + " names");
+        return json;
+    }
+
+    /** 本轮注入给模型的工具名集合（只读） */
+    public java.util.Set<String> getInjectedToolNames() {
+        return injectedToolNames;
     }
 
     private static boolean containsAny(String msg, String... keywords) {
@@ -249,6 +285,20 @@ public class OnlineToolManager {
     public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments) {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         long startTime = System.currentTimeMillis();
+
+        // 方向A防护：本轮未注入的工具不允许执行——模型可能幻觉调用未注入工具，
+        // 直接返回明确错误（错误消息会以 tool 角色回注给模型，引导其改用已注入工具），
+        // 而不是让它静默失败/终止（此前全量注入时无此问题，按意图裁剪后必须防护）。
+        java.util.Set<String> injected = injectedToolNames;
+        if (!injected.isEmpty() && !injected.contains(toolName)) {
+            String error = "工具 " + toolName + " 不在本轮可用工具列表中（当前可用: "
+                    + String.join(", ", injected) + "）。请改用已注入的工具完成任务，或直接回答。";
+            AILogger.w(TAG, "Rejected tool call to non-injected tool: " + toolName);
+            usageTracker.recordCall(toolName, arguments, false,
+                System.currentTimeMillis() - startTime, error);
+            return OnlineToolResult.failure(toolCallId, toolName, error,
+                System.currentTimeMillis() - startTime);
+        }
 
         // 权限工具的状态是动态的，不应缓存（避免缓存到过期结果）
         boolean isPermissionTool = "permission_manager".equals(toolName);
