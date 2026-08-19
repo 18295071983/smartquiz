@@ -149,7 +149,12 @@ public class OnlinePromptBuilder {
         sb.append("  list_card(列表) / alert_card(提示) / metric_card(指标) / json_viewer(JSON) / steps_card(步骤) /\n");
         sb.append("  note_card(引用) / file_list(文件列表) / grid_card(宫格) / contact_card(联系) / todo_card(待办) /\n");
         sb.append("  quiz_card(题目) / weather_card(天气) / file_card(文件) / code_card(代码) / progress_card(进度) / html(富文本)\n");
-        sb.append("  各类型 props 字段结构详见 ui_component 工具定义（props 参数），按需填参即可；交互组件在 props 加 actions。\n");
+        sb.append("  各类型 props 字段结构详见 ui_component 工具定义（props 参数），按需填参即可。\n");
+        sb.append("  【交互组件】需要用户操作（确认/选择/点赞/打开/复制等）时，在 props 加 actions 数组即可让卡片带按钮：\n");
+        sb.append("    actions=[{\"label\":\"按钮文字\",\"value\":\"回传给你的值\",\"action\":\"callback\"}] —— 用户点击后 value 经 get_result 返回给你\n");
+        sb.append("    actions=[{\"label\":\"打开\",\"link\":\"https://...\"}] —— 打开链接; actions=[{\"label\":\"复制\",\"copy\":\"文本\"}] —— 复制内容\n");
+        sb.append("    交互流程：create 返回 component_id → 卡片显示按钮 → 用户点击 → 你调 ui_component(action=get_result, component_id=..., wait_seconds=N) 取回点击值\n");
+        sb.append("    需要用户确认/输入/选择时,优先用交互组件或原生对话框(dialog/input/choice),不要只展示不可操作的卡片。\n");
         sb.append("  原生组件（对话框/进度条/输入框/选择器等）同样用 ui_component 创建，需用户交互时用 get_result 取结果。\n\n");
         sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n\n");
         return sb.toString();
