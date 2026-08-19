@@ -169,14 +169,22 @@ public class SystemUIComponentTool implements AITool {
             "chart", "info_card", "table_card", "image_grid", "link_card", "list_card",
             "alert_card", "metric_card", "json_viewer", "steps_card", "note_card",
             "file_list", "grid_card", "contact_card", "todo_card", "quiz_card",
-            "weather_card", "file_card", "code_card", "progress_card", "html", "tool_call"
+            "weather_card", "file_card", "code_card", "progress_card", "html", "tool_call",
+            "web", "image"
     ));
+
+    /** 别名映射：模型常用名 → 实际渲染组件类型（web→html 卡片、image→image_grid 卡片，进聊天流渲染而非弹窗） */
+    private static final java.util.Map<String, String> COMPONENT_ALIAS = new java.util.HashMap<>();
+    static {
+        COMPONENT_ALIAS.put("web", "html");
+        COMPONENT_ALIAS.put("image", "image_grid");
+    }
 
     private boolean isBuiltinComponentType(String type) {
         if (type == null) return false;
         // 任意未识别类型也可作为自定义组件进聊天流（ComponentRegistry 有兜底渲染）
         String[] nativeTypes = {"dialog", "progress", "input", "choice", "multi_choice",
-                "date", "time", "image", "snackbar", "list", "web", "notification", "toast"};
+                "date", "time", "snackbar", "list", "notification", "toast"};
         for (String nt : nativeTypes) {
             if (nt.equals(type)) return false;
         }
@@ -191,6 +199,9 @@ public class SystemUIComponentTool implements AITool {
      */
     private AIToolResult createBuiltinChatComponent(String componentType, Map<String, Object> parameters) {
         try {
+            // 别名映射：模型传 web/image → 实际渲染组件类型（html / image_grid，进聊天流）
+            String renderType = COMPONENT_ALIAS.containsKey(componentType)
+                    ? COMPONENT_ALIAS.get(componentType) : componentType;
             org.json.JSONObject props = new org.json.JSONObject();
             Object propsObj = parameters.get("props");
             if (propsObj != null) {
@@ -205,6 +216,35 @@ public class SystemUIComponentTool implements AITool {
                         props = new org.json.JSONObject(new com.google.gson.Gson().toJson(propsObj));
                     } catch (Exception e) {
                         props = new org.json.JSONObject();
+                    }
+                }
+            }
+            // web 组件适配：url 参数 → html 组件的 url 字段（WebView 卡片直接加载网页）；
+            // html 内容 → html 组件的 html 字段（富文本渲染）
+            if ("web".equals(componentType)) {
+                Object urlObj = parameters.get("url");
+                if (urlObj != null && !props.has("html") && !props.has("url")) {
+                    String url = urlObj.toString();
+                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                        props.put("url", url);
+                    } else {
+                        props.put("html", url);
+                    }
+                }
+                if (!props.has("title")) {
+                    Object title = parameters.get("title");
+                    if (title != null) props.put("title", title.toString());
+                }
+            }
+            // image 组件适配：default_value(单图路径/url) → image_grid 的 images 数组
+            if ("image".equals(componentType) && !props.has("images")) {
+                Object dv = parameters.get("default_value");
+                if (dv != null && !dv.toString().isEmpty()) {
+                    try {
+                        org.json.JSONArray images = new org.json.JSONArray();
+                        images.put(dv.toString());
+                        props.put("images", images);
+                    } catch (Exception ignored) {
                     }
                 }
             }
@@ -245,7 +285,7 @@ public class SystemUIComponentTool implements AITool {
             }
 
             com.oilquiz.app.ai.chat.component.ComponentData data =
-                    com.oilquiz.app.ai.chat.component.ComponentData.of(componentType, props);
+                    com.oilquiz.app.ai.chat.component.ComponentData.of(renderType, props);
             // 返回带组件的结果：AIToolManager 会自动 collect 进聊天流
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");

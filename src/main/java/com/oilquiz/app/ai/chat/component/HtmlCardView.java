@@ -54,6 +54,8 @@ public class HtmlCardView implements ChatComponent {
         String html = p.optString("html", "");
         if (html.isEmpty()) html = p.optString("content", "");
         if (html.isEmpty()) html = p.optString("text", "");
+        // url 字段：直接加载网页（web 组件映射用），优先于 html 字符串
+        String url = p.optString("url", "");
         String title = p.optString("title", "");
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
@@ -100,6 +102,7 @@ public class HtmlCardView implements ChatComponent {
         webView.setFocusableInTouchMode(true);
         webView.setClickable(true);
         final String htmlFinal = html;
+        final String urlFinal = url;
         final String titleFinal = title;
         final long[] downTime = {0};
         final float[] downPos = {0, 0};
@@ -133,7 +136,11 @@ public class HtmlCardView implements ChatComponent {
                         if (interactiveDown[0]) {
                             return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
                         }
-                        openFullScreen(context, htmlFinal, titleFinal);
+                        if (!urlFinal.isEmpty()) {
+                            com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, urlFinal);
+                        } else {
+                            openFullScreen(context, htmlFinal, titleFinal);
+                        }
                     }
                     break;
                 default:
@@ -215,8 +222,13 @@ public class HtmlCardView implements ChatComponent {
 
         // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹 viewport + 基础样式
         // （缺 viewport 时 WebView/浏览器按 980px 默认宽度渲染，手机上会显示成"横屏"）
-        String fullHtml = wrapHtml(html);
-        webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
+        if (!url.isEmpty() && (url.startsWith("http://") || url.startsWith("https://"))) {
+            // url 模式：直接加载网页（web 组件映射，onPageFinished 自适应高度逻辑复用）
+            webView.loadUrl(url);
+        } else {
+            String fullHtml = wrapHtml(html);
+            webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
+        }
 
         card.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160)));
