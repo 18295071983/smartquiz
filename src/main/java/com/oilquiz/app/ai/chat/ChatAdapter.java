@@ -232,11 +232,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return VIEW_TYPE_THINKING;
             case TASK_BREAKDOWN:
             case TASK_PROGRESS:
-            case AGENT_SUMMARY:
-            case AGENT_REFLECTION:
             case SUMMARY:
                 // 合并显示：这些类型无消息产生（遗留），统一用系统消息样式展示
                 return VIEW_TYPE_SYSTEM;
+            case AGENT_SUMMARY:
+                // Agent 执行汇总：独立卡片（耗时/步骤/工具/Token）
+                return VIEW_TYPE_AGENT_SUMMARY;
+            case AGENT_REFLECTION:
+                // Agent 反思：独立卡片（反思总结/改进方向）
+                return VIEW_TYPE_AGENT_REFLECTION;
             case TOOL_CALL:
             case TOOL_RESULT:
                 // 合并显示：工具调用与结果统一用工具卡片渲染
@@ -2144,6 +2148,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.summarySteps.setText(String.valueOf(summary.totalSteps));
         holder.summaryTools.setText(String.valueOf(summary.toolCallCount));
         holder.summaryTokens.setText(summary.getFormattedTokens());
+
+        // 详细汇总文本（工具名/思考轮次/缓存命中等）
+        if (holder.summaryText != null) {
+            String detail = summary.summary;
+            if (detail != null && !detail.trim().isEmpty()) {
+                holder.summaryText.setText(detail);
+                holder.summaryText.setVisibility(View.VISIBLE);
+            } else {
+                holder.summaryText.setVisibility(View.GONE);
+            }
+        }
     }
 
     private void bindSummaryMessage(SummaryMessageViewHolder holder, ChatMessage message) {
@@ -2838,6 +2853,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView summarySteps;
         TextView summaryTools;
         TextView summaryTokens;
+        TextView summaryText;
 
         AgentSummaryViewHolder(View itemView) {
             super(itemView);
@@ -2847,6 +2863,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             summarySteps = itemView.findViewById(R.id.summary_steps);
             summaryTools = itemView.findViewById(R.id.summary_tools);
             summaryTokens = itemView.findViewById(R.id.summary_tokens);
+            summaryText = itemView.findViewById(R.id.summary_text);
         }
     }
 
