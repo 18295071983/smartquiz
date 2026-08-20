@@ -42,7 +42,7 @@
                 android:layout_height="40dp"
                 android:layout_marginStart="4dp"
                 style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_toolbox"
+                app:icon="@drawable/ic_menu_hamburger"
                 app:iconSize="22dp"
                 app:iconTint="@color/text_primary"
                 android:contentDescription="工具中心"/>
