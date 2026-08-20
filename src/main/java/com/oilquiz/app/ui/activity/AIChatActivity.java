@@ -1264,12 +1264,15 @@ public class AIChatActivity extends BaseActivity {
         // 普通对话入口
         if (chipNormalChat != null) chipNormalChat.setOnClickListener(v -> {
             animateModeSwitch(() -> {
-                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
-                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.NORMAL);
+                ChatModeManager manager = ChatModeManager.getInstance(this);
+                boolean wasEnabled = manager.isDeepThinkingEnabled();
+                if (manager.setDeepThinkingEnabled(false)) {
+                    injectModeSwitchInstruction(
+                            wasEnabled ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL,
+                            ChatModeManager.ChatMode.NORMAL);
+                }
                 updateModeButtonText();
-                // 注入模式切换指令到上下文
-                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.NORMAL);
-                showToast("已切换到普通对话模式");
+                showToast("已关闭深度思考");
             });
         });
 
@@ -1309,11 +1312,15 @@ public class AIChatActivity extends BaseActivity {
         
         if (chipDeepThink != null) chipDeepThink.setOnClickListener(v -> {
             animateModeSwitch(() -> {
-                ChatModeManager.ChatMode oldMode = ChatModeManager.getInstance(this).getCurrentMode();
-                ChatModeManager.getInstance(this).setManualMode(ChatModeManager.ChatMode.DEEP_THINKING);
+                ChatModeManager manager = ChatModeManager.getInstance(this);
+                boolean wasEnabled = manager.isDeepThinkingEnabled();
+                if (manager.setDeepThinkingEnabled(true)) {
+                    injectModeSwitchInstruction(
+                            wasEnabled ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL,
+                            ChatModeManager.ChatMode.DEEP_THINKING);
+                }
                 updateModeButtonText();
-                injectModeSwitchInstruction(oldMode, ChatModeManager.ChatMode.DEEP_THINKING);
-                showToast("已切换到深度思考模式");
+                showToast("已开启深度思考");
             });
         });
 
@@ -4283,7 +4290,7 @@ public class AIChatActivity extends BaseActivity {
         runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
 
         int actualMaxTokens = aiConfig.getMaxTokens();
-        boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+        boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).isDeepThinkingEnabled();
         if (outputRouter != null) {
             outputRouter.reset();
             outputRouter.setThinkingEnabled(enableThinking);
@@ -4492,7 +4499,7 @@ public class AIChatActivity extends BaseActivity {
             // 注意：AGENT 模式不启用 thinking——Qwen3-4B 在 thinking+FC 组合下
             // 思考完会"忘记"调用工具（直接回答"无法获取"而非输出 tool_call），
             // 非思考 FC 模式工具调用更稳定；深度思考模式（非 Agent）单独体验思考链。
-            boolean enableThinking = ChatModeManager.getInstance(this).getCurrentMode() == ChatModeManager.ChatMode.DEEP_THINKING;
+            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
             if (outputRouter != null) {
                 outputRouter.reset();
                 outputRouter.setThinkingEnabled(enableThinking);
@@ -6339,25 +6346,29 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 点击切换模式：普通 ↔ 深度思考（简化交互，不弹对话框）
+     * 点击切换深度思考开关：开 ↔ 关
      */
     private void toggleMode() {
-        ChatModeManager.ChatMode current = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode();
-        ChatModeManager.ChatMode next = current == ChatModeManager.ChatMode.NORMAL
-                ? ChatModeManager.ChatMode.DEEP_THINKING
-                : ChatModeManager.ChatMode.NORMAL;
-        ChatModeManager.getInstance(AIChatActivity.this).setManualMode(next);
+        ChatModeManager manager = ChatModeManager.getInstance(AIChatActivity.this);
+        boolean next = !manager.isDeepThinkingEnabled();
+        ChatModeManager.ChatMode oldMode = manager.getCurrentMode();
+        if (manager.setDeepThinkingEnabled(next)) {
+            injectModeSwitchInstruction(oldMode, manager.getCurrentMode());
+        }
         updateModeButtonText();
-        showToast(next == ChatModeManager.ChatMode.DEEP_THINKING ? "已切换深度思考模式" : "已切换普通对话模式");
+        showToast(next ? "已开启深度思考" : "已关闭深度思考");
     }
 
     /**
-     * 更新模式按钮显示文本
+     * 更新模式按钮显示文本（深度思考开关状态）
      */
     private void updateModeButtonText() {
         if (btnModeSelect != null) {
-            ChatModeManager.ChatMode currentMode = ChatModeManager.getInstance(AIChatActivity.this).getCurrentMode();
-            String btnText = currentMode.icon + currentMode.displayName;
+            ChatModeManager manager = ChatModeManager.getInstance(AIChatActivity.this);
+            ChatModeManager.ChatMode m = manager.getCurrentMode();
+            String btnText = (manager.isDeepThinkingEnabled() ? "🧠" : "💬")
+                    + (manager.isDeepThinkingEnabled() ? "深度思考" : "普通")
+                    + (manager.isDeepThinkingEnabled() ? " ON" : "");
             btnModeSelect.setText(btnText);
         }
     }
