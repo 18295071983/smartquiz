@@ -49,6 +49,8 @@ public class OnlineAgentEngine {
     private static final int MAX_TOKENS = 4096;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
+    /** 历史摘要消息最大长度（字符），超出只保留最新部分，防止摘要本身撑爆上下文 */
+    private static final int MAX_SUMMARY_LENGTH = 8000;
     /** 对话历史 token 预算：超过则自动把早期消息压缩为摘要。
      *  取 24000（低于常见 32K/64K 上下文窗口留出余量），触发即压缩，
      *  避免长对话缓存命中失败 + 大量消耗输入 token。 */
@@ -584,13 +586,6 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 截断消息历史，避免长对话或多次工具调用后超出模型上下文窗口。
-     *
-     * 策略：保留首条 system 消息 + 最近 MAX_HISTORY_MESSAGES-1 条消息。
-     * 安全保证：截断点不会落在 tool 消息上（否则其对应的 assistant.tool_calls 被移除，
-     * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
-     */
-    /**
      * 截断并压缩消息历史（发送前调用）。
      * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 超过 HISTORY_TOKEN_BUDGET。
      * 策略：保留首条 system 消息 + 摘要消息 + 最近 MAX_HISTORY_MESSAGES-1 条消息。
@@ -641,26 +636,55 @@ public class OnlineAgentEngine {
         }
         int actualRemoved = cutoff - 1;
         if (actualRemoved > 0) {
-            // 若 index 1 已是历史摘要消息，保留它（避免"摘要的摘要"累积），从 index 2 起移除旧消息
-            int removeStart = 1;
-            if (messageHistory.size() > 1) {
-                JsonObject first = messageHistory.get(1);
-                String role = first.has("role") ? first.get("role").getAsString() : "";
-                String content = first.has("content") && !first.get("content").isJsonNull()
-                        ? first.get("content").getAsString() : "";
-                if ("system".equals(role) && content != null && content.contains("【对话历史摘要】")) {
-                    removeStart = 2;
+            // 找插入位置：摘要插到所有 system 消息之后（index 0=提示词，1=长期记忆，2=环境上下文），
+            // 避免摘要挤掉/覆盖长期记忆与环境上下文
+            int systemEnd = 0;
+            while (systemEnd < messageHistory.size()) {
+                JsonObject m = messageHistory.get(systemEnd);
+                String r = m.has("role") ? m.get("role").getAsString() : "";
+                if ("system".equals(r)) systemEnd++;
+                else break;
+            }
+            // 已有历史摘要消息（system 且含【对话历史摘要】）→ 保留它（避免"摘要的摘要"），
+            // 从其后移除旧消息并追加新内容
+            int removeStart = systemEnd;
+            boolean hasSummary = false;
+            for (int i = 0; i < systemEnd && i < messageHistory.size(); i++) {
+                JsonObject m = messageHistory.get(i);
+                String content = m.has("content") && !m.get("content").isJsonNull()
+                        ? m.get("content").getAsString() : "";
+                if (content != null && content.contains("【对话历史摘要】")) {
+                    hasSummary = true;
+                    removeStart = i + 1;
+                    break;
                 }
             }
-            // 短期记忆增强：将移除的旧消息压缩为摘要，替换为一条 system 摘要消息，
-            // 保留早期上下文要点（而非直接丢弃，避免长对话"失忆"）
+            // 短期记忆增强：将移除的旧消息压缩为摘要，保留早期上下文要点（而非直接丢弃，避免"失忆"）
             String summary = buildHistorySummary(removeStart, Math.max(removeStart, cutoff));
             messageHistory.subList(removeStart, Math.max(removeStart, cutoff)).clear();
-            if (summary != null && !summary.isEmpty() && removeStart == 1) {
-                JsonObject summaryMsg = new JsonObject();
-                summaryMsg.addProperty("role", "system");
-                summaryMsg.addProperty("content", "【对话历史摘要】以下是本对话更早内容的压缩摘要（详细内容已省略以节省上下文，回答可参考）：\n" + summary);
-                messageHistory.add(1, summaryMsg);
+            if (summary != null && !summary.isEmpty()) {
+                if (hasSummary) {
+                    // 已有摘要：追加新移除消息的摘要（避免新内容丢失）
+                    for (int i = 0; i < systemEnd && i < messageHistory.size(); i++) {
+                        JsonObject m = messageHistory.get(i);
+                        String content = m.has("content") && !m.get("content").isJsonNull()
+                                ? m.get("content").getAsString() : "";
+                        if (content != null && content.contains("【对话历史摘要】")) {
+                            String merged = content + "\n" + summary;
+                            // 摘要过长时只保留最新部分，防止摘要本身撑爆上下文
+                            if (merged.length() > MAX_SUMMARY_LENGTH) {
+                                merged = merged.substring(merged.length() - MAX_SUMMARY_LENGTH);
+                            }
+                            m.addProperty("content", merged);
+                            break;
+                        }
+                    }
+                } else {
+                    JsonObject summaryMsg = new JsonObject();
+                    summaryMsg.addProperty("role", "system");
+                    summaryMsg.addProperty("content", "【对话历史摘要】以下是本对话更早内容的压缩摘要（详细内容已省略以节省上下文，回答可参考）：\n" + summary);
+                    messageHistory.add(systemEnd, summaryMsg);
+                }
             }
             AILogger.i(TAG, "Trimmed message history: removed " + actualRemoved
                 + " old messages (summarized), " + messageHistory.size() + " remaining"
