@@ -67,18 +67,18 @@ public class ChatHistoryController {
 
     public void openDrawer() {
         if (drawerLayout != null) {
-            drawerLayout.openDrawer(findViewById(R.id.history_drawer));
+            drawerLayout.openDrawer(findViewById(R.id.tool_drawer));
         }
     }
 
     public void closeDrawer() {
         if (drawerLayout != null) {
-            drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
+            drawerLayout.closeDrawer(findViewById(R.id.tool_drawer));
         }
     }
 
     public boolean isDrawerOpen() {
-        return drawerLayout != null && drawerLayout.isDrawerOpen(findViewById(R.id.history_drawer));
+        return drawerLayout != null && drawerLayout.isDrawerOpen(findViewById(R.id.tool_drawer));
     }
 
     /**
