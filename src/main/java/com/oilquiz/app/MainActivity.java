@@ -180,15 +180,17 @@ public class MainActivity extends BaseActivity {
             int statusColor;
             
             if (usingOnline) {
-                // 在线模式
+                // 在线模式：在线服务不依赖本地 AIService 初始化（LlamaHelper/本地模型文件）。
+                // 本地初始化失败（stage=ERROR）不影响在线能力，不应误报"在线服务异常"。
                 switch (stage) {
                     case INITIALIZED:
                         statusText = "在线 · " + (displayModelName != null ? displayModelName : "API");
                         statusColor = getResources().getColor(R.color.success);
                         break;
                     case ERROR:
-                        statusText = "在线服务异常";
-                        statusColor = getResources().getColor(R.color.error);
+                        // 本地服务 ERROR（如 LlamaHelper 未加载）与在线服务无关，在线仍可用
+                        statusText = "在线 · " + (displayModelName != null ? displayModelName : "就绪");
+                        statusColor = getResources().getColor(R.color.success);
                         break;
                     default:
                         statusText = "在线 · 就绪";
