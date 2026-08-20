@@ -185,6 +185,9 @@ public class ChatMessage {
     /** 结构化 UI 组件列表（插件式渲染）：由工具结果或模型组件块生成，ChatAdapter 按类型渲染 */
     public List<ComponentData> components;
 
+    /** 工具过程卡片是否展开（默认折叠为一行"工具过程 N 个"，点击展开；仅运行时使用，不持久化） */
+    public boolean agentToolsExpanded = false;
+
     /** 思考步骤列表 */
     public List<ThinkingStep> thinkingSteps;
 

@@ -1279,6 +1279,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 渲染消息附带的插件式 UI 组件（ComponentRegistry 按类型匹配组件插件）。
      * 通过 boundComponents 引用检测避免重复重建：流式/重复刷新时组件不闪烁。
+     * tool_call 工具过程卡片：全部执行完成后折叠为一行"🔧 工具过程 N 个 ▶"，
+     * 点击展开查看每个工具及结果（执行中保持实时显示不折叠）。
      */
     private void bindComponents(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.componentContainer == null) return;
@@ -1293,11 +1295,29 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         Context ctx = holder.itemView.getContext();
         holder.componentContainer.setVisibility(View.VISIBLE);
+
+        // 分离 tool_call 工具过程卡片与其他组件
+        java.util.List<ComponentData> toolCalls = new java.util.ArrayList<>();
+        java.util.List<ComponentData> others = new java.util.ArrayList<>();
+        for (ComponentData data : message.components) {
+            if (data == null || data.props == null) continue;
+            if ("tool_call".equals(data.type)) toolCalls.add(data);
+            else others.add(data);
+        }
+
+        // 工具卡片是否全部执行完成（存在 running 则保持实时显示不折叠）
+        boolean allToolsDone = !toolCalls.isEmpty();
+        for (ComponentData tc : toolCalls) {
+            String st = tc.props != null ? tc.props.optString("status", "running") : "running";
+            if ("running".equals(st)) { allToolsDone = false; break; }
+        }
+        boolean toolsCollapsed = allToolsDone && !message.agentToolsExpanded;
+
         boolean first = true;
         int rendered = 0;
-        for (ComponentData data : message.components) {
-            // 数据损坏（如旧会话反序列化失败）时静默跳过，不显示"渲染失败"占位
-            if (data == null || data.props == null) continue;
+
+        // 渲染非工具组件（工具产物如 list_card/image_grid 等始终完整显示）
+        for (ComponentData data : others) {
             View view = ComponentRegistry.getInstance().render(ctx, data);
             if (view == null) {
                 // 渲染失败降级占位（不显示组件源码）
@@ -1313,7 +1333,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 rendered++;
                 continue;
             }
-            // 组件宽度撑满容器，组件之间留间距（首个组件与上方文本留间距）
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
@@ -1321,8 +1340,65 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             first = false;
             rendered++;
         }
+
+        // 工具过程卡片：全部完成 → 折叠一行（可点击展开）；执行中或已展开 → 逐个渲染
+        if (!toolCalls.isEmpty()) {
+            if (toolsCollapsed) {
+                TextView foldRow = new TextView(ctx);
+                foldRow.setText("🔧 工具过程 " + toolCalls.size() + " 个  ▶");
+                foldRow.setTextSize(12);
+                foldRow.setTextColor(0xFF888888);
+                foldRow.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
+                foldRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
+                holder.componentContainer.addView(foldRow, lp);
+                first = false;
+                rendered++;
+            } else {
+                for (ComponentData tc : toolCalls) {
+                    View view = ComponentRegistry.getInstance().render(ctx, tc);
+                    if (view == null) continue;
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
+                    holder.componentContainer.addView(view, lp);
+                    first = false;
+                    rendered++;
+                }
+                // 展开态底部提供收起入口
+                if (allToolsDone) {
+                    TextView collapseRow = new TextView(ctx);
+                    collapseRow.setText("▲ 收起工具过程");
+                    collapseRow.setTextSize(11);
+                    collapseRow.setTextColor(0xFF999999);
+                    collapseRow.setPadding(dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx));
+                    collapseRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    lp.topMargin = dpToPx(4, ctx);
+                    holder.componentContainer.addView(collapseRow, lp);
+                }
+            }
+        }
         if (rendered == 0) {
             holder.componentContainer.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 切换工具过程卡片的展开/折叠：翻转状态后给 components 赋新引用，
+     * 绕过 boundComponents 引用检测触发组件容器重建。
+     */
+    private void toggleAgentToolsExpanded(AIMessageViewHolder holder, ChatMessage message) {
+        message.agentToolsExpanded = !message.agentToolsExpanded;
+        if (message.components != null) {
+            message.components = new java.util.ArrayList<>(message.components);
+        }
+        int pos = holder.getBindingAdapterPosition();
+        if (pos != RecyclerView.NO_POSITION) {
+            notifyItemChanged(pos);
         }
     }
 
