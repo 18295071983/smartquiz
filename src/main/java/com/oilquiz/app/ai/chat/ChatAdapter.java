@@ -128,7 +128,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     // 动画配置
     private static final long ANIMATION_DURATION = 200;
     private boolean animationsEnabled = true;
-    private int lastAnimatedPosition = -1;
+    /** 已播放进入动画的消息 id（避免滚动回滚后重复动画） */
+    private final java.util.Set<String> animatedMessageIds = new java.util.HashSet<>();
 
     // 选择模式
     private boolean selectionMode = false;
@@ -664,6 +665,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 bindSummaryMessage((SummaryMessageViewHolder) holder, message);
                 break;
         }
+        // 消息进入动画：仅新消息触发（id 去重），用户消息右滑入、AI/系统左滑入
+        setAnimation(holder.itemView, message);
     }
 
     @Override
@@ -3354,16 +3357,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * 应用进入动画
+     * 应用进入动画（方向性：用户消息从右滑入，AI/系统消息从左滑入 + 淡入）。
+     * 参考主流聊天应用（微信/Signal）与 wasabeef/recyclerview-animators 建议：
+     * 消息进入用轻量方向滑动 + 透明度，避免纯淡入的"无方向感"和过度动画。
+     * 用消息 id 集合记录已动画项，滚动回滚后重新 bind 不再重复动画。
      */
-    private void setAnimation(View viewToAnimate, int position) {
-        if (!animationsEnabled || position <= lastAnimatedPosition) {
-            return;
-        }
-        Animation animation = new AlphaAnimation(0f, 1f);
-        animation.setDuration(ANIMATION_DURATION);
-        viewToAnimate.startAnimation(animation);
-        lastAnimatedPosition = position;
+    private void setAnimation(View viewToAnimate, ChatMessage message) {
+        if (!animationsEnabled || message == null || viewToAnimate == null) return;
+        if (animatedMessageIds.contains(message.id)) return;
+        animatedMessageIds.add(message.id);
+
+        boolean isUser = message.isUserMessage();
+        float fromX = isUser ? viewToAnimate.getWidth() * 0.15f : -viewToAnimate.getWidth() * 0.15f;
+        android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
+        android.view.animation.TranslateAnimation translate = new android.view.animation.TranslateAnimation(
+                fromX, 0f, 0f, 0f);
+        translate.setDuration(ANIMATION_DURATION);
+        translate.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        AlphaAnimation alpha = new AlphaAnimation(0f, 1f);
+        alpha.setDuration(ANIMATION_DURATION);
+        set.addAnimation(translate);
+        set.addAnimation(alpha);
+        viewToAnimate.startAnimation(set);
     }
 
     // ===================== Search & Filter =====================
