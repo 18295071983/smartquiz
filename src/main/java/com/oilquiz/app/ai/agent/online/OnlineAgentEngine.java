@@ -51,6 +51,10 @@ public class OnlineAgentEngine {
     private static final int MAX_HISTORY_MESSAGES = 30;
     /** 历史摘要消息最大长度（字符），超出只保留最新部分，防止摘要本身撑爆上下文 */
     private static final int MAX_SUMMARY_LENGTH = 8000;
+    /** 模型生成摘要的输入对话文本上限（字符），防止单次摘要请求过大 */
+    private static final int SUMMARY_MODEL_INPUT_MAX = 8000;
+    /** 模型生成摘要的超时（毫秒），超时回退规则式摘录，避免阻塞主对话 */
+    private static final long SUMMARY_MODEL_TIMEOUT_MS = 20000;
     /** 对话历史 token 预算：超过则自动把早期消息压缩为摘要。
      *  取 24000（低于常见 32K/64K 上下文窗口留出余量），触发即压缩，
      *  避免长对话缓存命中失败 + 大量消耗输入 token。 */
@@ -603,7 +607,7 @@ public class OnlineAgentEngine {
      * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
      * 摘要：把移除的旧消息压缩为一条 system 摘要消息（长对话"不失忆"且省 token）。
      */
-    private void trimMessageHistory() {
+    private void trimMessageHistory(OnlineModelManager.OnlineModelConfig cfg) {
         // 计算消息数超限还是 token 超预算
         int tokenCount = 0;
         for (JsonObject msg : messageHistory) {
@@ -670,7 +674,7 @@ public class OnlineAgentEngine {
                 }
             }
             // 短期记忆增强：将移除的旧消息压缩为摘要，保留早期上下文要点（而非直接丢弃，避免"失忆"）
-            String summary = buildHistorySummary(removeStart, Math.max(removeStart, cutoff));
+            String summary = buildHistorySummary(removeStart, Math.max(removeStart, cutoff), cfg);
             messageHistory.subList(removeStart, Math.max(removeStart, cutoff)).clear();
             if (summary != null && !summary.isEmpty()) {
                 if (hasSummary) {
@@ -703,38 +707,77 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 生成历史摘要：提取被移除范围内的 用户/助手 消息要点。
-     * 只保留首条用户消息 + 最近的几条 用户/助手 消息（含工具结果的关键信息），
-     * 丢弃中间重复与工具细节，控制摘要长度。
+     * 生成历史摘要：优先用在线模型把被移除的对话语义压缩成真正摘要
+     * （保留关键信息：用户需求、结论、重要事实、未完成事项），
+     * 模型失败/超时/无配置时回退规则式摘录（首条用户消息 + 最近几条 用户/助手 消息）。
+     * 工具消息不参与摘要（其信息已体现在后续助手回复中）。
      */
-    private String buildHistorySummary(int fromIndex, int toIndex) {
+    private String buildHistorySummary(int fromIndex, int toIndex,
+                                       OnlineModelManager.OnlineModelConfig cfg) {
+        // 1. 收集被移除范围内的 用户/助手 消息正文，作为模型摘要的输入
+        StringBuilder dialogue = new StringBuilder();
+        for (int i = fromIndex; i < toIndex && i < messageHistory.size(); i++) {
+            JsonObject msg = messageHistory.get(i);
+            String role = msg.has("role") ? msg.get("role").getAsString() : "";
+            String content = msg.has("content") ? msg.get("content").getAsString() : "";
+            if (content == null || content.isEmpty()) continue;
+            if ("user".equals(role)) {
+                if (dialogue.length() > 0) dialogue.append("\n");
+                dialogue.append("用户: ").append(truncateForSummary(content, 300));
+            } else if ("assistant".equals(role)) {
+                if (dialogue.length() > 0) dialogue.append("\n");
+                dialogue.append("助手: ").append(truncateForSummary(content, 300));
+            }
+            if (dialogue.length() > SUMMARY_MODEL_INPUT_MAX) break; // 输入过长则截断
+        }
+        if (dialogue.length() == 0) return null;
+
+        // 2. 优先模型语义压缩（非流式单次请求，显式关闭 thinking 快速返回）
+        if (cfg != null) {
+            try {
+                String prompt = "请将以下AI对话压缩成一份简洁的中文摘要（保留关键信息：用户需求、结论、重要事实、未完成事项），"
+                        + "不超过500字，直接输出摘要内容：\n\n" + dialogue;
+                String summary = onlineInferenceService.generateOnceAsync(prompt, cfg, 1024)
+                        .get(SUMMARY_MODEL_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (summary != null && !summary.trim().isEmpty()) {
+                    AILogger.i(TAG, "Model-generated history summary: " + summary.trim().length()
+                        + " chars (from " + dialogue.length() + " chars dialogue)");
+                    return summary.trim();
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "Model summary generation failed, falling back to rule-based: " + e.getMessage());
+            }
+        }
+
+        // 3. 回退：规则式摘录（零成本、无失败风险）
+        return buildRuleBasedSummary(fromIndex, toIndex);
+    }
+
+    /** 规则式摘要回退：首条用户消息（对话主题）+ 末尾最近的 用户/助手 消息，每条截取前 100 字符 */
+    private String buildRuleBasedSummary(int fromIndex, int toIndex) {
         try {
             StringBuilder sb = new StringBuilder();
             int userCount = 0;
-            int assistantCount = 0;
             for (int i = fromIndex; i < toIndex && i < messageHistory.size(); i++) {
                 JsonObject msg = messageHistory.get(i);
                 String role = msg.has("role") ? msg.get("role").getAsString() : "";
                 String content = msg.has("content") ? msg.get("content").getAsString() : "";
                 if (content == null || content.isEmpty()) continue;
-                // 只摘要 用户/助手 的正文（工具消息跳过，其信息已体现在后续助手回复中）
                 if ("user".equals(role)) {
                     userCount++;
                     if (userCount == 1 || i >= toIndex - 4) {
-                        // 首条用户消息（对话主题）+ 末尾最近的用户消息
                         appendSummaryLine(sb, "用户", content);
                     }
                 } else if ("assistant".equals(role)) {
-                    assistantCount++;
                     if (i >= toIndex - 4) {
                         appendSummaryLine(sb, "助手", content);
                     }
                 }
-                if (sb.length() > 2000) break; // 摘要上限，防止摘要本身过长
+                if (sb.length() > 2000) break;
             }
             return sb.toString();
         } catch (Exception e) {
-            AILogger.w(TAG, "buildHistorySummary failed: " + e.getMessage());
+            AILogger.w(TAG, "buildRuleBasedSummary failed: " + e.getMessage());
             return null;
         }
     }
@@ -758,7 +801,7 @@ public class OnlineAgentEngine {
         final String[] errorHolder = {null};
 
         // 截断消息历史，避免长对话或多次工具调用后超出模型上下文窗口
-        trimMessageHistory();
+        trimMessageHistory(cfg);
 
         JsonArray messagesArray = new JsonArray();
         for (JsonObject msg : messageHistory) {
