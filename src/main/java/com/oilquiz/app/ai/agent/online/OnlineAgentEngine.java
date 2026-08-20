@@ -88,6 +88,8 @@ public class OnlineAgentEngine {
 
     // OpenAI 格式消息历史（直接使用 JsonObject，支持 tool 角色消息）
     private final List<JsonObject> messageHistory = new ArrayList<>();
+    /** 恢复历史时暂存的【对话历史摘要】消息，execute 重建 system 后插回（防止压缩内容跨会话丢失） */
+    private JsonObject pendingSummaryMessage;
 
     // 推理进度统计
     private long inferenceStartTime;
@@ -280,6 +282,14 @@ public class OnlineAgentEngine {
             // 已有 system：检查环境上下文日期是否过期（跨天继续对话时刷新"今天"）
             refreshEnvIfStale();
             AILogger.i(TAG, "Continuing conversation: messageHistory size=" + messageHistory.size());
+        }
+
+        // 1.5 恢复历史时暂存的【对话历史摘要】插回（在所有 system 消息之后，保持前缀稳定：
+        // 提示词/长期记忆/环境上下文在摘要之前，跨会话不因摘要内容变化导致前缀 miss）
+        if (pendingSummaryMessage != null) {
+            messageHistory.add(pendingSummaryMessage);
+            pendingSummaryMessage = null;
+            AILogger.i(TAG, "Summary message re-inserted after system messages");
         }
 
         // 2. 添加用户消息
@@ -1450,6 +1460,7 @@ public class OnlineAgentEngine {
      * 从私有文件恢复对话历史（按会话隔离）。
      * 丢弃旧版本 system 消息（含过期提示词与环境上下文）：
      * 系统提示词会在下次 execute 时按当前版本重建，避免升级后旧提示词永久生效。
+     * 但【对话历史摘要】必须保留：被压缩掉的旧消息只存在于摘要中，丢弃即永久失忆。
      */
     private void restoreHistory() {
         try {
@@ -1459,11 +1470,18 @@ public class OnlineAgentEngine {
             JsonArray arr = com.google.gson.JsonParser.parseReader(reader).getAsJsonArray();
             reader.close();
             messageHistory.clear();
+            pendingSummaryMessage = null;
             int systemDiscarded = 0;
             for (int i = 0; i < arr.size(); i++) {
                 JsonObject msg = arr.get(i).getAsJsonObject();
                 String role = msg.has("role") ? msg.get("role").getAsString() : "";
                 if ("system".equals(role)) {
+                    // 摘要消息暂存，execute 重建 system 后插回（保持前缀稳定）
+                    String content = msg.has("content") ? msg.get("content").getAsString() : "";
+                    if (content != null && content.contains("【对话历史摘要】")) {
+                        pendingSummaryMessage = msg;
+                        continue;
+                    }
                     systemDiscarded++;
                     continue; // 丢弃旧 system（提示词/环境上下文），下次 execute 重建
                 }
@@ -1471,7 +1489,8 @@ public class OnlineAgentEngine {
             }
             if (!messageHistory.isEmpty()) {
                 AILogger.i(TAG, "Restored agent history: " + messageHistory.size()
-                    + " messages (session=" + sessionId + ", discarded_system=" + systemDiscarded + ")");
+                    + " messages (session=" + sessionId + ", discarded_system=" + systemDiscarded
+                    + ", summary=" + (pendingSummaryMessage != null) + ")");
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to restore agent history: " + e.getMessage());
