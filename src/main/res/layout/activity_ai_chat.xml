@@ -569,17 +569,19 @@
                 android:textColor="@color/on_primary_container"
                 app:chipStrokeWidth="0dp"/>
 
-            <!-- 模式切换按钮 -->
+            <!-- 深度思考开关（对齐官方：独立开关，开启高亮主色，关闭灰色） -->
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_deep_think"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🧠思考"
-                app:chipIconTint="@color/primary"
+                android:text="🧠 深度思考"
+                android:checkable="true"
                 android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/primary_container"
-                android:textColor="@color/on_primary_container"
-                app:chipStrokeWidth="0dp"/>
+                app:chipBackgroundColor="@color/chip_gray_bg"
+                android:textColor="@color/text_secondary"
+                app:chipStrokeWidth="1dp"
+                app:chipStrokeColor="@color/border_light"
+                app:checkedIconVisible="false"/>
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_weather"

@@ -259,6 +259,10 @@
     <!-- 边框和分割线 - 暗色模式 -->
     <color name="border">#374151</color>
     <color name="border_light">#2D3748</color>
+    <!-- 深度思考开关（夜间）：关闭灰色 / 开启主色 -->
+    <color name="chip_gray_bg">#2D3748</color>
+    <color name="chip_gray_text">#D1D5DB</color>
+    <color name="chip_gray_stroke">#374151</color>
 
     <!-- Violet系 - 暗色模式 -->
     <color name="violet_200">#4338CA</color>
