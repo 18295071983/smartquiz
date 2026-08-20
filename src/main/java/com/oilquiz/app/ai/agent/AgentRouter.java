@@ -74,9 +74,9 @@ public class AgentRouter {
             AILogger.w(TAG, "Agent execute skipped: no online model active");
             return;
         }
-        AILogger.i(TAG, "Online model → OnlineAgentEngine");
+        AILogger.i(TAG, "Online model → OnlineAgentEngine" + (enableThinking ? " (深度思考)" : ""));
         ensureOnlineEngineCreated();
-        onlineEngine.execute(message, maxTokens);
+        onlineEngine.execute(message, maxTokens, enableThinking);
     }
 
     // ==================== 生命周期方法 ====================
