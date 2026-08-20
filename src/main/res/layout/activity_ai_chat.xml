@@ -651,5 +651,92 @@
         <include layout="@layout/view_tool_drawer"/>
     </FrameLayout>
 
+    <FrameLayout
+        android:id="@+id/history_drawer"
+        android:layout_width="320dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="left"
+        android:background="@color/surface"
+        android:elevation="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="16dp"
+                android:background="@color/surface_variant">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="对话历史"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_new_conversation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:text="＋ 新建"
+                    android:textSize="12sp"
+                    android:textColor="@color/on_primary_container"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="16dp"
+                    android:textAllCaps="false"
+                    android:layout_marginEnd="8dp"
+                    android:paddingHorizontal="10dp"
+                    android:minWidth="0dp"
+                    android:contentDescription="新建对话"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_close_history"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    app:backgroundTint="@color/surface_variant"
+                    app:icon="@drawable/ic_clear"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:cornerRadius="18dp"
+                    app:iconTint="@color/text_primary"
+                    android:contentDescription="关闭"/>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/history_empty_view"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="暂无历史对话\n开始你的第一个对话吧"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:visibility="gone"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/history_list"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:clipToPadding="false"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_clear_all_history"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_margin="12dp"
+                android:text="清空所有历史"
+                android:textSize="14sp"
+                app:backgroundTint="@color/error"
+                android:textColor="@color/on_error"
+                app:cornerRadius="22dp"
+                android:textAllCaps="false"/>
+        </LinearLayout>
+    </FrameLayout>
 
 </androidx.drawerlayout.widget.DrawerLayout>
