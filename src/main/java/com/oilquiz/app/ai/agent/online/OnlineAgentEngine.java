@@ -213,10 +213,15 @@ public class OnlineAgentEngine {
             try {
                 String wsPath = com.oilquiz.app.ai.agent.online.AgentWorkspace
                         .getInstance(activity).getWorkspacePath();
-                systemPrompt += "\n【工作区】你的文件工作目录: " + wsPath
-                        + "。file_generator/image_gen 生成的文件默认保存在此；"
-                        + "用 workspace 工具(list/read/delete)管理，或直接用 file_reader 读取工具返回的绝对路径。"
-                        + "不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录）。\n"
+                systemPrompt += "\n【文件与工作区】你有专属文件工作目录（工作区）: " + wsPath
+                        + "\n【何时生成文件】用户要求「写/生成/创建/导出」文档、报告、配置、代码、Markdown、表格等时，用 file_generator 工具生成；"
+                        + "要求画图时用 image_gen。生成的文件默认保存到工作区，工具会返回完整路径和可点击链接。"
+                        + "\n【如何管理文件】生成后用 workspace 工具管理："
+                        + "workspace(action=list) 查看工作区文件；workspace(action=read, fileName=文件名) 读取文本内容；"
+                        + "workspace(action=delete, fileName=文件名) 删除；workspace(action=clear) 清空。"
+                        + "也可用 file_reader 读取工具返回的绝对路径。"
+                        + "\n【重要】不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录，绝对路径以工具返回为准）；"
+                        + "引用工作区文件用相对路径（如 <a href=\"report.md\">），用户点击会在 App 内预览。\n"
                         + "【文件链接规则】生成 HTML 页面时自动适配本环境："
                         + "引用工作区里的文件用相对路径（如 <a href=\"report.md\">），"
                         + "用户点击会在 App 内自动预览（md/文本/表格/pdf 等按类型打开）；"
