@@ -1823,7 +1823,8 @@ public class PythonToolManager {
             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
         }
 
-        /** 获取组件结果：pending（未点击）/positive/negative/cancelled/completed；wait_seconds>0 时阻塞等待。 */
+        /** 获取组件结果：pending（未点击）/positive/negative/cancelled/completed；wait_seconds>0 时阻塞等待。
+         *  等待期间 20 秒提醒一次"Agent 正在等你操作"，超时后 Toast 提醒交互超时。 */
         private Map<String, Object> getComponentResult(String componentId, int waitSeconds) {
             Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
@@ -1834,6 +1835,7 @@ public class PythonToolManager {
                 return reply;
             }
             if (waitSeconds > 0) {
+                final long[] lastReminder = {0L};
                 synchronized (rt.resultLock) {
                     long deadline = System.currentTimeMillis() + waitSeconds * 1000L;
                     while ("pending".equals(rt.result.get()) && System.currentTimeMillis() < deadline) {
@@ -1843,7 +1845,19 @@ public class PythonToolManager {
                             Thread.currentThread().interrupt();
                             break;
                         }
+                        // 等待中提醒：每 20 秒提示用户 Agent 在等操作（仅仍 pending 时）
+                        if ("pending".equals(rt.result.get())) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastReminder[0] >= 20_000L) {
+                                lastReminder[0] = now;
+                                showToast("⏳ Agent 正在等待你的操作，请点击组件按钮", true);
+                            }
+                        }
                     }
+                }
+                // 超时仍未操作：明确提醒
+                if ("pending".equals(rt.result.get())) {
+                    showToast("⏰ 交互等待超时（" + waitSeconds + "秒），已告知 Agent 你未操作", true);
                 }
             }
             reply.put("success", true);
