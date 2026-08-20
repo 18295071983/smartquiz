@@ -9,18 +9,30 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Agent 工作区管理 —— 统一 Agent 产生的文件目录。
+ * Agent 工作区管理 —— 统一 Agent 产生的文件目录（按业界标准：工作区 = 临时执行空间）。
  *
- * 所有 Agent 生成/下载的文件默认存放于 filesDir/agent_workspace/，
- * 提供 list / read / delete / path 能力，使 Agent 能管理自己产生的文件
- * （图片生成、文件导出、临时数据等），实现"工作区"闭环。
+ * 职责划分（对齐 Claude Code / Codex 实践）：
+ * - 工作区根目录 = 临时执行空间（scratchpad）：执行中间文件/缓存/进度/长对话摘要
+ *   → 任务结束自动清理，不长期保留
+ * - files/ 子目录 = 长期文件区：用户明确要求保留的产物（报告/图片/导出）
+ *   → 不自动清理，管理页可见
+ * - 长期记忆（用户偏好/事实）→ 独立记忆系统（AgentMemoryStore），不占工作区
+ *
+ * 目录结构：
+ *   agent_workspace/
+ *     tmp/    ← 临时执行缓存（自动清理）
+ *     files/  ← 长期文件（保留）
  */
 public class AgentWorkspace {
 
     private static final String TAG = "AgentWorkspace";
     private static final String WORKSPACE_DIR = "agent_workspace";
+    private static final String TMP_DIR = "tmp";
+    private static final String FILES_DIR = "files";
 
     private final File workspaceDir;
+    private final File tmpDir;
+    private final File filesDir;
 
     private static volatile AgentWorkspace instance;
 
@@ -37,20 +49,48 @@ public class AgentWorkspace {
 
     private AgentWorkspace(Context context) {
         this.workspaceDir = new File(context.getFilesDir(), WORKSPACE_DIR);
-        if (!workspaceDir.exists()) {
-            workspaceDir.mkdirs();
-        }
+        this.tmpDir = new File(workspaceDir, TMP_DIR);
+        this.filesDir = new File(workspaceDir, FILES_DIR);
+        ensureDirs();
+    }
+
+    private void ensureDirs() {
+        if (!workspaceDir.exists()) workspaceDir.mkdirs();
+        if (!tmpDir.exists()) tmpDir.mkdirs();
+        if (!filesDir.exists()) filesDir.mkdirs();
     }
 
     /** 工作区根目录（不存在则创建） */
     public File getWorkspaceDir() {
-        if (!workspaceDir.exists()) workspaceDir.mkdirs();
+        ensureDirs();
         return workspaceDir;
     }
 
     /** 工作区路径字符串 */
     public String getWorkspacePath() {
         return getWorkspaceDir().getAbsolutePath();
+    }
+
+    /** 临时缓存目录（执行中间文件/进度/长对话摘要，任务结束自动清理） */
+    public File getTmpDir() {
+        ensureDirs();
+        return tmpDir;
+    }
+
+    /** 长期文件目录（用户保留的产物，不自动清理） */
+    public File getFilesDir() {
+        ensureDirs();
+        return filesDir;
+    }
+
+    /** 临时缓存目录路径 */
+    public String getTmpPath() {
+        return getTmpDir().getAbsolutePath();
+    }
+
+    /** 长期文件目录路径 */
+    public String getFilesPath() {
+        return getFilesDir().getAbsolutePath();
     }
 
     /** 在指定文件名前拼接工作区路径 */
@@ -61,17 +101,46 @@ public class AgentWorkspace {
         return new File(getWorkspaceDir(), fileName);
     }
 
-    /** 列出工作区文件（按修改时间倒序） */
+    /** 解析到长期文件区（用户保留文件） */
+    public File resolveFileToFiles(String fileName) {
+        if (fileName == null || fileName.isEmpty()) return null;
+        File f = new File(fileName);
+        if (f.isAbsolute()) return f;
+        return new File(getFilesDir(), fileName);
+    }
+
+    /** 解析到临时缓存区（执行中间文件） */
+    public File resolveFileToTmp(String fileName) {
+        if (fileName == null || fileName.isEmpty()) return null;
+        File f = new File(fileName);
+        if (f.isAbsolute()) return f;
+        return new File(getTmpDir(), fileName);
+    }
+
+    /** 列出工作区文件（按修改时间倒序；含 tmp/files 标记） */
     public List<WorkspaceFile> listFiles() {
         List<WorkspaceFile> result = new ArrayList<>();
-        File[] files = getWorkspaceDir().listFiles();
-        if (files == null) return result;
-        java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
-        for (File f : files) {
-            if (f.isFile()) {
-                result.add(new WorkspaceFile(f.getName(), f.length(), f.lastModified()));
+        ensureDirs();
+        // 长期文件区
+        File[] files = filesDir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile()) {
+                    result.add(new WorkspaceFile(f.getName(), f.length(), f.lastModified(), "files"));
+                }
             }
         }
+        // 临时缓存区
+        File[] tmps = tmpDir.listFiles();
+        if (tmps != null) {
+            for (File f : tmps) {
+                if (f.isFile()) {
+                    result.add(new WorkspaceFile(f.getName(), f.length(), f.lastModified(), "tmp"));
+                }
+            }
+        }
+        // 按修改时间倒序
+        result.sort((a, b) -> Long.compare(b.lastModified, a.lastModified));
         return result;
     }
 
@@ -80,7 +149,6 @@ public class AgentWorkspace {
         File f = resolveFile(fileName);
         if (f == null) return false;
         try {
-            // 安全检查：目标必须在工作区内
             String ws = getWorkspaceDir().getCanonicalPath();
             String target = f.getCanonicalPath();
             if (!target.startsWith(ws + File.separator) && !target.equals(ws)) {
@@ -94,16 +162,35 @@ public class AgentWorkspace {
         }
     }
 
+    /** 清理临时缓存区（任务结束调用：清空 tmp/ 下所有文件） */
+    public int clearTmp() {
+        int removed = 0;
+        File[] tmps = getTmpDir().listFiles();
+        if (tmps != null) {
+            for (File f : tmps) {
+                if (f.isFile() && f.delete()) removed++;
+            }
+        }
+        return removed;
+    }
+
     /** 工作区文件信息 */
     public static class WorkspaceFile {
         public final String name;
         public final long size;
         public final long lastModified;
+        /** 所在区域: "files"(长期) / "tmp"(临时) / "root"(根) */
+        public final String zone;
 
         public WorkspaceFile(String name, long size, long lastModified) {
+            this(name, size, lastModified, "root");
+        }
+
+        public WorkspaceFile(String name, long size, long lastModified, String zone) {
             this.name = name;
             this.size = size;
             this.lastModified = lastModified;
+            this.zone = zone;
         }
     }
 }
