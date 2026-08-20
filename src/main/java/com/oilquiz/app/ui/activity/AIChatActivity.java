@@ -386,31 +386,13 @@ public class AIChatActivity extends BaseActivity {
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
 
-            // 快捷工具栏相关视图
-            View quickBarHeader = findViewById(R.id.quick_bar_header);
+            // 快捷工具已移入左侧工具抽屉（view_tool_drawer）：chip 始终可见，无折叠逻辑
             quickActionsChipGroup = findViewById(R.id.quick_actions_chip_group);
-            ivQuickExpand = findViewById(R.id.iv_quick_expand);
-
-            // 快捷工具栏折叠/展开功能（默认折叠，节省底部空间；14 个快捷入口展开查看）
-            quickBarExpanded = false;
-            if (ivQuickExpand != null) {
-                ivQuickExpand.setImageResource(R.drawable.ic_expand);
-            }
             if (quickActionsChipGroup != null) {
-                quickActionsChipGroup.setVisibility(View.GONE);
+                quickActionsChipGroup.setVisibility(View.VISIBLE);
             }
-            if (quickBarHeader != null) {
-                quickBarHeader.setOnClickListener(v -> {
-                    quickBarExpanded = !quickBarExpanded;
-                    keyboardAutoCollapsed = false; // 用户手动操作，清除键盘自动折叠标记
-                    if (quickActionsChipGroup != null) {
-                        quickActionsChipGroup.setVisibility(quickBarExpanded ? View.VISIBLE : View.GONE);
-                    }
-                    if (ivQuickExpand != null) {
-                        ivQuickExpand.setImageResource(quickBarExpanded ? R.drawable.ic_collapse : R.drawable.ic_expand);
-                    }
-                });
-            }
+            quickBarExpanded = true;
+            keyboardAutoCollapsed = false;
 
             emptyStateView = findViewById(R.id.empty_state_view);
             emptyStateChips = findViewById(R.id.empty_state_chips);
@@ -1178,7 +1160,12 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void initListener() {
-        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+        // 抽屉按钮：打开左侧工具中心（模型/深度思考/快捷工具/管理）
+        if (btnBack != null) btnBack.setOnClickListener(v -> {
+            if (drawerLayout != null) {
+                drawerLayout.openDrawer(findViewById(R.id.tool_drawer));
+            }
+        });
         // 模式切换：点击直接在 普通 ↔ 深度思考 间切换（简化，不再弹复杂对话框）
         if (btnModeSelect != null) btnModeSelect.setOnClickListener(v -> toggleMode());
         if (btnModelSelect != null) {
@@ -6974,14 +6961,7 @@ public class AIChatActivity extends BaseActivity {
             int screenHeight = rootView.getRootView().getHeight();
             int keypadHeight = screenHeight - r.bottom;
             if (keypadHeight > screenHeight * 0.15) {
-                // 键盘弹出：自动折叠快捷工具栏，为输入框腾出空间
-                if (quickBarExpanded && quickActionsChipGroup != null && quickActionsChipGroup.getVisibility() == View.VISIBLE) {
-                    quickBarExpanded = false;
-                    keyboardAutoCollapsed = true; // 标记为键盘自动折叠
-                    quickActionsChipGroup.setVisibility(View.GONE);
-                    if (ivQuickExpand != null) ivQuickExpand.setImageResource(R.drawable.ic_expand);
-                }
-                // 滚动到底部
+                // 键盘弹出：快捷工具在抽屉内不受影响，仅滚动到底部 + 确保输入框可见
                 scrollToBottom();
                 // 确保输入框区域可见：延迟等待布局稳定后滚动
                 if (inputMessage != null) {
@@ -6991,13 +6971,7 @@ public class AIChatActivity extends BaseActivity {
                     }, 100);
                 }
             } else {
-                // 键盘隐藏：仅恢复被键盘自动折叠的工具栏，不影响用户手动折叠的状态
-                if (keyboardAutoCollapsed && quickActionsChipGroup != null) {
-                    keyboardAutoCollapsed = false;
-                    quickBarExpanded = true;
-                    quickActionsChipGroup.setVisibility(View.VISIBLE);
-                    if (ivQuickExpand != null) ivQuickExpand.setImageResource(R.drawable.ic_collapse);
-                }
+                // 键盘隐藏：快捷工具在抽屉内无需恢复
             }
         });
     }

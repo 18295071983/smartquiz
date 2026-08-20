@@ -14,7 +14,7 @@
         android:orientation="vertical"
         android:background="@color/background">
 
-        <!-- 自定义标题栏 -->
+        <!-- 自定义标题栏（极简：抽屉按钮 + 标题） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="56dp"
@@ -29,10 +29,10 @@
                 android:layout_height="40dp"
                 android:layout_marginEnd="4dp"
                 style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_back"
+                app:icon="@drawable/ic_toolbox"
                 app:iconSize="22dp"
                 app:iconTint="@color/text_primary"
-                android:contentDescription="@string/chat_desc_back"/>
+                android:contentDescription="工具中心"/>
             <TextView
                 android:id="@+id/toolbar_title"
                 android:layout_width="0dp"
@@ -46,79 +46,6 @@
                 android:maxLines="1"
                 android:singleLine="true"
                 android:layout_marginEnd="4dp"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_auto_tts"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:text="🔇"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
-                app:backgroundTint="@color/surface_variant"
-                app:cornerRadius="16dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="4dp"
-                android:paddingHorizontal="0dp"
-                android:minWidth="0dp"
-                android:contentDescription="自动语音合成开关"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_mode_select"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:text="💬普通"
-                android:textSize="11sp"
-                android:textColor="@color/on_primary_container"
-                app:backgroundTint="@color/primary_container"
-                app:cornerRadius="16dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="4dp"
-                android:paddingHorizontal="6dp"
-                android:minWidth="0dp"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_model_select"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:text="🤖模型"
-                android:textSize="11sp"
-                android:textColor="@color/on_secondary_container"
-                app:backgroundTint="@color/secondary_container"
-                app:cornerRadius="16dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="4dp"
-                android:paddingHorizontal="6dp"
-                android:minWidth="0dp"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_history"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_marginEnd="2dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_chat_history"
-                app:iconSize="20dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="@string/chat_desc_history"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_agent_manager"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:text="管理"
-                android:textSize="11sp"
-                android:textColor="@color/on_secondary_container"
-                app:backgroundTint="@color/secondary_container"
-                app:cornerRadius="16dp"
-                android:textAllCaps="false"
-                android:layout_marginEnd="2dp"
-                android:paddingHorizontal="6dp"
-                android:minWidth="0dp"
-                android:contentDescription="Agent管理(记忆/工具/工作区/统计)"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_clear_chat"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_delete_chat"
-                app:iconSize="20dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="@string/chat_desc_clear"/>
         </LinearLayout>
 
         <LinearLayout
@@ -506,176 +433,6 @@
             android:background="@drawable/gradient_primary"
             android:visibility="gone"/>
 
-        <!-- 快捷工具栏 - 可折叠 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@color/surface">
-
-            <!-- 展开/收起按钮 -->
-            <LinearLayout
-                android:id="@+id/quick_bar_header"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="16dp"
-                android:background="@color/surface_variant"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_toolbox"
-                    app:tint="@color/text_secondary"/>
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:text="快捷工具"
-                    android:textSize="13sp"
-                    android:textColor="@color/text_secondary"/>
-
-                <ImageView
-                    android:id="@+id/iv_quick_expand"
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_collapse"
-                    app:tint="@color/text_secondary"/>
-            </LinearLayout>
-
-            <!-- 快捷按钮区域 - 可折叠 -->
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/quick_actions_chip_group"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="8dp"
-                android:visibility="visible">
-
-            <!-- 普通对话入口 -->
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_normal_chat"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="💬 对话"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/primary_container"
-                android:textColor="@color/on_primary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <!-- 深度思考开关（对齐官方：独立开关，开启高亮主色，关闭灰色） -->
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_deep_think"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🧠 深度思考"
-                android:checkable="true"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/chip_gray_bg"
-                android:textColor="@color/text_secondary"
-                app:chipStrokeWidth="1dp"
-                app:chipStrokeColor="@color/border_light"
-                app:checkedIconVisible="false"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_weather"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🌤️ 查天气"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_search"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🔍 搜索"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_translate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🌐 翻译"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_database"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🗄️ 数据库"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_file"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="📁 文件"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_location"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="📍 定位"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_app"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="📱 应用"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_calc"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="➗ 计算"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/tertiary_container"
-                android:textColor="@color/on_tertiary_container"
-                app:chipStrokeWidth="0dp"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_clear_chat2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🗑️ 清空"
-                android:layout_marginEnd="6dp"
-                app:chipBackgroundColor="@color/error_container"
-                android:textColor="@color/on_error_container"
-                app:chipStrokeWidth="0dp"/>
-
-        </com.google.android.material.chip.ChipGroup>
-
-        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/log_container"
@@ -882,6 +639,17 @@
         </LinearLayout>
 
     </LinearLayout>
+
+    <!-- 左侧工具抽屉（模型/深度思考/快捷工具/管理 全部收敛于此） -->
+    <FrameLayout
+        android:id="@+id/tool_drawer"
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="@color/surface"
+        android:elevation="16dp">
+        <include layout="@layout/view_tool_drawer"/>
+    </FrameLayout>
 
     <FrameLayout
         android:id="@+id/history_drawer"
