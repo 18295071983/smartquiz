@@ -369,6 +369,20 @@ public class AIChatActivity extends BaseActivity {
             attachmentList = findViewById(R.id.attachment_list);
             historyList = findViewById(R.id.history_list);
             drawerLayout = findViewById(R.id.drawer_layout);
+            // 抽屉滑动逻辑：解锁 + 允许边缘滑动进入/退出（左右两侧）
+            if (drawerLayout != null) {
+                drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED);
+                // 右侧工具抽屉：从右边缘滑入打开
+                drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED, findViewById(R.id.tool_drawer));
+                // 左侧历史抽屉：从左边缘滑入打开
+                drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED, findViewById(R.id.history_drawer));
+                // 抽屉阴影高度（视觉分层）
+                try {
+                    drawerLayout.setDrawerElevation(
+                            getResources().getDisplayMetrics().density * 16f);
+                } catch (Throwable ignored) {
+                }
+            }
             inputMessage = findViewById(R.id.input_message);
             btnSend = findViewById(R.id.btn_send);
             btnAttach = findViewById(R.id.btn_attach);
