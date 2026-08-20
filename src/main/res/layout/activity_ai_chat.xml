@@ -14,7 +14,7 @@
         android:orientation="vertical"
         android:background="@color/background">
 
-        <!-- 自定义标题栏（极简：抽屉按钮 + 标题） -->
+        <!-- 自定义标题栏（极简：标题 + 右侧抽屉按钮） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="56dp"
@@ -23,16 +23,6 @@
             android:background="@color/surface"
             android:paddingHorizontal="8dp"
             android:elevation="0dp">
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_back"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginEnd="4dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_toolbox"
-                app:iconSize="22dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="工具中心"/>
             <TextView
                 android:id="@+id/toolbar_title"
                 android:layout_width="0dp"
@@ -46,6 +36,16 @@
                 android:maxLines="1"
                 android:singleLine="true"
                 android:layout_marginEnd="4dp"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                style="@style/Widget.Material3.Button.IconButton"
+                app:icon="@drawable/ic_toolbox"
+                app:iconSize="22dp"
+                app:iconTint="@color/text_primary"
+                android:contentDescription="工具中心"/>
         </LinearLayout>
 
         <LinearLayout
@@ -645,7 +645,7 @@
         android:id="@+id/tool_drawer"
         android:layout_width="300dp"
         android:layout_height="match_parent"
-        android:layout_gravity="end"
+        android:layout_gravity="right"
         android:background="@color/surface"
         android:elevation="16dp">
         <include layout="@layout/view_tool_drawer"/>
@@ -655,7 +655,7 @@
         android:id="@+id/history_drawer"
         android:layout_width="320dp"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
+        android:layout_gravity="left"
         android:background="@color/surface"
         android:elevation="16dp">
 
