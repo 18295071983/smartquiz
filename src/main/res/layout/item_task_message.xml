@@ -18,7 +18,7 @@
         android:id="@+id/message_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/task_message_background"
+        android:background="@drawable/message_card_background"
         android:padding="12dp"
         android:textColor="@color/task_text"
         android:textSize="14sp"

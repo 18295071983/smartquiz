@@ -22,7 +22,7 @@
         android:id="@+id/message_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/thinking_message_background"
+        android:background="@drawable/message_card_thinking"
         android:textColor="?attr/colorOnSurface"
         android:textSize="12sp"
         android:lineSpacingMultiplier="1.2"
