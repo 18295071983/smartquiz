@@ -9,7 +9,6 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
         android:orientation="vertical"
         android:paddingHorizontal="16dp"
         android:paddingVertical="12dp">
@@ -68,34 +67,7 @@
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
             android:minWidth="0dp"
-            android:layout_marginBottom="4dp"/>
-        <com.google.android.material.chip.ChipGroup
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:singleLine="true"
-            android:layout_marginBottom="12dp">
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_normal_chat"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="💬 对话"
-                android:layout_marginEnd="8dp"
-                app:chipBackgroundColor="@color/primary_container"
-                android:textColor="@color/on_primary_container"
-                app:chipStrokeWidth="0dp"/>
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_deep_think"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🧠 深度思考"
-                android:checkable="true"
-                app:chipBackgroundColor="@color/chip_gray_bg"
-                android:textColor="@color/text_secondary"
-                app:chipStrokeWidth="1dp"
-                app:chipStrokeColor="@color/border_light"
-                app:checkedIconVisible="false"/>
-        </com.google.android.material.chip.ChipGroup>
+            android:layout_marginBottom="12dp"/>
 
         <!-- ===== 快捷工具 ===== -->
         <TextView
@@ -107,14 +79,14 @@
             android:paddingBottom="4dp"/>
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/quick_actions_chip_group"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_weather"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🌤️ 查天气"
                 android:layout_marginBottom="4dp"
@@ -124,7 +96,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_search"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🔍 搜索"
                 android:layout_marginBottom="4dp"
@@ -134,7 +106,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_translate"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🌐 翻译"
                 android:layout_marginBottom="4dp"
@@ -144,7 +116,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_database"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🗄️ 数据库"
                 android:layout_marginBottom="4dp"
@@ -154,7 +126,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_file"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📁 文件"
                 android:layout_marginBottom="4dp"
@@ -164,7 +136,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_location"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📍 定位"
                 android:layout_marginBottom="4dp"
@@ -174,7 +146,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_app"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📱 应用"
                 android:layout_marginBottom="4dp"
@@ -184,7 +156,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_calc"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="➗ 计算"
                 android:layout_marginBottom="4dp"
@@ -194,7 +166,7 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_clear_chat2"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🗑️ 清空对话"
                 app:chipBackgroundColor="@color/error_container"
@@ -233,7 +205,7 @@
             android:gravity="center_vertical">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_history"
-                android:layout_width="wrap_content"
+            android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="📜 历史"
@@ -247,7 +219,7 @@
                 android:minWidth="0dp"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_chat"
-                android:layout_width="wrap_content"
+            android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="🗑️ 清空"
@@ -261,7 +233,7 @@
                 android:minWidth="0dp"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_auto_tts"
-                android:layout_width="wrap_content"
+            android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="🔇 语音"

@@ -548,9 +548,49 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="12dp"
+                android:orientation="vertical"
+                android:padding="8dp"
                 android:gravity="center_vertical">
+
+                <!-- 对话模式行（深度思考开关，对齐官方：输入区顶部） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="4dp"
+                    android:paddingBottom="6dp">
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_normal_chat"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="💬 对话"
+                        android:layout_marginEnd="8dp"
+                        app:chipBackgroundColor="@color/primary_container"
+                        android:textColor="@color/on_primary_container"
+                        app:chipStrokeWidth="0dp"/>
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_deep_think"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🧠 深度思考"
+                        android:checkable="true"
+                        app:chipBackgroundColor="@color/chip_gray_bg"
+                        android:textColor="@color/text_secondary"
+                        app:chipStrokeWidth="1dp"
+                        app:chipStrokeColor="@color/border_light"
+                        app:checkedIconVisible="false"/>
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -578,6 +618,7 @@
                         android:padding="12dp"
                         android:background="@android:color/transparent"
                         android:maxLines="5"
+                        android:minHeight="52dp"
                         android:inputType="textMultiLine"
                         android:textColor="@color/text_primary"
                         android:textColorHint="@color/text_secondary"
@@ -627,6 +668,8 @@
                     android:visibility="gone"/>
             </LinearLayout>
         </LinearLayout>
+
+    </LinearLayout>
 
     </LinearLayout>
 
