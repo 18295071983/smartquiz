@@ -273,10 +273,16 @@ public class OnlineToolManager {
                 System.currentTimeMillis() - startTime);
         }
 
-        // 权限请求类工具需要用户交互，使用更长超时
+        // 需要用户交互的工具使用更长超时：
+        // - permission_manager 权限请求（用户授权弹窗）
+        // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
+        //   30s 默认超时会中断等待导致 Agent"越过交互"直接继续）
         boolean isPermissionRequest = isPermissionTool && arguments != null
                 && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
-        int effectiveTimeout = isPermissionRequest ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS;
+        boolean isUserInteractionWait = "ui_component".equals(toolName)
+                && arguments != null && arguments.contains("\"get_result\"");
+        int effectiveTimeout = (isPermissionRequest || isUserInteractionWait)
+                ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS;
 
         // 带重试的执行
         Exception lastException = null;

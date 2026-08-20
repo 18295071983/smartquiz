@@ -471,7 +471,12 @@ public class OnlineAgentEngine {
                 }
                 final OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(i);
                 try {
-                    OnlineToolResult toolResult = toolFutures.get(i).get(5, TimeUnit.SECONDS);
+                    // 工具等待超时：默认 60 秒；ui_component 的 get_result（阻塞等待用户交互）用长超时
+                    // （120 秒），避免用户点组件按钮/对话框期间被引擎超时中断，导致 Agent"越过交互"。
+                    boolean isUserWait = "ui_component".equals(tc.name)
+                            && tc.arguments != null && tc.arguments.contains("\"get_result\"");
+                    long waitTimeoutSec = isUserWait ? 120 : 60;
+                    OnlineToolResult toolResult = toolFutures.get(i).get(waitTimeoutSec, TimeUnit.SECONDS);
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
                     activity.runOnUiThread(() -> {
