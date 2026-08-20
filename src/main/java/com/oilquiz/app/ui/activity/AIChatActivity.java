@@ -5344,6 +5344,22 @@ public class AIChatActivity extends BaseActivity {
                     chatHistory.get(messageIndex).agentSummary = sum.toString();
                     AppLogger.i(TAG, "Agent summary written: " + sum.toString()
                         + " (cacheHit=" + cacheHitTokens + ")");
+                    // 独立展示：插入一条 AGENT_SUMMARY 系统消息（Agent 执行汇总卡片）
+                    // 放到 AI 消息之后，展示耗时/步骤/工具/Token 统计
+                    try {
+                        long totalTime = System.currentTimeMillis() - generationStart;
+                        ChatMessage.AgentSummaryInfo summaryInfo =
+                                new ChatMessage.AgentSummaryInfo(totalTime, thinkingRoundCount,
+                                        agentGroupToolCount, statsTokens, true);
+                        summaryInfo.summary = sum.toString();
+                        ChatMessage summaryMsg = ChatMessage.createAgentSummaryMessage(summaryInfo);
+                        summaryMsg.timestamp = System.currentTimeMillis();
+                        int insertPos = Math.min(messageIndex + 1, chatHistory.size());
+                        chatHistory.add(insertPos, summaryMsg);
+                        if (chatAdapter != null) chatAdapter.notifyItemInserted(insertPos);
+                    } catch (Throwable t) {
+                        AppLogger.aiW(TAG, "插入Agent汇总消息失败: " + t.getMessage());
+                    }
                 }
             }
             agentToolLoopCount = 0;
