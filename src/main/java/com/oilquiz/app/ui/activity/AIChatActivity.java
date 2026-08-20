@@ -5001,6 +5001,7 @@ public class AIChatActivity extends BaseActivity {
 
     /**
      * Agent 思考结束：把最终思考内容写入 AI 消息内嵌思考区并折叠（用户可点击展开）。
+     * 同时把本轮内容追加到 thinkingRounds（多轮独立展示）。
      */
     private void finalizeAgentThinking() {
         final int idx = resolveStreamingIndex();
@@ -5013,6 +5014,7 @@ public class AIChatActivity extends BaseActivity {
         if (msg == null) return;
         if (!snapshot.isEmpty()) {
             msg.thinkingContent = snapshot;
+            msg.addThinkingRound(snapshot);
         }
         msg.thinkingExpanded = false; // 思考完毕自动折叠，用户可点击重新展开
         if (chatAdapter != null) {
@@ -5554,8 +5556,16 @@ public class AIChatActivity extends BaseActivity {
             // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
             // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
-            // 新一轮思考开始：状态栏显示思考中
+            // 新一轮思考开始：状态栏显示思考中；若上一轮已有内容，先存入多轮列表（分块展示）
             if (thinkingRoundEnded || currentThinkingContent == null) {
+                // 保存上一轮思考（轮次切换时，避免被覆盖丢失）
+                if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
+                    final int curIdx = resolveStreamingIndex();
+                    if (curIdx >= 0 && curIdx < chatHistory.size()) {
+                        ChatMessage prevMsg = chatHistory.get(curIdx);
+                        prevMsg.addThinkingRound(currentThinkingContent.toString());
+                    }
+                }
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
                 setAgentStepStatus("🔍 思考中...（第" + thinkingRoundCount + "轮）");

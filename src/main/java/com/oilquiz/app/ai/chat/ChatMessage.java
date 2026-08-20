@@ -191,6 +191,17 @@ public class ChatMessage {
     /** 思考内容文本（流式思考过程的纯文本） */
     public String thinkingContent;
 
+    /** 多轮思考的各轮内容（Agent 多轮推理时每轮独立保存，UI 分块展示）。
+     *  元素顺序 = 轮次顺序；最后一轮进行中时 thinkingContent 为当前轮。 */
+    public List<String> thinkingRounds;
+
+    /** 追加一轮思考内容（自动创建列表） */
+    public void addThinkingRound(String roundContent) {
+        if (roundContent == null || roundContent.trim().isEmpty()) return;
+        if (thinkingRounds == null) thinkingRounds = new java.util.ArrayList<>();
+        thinkingRounds.add(roundContent);
+    }
+
     /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
     public String actionPayload;
 
