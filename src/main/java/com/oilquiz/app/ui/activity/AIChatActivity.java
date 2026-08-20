@@ -1213,18 +1213,18 @@ public class AIChatActivity extends BaseActivity {
             btnHistory.setOnClickListener(v -> {
                 if (drawerLayout != null && historyController != null) {
                     refreshHistoryDrawer();
-                    drawerLayout.openDrawer(findViewById(R.id.tool_drawer));
+                    drawerLayout.openDrawer(findViewById(R.id.history_drawer));
                 }
             });
         }
         if (btnCloseHistory != null) {
             btnCloseHistory.setOnClickListener(v -> {
-                if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.tool_drawer));
+                if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
             });
         }
         if (btnNewConversation != null) {
             btnNewConversation.setOnClickListener(v -> {
-                if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.tool_drawer));
+                if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
                 startNewConversation();
             });
         }
@@ -1240,7 +1240,7 @@ public class AIChatActivity extends BaseActivity {
                     .setPositiveButton("清空", (dialog, which) -> {
                         clearChat();
                         refreshHistoryDrawer();
-                        if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.tool_drawer));
+                        if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
                         showToast("已清空");
                     })
                     .setNegativeButton("取消", null)
