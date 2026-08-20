@@ -640,12 +640,12 @@
 
     </LinearLayout>
 
-    <!-- 左侧工具抽屉（模型/深度思考/快捷工具/管理 全部收敛于此） -->
+    <!-- 右侧工具抽屉（模型/深度思考/快捷工具/管理 全部收敛于此） -->
     <FrameLayout
         android:id="@+id/tool_drawer"
         android:layout_width="300dp"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
+        android:layout_gravity="end"
         android:background="@color/surface"
         android:elevation="16dp">
         <include layout="@layout/view_tool_drawer"/>
@@ -655,7 +655,7 @@
         android:id="@+id/history_drawer"
         android:layout_width="320dp"
         android:layout_height="match_parent"
-        android:layout_gravity="end"
+        android:layout_gravity="start"
         android:background="@color/surface"
         android:elevation="16dp">
 
