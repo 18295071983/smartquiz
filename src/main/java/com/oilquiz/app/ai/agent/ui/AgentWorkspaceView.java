@@ -62,39 +62,68 @@ public class AgentWorkspaceView {
 
         TextView desc = new TextView(context);
         AgentWorkspace ws = AgentWorkspace.getInstance(context);
-        desc.setText("Agent 生成的文件存放于此（图片/导出等）。路径: " + ws.getWorkspacePath());
+        desc.setText("📁 长期文件区(files/) 保留用户产物\n⚙️ 临时执行区(tmp/) 任务结束自动清理，不跨任务保留\n路径: " + ws.getWorkspacePath());
         desc.setTextSize(11);
         desc.setTextColor(color(R.color.text_secondary));
         desc.setPadding(0, dp(4), 0, dp(12));
         page.addView(desc);
 
-        // 清空按钮
+        // 清空按钮行：清空长期文件 / 清理临时缓存
+        LinearLayout clearRow = new LinearLayout(context);
+        clearRow.setOrientation(LinearLayout.HORIZONTAL);
+        clearRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams clearRowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clearRowLp.setMargins(0, 0, 0, dp(10));
+        clearRow.setLayoutParams(clearRowLp);
+
         TextView clearBtn = new TextView(context);
-        clearBtn.setText("🗑 清空工作区");
-        clearBtn.setTextSize(13);
+        clearBtn.setText("🗑 清空长期文件");
+        clearBtn.setTextSize(12);
         clearBtn.setGravity(Gravity.CENTER);
         clearBtn.setTextColor(color(R.color.error));
         clearBtn.setBackground(buttonBackground(R.color.error_container));
         LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
-        clearLp.setMargins(0, 0, 0, dp(10));
-        page.addView(clearBtn, clearLp);
+                0, dp(40));
+        clearLp.weight = 1;
+        clearLp.setMargins(0, 0, dp(4), 0);
+        clearRow.addView(clearBtn, clearLp);
 
         clearBtn.setOnClickListener(v -> {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
-                .setTitle("清空工作区")
-                .setMessage("将删除工作区内所有文件。确定继续吗？")
+                .setTitle("清空长期文件")
+                .setMessage("将删除 files/ 下所有长期文件（用户保留的产物）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {
                     int removed = 0;
                     for (AgentWorkspace.WorkspaceFile f : ws.listFiles()) {
-                        if (ws.deleteFile(f.name)) removed++;
+                        if ("files".equals(f.zone) && ws.deleteFile(f.name)) removed++;
                     }
-                    Toast.makeText(context, "已清空工作区，删除 " + removed + " 个文件", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个", Toast.LENGTH_SHORT).show();
                     refresh();
                 })
                 .setNegativeButton("取消", null)
                 .show();
         });
+
+        TextView clearTmpBtn = new TextView(context);
+        clearTmpBtn.setText("🧹 清理临时缓存");
+        clearTmpBtn.setTextSize(12);
+        clearTmpBtn.setGravity(Gravity.CENTER);
+        clearTmpBtn.setTextColor(color(R.color.text_secondary));
+        clearTmpBtn.setBackground(buttonBackground(R.color.secondary_container));
+        LinearLayout.LayoutParams clearTmpLp = new LinearLayout.LayoutParams(
+                0, dp(40));
+        clearTmpLp.weight = 1;
+        clearTmpLp.setMargins(dp(4), 0, 0, 0);
+        clearRow.addView(clearTmpBtn, clearTmpLp);
+
+        clearTmpBtn.setOnClickListener(v -> {
+            int removed = AgentWorkspace.getInstance(context).clearTmp();
+            Toast.makeText(context, "已清理临时缓存，删除 " + removed + " 个", Toast.LENGTH_SHORT).show();
+            refresh();
+        });
+
+        page.addView(clearRow);
 
         listContainer = new LinearLayout(context);
         listContainer.setOrientation(LinearLayout.VERTICAL);
@@ -111,7 +140,7 @@ public class AgentWorkspaceView {
 
         if (files.isEmpty()) {
             TextView empty = new TextView(context);
-            empty.setText("工作区为空。\nAgent 生成图片/文件后会存放在这里。");
+            empty.setText("工作区为空。\n📁 长期文件：Agent 生成要保留的报告/图片等\n⚙️ 临时缓存：任务结束自动清理");
             empty.setTextSize(13);
             empty.setTextColor(color(R.color.text_tertiary));
             empty.setGravity(Gravity.CENTER);
@@ -120,8 +149,52 @@ public class AgentWorkspaceView {
             return;
         }
 
+        // 分区标题
+        TextView filesTitle = new TextView(context);
+        filesTitle.setText("📁 长期文件");
+        filesTitle.setTextSize(13);
+        filesTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        filesTitle.setTextColor(color(R.color.text_primary));
+        filesTitle.setPadding(0, dp(8), 0, dp(4));
+        listContainer.addView(filesTitle);
+
+        boolean hasFiles = false, hasTmp = false;
         for (AgentWorkspace.WorkspaceFile f : files) {
-            listContainer.addView(createFileItem(f));
+            if ("files".equals(f.zone)) {
+                listContainer.addView(createFileItem(f));
+                hasFiles = true;
+            }
+        }
+        if (!hasFiles) {
+            TextView emptyFiles = new TextView(context);
+            emptyFiles.setText("暂无长期文件");
+            emptyFiles.setTextSize(12);
+            emptyFiles.setTextColor(color(R.color.text_tertiary));
+            emptyFiles.setPadding(dp(4), dp(2), 0, dp(6));
+            listContainer.addView(emptyFiles);
+        }
+
+        TextView tmpTitle = new TextView(context);
+        tmpTitle.setText("⚙️ 临时缓存（任务结束自动清理）");
+        tmpTitle.setTextSize(13);
+        tmpTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        tmpTitle.setTextColor(color(R.color.text_primary));
+        tmpTitle.setPadding(0, dp(12), 0, dp(4));
+        listContainer.addView(tmpTitle);
+
+        for (AgentWorkspace.WorkspaceFile f : files) {
+            if ("tmp".equals(f.zone)) {
+                listContainer.addView(createFileItem(f));
+                hasTmp = true;
+            }
+        }
+        if (!hasTmp) {
+            TextView emptyTmp = new TextView(context);
+            emptyTmp.setText("暂无临时缓存");
+            emptyTmp.setTextSize(12);
+            emptyTmp.setTextColor(color(R.color.text_tertiary));
+            emptyTmp.setPadding(dp(4), dp(2), 0, dp(6));
+            listContainer.addView(emptyTmp);
         }
     }
 
