@@ -1365,6 +1365,7 @@ public class OnlineInferenceService {
     public void generateStreamWithToolsV2(JsonArray messages,
                                             OnlineModelManager.OnlineModelConfig config,
                                             int maxTokens, String toolsJson,
+                                            boolean enableThinking,
                                             NativeToolStreamCallback callback) {
         executor.execute(() -> {
             try {
@@ -1394,7 +1395,7 @@ public class OnlineInferenceService {
                     generateStreamFallback(prompt, config, null, maxTokens, callback);
                 } else {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
-                        messages, maxTokens, toolsJson, callback);
+                        messages, maxTokens, toolsJson, enableThinking, callback);
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "StreamV2 with tools failed: " + e.getMessage(), e);
@@ -1422,7 +1423,7 @@ public class OnlineInferenceService {
      */
     private void callOpenAIStreamWithToolsV2(String apiUrl, String apiKey, String modelName,
                                               JsonArray messages, int maxTokens,
-                                              String toolsJson,
+                                              String toolsJson, boolean enableThinking,
                                               NativeToolStreamCallback callback) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         URL url = new URL(fullUrl);
@@ -1445,6 +1446,17 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
+            // 深度思考：enableThinking=true 时开启 thinking（DeepSeek 等返回 reasoning_content）。
+            // 用 chat_template_kwargs 双位置下发，兼容 vLLM/llama.cpp/DeepSeek 官方 API 的参数位置差异。
+            if (enableThinking) {
+                try {
+                    requestBody.addProperty("enable_thinking", true);
+                    JsonObject chatTemplateKwargs = new JsonObject();
+                    chatTemplateKwargs.addProperty("enable_thinking", true);
+                    requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+                    AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
+                } catch (Exception ignored) {}
+            }
             // 请求流式 usage（缓存命中统计等）：OpenAI/DeepSeek 标准 stream_options.include_usage
             try {
                 JsonObject streamOptions = new JsonObject();
@@ -1470,7 +1482,7 @@ public class OnlineInferenceService {
                 // 打印请求摘要（不打印完整 body 避免日志过大）
                 int toolsCount = requestBody.has("tools") ? requestBody.getAsJsonArray("tools").size() : 0;
                 AILogger.i(TAG, "API request: model=" + modelName + " messages=" + messages.size()
-                    + " tools=" + toolsCount + " body_len=" + bodyStr.length());
+                    + " tools=" + toolsCount + " thinking=" + enableThinking + " body_len=" + bodyStr.length());
                 os.write(bodyStr.getBytes(StandardCharsets.UTF_8));
                 os.flush();
             }
@@ -1483,7 +1495,13 @@ public class OnlineInferenceService {
                 // 401/403/429/5xx 等错误降级必然再次失败，直接报错避免浪费请求
                 if (responseCode == 400 && toolsJson != null && isToolsUnsupportedError(errorBody)) {
                     AILogger.i(TAG, "Model does not support tools (400), retrying without tools parameter");
-                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, null, callback);
+                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, null, enableThinking, callback);
+                    return;
+                }
+                // thinking 参数导致 400（部分服务商不支持）：去掉 thinking 重试
+                if (responseCode == 400 && enableThinking && isThinkingUnsupportedError(errorBody)) {
+                    AILogger.i(TAG, "Model does not support thinking param (400), retrying without thinking");
+                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, toolsJson, false, callback);
                     return;
                 }
                 String errorMsg = buildHttpErrorMessage(responseCode, errorBody);
@@ -1496,6 +1514,16 @@ public class OnlineInferenceService {
         } finally {
             connection.disconnect();
         }
+    }
+
+    /** 判断 400 错误是否因 thinking 参数不支持引起（部分服务商/模型） */
+    private boolean isThinkingUnsupportedError(String errorBody) {
+        if (errorBody == null) return false;
+        String lower = errorBody.toLowerCase();
+        return lower.contains("enable_thinking")
+            || lower.contains("thinking")
+            || lower.contains("chat_template_kwargs")
+            || lower.contains("unrecognized");
     }
 
     /** 依次尝试多个 JSON 字段名，返回第一个存在的整数值（兼容各服务商字段差异），无则返回 0 */
