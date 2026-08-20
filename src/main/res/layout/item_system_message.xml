@@ -1,34 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 系统消息：左对齐圆角卡片，与 ChatAdapter 组件卡片/AI 消息视觉统一 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:gravity="center"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="8dp">
+    android:orientation="horizontal"
+    android:gravity="start|center_vertical"
+    android:paddingHorizontal="20dp"
+    android:paddingVertical="6dp">
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/system_message_background"
-        android:padding="10dp">
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
 
         <TextView
             android:id="@+id/system_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="16sp"
-            android:layout_marginEnd="8dp" />
+            android:textSize="14sp"
+            android:layout_marginEnd="6dp" />
 
         <TextView
             android:id="@+id/message_text"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            android:textStyle="italic"
+            android:textSize="12sp"
             android:lineSpacingExtra="2dp" />
 
     </LinearLayout>
