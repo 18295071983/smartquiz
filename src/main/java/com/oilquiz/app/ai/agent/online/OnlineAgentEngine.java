@@ -49,6 +49,10 @@ public class OnlineAgentEngine {
     private static final int MAX_TOKENS = 4096;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
+    /** 对话历史 token 预算：超过则自动把早期消息压缩为摘要。
+     *  取 24000（低于常见 32K/64K 上下文窗口留出余量），触发即压缩，
+     *  避免长对话缓存命中失败 + 大量消耗输入 token。 */
+    private static final int HISTORY_TOKEN_BUDGET = 24000;
 
     /** Agent 执行模式 */
     public enum AgentMode {
@@ -586,10 +590,45 @@ public class OnlineAgentEngine {
      * 安全保证：截断点不会落在 tool 消息上（否则其对应的 assistant.tool_calls 被移除，
      * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
      */
+    /**
+     * 截断并压缩消息历史（发送前调用）。
+     * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 超过 HISTORY_TOKEN_BUDGET。
+     * 策略：保留首条 system 消息 + 摘要消息 + 最近 MAX_HISTORY_MESSAGES-1 条消息。
+     * 安全保证：截断点不会落在 tool 消息上（否则其对应的 assistant.tool_calls 被移除，
+     * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
+     * 摘要：把移除的旧消息压缩为一条 system 摘要消息（长对话"不失忆"且省 token）。
+     */
     private void trimMessageHistory() {
-        if (messageHistory.size() <= MAX_HISTORY_MESSAGES) return;
-        int removeCount = messageHistory.size() - MAX_HISTORY_MESSAGES;
-        int cutoff = 1 + removeCount; // 保留 index 0 (system)，从 index 1 开始移除
+        // 计算消息数超限还是 token 超预算
+        int tokenCount = 0;
+        for (JsonObject msg : messageHistory) {
+            String content = msg.has("content") && !msg.get("content").isJsonNull()
+                    ? msg.get("content").getAsString() : "";
+            tokenCount += estimateTokens(content);
+        }
+        boolean overBudget = tokenCount > HISTORY_TOKEN_BUDGET;
+        boolean overCount = messageHistory.size() > MAX_HISTORY_MESSAGES;
+        if (!overBudget && !overCount) return;
+
+        // 计算需要移除的条数：优先满足 token 预算（移除到预算的一半，避免频繁触发），再满足条数上限
+        int toRemove = 0;
+        if (overBudget) {
+            int running = 0;
+            for (int i = 1; i < messageHistory.size(); i++) {
+                JsonObject msg = messageHistory.get(i);
+                String content = msg.has("content") && !msg.get("content").isJsonNull()
+                        ? msg.get("content").getAsString() : "";
+                running += estimateTokens(content);
+                toRemove++;
+                if (running >= tokenCount - HISTORY_TOKEN_BUDGET / 2) break;
+            }
+        }
+        if (overCount) {
+            toRemove = Math.max(toRemove, messageHistory.size() - MAX_HISTORY_MESSAGES);
+        }
+        toRemove = Math.min(toRemove, messageHistory.size() - 2); // 至少留 system + 1 条
+
+        int cutoff = 1 + toRemove;
         // 调整 cutoff：若 cutoff 处是 tool 消息，其配对的 assistant.tool_calls 已被移除，需一并移除
         while (cutoff < messageHistory.size()) {
             JsonObject msg = messageHistory.get(cutoff);
@@ -602,18 +641,30 @@ public class OnlineAgentEngine {
         }
         int actualRemoved = cutoff - 1;
         if (actualRemoved > 0) {
+            // 若 index 1 已是历史摘要消息，保留它（避免"摘要的摘要"累积），从 index 2 起移除旧消息
+            int removeStart = 1;
+            if (messageHistory.size() > 1) {
+                JsonObject first = messageHistory.get(1);
+                String role = first.has("role") ? first.get("role").getAsString() : "";
+                String content = first.has("content") && !first.get("content").isJsonNull()
+                        ? first.get("content").getAsString() : "";
+                if ("system".equals(role) && content != null && content.contains("【对话历史摘要】")) {
+                    removeStart = 2;
+                }
+            }
             // 短期记忆增强：将移除的旧消息压缩为摘要，替换为一条 system 摘要消息，
             // 保留早期上下文要点（而非直接丢弃，避免长对话"失忆"）
-            String summary = buildHistorySummary(1, cutoff);
-            messageHistory.subList(1, cutoff).clear();
-            if (summary != null && !summary.isEmpty()) {
+            String summary = buildHistorySummary(removeStart, Math.max(removeStart, cutoff));
+            messageHistory.subList(removeStart, Math.max(removeStart, cutoff)).clear();
+            if (summary != null && !summary.isEmpty() && removeStart == 1) {
                 JsonObject summaryMsg = new JsonObject();
                 summaryMsg.addProperty("role", "system");
                 summaryMsg.addProperty("content", "【对话历史摘要】以下是本对话更早内容的压缩摘要（详细内容已省略以节省上下文，回答可参考）：\n" + summary);
                 messageHistory.add(1, summaryMsg);
             }
             AILogger.i(TAG, "Trimmed message history: removed " + actualRemoved
-                + " old messages (summarized), " + messageHistory.size() + " remaining");
+                + " old messages (summarized), " + messageHistory.size() + " remaining"
+                + ", tokens " + tokenCount + " -> budget " + HISTORY_TOKEN_BUDGET);
         }
     }
 
