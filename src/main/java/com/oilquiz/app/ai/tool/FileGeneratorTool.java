@@ -131,8 +131,9 @@ public class FileGeneratorTool implements AITool {
                 if (fileNameOnly == null || fileNameOnly.trim().isEmpty()) {
                     fileNameOnly = "generated_file.txt";
                 }
+                // 用户保留的产物 → 长期文件区（files/）
                 File wsDir = com.oilquiz.app.ai.agent.online.AgentWorkspace
-                        .getInstance(context).getWorkspaceDir();
+                        .getInstance(context).getFilesDir();
                 parameters.put("file_path", new File(wsDir, fileNameOnly).getAbsolutePath());
             }
         }

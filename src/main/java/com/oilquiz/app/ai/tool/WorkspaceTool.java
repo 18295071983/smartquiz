@@ -78,6 +78,15 @@ public class WorkspaceTool implements AITool {
                         return AIToolResult.fail("read 需要 fileName 参数");
                     }
                     File f = ws.resolveFile(fileName.trim());
+                    // 兼容：文件名未带路径时按"长期文件区 → 工作区根 → 临时区"顺序查找
+                    if (!f.exists() && !fileName.contains("/")) {
+                        File inFiles = ws.resolveFileToFiles(fileName.trim());
+                        if (inFiles.exists()) f = inFiles;
+                        else {
+                            File inTmp = ws.resolveFileToTmp(fileName.trim());
+                            if (inTmp.exists()) f = inTmp;
+                        }
+                    }
                     if (f == null || !f.exists()) {
                         return AIToolResult.fail("文件不存在: " + fileName);
                     }
@@ -130,6 +139,8 @@ public class WorkspaceTool implements AITool {
                     Map<String, Object> result = new HashMap<>();
                     result.put("count", files.size());
                     result.put("workspacePath", ws.getWorkspacePath());
+                    result.put("filesPath", ws.getFilesPath());
+                    result.put("tmpPath", ws.getTmpPath());
                     List<Map<String, Object>> items = new ArrayList<>();
                     StringBuilder summary = new StringBuilder();
                     for (AgentWorkspace.WorkspaceFile f : files) {
@@ -137,9 +148,11 @@ public class WorkspaceTool implements AITool {
                         item.put("name", f.name);
                         item.put("size", f.size);
                         item.put("lastModified", f.lastModified);
+                        item.put("zone", f.zone);
                         items.add(item);
                         if (summary.length() > 0) summary.append("\n");
-                        summary.append(f.name).append(" (").append(formatSize(f.size)).append(")");
+                        String zoneTag = "files".equals(f.zone) ? "[长期] " : "tmp".equals(f.zone) ? "[临时] " : "";
+                        summary.append(zoneTag).append(f.name).append(" (").append(formatSize(f.size)).append(")");
                     }
                     result.put("files", items);
                     result.put("message", files.isEmpty() ? "工作区为空" : "工作区文件:\n" + summary);
