@@ -274,5 +274,20 @@
                 android:minWidth="0dp"/>
         </LinearLayout>
 
+        <!-- 日志查看 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_log_viewer"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="📄 处理日志"
+            android:textSize="12sp"
+            android:textColor="@color/on_secondary_container"
+            app:backgroundTint="@color/secondary_container"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:gravity="start|center_vertical"
+            android:paddingHorizontal="12dp"
+            android:minWidth="0dp"/>
+
     </LinearLayout>
 </ScrollView>

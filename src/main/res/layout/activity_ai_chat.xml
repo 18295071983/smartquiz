@@ -128,16 +128,6 @@
                     android:layout_marginStart="8dp"
                     android:visibility="gone"/>
             </LinearLayout>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_log_viewer"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="6dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_log"
-                app:iconSize="18dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="日志"/>
         </LinearLayout>
 
         <LinearLayout
