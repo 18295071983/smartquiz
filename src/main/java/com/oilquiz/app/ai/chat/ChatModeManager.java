@@ -7,16 +7,21 @@ import android.preference.PreferenceManager;
 import com.oilquiz.app.infra.AppLogger;
 
 /**
- * 聊天模式管理器（精简版）。
+ * 深度思考开关管理器。
  *
- * 模式：普通 / 深度思考（仅两个，用户手动切换，无自动识别）。
- * 职责：持久化当前模式、切换模式、生成模式切换指令（注入 system 提示词）。
+ * 深度思考从"二选一模式"改造为**独立开关**：
+ * - 普通对话是基础，深度思考可独立开启/关闭（持久化）
+ * - 开启后：注入思考指令到 system 提示词 + API 请求传 thinking 参数（reasoning_content）
+ * - 关闭后：普通对话，不注入思考指令、不传 thinking 参数
+ *
+ * 保留 {@link ChatMode} 枚举仅为兼容旧调用（普通/深度思考映射到开关状态）。
  */
 public class ChatModeManager {
 
     private static final String TAG = "ChatModeManager";
-    private static final String PREF_CURRENT_MODE = "chat_current_mode";
+    private static final String PREF_DEEP_THINKING = "chat_deep_thinking_enabled";
 
+    /** 兼容旧 API 的枚举（NORMAL=开关关，DEEP_THINKING=开关开） */
     public enum ChatMode {
         NORMAL("普通", "normal", "💬"),
         DEEP_THINKING("深度思考", "deep_thinking", "🧠");
@@ -44,7 +49,7 @@ public class ChatModeManager {
 
     private static ChatModeManager instance;
     private final Context context;
-    private volatile ChatMode currentMode = ChatMode.NORMAL;
+    private volatile boolean deepThinkingEnabled = false;
 
     private ChatModeManager(Context context) {
         if (context == null) {
@@ -56,13 +61,12 @@ public class ChatModeManager {
 
     private void loadPreferences() {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        String modeId = prefs.getString(PREF_CURRENT_MODE, ChatMode.NORMAL.modeId);
-        currentMode = ChatMode.fromModeId(modeId);
+        deepThinkingEnabled = prefs.getBoolean(PREF_DEEP_THINKING, false);
     }
 
-    private void saveCurrentMode() {
+    private void saveDeepThinking(boolean enabled) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        prefs.edit().putString(PREF_CURRENT_MODE, currentMode.modeId).apply();
+        prefs.edit().putBoolean(PREF_DEEP_THINKING, enabled).apply();
     }
 
     public static ChatModeManager getInstance(Context context) {
@@ -76,24 +80,40 @@ public class ChatModeManager {
         return instance;
     }
 
-    public ChatMode getCurrentMode() {
-        return currentMode;
+    // ==================== 深度思考开关（新主 API） ====================
+
+    /** 深度思考是否开启 */
+    public boolean isDeepThinkingEnabled() {
+        return deepThinkingEnabled;
     }
 
-    /** 手动切换模式（持久化） */
+    /** 开关深度思考（持久化）。返回切换前后的状态变化。 */
+    public boolean setDeepThinkingEnabled(boolean enabled) {
+        if (enabled == deepThinkingEnabled) return false;
+        deepThinkingEnabled = enabled;
+        saveDeepThinking(enabled);
+        AppLogger.aiD(TAG, "Deep thinking " + (enabled ? "ENABLED" : "DISABLED"));
+        return true;
+    }
+
+    // ==================== 兼容旧 API（模式 → 开关映射） ====================
+
+    /** 兼容：当前模式（NORMAL=关，DEEP_THINKING=开） */
+    public ChatMode getCurrentMode() {
+        return deepThinkingEnabled ? ChatMode.DEEP_THINKING : ChatMode.NORMAL;
+    }
+
+    /** 兼容：手动切换模式（映射到开关状态） */
     public void setManualMode(ChatMode mode) {
-        if (mode == null || mode == currentMode) return;
-        ChatMode oldMode = currentMode;
-        currentMode = mode;
-        saveCurrentMode();
-        AppLogger.aiD(TAG, "Mode switched: " + oldMode.displayName + " -> " + mode.displayName);
+        setDeepThinkingEnabled(mode == ChatMode.DEEP_THINKING);
     }
 
     /**
      * 生成模式切换指令，用于注入到 system 提示词。
-     * 仅深度思考有思考指令；普通模式无指令（返回空串，调用方跳过注入）。
+     * 仅深度思考开启时有思考指令；关闭无指令（返回空串，调用方跳过注入）。
      */
     public static String getModeSwitchInstruction(ChatMode oldMode, ChatMode newMode) {
+        if (oldMode == newMode) return "";
         String instruction = getModeSpecificInstruction(newMode);
         if (instruction == null || instruction.isEmpty()) {
             return ""; // 普通模式不需要特殊指令
