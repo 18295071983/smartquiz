@@ -68,6 +68,9 @@ public class OnlineAgentEngine {
     /** 当前执行模式（每次 doExecute 开始时根据模型能力设定） */
     private volatile AgentMode agentMode = AgentMode.ASSISTED;
 
+    /** 本轮是否深度思考：true 时向 API 请求传 thinking 参数（DeepSeek 等返回 reasoning_content） */
+    private volatile boolean enableThinking = false;
+
     /** 当前会话 ID（null/空 = 默认单文件历史；非空 = 按会话隔离的历史文件） */
     private volatile String sessionId;
 
@@ -119,8 +122,15 @@ public class OnlineAgentEngine {
     /**
      * 执行 Agent 任务。
      * 使用原生 function calling 循环：推理 → 工具调用 → 结果注入 → 再推理。
+     *
+     * @param enableThinking 是否开启深度思考（true 时向 API 请求传 thinking 参数，
+     *                       DeepSeek 等模型返回 reasoning_content 思考链）
      */
     public void execute(String userMessage, int maxTokens) {
+        execute(userMessage, maxTokens, false);
+    }
+
+    public void execute(String userMessage, int maxTokens, boolean enableThinking) {
         if (userMessage == null || userMessage.trim().isEmpty()) {
             notifyError("消息不能为空");
             return;
@@ -135,6 +145,8 @@ public class OnlineAgentEngine {
         }
 
         isCancelled.set(false);
+        // 记录本轮是否深度思考：贯穿到 API 请求（thinking 参数 → reasoning_content）
+        this.enableThinking = enableThinking;
         // 不清除 messageHistory，保留对话上下文实现连续对话
         // 仅清除本轮推理的状态
         thinkingChain.clear();
@@ -326,6 +338,10 @@ public class OnlineAgentEngine {
                     JsonObject assistantMsg = new JsonObject();
                     assistantMsg.addProperty("role", "assistant");
                     assistantMsg.addProperty("content", finalAnswer);
+                    // thinking 模式：assistant 消息必须回传 reasoning_content（否则下轮 400）
+                    if (result.reasoningContent != null && !result.reasoningContent.isEmpty()) {
+                        assistantMsg.addProperty("reasoning_content", result.reasoningContent);
+                    }
                     messageHistory.add(assistantMsg);
 
                     // 发一条系统提示：提醒它用标准的 tool_calls JSON 格式输出，而不是在内容里描述
@@ -355,6 +371,10 @@ public class OnlineAgentEngine {
                 JsonObject assistantMsg = new JsonObject();
                 assistantMsg.addProperty("role", "assistant");
                 assistantMsg.addProperty("content", finalAnswer);
+                // thinking 模式：assistant 消息必须回传 reasoning_content（否则下轮 400）
+                if (result.reasoningContent != null && !result.reasoningContent.isEmpty()) {
+                    assistantMsg.addProperty("reasoning_content", result.reasoningContent);
+                }
                 messageHistory.add(assistantMsg);
 
                 AILogger.i(TAG, "Returning final answer (iteration " + iteration
@@ -383,6 +403,11 @@ public class OnlineAgentEngine {
             assistantMsg.addProperty("role", "assistant");
             if (result.content != null && !result.content.isEmpty()) {
                 assistantMsg.addProperty("content", result.content);
+            }
+            // DeepSeek thinking 模式硬性要求：assistant 消息必须原样回传 reasoning_content，
+            // 否则下一轮请求 HTTP 400（"The reasoning_content in the thinking mode must be passed back"）
+            if (result.reasoningContent != null && !result.reasoningContent.isEmpty()) {
+                assistantMsg.addProperty("reasoning_content", result.reasoningContent);
             }
             // 统一生成 tool_call id：assistant.tool_calls 与后续 tool 消息必须严格配对
             // （模型未提供 id 时直接写回 tc.id，保证两处引用同一 id）
@@ -626,6 +651,7 @@ public class OnlineAgentEngine {
         }
 
         onlineInferenceService.generateStreamWithToolsV2(messagesArray, cfg, maxTokens, toolsJson,
+            enableThinking,
             new OnlineInferenceService.NativeToolStreamCallback() {
                 @Override
                 public void onStart() {
