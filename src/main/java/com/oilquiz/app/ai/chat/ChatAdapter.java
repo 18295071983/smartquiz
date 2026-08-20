@@ -893,11 +893,31 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 分隔线仅在思考区实际显示时可见（思考内容与正文之间）
         boolean showDivider = false;
 
-        if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
+        // 多轮思考：合并展示（每轮带"第N轮"标题，完成时显示全部，流式时显示当前轮）
+        String displayContent = message.thinkingContent != null ? message.thinkingContent : "";
+        if (message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            List<String> rounds = message.thinkingRounds;
+            // 流式时：已完成轮次 + 当前轮；非流式时：全部轮次
+            for (int i = 0; i < rounds.size(); i++) {
+                String r = rounds.get(i);
+                if (r == null || r.trim().isEmpty()) continue;
+                sb.append("\n[第 ").append(i + 1).append(" 轮思考]\n").append(r.trim());
+            }
+            // 当前轮（最后一轮,thinkingContent 可能等于 thinkingRounds 末位，去重）
+            String cur = displayContent.trim();
+            String lastRound = rounds.isEmpty() ? "" : rounds.get(rounds.size() - 1).trim();
+            if (!cur.isEmpty() && !cur.equals(lastRound)) {
+                sb.append("\n[第 ").append(rounds.size() + 1).append(" 轮思考]\n").append(cur);
+            }
+            displayContent = sb.toString();
+        }
+
+        if (displayContent != null && !displayContent.isEmpty()) {
             holder.thinkingLabel.setVisibility(View.VISIBLE);
 
             // 清理思考标签并格式化内容
-            String cleanedContent = message.thinkingContent
+            String cleanedContent = displayContent
                 .replaceAll("<think[^>]*>", "")
                 .replace("</think>", "")
                 .trim();
