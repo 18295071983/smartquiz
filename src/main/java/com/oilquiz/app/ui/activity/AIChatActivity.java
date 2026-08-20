@@ -3248,6 +3248,28 @@ public class AIChatActivity extends BaseActivity {
         } else {
             processChatMessage(message);
         }
+
+        // 对齐官方：深度思考是"本条"开关——发送后自动复位关闭（下次要深度思考再点开）
+        autoResetDeepThinkingAfterSend();
+    }
+
+    /** 发送后自动关闭深度思考开关（对齐 DeepSeek 官方"发送前决定本条"语义） */
+    private void autoResetDeepThinkingAfterSend() {
+        try {
+            ChatModeManager manager = ChatModeManager.getInstance(this);
+            if (manager.isDeepThinkingEnabled()) {
+                manager.setDeepThinkingEnabled(false);
+                updateModeButtonText();
+                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
+                if (chip != null) {
+                    chip.setChecked(false);
+                    updateDeepThinkChip(chip);
+                }
+                AppLogger.ai(TAG, "Deep thinking auto-reset after send (per-message semantics)");
+            }
+        } catch (Exception e) {
+            AppLogger.aiW(TAG, "autoResetDeepThinking failed: " + e.getMessage());
+        }
     }
 
     private void processMessageWithAttachmentsViaAgent(String originalMessage, List<ChatMessage.Attachment> attachments) {
