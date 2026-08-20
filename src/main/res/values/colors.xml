@@ -41,6 +41,11 @@
     <color name="border_light">#F1F5F9</color>
     <color name="surface_elevated">#FFFFFF</color>
 
+    <!-- 深度思考开关：关闭灰色 / 开启主色 -->
+    <color name="chip_gray_bg">#F1F5F9</color>
+    <color name="chip_gray_text">#64748B</color>
+    <color name="chip_gray_stroke">#E2E8F0</color>
+
     <color name="green_light">#D1FAE5</color>
     <color name="orange_light">#FFEDD5</color>
     <color name="purple_light">#EDE9FE</color>

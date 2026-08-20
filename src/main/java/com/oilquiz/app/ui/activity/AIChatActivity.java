@@ -1272,6 +1272,12 @@ public class AIChatActivity extends BaseActivity {
                             ChatModeManager.ChatMode.NORMAL);
                 }
                 updateModeButtonText();
+                // 同步快捷区深度思考 chip 状态
+                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
+                if (chip != null) {
+                    chip.setChecked(false);
+                    updateDeepThinkChip(chip);
+                }
                 showToast("已关闭深度思考");
             });
         });
@@ -1307,22 +1313,27 @@ public class AIChatActivity extends BaseActivity {
             addCompositeChip(quickGroup, "🔍 网页研究", "research");
         }
 
-        // 模式切换快捷按钮（精简：仅 深度思考；创意/Agent/思考辅助已删除）
+        // 深度思考开关（对齐官方：独立开关，点击开↔关，开启高亮主色/关闭灰色）
         Chip chipDeepThink = findViewById(R.id.chip_deep_think);
-        
-        if (chipDeepThink != null) chipDeepThink.setOnClickListener(v -> {
-            animateModeSwitch(() -> {
+
+        if (chipDeepThink != null) {
+            chipDeepThink.setChecked(ChatModeManager.getInstance(this).isDeepThinkingEnabled());
+            updateDeepThinkChip(chipDeepThink);
+            chipDeepThink.setOnClickListener(v -> {
                 ChatModeManager manager = ChatModeManager.getInstance(this);
                 boolean wasEnabled = manager.isDeepThinkingEnabled();
-                if (manager.setDeepThinkingEnabled(true)) {
+                boolean next = !wasEnabled;
+                if (manager.setDeepThinkingEnabled(next)) {
                     injectModeSwitchInstruction(
                             wasEnabled ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL,
-                            ChatModeManager.ChatMode.DEEP_THINKING);
+                            next ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL);
                 }
+                chipDeepThink.setChecked(next);
+                updateDeepThinkChip(chipDeepThink);
                 updateModeButtonText();
-                showToast("已开启深度思考");
+                showToast(next ? "已开启深度思考" : "已关闭深度思考");
             });
-        });
+        }
 
         // 空状态快捷操作
         if (emptyStateChips != null) {
@@ -6356,6 +6367,12 @@ public class AIChatActivity extends BaseActivity {
             injectModeSwitchInstruction(oldMode, manager.getCurrentMode());
         }
         updateModeButtonText();
+        // 同步快捷区深度思考 chip 状态
+        com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
+        if (chip != null) {
+            chip.setChecked(next);
+            updateDeepThinkChip(chip);
+        }
         showToast(next ? "已开启深度思考" : "已关闭深度思考");
     }
 
@@ -6365,11 +6382,31 @@ public class AIChatActivity extends BaseActivity {
     private void updateModeButtonText() {
         if (btnModeSelect != null) {
             ChatModeManager manager = ChatModeManager.getInstance(AIChatActivity.this);
-            ChatModeManager.ChatMode m = manager.getCurrentMode();
             String btnText = (manager.isDeepThinkingEnabled() ? "🧠" : "💬")
                     + (manager.isDeepThinkingEnabled() ? "深度思考" : "普通")
                     + (manager.isDeepThinkingEnabled() ? " ON" : "");
             btnModeSelect.setText(btnText);
+        }
+    }
+
+    /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
+    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
+        if (chip == null) return;
+        boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        if (on) {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.primary)));
+            chip.setTextColor(getColor(R.color.white));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.primary)));
+            chip.setText("🧠 深度思考 ON");
+        } else {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_bg)));
+            chip.setTextColor(getColor(R.color.chip_gray_text));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_stroke)));
+            chip.setText("🧠 深度思考");
         }
     }
 
