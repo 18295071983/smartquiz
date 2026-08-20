@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="8dp"
-    android:background="@drawable/tool_call_card_background">
+    android:background="@drawable/message_card_tool">
 
     <!-- 头部：工具图标 + 工具名 + 状态徽标（点击折叠整个块） -->
     <LinearLayout
@@ -76,7 +76,7 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:padding="6dp"
-            android:background="@drawable/tool_call_expandable_bg"
+            android:background="@drawable/message_card_tool"
             android:clickable="true"
             android:focusable="true">
 
@@ -101,7 +101,7 @@
             android:id="@+id/tool_params"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/tool_call_background"
+            android:background="@drawable/message_card_tool"
             android:padding="10dp"
             android:textColor="@color/tool_call_text"
             android:textSize="12sp"
@@ -124,7 +124,7 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:padding="6dp"
-            android:background="@drawable/tool_result_expandable_bg"
+            android:background="@drawable/message_card_tool"
             android:clickable="true"
             android:focusable="true">
 
@@ -150,7 +150,7 @@
             android:id="@+id/tool_result"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/tool_call_result_background"
+            android:background="@drawable/message_card_tool"
             android:padding="10dp"
             android:textColor="@color/tool_call_text"
             android:textSize="12sp"

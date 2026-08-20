@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="12dp"
-    android:background="@drawable/agent_summary_card_background"
+    android:background="@drawable/message_card_background"
     android:layout_marginTop="8dp"
     android:layout_marginBottom="8dp">
 
