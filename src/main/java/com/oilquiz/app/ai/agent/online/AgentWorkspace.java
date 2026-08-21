@@ -18,6 +18,12 @@ import java.util.List;
  *   → 不自动清理，管理页可见
  * - 长期记忆（用户偏好/事实）→ 独立记忆系统（AgentMemoryStore），不占工作区
  *
+ * 目录位置（公共目录优先，防"私有目录找不到文件"）：
+ * - 已授予"所有文件访问"(MANAGE_EXTERNAL_STORAGE, Android 11+) →
+ *   公共目录 Download/OilQuiz/agent_workspace/（文件对用户/文件管理器/其他 App 可见，
+ *   可直接分享/备份，无需复制）
+ * - 未授权 → 回退应用私有目录 files/agent_workspace/（始终可用，分享时自动复制到公共目录）
+ *
  * 目录结构：
  *   agent_workspace/
  *     tmp/    ← 临时执行缓存（自动清理）
@@ -29,10 +35,14 @@ public class AgentWorkspace {
     private static final String WORKSPACE_DIR = "agent_workspace";
     private static final String TMP_DIR = "tmp";
     private static final String FILES_DIR = "files";
+    /** 公共目录根：Download/OilQuiz（SDK 29+ 用户可见） */
+    private static final String PUBLIC_ROOT = "OilQuiz";
 
     private final File workspaceDir;
     private final File tmpDir;
     private final File filesDir;
+    /** 是否使用公共目录（true=Download/OilQuiz；false=私有目录回退） */
+    private final boolean publicWorkspace;
 
     private static volatile AgentWorkspace instance;
 
@@ -47,8 +57,44 @@ public class AgentWorkspace {
         return instance;
     }
 
+    /** 重建实例（权限变化后调用：私有目录 ↔ 公共目录切换） */
+    public static void rebuildInstance(Context context) {
+        synchronized (AgentWorkspace.class) {
+            instance = new AgentWorkspace(context.getApplicationContext());
+        }
+    }
+
     private AgentWorkspace(Context context) {
-        this.workspaceDir = new File(context.getFilesDir(), WORKSPACE_DIR);
+        // 公共目录：Download/OilQuiz/agent_workspace（需"所有文件访问"权限，Android 11+）
+        File publicWs = null;
+        boolean hasPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
+                || android.os.Environment.isExternalStorageManager();
+        if (hasPermission) {
+            try {
+                java.io.File downloadDir = android.os.Environment
+                        .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (downloadDir != null) {
+                    publicWs = new File(downloadDir, PUBLIC_ROOT + "/" + WORKSPACE_DIR);
+                    if (!publicWs.exists()) publicWs.mkdirs();
+                    if (!publicWs.isDirectory() || !publicWs.canWrite()) {
+                        AILogger.w(TAG, "公共工作区不可写，回退私有目录: " + publicWs.getAbsolutePath());
+                        publicWs = null;
+                    }
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "公共工作区检测失败，回退私有目录: " + t.getMessage());
+                publicWs = null;
+            }
+        }
+        if (publicWs != null) {
+            this.workspaceDir = publicWs;
+            this.publicWorkspace = true;
+            AILogger.i(TAG, "Agent workspace (public): " + publicWs.getAbsolutePath());
+        } else {
+            this.workspaceDir = new File(context.getFilesDir(), WORKSPACE_DIR);
+            this.publicWorkspace = false;
+            AILogger.i(TAG, "Agent workspace (private fallback): " + workspaceDir.getAbsolutePath());
+        }
         this.tmpDir = new File(workspaceDir, TMP_DIR);
         this.filesDir = new File(workspaceDir, FILES_DIR);
         ensureDirs();
@@ -58,6 +104,17 @@ public class AgentWorkspace {
         if (!workspaceDir.exists()) workspaceDir.mkdirs();
         if (!tmpDir.exists()) tmpDir.mkdirs();
         if (!filesDir.exists()) filesDir.mkdirs();
+    }
+
+    /** 工作区是否位于公共目录（Download/OilQuiz） */
+    public boolean isPublicWorkspace() {
+        return publicWorkspace;
+    }
+
+    /** 公共目录权限是否已授予（Android 11+ 的 MANAGE_EXTERNAL_STORAGE；旧版本恒 true） */
+    public static boolean hasPublicStoragePermission() {
+        return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
+                || android.os.Environment.isExternalStorageManager();
     }
 
     /** 工作区根目录（不存在则创建） */
@@ -172,6 +229,46 @@ public class AgentWorkspace {
             }
         }
         return removed;
+    }
+
+    /**
+     * 迁移私有目录旧工作区文件到公共目录（有权限时调用一次）。
+     * 复制 files/ 长期文件（tmp/ 临时文件不迁移——任务结束本就清理）。
+     * @return 迁移的文件数
+     */
+    public int migrateFromPrivate(Context context) {
+        if (!publicWorkspace || context == null) return 0;
+        try {
+            java.io.File privateWs = new java.io.File(context.getFilesDir(), WORKSPACE_DIR);
+            java.io.File privateFiles = new java.io.File(privateWs, FILES_DIR);
+            if (!privateFiles.exists() || !privateFiles.isDirectory()) return 0;
+            java.io.File[] old = privateFiles.listFiles();
+            if (old == null) return 0;
+            int migrated = 0;
+            for (java.io.File f : old) {
+                if (!f.isFile()) continue;
+                java.io.File dest = new java.io.File(filesDir, f.getName());
+                if (dest.exists()) continue; // 目标已存在不覆盖
+                try (java.io.InputStream is = new java.io.FileInputStream(f);
+                     java.io.OutputStream os = new java.io.FileOutputStream(dest)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        os.write(buf, 0, n);
+                    }
+                    migrated++;
+                } catch (Exception e) {
+                    AILogger.w(TAG, "迁移文件失败: " + f.getName() + " - " + e.getMessage());
+                }
+            }
+            if (migrated > 0) {
+                AILogger.i(TAG, "Migrated " + migrated + " files from private workspace to public");
+            }
+            return migrated;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "迁移工作区失败: " + t.getMessage());
+            return 0;
+        }
     }
 
     /** 工作区文件信息 */

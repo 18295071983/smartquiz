@@ -263,8 +263,23 @@ public class FileCardView implements ChatComponent {
                     Toast.makeText(context, "文件不存在: " + file.getName(), Toast.LENGTH_SHORT).show();
                     return;
                 }
-                // 复制到公共 Download 目录（分享目标可读；私有目录文件直接分享会"需要root"）
-                Uri shareUri = copyToPublicDownloads(context, file);
+                Uri shareUri = null;
+                try {
+                    // 工作区在公共目录时文件可直接被目标App读取（FileProvider 授权即可）；
+                    // 私有目录文件需复制到公共 Download（否则"需要root"）
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                            com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+                    boolean inWorkspace = file.getCanonicalPath()
+                            .startsWith(ws.getWorkspaceDir().getCanonicalPath());
+                    if (inWorkspace && ws.isPublicWorkspace()) {
+                        shareUri = androidx.core.content.FileProvider.getUriForFile(
+                                context, "com.oilquiz.app.fileprovider", file);
+                    } else {
+                        shareUri = copyToPublicDownloads(context, file);
+                    }
+                } catch (Throwable t) {
+                    shareUri = copyToPublicDownloads(context, file);
+                }
                 if (shareUri == null) {
                     Toast.makeText(context, "文件复制失败，无法分享", Toast.LENGTH_SHORT).show();
                     return;

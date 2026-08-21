@@ -62,11 +62,32 @@ public class AgentWorkspaceView {
 
         TextView desc = new TextView(context);
         AgentWorkspace ws = AgentWorkspace.getInstance(context);
-        desc.setText("📁 长期文件区(files/) 保留用户产物\n⚙️ 临时执行区(tmp/) 任务结束自动清理，不跨任务保留\n路径: " + ws.getWorkspacePath());
+        boolean isPublic = ws.isPublicWorkspace();
+        desc.setText("📁 长期文件区(files/) 保留用户产物\n⚙️ 临时执行区(tmp/) 任务结束自动清理，不跨任务保留\n"
+                + "位置: " + (isPublic ? "🌐 公共目录(Download/OilQuiz，所有App可见)" : "🔒 应用私有目录")
+                + "\n路径: " + ws.getWorkspacePath());
         desc.setTextSize(11);
         desc.setTextColor(color(R.color.text_secondary));
-        desc.setPadding(0, dp(4), 0, dp(12));
+        desc.setPadding(0, dp(4), 0, dp(4));
         page.addView(desc);
+
+        // 未授权公共目录时：提示 + 一键跳转授权（授予后工作区自动切换公共目录并迁移旧文件）
+        if (!isPublic) {
+            TextView permBtn = new TextView(context);
+            permBtn.setText("🔓 授予文件访问权限（工作区切换到公共目录，文件对所有App可见）");
+            permBtn.setTextSize(11);
+            permBtn.setGravity(Gravity.CENTER);
+            permBtn.setTextColor(color(R.color.primary));
+            permBtn.setBackground(buttonBackground(R.color.primary_container));
+            LinearLayout.LayoutParams permLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            permLp.setMargins(0, dp(4), 0, dp(8));
+            page.addView(permBtn, permLp);
+            permBtn.setOnClickListener(v -> requestPublicStoragePermission());
+        }
+        // 分隔留白
+        page.addView(new android.view.View(context), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(4)));
 
         // 清空按钮行：清空长期文件 / 清理临时缓存
         LinearLayout clearRow = new LinearLayout(context);
@@ -276,5 +297,42 @@ public class AgentWorkspaceView {
         return (int) android.util.TypedValue.applyDimension(
                 android.util.TypedValue.COMPLEX_UNIT_DIP, value,
                 context.getResources().getDisplayMetrics());
+    }
+
+    /** 跳转系统"所有文件访问"授权页；授权后工作区自动切换到公共目录并迁移旧文件 */
+    private void requestPublicStoragePermission() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+                Toast.makeText(context, "当前 Android 版本无需额外授权，工作区已使用公共目录",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.Intent intent = new android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(android.net.Uri.parse("package:" + context.getPackageName()));
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                context.startActivity(intent);
+            } catch (Exception e) {
+                android.content.Intent fallback = new android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                fallback.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(fallback);
+            }
+            // 返回后检查：授权则重建工作区实例（切公共目录）+ 迁移旧文件
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (AgentWorkspace.hasPublicStoragePermission()) {
+                    AgentWorkspace.rebuildInstance(context);
+                    int migrated = AgentWorkspace.getInstance(context).migrateFromPrivate(context);
+                    Toast.makeText(context, "已切换到公共目录，迁移 " + migrated + " 个文件",
+                            Toast.LENGTH_SHORT).show();
+                    refresh();
+                } else {
+                    Toast.makeText(context, "未授予文件访问权限，工作区仍在私有目录", Toast.LENGTH_SHORT).show();
+                }
+            }, 2000);
+        } catch (Exception e) {
+            Toast.makeText(context, "无法打开授权页: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 }
