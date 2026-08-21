@@ -203,14 +203,65 @@ public class OnlineToolManager {
         return registry.getToolDefinitionsForNames(names);
     }
 
-    /** 获取全部已启用工具名（MCP 式动态扩展：检测模型提及的未注入工具） */
-    public java.util.Set<String> getAllEnabledToolNames() {
-        java.util.Set<String> names = new java.util.LinkedHashSet<>();
-        for (com.oilquiz.app.ai.agent.online.OnlineToolRegistry.ToolMeta meta
-                : registry.getAllToolMetas()) {
-            names.add(meta.name);
+    /**
+     * 按用户消息意图获取工具定义（缓存安全的 MCP 式注入）。
+     * 固定核心工具集 + 意图匹配追加低频工具：
+     * - 核心工具始终包含（顺序固定 → 前缀缓存稳定）
+     * - 用户消息明确指向某类任务时追加该类工具（同一次请求的所有 Agent 轮次 tools 相同，
+     *   任务内缓存稳定）
+     */
+    public String getToolDefinitionsForMessageAndCore(String message, java.util.Set<String> coreTools) {
+        try {
+            java.util.Set<String> include = new java.util.LinkedHashSet<>(coreTools);
+            // 按用户消息意图追加低频工具
+            if (message != null && !message.trim().isEmpty()) {
+                String msg = message.toLowerCase();
+                if (containsAny(msg, "天气", "气温", "温度", "预报", "weather")) {
+                    include.add("ai_weather");
+                }
+                if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news", "find", "查询", "读网页", "网页", "调研", "research")) {
+                    include.add("smart_research");
+                    include.add("webpage_reader");
+                }
+                if (containsAny(msg, "翻译", "translate", "译成", "英文", "日语", "韩语", "翻译成")) {
+                    include.add("translation");
+                }
+                if (containsAny(msg, "文件", "目录", "读取", "打开文件", "解析", "file", "list")) {
+                    include.add("file_reader");
+                    include.add("file_analyzer");
+                }
+                if (containsAny(msg, "生成文件", "写文件", "创建文件", "保存文件", "报告", "文档", "导出", "markdown", "md文件")) {
+                    include.add("file_generator");
+                }
+                if (containsAny(msg, "图片", "生成图", "画图", "image", "照片", "识别图片", "图片生成")) {
+                    include.add("image_gen");
+                }
+                if (containsAny(msg, "数据库", "题库", "database", "查询记录")) {
+                    include.add("database");
+                }
+                if (containsAny(msg, "python", "代码", "计算", "脚本", "运行", "数据分析", "统计", "算一下")) {
+                    include.add("python_execute");
+                    include.add("python_calculate");
+                    include.add("python_analyze_data");
+                }
+                if (containsAny(msg, "定位", "位置", "坐标", "location", "gps")) {
+                    include.add("location");
+                }
+                if (containsAny(msg, "时间", "日期", "现在几点", "time", "date")) {
+                    include.add("time_date");
+                }
+                if (containsAny(msg, "应用", "打开app", "启动", "app操作", "运行应用")) {
+                    include.add("app_operation");
+                }
+                if (containsAny(msg, "电话", "联系人", "短信", "call", "contact", "sms")) {
+                    include.add("app_toolkit");
+                }
+            }
+            return registry.getToolDefinitionsForNames(include);
+        } catch (Exception e) {
+            AILogger.e(TAG, "getToolDefinitionsForMessageAndCore failed: " + e.getMessage(), e);
+            return getToolDefinitionsForNames(coreTools);
         }
-        return names;
     }
 
     /**
