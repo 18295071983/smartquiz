@@ -32,7 +32,9 @@ public class AILogger {
     private static final String LOG_DIR = "ai_logs";
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
-    private static final long MAX_LOG_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    private static final long MAX_LOG_FILE_SIZE = 5 * 1024 * 1024; // 5MB（超过即轮转，避免日志无限膨胀）
+    /** 保留的轮转日志文件数（含当天主文件），超出清理最旧的 */
+    private static final int MAX_ROTATED_KEEP = 5;
     
     private static File logFile;
     private static ReentrantLock logLock = new ReentrantLock();
@@ -250,10 +252,33 @@ public class AILogger {
                     logFile = new File(logFile.getParent(), oldFileName);
                     logFile.createNewFile();
                     Log.i(TAG, "Log file rotated, new file: " + logFile.getAbsolutePath());
+                    // 清理最旧的轮转文件，防止日志无限累积占满存储
+                    cleanupOldRotatedLogs();
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Failed to rotate log file: " + e.getMessage(), e);
             }
+        }
+    }
+
+    /** 清理最旧的轮转日志文件（保留最近 MAX_ROTATED_KEEP 个，含当天主文件） */
+    private static void cleanupOldRotatedLogs() {
+        try {
+            File logDir = logFile != null ? logFile.getParentFile() : null;
+            if (logDir == null || !logDir.isDirectory()) return;
+            File[] files = logDir.listFiles((dir, name) ->
+                    name != null && name.startsWith("ai_log_") && name.endsWith(".txt"));
+            if (files == null || files.length <= MAX_ROTATED_KEEP) return;
+            // 按最后修改时间升序（最旧的在前）
+            java.util.Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+            int toDelete = files.length - MAX_ROTATED_KEEP;
+            for (int i = 0; i < toDelete; i++) {
+                if (files[i].delete()) {
+                    Log.i(TAG, "Deleted old rotated log: " + files[i].getName());
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to cleanup old logs: " + e.getMessage());
         }
     }
     

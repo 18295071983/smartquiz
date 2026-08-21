@@ -254,12 +254,28 @@ public class SystemUIComponentTool implements AITool {
                 Object message = parameters.get("message");
                 if (message != null) props.put("content", message.toString());
             }
+            // 顶层 actions（模型常把交互按钮放顶层参数而非 props 内）并入 props，
+            // 否则 interactive=false 时按钮被静默忽略且不返回 component_id（Bug3）
+            if (!props.has("actions")) {
+                Object topActions = parameters.get("actions");
+                if (topActions != null) {
+                    try {
+                        if (topActions instanceof String) {
+                            props.put("actions", new org.json.JSONArray((String) topActions));
+                        } else {
+                            props.put("actions", new org.json.JSONArray(
+                                    new com.google.gson.Gson().toJson(topActions)));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
 
             // 交互支持：props 带 actions 时注册到组件注册表 + 注入 component_id
             boolean interactive = props.has("actions");
-            String componentId = null;
+            // 无条件生成 component_id（create 响应始终返回，供后续 update/close/get_result 使用）
+            String componentId = "chat_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 10000);
             if (interactive) {
-                componentId = "chat_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 10000);
                 pythonToolManager.registerChatComponent(componentId);
                 // 全局回调：聊天流组件按钮点击 → 写入 result
                 com.oilquiz.app.ai.chat.component.ComponentActions.setResultCallback(
@@ -290,9 +306,7 @@ public class SystemUIComponentTool implements AITool {
             result.put("message", "组件已加入聊天流: " + componentType
                     + (interactive ? "（交互组件，component_id=" + componentId + "）" : ""));
             result.put("props", props.toString());
-            if (componentId != null) {
-                result.put("component_id", componentId);
-            }
+            result.put("component_id", componentId);
             return new AIToolResult(result, parameters).withComponent(data);
         } catch (Exception e) {
             Log.e(TAG, "创建聊天流组件失败: " + e.getMessage(), e);

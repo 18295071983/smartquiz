@@ -114,7 +114,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="步骤"
+                android:text="思考轮"
                 android:textSize="10sp"
                 android:textColor="@color/agent_summary_label" />
         </LinearLayout>

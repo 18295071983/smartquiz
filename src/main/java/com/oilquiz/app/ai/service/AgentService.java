@@ -729,8 +729,11 @@ public class AgentService {
         AILogger.i(TAG, "Executing tool: " + call.name + " with args: " + call.arguments);
         long startTime = System.currentTimeMillis();
 
+        // ui_component 不缓存：create 必须重新执行（注册新组件/新 id），
+        // get_result 超时后的 "pending" 若被缓存，二次调用瞬间返回 pending 永远取不回点击（Bug2/3）
+        boolean noCacheTool = "ui_component".equals(call.name);
         String cacheKey = call.name + ":" + call.arguments;
-        String cached = getCachedResult(cacheKey);
+        String cached = noCacheTool ? null : getCachedResult(cacheKey);
         if (cached != null) {
             AILogger.d(TAG, "Tool cache HIT: " + call.name);
             return new ToolResult(call.name, cached, true, 0, 0);
@@ -774,7 +777,7 @@ public class AgentService {
         long elapsed = System.currentTimeMillis() - startTime;
         AILogger.i(TAG, "Tool " + call.name + " completed in " + elapsed + "ms, success=" + result.success);
 
-        if (result.success) {
+        if (result.success && !noCacheTool) {
             cacheResult(cacheKey, result.result);
         }
 
@@ -813,7 +816,12 @@ public class AgentService {
                     }
                 });
 
-                return future.get(TOOL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                // get_result 是阻塞等待用户点击组件（交互可能持续较久），用 120s 长超时，
+                // 避免 30s 默认超时中断等待导致 Agent"越过交互"直接继续（Bug2）
+                boolean isInteractionWait = "ui_component".equals(realToolName)
+                        && "get_result".equals(String.valueOf(params.get("action")));
+                long effectiveTimeout = isInteractionWait ? 120000L : TOOL_TIMEOUT_MS;
+                return future.get(effectiveTimeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
                 lastException = e;
                 AILogger.w(TAG, "Tool " + realToolName + " timeout on attempt " + (attempt + 1));
