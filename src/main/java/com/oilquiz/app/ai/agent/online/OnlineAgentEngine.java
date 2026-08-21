@@ -450,6 +450,24 @@ public class OnlineAgentEngine {
                         + " 次试图调用工具但未使用正确格式，请尝试用更简洁的方式提问）";
                 }
 
+                // 【目标达成率评估】此前已用过工具（多轮任务），模型现在给出答案 →
+                // 注入评估引导，让模型自评完成度，决定是收尾还是继续补充。
+                // 简单任务（第一轮直接回答）不评估，避免浪费。
+                if (toolLoopCount.get() > 0 && iteration < maxIterations && !hintToCallTool) {
+                    JsonObject evalMsg = new JsonObject();
+                    evalMsg.addProperty("role", "system");
+                    evalMsg.addProperty("content",
+                        "【目标评估】请对照用户最初的需求，评估你当前回答的目标达成情况：\n"
+                      + "- 若已完整达成用户目标：保留并完善此回答作为最终答案。\n"
+                      + "- 若仍有遗漏/可改进（如缺数据、未覆盖用户问题的某部分、结果需整理展示）："
+                      + "指出缺口并决定是否继续调用工具补充，或直接补充完善回答。\n"
+                      + "- 若需要继续：直接输出下一步的工具调用（tool_calls），不要输出回答文本。\n"
+                      + "- 若确认完成：输出最终回答。");
+                    messageHistory.add(evalMsg);
+                    AILogger.i(TAG, "Injected goal-evaluation prompt (iteration " + iteration + ")");
+                    continue; // 让模型评估后决定收尾或继续
+                }
+
                 JsonObject assistantMsg = new JsonObject();
                 assistantMsg.addProperty("role", "assistant");
                 assistantMsg.addProperty("content", finalAnswer);
@@ -618,6 +636,23 @@ public class OnlineAgentEngine {
                     messageHistory.add(hintMsg);
                     AILogger.i(TAG, "Injected fallback hint for failed tools: " + failedTools);
                 }
+            }
+
+            // ===== ReAct 反思环节（Observation → Reflection）=====
+            // 工具执行完成后，注入反思引导，让模型评估结果并决定下一步：
+            // 继续调用（信息不足）/ 修正重试（结果不对）/ 完成输出（目标达成）。
+            // 这是 ReAct 循环的"观察→反思→再行动"关键环节，防止空转或过早收尾。
+            if (iteration < maxIterations) {
+                StringBuilder reflection = new StringBuilder();
+                reflection.append("【反思】你已执行了工具调用，请基于工具结果评估当前进展：\n");
+                reflection.append("- 工具结果是否符合预期？若不符合，说明原因并决定如何修正（换参数/换工具/换策略）。\n");
+                reflection.append("- 是否还缺少达成目标所需的信息？若缺，决定下一步调用哪个工具获取。\n");
+                reflection.append("- 若所有必要信息已获取、目标已达成：直接输出最终答案（用 tool_calls 之外的纯文本回复），并简要说明依据。\n");
+                reflection.append("- 不要重复调用已成功且结果已利用的工具，不要空转。\n");
+                JsonObject reflectionMsg = new JsonObject();
+                reflectionMsg.addProperty("role", "system");
+                reflectionMsg.addProperty("content", reflection.toString());
+                messageHistory.add(reflectionMsg);
             }
 
             // 继续下一轮推理
