@@ -987,7 +987,7 @@ public class AIToolManager {
                     .category("tool")
                     .build();
             case "ui_component":
-                return ToolDefinition.builder("ui_component", "系统UI组件工具（独立工具，无需Python）：创建系统原生组件(dialog确认框/progress进度条/input输入框/choice单选/multi_choice多选/date日期/time时间/image图片预览/snackbar提示条/list列表/web网页/notification通知)与内置组件(信息卡/表格/图表/列表/步骤/待办/代码/JSON/HTML等21种卡片，进聊天流展示，props带actions可交互)。有结构的信息(列表/表格/图表/指标/题目/天气等)一律用它创建组件卡片展示，不要用纯文本/Markdown表格。组件握手：create→component_id→update/close→get_result取用户操作结果。")
+                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。握手:create→component_id→update/close→get_result取用户操作。")
                     .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)", true)
                     .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/web/notification/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)", false)
                     .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)

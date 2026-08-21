@@ -639,10 +639,10 @@ public class OnlineAgentEngine {
             }
 
             // ===== ReAct 反思环节（Observation → Reflection）=====
-            // 工具执行完成后，注入反思引导，让模型评估结果并决定下一步：
-            // 继续调用（信息不足）/ 修正重试（结果不对）/ 完成输出（目标达成）。
-            // 这是 ReAct 循环的"观察→反思→再行动"关键环节，防止空转或过早收尾。
-            if (iteration < maxIterations) {
+            // 工具执行完成后，注入反思引导让模型评估结果决定下一步。
+            // 频率优化（省 token）：仅当"有失败"或"已多轮(≥2)"时反思——
+            // 单轮成功工具调用后不注入（模型基于工具结果自然继续），避免每轮都多一次反思消耗。
+            if (iteration < maxIterations && (!failedTools.isEmpty() || iteration >= 2)) {
                 StringBuilder reflection = new StringBuilder();
                 reflection.append("【反思】你已执行了工具调用，请基于工具结果评估当前进展：\n");
                 reflection.append("- 工具结果是否符合预期？若不符合，说明原因并决定如何修正（换参数/换工具/换策略）。\n");
@@ -653,6 +653,8 @@ public class OnlineAgentEngine {
                 reflectionMsg.addProperty("role", "system");
                 reflectionMsg.addProperty("content", reflection.toString());
                 messageHistory.add(reflectionMsg);
+                AILogger.i(TAG, "Injected reflection prompt (iteration " + iteration
+                        + ", failed=" + failedTools.size() + ")");
             }
 
             // 继续下一轮推理
