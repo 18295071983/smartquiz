@@ -962,8 +962,9 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 构建环境上下文：当前日期时间、位置、天气。
-     * 在Agent主循环前调用，注入为system消息辅助模型思考。
+     * 构建环境上下文：当前日期时间 + 位置（可选）。
+     * 天气不注入——Agent 有 ai_weather 工具，用户问天气时主动调用获取完整信息；
+     * 注入天气既浪费 token 又拖慢启动（每次执行前等待位置+天气），且摘要易截断。
      * 位置获取有5秒超时，失败则仅使用日期时间。
      */
     private String buildEnvironmentContext() {
@@ -977,7 +978,7 @@ public class OnlineAgentEngine {
         String dateTime = sdf.format(new Date());
         sb.append("当前日期：").append(dateTime).append("\n");
 
-        // 2. 获取位置（5秒超时）
+        // 2. 获取位置（5秒超时，失败仅用日期）
         String locationInfo = null;
         try {
             CompletableFuture<OnlineToolResult> locFuture = CompletableFuture.supplyAsync(
@@ -991,29 +992,7 @@ public class OnlineAgentEngine {
                 if (city != null) {
                     locationInfo = district != null ? district : city;
                     sb.append("当前位置：").append(locationInfo).append("\n");
-
-                    // 3. 获取天气（基于城市，3秒超时）
-                    String weatherSummary = null;
-                    try {
-                        String weatherArgs = "{\"action\":\"current\",\"city\":\"" + city + "\"}";
-                        CompletableFuture<OnlineToolResult> weatherFuture = CompletableFuture.supplyAsync(
-                            () -> toolManager.executeTool("env_weather", "ai_weather", weatherArgs),
-                            executor);
-
-                        OnlineToolResult weatherResult = weatherFuture.get(3, TimeUnit.SECONDS);
-                        if (weatherResult != null && weatherResult.success && weatherResult.result != null) {
-                            weatherSummary = extractWeatherSummary(weatherResult.result);
-                            if (weatherSummary != null) {
-                                sb.append("当前天气：").append(weatherSummary).append("\n");
-                            }
-                        }
-                    } catch (Exception e) {
-                        AILogger.w(TAG, "Weather fetch for env context failed: " + e.getMessage());
-                    }
-
-                    // 反馈环境感知结果
-                    String finalWeather = weatherSummary;
-                    notifyStep("环境感知", "✅ 位置: " + locationInfo + (finalWeather != null ? " | 天气: " + finalWeather : " | 天气获取失败"));
+                    notifyStep("环境感知", "✅ 位置: " + locationInfo);
                 } else {
                     notifyStep("环境感知", "⚠️ 位置解析失败，仅使用日期时间");
                 }
@@ -1057,36 +1036,6 @@ public class OnlineAgentEngine {
             }
         } catch (Exception e) {
             // ignore
-        }
-        return null;
-    }
-
-    /** 从weather工具返回的JSON中提取天气摘要 */
-    private String extractWeatherSummary(String result) {
-        if (result == null || result.isEmpty()) return null;
-        try {
-            JsonObject json = JsonParser.parseString(result).getAsJsonObject();
-            StringBuilder w = new StringBuilder();
-            if (json.has("temp")) w.append(json.get("temp").getAsString()).append("°C");
-            else if (json.has("temperature")) w.append(json.get("temperature").getAsString()).append("°C");
-            if (json.has("text")) w.append(" ").append(json.get("text").getAsString());
-            else if (json.has("weather")) w.append(" ").append(json.get("weather").getAsString());
-            if (json.has("humidity")) w.append(" 湿度").append(json.get("humidity").getAsString()).append("%");
-            // 尝试从 formatted_result 嵌套字段提取
-            if (w.length() == 0 && json.has("formatted_result")) {
-                String fr = json.get("formatted_result").getAsString();
-                if (fr != null && !fr.isEmpty()) return fr.length() > 100 ? fr.substring(0, 100) + "..." : fr;
-            }
-            return w.length() > 0 ? w.toString() : null;
-        } catch (Exception e) {
-            // JSON 解析失败，尝试从纯文本中提取温度等关键信息
-            try {
-                StringBuilder w = new StringBuilder();
-                java.util.regex.Matcher tempMatcher = java.util.regex.Pattern.compile("(-?\\d+\\.?\\d*)\\s*°?C?").matcher(result);
-                if (tempMatcher.find()) w.append(tempMatcher.group(1)).append("°C");
-                if (w.length() > 0 && w.length() < 80) return w.toString();
-            } catch (Exception ignored) {}
-            AILogger.w(TAG, "Failed to extract weather summary: " + e.getMessage());
         }
         return null;
     }

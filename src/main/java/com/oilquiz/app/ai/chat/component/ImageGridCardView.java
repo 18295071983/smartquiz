@@ -310,6 +310,7 @@ public class ImageGridCardView implements ChatComponent {
 
             PhotoView photoView = new PhotoView(context);
             photoView.setBackgroundColor(Color.BLACK);
+            // 点击图片关闭；小图时放大到屏幕宽度（否则原尺寸显示像"小图"）
             root.addView(photoView, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -335,6 +336,7 @@ public class ImageGridCardView implements ChatComponent {
             if (localBmp != null) {
                 photoView.setImageBitmap(localBmp);
                 loading.setVisibility(View.GONE);
+                zoomToFitWidth(photoView, localBmp, context);
             } else {
                 RequestListener<android.graphics.drawable.Drawable> listener =
                         new RequestListener<android.graphics.drawable.Drawable>() {
@@ -360,6 +362,23 @@ public class ImageGridCardView implements ChatComponent {
             }
         } catch (Exception e) {
             android.util.Log.w("ImageGridCardView", "showFullImage failed: " + e.getMessage());
+        }
+    }
+
+    /** 小图放大到屏幕宽度（PhotoView 默认 FIT_CENTER 小图保持原尺寸，看起来像"小图"） */
+    private static void zoomToFitWidth(PhotoView photoView, android.graphics.Bitmap bmp, Context context) {
+        try {
+            if (bmp == null || photoView == null) return;
+            int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+            // 图宽小于屏幕宽时放大到占满宽度（FIT_CENTER 不会放大小图）
+            if (bmp.getWidth() < screenWidth) {
+                float scale = (float) screenWidth / bmp.getWidth();
+                // 限制最大 3 倍，避免超小图放大过度
+                scale = Math.min(scale, 3.0f);
+                photoView.setScale(scale);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("ImageGridCardView", "zoomToFitWidth failed: " + t.getMessage());
         }
     }
 
