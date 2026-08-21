@@ -221,6 +221,188 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 从 API 实际识别模型上下文窗口大小（而非模型名推断）。
+     *
+     * 调用 OpenAI 兼容的 GET /models（或 /v1/models）接口，从返回的模型详情中
+     * 提取上下文窗口。不同服务商字段不同，兼容解析：
+     *   - context_length / max_context / context_window / max_model_len
+     *   - 或从 /models/{modelName} 详情提取
+     *
+     * 失败（端点不支持 /models、网络错误、字段缺失）返回 null，
+     * 调用方回退到 {@link OnlineModelProfile} 配置表推断。
+     *
+     * 结果按 apiUrl+modelName 持久化缓存（不换模型不重复查询）。
+     *
+     * @param config 在线模型配置
+     * @return 上下文窗口（tokens）；未知/失败返回 null
+     */
+    public Integer queryContextWindowFromAPI(final OnlineModelManager.OnlineModelConfig config) {
+        if (config == null) return null;
+        String key = (config.apiUrl != null ? config.apiUrl : "") + "|" + config.modelName;
+        try {
+            Integer cached = contextWindowApiCache.get(key);
+            if (cached != null) return cached;
+            Integer persisted = loadContextWindowCache(key);
+            if (persisted != null) {
+                contextWindowApiCache.put(key, persisted);
+                return persisted;
+            }
+            Integer result = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return doQueryContextWindow(config);
+                } catch (Exception e) {
+                    AILogger.w(TAG, "Context window query failed: " + e.getMessage());
+                    return null;
+                }
+            }, executor).get(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (result != null) {
+                contextWindowApiCache.put(key, result);
+                saveContextWindowCache(key, result);
+                AILogger.i(TAG, "API context window: " + config.modelName + " = " + result);
+            }
+            return result;
+        } catch (Exception e) {
+            AILogger.w(TAG, "Context window query error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // 上下文窗口 API 查询缓存（内存 + 持久化）
+    private final java.util.concurrent.ConcurrentHashMap<String, Integer> contextWindowApiCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final String PREFS_CTX = "ctx_window_cache";
+    private static final String PREFS_CTX_PREFIX = "ctx_";
+
+    private Integer loadContextWindowCache(String key) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_CTX, Context.MODE_PRIVATE);
+            String v = prefs.getString(PREFS_CTX_PREFIX + key, null);
+            if (v == null) return null;
+            return Integer.parseInt(v);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private void saveContextWindowCache(String key, int value) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_CTX, Context.MODE_PRIVATE);
+            prefs.edit().putString(PREFS_CTX_PREFIX + key, String.valueOf(value)).apply();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "saveContextWindowCache failed: " + t.getMessage());
+        }
+    }
+
+    /** 执行 /models 查询（同步） */
+    private Integer doQueryContextWindow(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        String apiUrl = config.apiUrl;
+        String apiKey = config.apiKey;
+        String modelName = config.modelName;
+        if (apiUrl == null || apiUrl.isEmpty()) return null;
+        if (isAnthropicAPI(apiUrl)) return null; // Anthropic 不同接口，跳过
+
+        // 1. 尝试 GET /models 列表，查找目标模型条目
+        try {
+            String listUrl = buildOpenAIUrl(apiUrl, "/models");
+            String listBody = httpGet(listUrl, apiKey, 10000);
+            if (listBody != null && !listBody.isEmpty()) {
+                try {
+                    JsonObject root = JsonParser.parseString(listBody).getAsJsonObject();
+                    JsonArray data = root.has("data") ? root.getAsJsonArray("data") : null;
+                    if (data != null) {
+                        for (int i = 0; i < data.size(); i++) {
+                            JsonObject item = data.get(i).getAsJsonObject();
+                            String id = item.has("id") ? item.get("id").getAsString() : "";
+                            if (id.equals(modelName)) {
+                                Integer w = extractContextWindow(item);
+                                if (w != null) return w;
+                            }
+                        }
+                        // 列表无详情字段：尝试按 id 查单模型详情
+                        if (modelName != null && !modelName.isEmpty()) {
+                            try {
+                                String detailUrl = buildOpenAIUrl(apiUrl, "/models/" + modelName);
+                                String detailBody = httpGet(detailUrl, apiKey, 10000);
+                                if (detailBody != null) {
+                                    JsonObject root2 = JsonParser.parseString(detailBody).getAsJsonObject();
+                                    Integer w2 = extractContextWindow(
+                                            root2.has("data") ? root2.getAsJsonObject("data") : root2);
+                                    if (w2 != null) return w2;
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    AILogger.d(TAG, "parse /models failed: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            AILogger.d(TAG, "GET /models failed (endpoint may not support): " + e.getMessage());
+        }
+        return null;
+    }
+
+    /** 从模型 JSON 中提取上下文窗口（兼容多字段名） */
+    private static Integer extractContextWindow(JsonObject item) {
+        if (item == null) return null;
+        String[] keys = {"context_length", "max_context", "context_window",
+                "max_model_len", "contextLength", "contextWindow", "max_context_length"};
+        for (String k : keys) {
+            if (item.has(k) && !item.get(k).isJsonNull()) {
+                try {
+                    int v = item.get(k).getAsInt();
+                    if (v > 0) return v;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        // 嵌套对象兜底（如 meta: {context_window: ...}）
+        if (item.has("meta") && item.get("meta").isJsonObject()) {
+            return extractContextWindow(item.getAsJsonObject("meta"));
+        }
+        return null;
+    }
+
+    /** 简单 HTTP GET（带 Bearer 认证），返回响应体或 null */
+    private String httpGet(String urlStr, String apiKey, int timeoutMs) {
+        try {
+            URL url = new URL(urlStr);
+            HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+            try {
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(timeoutMs);
+                connection.setReadTimeout(timeoutMs);
+                connection.setRequestProperty("Accept", "application/json");
+                if (apiKey != null && !apiKey.isEmpty()) {
+                    connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+                }
+                int code = connection.getResponseCode();
+                if (code != 200) {
+                    return null;
+                }
+                InputStream is = connection.getInputStream();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                return sb.toString();
+            } finally {
+                connection.disconnect();
+            }
+        } catch (Exception e) {
+            AILogger.d(TAG, "httpGet failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 探测模型是否支持原生 function calling（"询问模型"而非硬编码模型名匹配）。
      *
      * 向模型发送一个最小 function calling 测试请求（一个无参工具 + 明确要求调用），

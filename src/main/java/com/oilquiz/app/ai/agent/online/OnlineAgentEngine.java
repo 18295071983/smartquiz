@@ -218,10 +218,18 @@ public class OnlineAgentEngine {
     private void doExecute(String userMessage, int maxTokens) {
         OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
         
-        // 记录模型上下文窗口（供历史压缩阈值 + UI 展示上下文用量）
+        // 记录模型上下文窗口（供历史压缩阈值 + UI 展示上下文用量）。
+        // 优先实际查询 API(/models 接口,真实窗口),失败回退配置表推断。
         if (cfg != null) {
-            contextWindowTokens = cfg.contextWindow > 0 ? cfg.contextWindow
-                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.apiUrl, cfg.modelName);
+            Integer apiCtx = null;
+            try {
+                apiCtx = onlineInferenceService.queryContextWindowFromAPI(cfg);
+            } catch (Throwable t) {
+                AILogger.w(TAG, "API context window query failed: " + t.getMessage());
+            }
+            contextWindowTokens = apiCtx != null && apiCtx > 0 ? apiCtx
+                    : (cfg.contextWindow > 0 ? cfg.contextWindow
+                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.apiUrl, cfg.modelName));
         }
         
         if (cfg == null) {
