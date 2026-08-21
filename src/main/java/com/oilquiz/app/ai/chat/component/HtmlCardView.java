@@ -313,11 +313,11 @@ public class HtmlCardView implements ChatComponent {
 
     /**
      * 点击组件 → 打开全屏页完整查看/交互：
-     * HTML 写入临时文件，交给 SimpleWebViewActivity（受控 WebView：JS 启用、
-     * 软件渲染防 GPU 截断、链接处理、标题栏返回；规避 WebViewActivity 的
-     * X5/文件重定向/硬件加速链路对 file:// 页面 JS 交互的干扰）。
+     * HTML 写入临时文件，交给 WebViewActivity（项目完整 WebView：智能编码检测防 GBK 乱码、
+     * TBS 内核/系统内核回退、文件预览、链接处理、标题栏；相比 SimpleWebViewActivity
+     * 能正确处理非 UTF-8 编码的 HTML，避免"无法解析数据"）。
      */
-    /** 本地文件全屏查看：直接加载原文件路径到 SimpleWebViewActivity（保留相对资源解析） */
+    /** 本地文件全屏查看：交给 WebViewActivity（file_path 走完整预览链路：智能编码检测防 GBK 乱码） */
     private static void openLocalFileFullScreen(Context context, String fileUrl, String title) {
         try {
             String path = fileUrl;
@@ -329,8 +329,8 @@ public class HtmlCardView implements ChatComponent {
                 return;
             }
             android.content.Intent intent = new android.content.Intent(context,
-                    com.oilquiz.app.SimpleWebViewActivity.class);
-            intent.putExtra("html_path", path);
+                    com.oilquiz.app.WebViewActivity.class);
+            intent.putExtra("file_path", path);
             if (title != null && !title.isEmpty()) {
                 intent.putExtra("title", title);
             }
@@ -338,7 +338,7 @@ public class HtmlCardView implements ChatComponent {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             }
             context.startActivity(intent);
-            Log.i("HtmlCardView", "opened local file full screen: " + path);
+            Log.i("HtmlCardView", "opened local file full screen (WebViewActivity): " + path);
         } catch (Exception e) {
             Log.w("HtmlCardView", "打开本地文件全屏失败: " + e.getMessage());
         }
@@ -361,8 +361,8 @@ public class HtmlCardView implements ChatComponent {
                 fos.close();
             }
             android.content.Intent intent = new android.content.Intent(context,
-                    com.oilquiz.app.SimpleWebViewActivity.class);
-            intent.putExtra("html_path", f.getAbsolutePath());
+                    com.oilquiz.app.WebViewActivity.class);
+            intent.putExtra("file_path", f.getAbsolutePath());
             if (title != null && !title.isEmpty()) {
                 intent.putExtra("title", title);
             }
@@ -370,7 +370,7 @@ public class HtmlCardView implements ChatComponent {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             }
             context.startActivity(intent);
-            Log.i("HtmlCardView", "opened SimpleWebViewActivity: " + f.getAbsolutePath());
+            Log.i("HtmlCardView", "opened WebViewActivity: " + f.getAbsolutePath());
         } catch (Exception e) {
             Log.w("HtmlCardView", "打开全屏失败: " + e.getMessage());
         }
