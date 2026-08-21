@@ -471,11 +471,12 @@ def bulk_import_questions(data, db_name='smartquiz_database'):
 
 # ==================== Python 文件执行 ====================
 
-def run_python_file(file_path, args=None):
+def run_python_file(file_path, args=None, timeout=60):
     """执行一个 Python 文件，返回其 stdout 输出。
 
     Chaquopy 环境下无法用 sys.executable 启动子进程（Android 无独立 python 可执行文件），
     改为在当前解释器内 exec 执行，并捕获 stdout/stderr。
+    timeout: 超时秒数（默认 60），防止死循环脚本永久卡住（偶发故障根因之一）。
     """
     import io as _io
     from contextlib import redirect_stdout, redirect_stderr
@@ -494,17 +495,28 @@ def run_python_file(file_path, args=None):
 
     stdout_buf = _io.StringIO()
     stderr_buf = _io.StringIO()
-    try:
-        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-            exec(compile(code, file_path, 'exec'), namespace, namespace)
-        output = stdout_buf.getvalue()
-        err = stderr_buf.getvalue()
-        if err:
-            output += '\n[STDERR] ' + err
-        return output if output else '(无输出)'
-    except Exception as e:
-        import traceback as _tb
-        return f'错误: {e}\n{_tb.format_exc()}'
+    result_holder = {}
+    import threading as _threading
+
+    def _run():
+        try:
+            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+                exec(compile(code, file_path, 'exec'), namespace, namespace)
+            output = stdout_buf.getvalue()
+            err = stderr_buf.getvalue()
+            if err:
+                output += '\n[STDERR] ' + err
+            result_holder['output'] = output if output else '(无输出)'
+        except Exception as e:
+            import traceback as _tb
+            result_holder['output'] = f'错误: {e}\n{_tb.format_exc()}'
+
+    thread = _threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return f"错误: 执行超时（{timeout}秒），脚本可能包含死循环"
+    return result_holder.get('output', '(无输出)')
 
 def create_python_file(name, code, directory=None):
     """创建一个 Python 文件并返回路径"""
