@@ -346,6 +346,7 @@ public class SystemUIComponentTool implements AITool {
         Map<String, Object> params = new HashMap<>();
         putIfNotNull(params, "title", parameters.get("title"));
         putIfNotNull(params, "message", parameters.get("message"));
+        putIfNotNull(params, "html", parameters.get("html"));
         putIfNotNull(params, "dialog_type", parameters.get("dialog_type"));
         putIfNotNull(params, "max", parameters.get("max_value"));
         putIfNotNull(params, "options", parameters.get("options"));

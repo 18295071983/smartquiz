@@ -195,7 +195,7 @@ def notify_java(event_type, data=None):
 def create_component(component_type, title="", message="", component_id=None,
                      dialog_type="info", max_value=100, options=None,
                      default_value="", input_hint="", props=None, action_label="",
-                     items=None, url="", click_action="", auto_close=0):
+                     items=None, url="", click_action="", auto_close=0, html=""):
     """
     创建动态系统 UI 组件。
 
@@ -292,6 +292,7 @@ def create_component(component_type, title="", message="", component_id=None,
         'url': str(url) if url else "",
         'click_action': str(click_action) if click_action else "",
         'auto_close': int(auto_close) if auto_close else 0,
+        'html': str(html) if html else "",
     }
     if options is not None:
         action['options'] = json.dumps(options, ensure_ascii=False)
