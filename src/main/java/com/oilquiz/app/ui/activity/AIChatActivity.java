@@ -5854,6 +5854,9 @@ public class AIChatActivity extends BaseActivity {
             chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
         }
         currentAgentGroupId = null;
+        // 复位开始时间：completeGeneration 里已把 generationStartTime 拷成局部变量使用，
+        // 此处复位避免异常路径下跨轮串扰（下一轮 beginGeneration 会重新置值）
+        generationStartTime = 0;
 
         if (streamingUpdateManager != null) {
             streamingUpdateManager.flush();
