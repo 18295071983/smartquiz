@@ -116,6 +116,12 @@ public class FileCardView implements ChatComponent {
 
     private static void openFile(Context context, String uri, String path) {
         try {
+            // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
+            if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
+                Toast.makeText(context, "该文件卡片没有可打开的路径（文件可能未生成或路径缺失）",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
             // 图片文件 → 应用内预览（不依赖系统图片查看器）
             if (isImageFile(context, uri, path)) {
                 showImagePreview(context, !TextUtils.isEmpty(uri) ? uri : path);
@@ -251,12 +257,15 @@ public class FileCardView implements ChatComponent {
                 share.putExtra(Intent.EXTRA_STREAM, fileUri);
                 share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else {
+                // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
+                Toast.makeText(context, "该文件卡片没有可分享的路径（文件可能未生成或路径缺失）",
+                        Toast.LENGTH_SHORT).show();
                 return;
             }
             share.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(Intent.createChooser(share, "分享文件"));
         } catch (Exception e) {
-            Toast.makeText(context, "无法分享文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, "无法分享文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
