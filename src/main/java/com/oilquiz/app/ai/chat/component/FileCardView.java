@@ -121,6 +121,30 @@ public class FileCardView implements ChatComponent {
                 showImagePreview(context, !TextUtils.isEmpty(uri) ? uri : path);
                 return;
             }
+            // 非图片文件 → 应用内预览（FileRenderActivity 按类型渲染 md/文本/表格/pdf 等）。
+            // 不能直接 ACTION_VIEW 交给系统：无 App 能渲染时系统转给浏览器，
+            // 中文文件名被 punycode 编码成域名 DNS 解析失败（实测 Bug5）
+            try {
+                Intent preview = new Intent(context,
+                        com.oilquiz.app.ui.activity.FileRenderActivity.class);
+                if (!TextUtils.isEmpty(uri)) {
+                    preview.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_URI,
+                            Uri.parse(uri));
+                } else if (!TextUtils.isEmpty(path)) {
+                    preview.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH,
+                            new java.io.File(path).getAbsolutePath());
+                } else {
+                    return;
+                }
+                if (!(context instanceof android.app.Activity)) {
+                    preview.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                }
+                context.startActivity(preview);
+                return;
+            } catch (Exception previewErr) {
+                android.util.Log.w("FileCardView", "应用内预览失败，退回系统打开: " + previewErr.getMessage());
+            }
+            // 兜底：应用内预览失败才交给系统
             Intent intent = null;
             if (!TextUtils.isEmpty(uri)) {
                 intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
