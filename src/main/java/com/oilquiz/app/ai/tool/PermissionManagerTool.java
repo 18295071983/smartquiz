@@ -77,6 +77,18 @@ public class PermissionManagerTool implements AITool {
             PERMISSION_MAP.put("storage", "manage_external_storage");
             PERMISSION_MAP.put("读取存储", "manage_external_storage");
             PERMISSION_MAP.put("文件管理", "manage_external_storage");
+            // 常用英文别名（模型可能传这些）
+            PERMISSION_MAP.put("manage_external_storage", "manage_external_storage");
+            PERMISSION_MAP.put("all_files_access", "manage_external_storage");
+            PERMISSION_MAP.put("all files access", "manage_external_storage");
+            PERMISSION_MAP.put("file_access", "manage_external_storage");
+            PERMISSION_MAP.put("file access", "manage_external_storage");
+            PERMISSION_MAP.put("external_storage", "manage_external_storage");
+            PERMISSION_MAP.put("external storage", "manage_external_storage");
+            PERMISSION_MAP.put("files", "manage_external_storage");
+            PERMISSION_MAP.put("公共存储", "manage_external_storage");
+            PERMISSION_MAP.put("公共目录", "manage_external_storage");
+            PERMISSION_MAP.put("下载目录", "manage_external_storage");
             PERMISSION_MAP.put("媒体文件", "read_media");
             PERMISSION_MAP.put("图片", Manifest.permission.READ_MEDIA_IMAGES);
             PERMISSION_MAP.put("视频", Manifest.permission.READ_MEDIA_VIDEO);
@@ -85,6 +97,8 @@ public class PermissionManagerTool implements AITool {
             PERMISSION_MAP.put("存储", Manifest.permission.WRITE_EXTERNAL_STORAGE);
             PERMISSION_MAP.put("storage", Manifest.permission.WRITE_EXTERNAL_STORAGE);
             PERMISSION_MAP.put("读取存储", Manifest.permission.READ_EXTERNAL_STORAGE);
+            PERMISSION_MAP.put("manage_external_storage", Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            PERMISSION_MAP.put("all_files_access", Manifest.permission.WRITE_EXTERNAL_STORAGE);
         }
         // 电话
         PERMISSION_MAP.put("拨打电话", Manifest.permission.CALL_PHONE);
@@ -515,8 +529,17 @@ public class PermissionManagerTool implements AITool {
                 for (int i = 0; i < 12; i++) {
                     Thread.sleep(5000);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                        // 授权成功：工作区重建(切公共目录)+迁移旧文件
+                        try {
+                            com.oilquiz.app.ai.agent.online.AgentWorkspace.rebuildInstance(context);
+                            int migrated = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                    .getInstance(context).migrateFromPrivate(context);
+                            AILogger.i(TAG, "文件管理权限已授予，工作区切换到公共目录，迁移 " + migrated + " 个文件");
+                        } catch (Throwable t) {
+                            AILogger.w(TAG, "授权后工作区切换失败: " + t.getMessage());
+                        }
                         resultMap.put("granted", true);
-                        resultMap.put("message", "用户已在设置中授予文件管理权限");
+                        resultMap.put("message", "用户已在设置中授予文件管理权限，工作区已切换到公共目录");
                         return new AIToolResult(resultMap, parameters);
                     }
                 }
@@ -832,7 +855,15 @@ public class PermissionManagerTool implements AITool {
         String lower = permission.toLowerCase();
         String lowerResult = PERMISSION_MAP.get(lower);
         if (lowerResult != null) return lowerResult;
-        // 3. 如果传入的已经是 Android 权限字符串（如 android.permission.CAMERA），直接返回
+        // 3. 模糊匹配：模型可能传"存储权限"/"文件管理权限"/"storage permission"等带后缀/前缀的
+        for (Map.Entry<String, String> e : PERMISSION_MAP.entrySet()) {
+            if (e.getKey() == null || e.getKey().length() < 2) continue;
+            if (lower.contains(e.getKey().toLowerCase())
+                    || e.getKey().toLowerCase().contains(lower)) {
+                return e.getValue();
+            }
+        }
+        // 4. 如果传入的已经是 Android 权限字符串（如 android.permission.CAMERA），直接返回
         if (permission.contains(".")) return permission;
         return null;
     }
