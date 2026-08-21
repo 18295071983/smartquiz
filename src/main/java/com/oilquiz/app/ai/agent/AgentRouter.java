@@ -140,6 +140,11 @@ public class AgentRouter {
         return onlineEngine != null ? onlineEngine.getExecTotalCompletionTokens() : 0;
     }
 
+    public int[] getContextWindowInfo() {
+        return onlineEngine != null ? onlineEngine.getContextWindowInfo()
+                : new int[]{0, 0, 0};
+    }
+
     public void shutdown() {
         if (onlineEngine != null) {
             onlineEngine.shutdown();

@@ -358,6 +358,10 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return engine.getExecTotalCompletionTokens();
     }
 
+    public int[] getContextWindowInfo() {
+        return engine.getContextWindowInfo();
+    }
+
     public void shutdown() {
         isShutdown = true;
         engine.shutdown();
