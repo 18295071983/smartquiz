@@ -333,6 +333,21 @@ public class OnlineAgentEngine {
         if (toolCount == 0) {
             AILogger.w(TAG, "No tools available! Agent will run without tool calling capability.");
         }
+        // 精准意图兜底：关键词未命中额外工具（toolsJson 与纯核心集大小相近）且消息像任务时，
+        // 询问模型识别意图（轻量一次调用），按意图注入工具——比纯关键词匹配更精准
+        if (toolsJson != null && countToolsInJson(toolsJson) <= coreTools.size()
+                && userMessage != null && !userMessage.trim().isEmpty()
+                && !isCasualChat(userMessage)) {
+            java.util.Set<String> intents = classifyIntentByModel(cfg, userMessage);
+            if (intents != null && !intents.isEmpty()) {
+                String intentTools = toolManager.getToolDefinitionsForIntents(intents, coreTools);
+                if (countToolsInJson(intentTools) > coreTools.size()) {
+                    toolsJson = intentTools;
+                    AILogger.i(TAG, "Model intent classification enriched tools: "
+                            + countToolsInJson(toolsJson) + " tools");
+                }
+            }
+        }
 
         // 4. Agent 主循环
         int iteration = 0;
@@ -1194,6 +1209,67 @@ public class OnlineAgentEngine {
         AILogger.i(TAG, "Function calling probe: " + (cfg.modelName != null ? cfg.modelName : "?")
                 + " supports=" + probe);
         return probe;
+    }
+
+    /**
+     * 判断是否为闲聊消息（无需工具意图识别）。
+     * 简短问候/情绪/无任务诉求的消息跳过模型意图识别，避免浪费一次 API 调用。
+     */
+    private boolean isCasualChat(String message) {
+        if (message == null) return true;
+        String m = message.trim();
+        if (m.length() > 30) return false; // 长消息大概率是任务
+        // 简短且无动词诉求 → 闲聊
+        if (m.length() <= 8) return true;
+        return containsAnyCasual(m, "你好", "hello", "hi", "在吗", "谢谢", "再见", "拜拜",
+                "你是谁", "你会什么", "早上好", "晚上好", "哈哈", "嗯", "好", "ok", "好的");
+    }
+
+    private static boolean containsAnyCasual(String msg, String... keywords) {
+        String m = msg.toLowerCase();
+        for (String k : keywords) {
+            if (m.contains(k)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 询问模型识别用户消息的任务意图（精准意图判定兜底）。
+     * 轻量一次调用（关闭 thinking，maxTokens 小），让模型从固定意图清单中选，
+     * 返回 JSON 数组；失败/超时返回 null（调用方保持关键词结果，不阻塞）。
+     */
+    private java.util.Set<String> classifyIntentByModel(OnlineModelManager.OnlineModelConfig cfg,
+                                                        String userMessage) {
+        if (cfg == null || userMessage == null) return null;
+        try {
+            String intents = java.util.Arrays.asList(
+                    "weather", "search", "translation", "file_read", "file_write",
+                    "image_gen", "image_ocr", "database", "python", "calc",
+                    "location", "time", "app", "system", "phone", "study_plan"
+            ).toString();
+            String prompt = "分析用户消息属于哪些任务意图，从以下意图中选出最匹配的（可多选，用逗号分隔）："
+                    + intents + "\n"
+                    + "用户消息: " + userMessage + "\n"
+                    + "只输出意图名，用逗号分隔，如: search,file_write。若无匹配输出: none";
+            String result = onlineInferenceService.generateOnceAsync(prompt, cfg, 64)
+                    .get(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (result == null) return null;
+            String clean = result.trim().toLowerCase();
+            if (clean.isEmpty() || "none".equals(clean)) return null;
+            java.util.Set<String> matched = new java.util.LinkedHashSet<>();
+            java.util.Map<String, java.util.List<String>> intentMap =
+                    com.oilquiz.app.ai.agent.online.OnlineToolManager.getIntentToToolMap();
+            for (String intent : clean.split("[,\\s]+")) {
+                if (intentMap.containsKey(intent)) matched.add(intent);
+            }
+            if (!matched.isEmpty()) {
+                AILogger.i(TAG, "Model intent: " + matched);
+            }
+            return matched.isEmpty() ? null : matched;
+        } catch (Exception e) {
+            AILogger.w(TAG, "Intent classification failed: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
