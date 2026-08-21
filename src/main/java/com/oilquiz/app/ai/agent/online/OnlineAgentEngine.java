@@ -356,9 +356,6 @@ public class OnlineAgentEngine {
         final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
         // 目标评估只触发一次：评估后模型仍给纯文本答案 → 直接返回，避免"评估→再答→再评估"死循环
         final boolean[] goalEvalDone = {false};
-        // 反思次数限制：最多反思 MAX_REFLECTION_ROUNDS 次，防止"反思→再调用→再反思"无限循环
-        int reflectionCount = 0;
-        final int MAX_REFLECTION_ROUNDS = 2;
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
@@ -455,10 +452,9 @@ public class OnlineAgentEngine {
                         + " 次试图调用工具但未使用正确格式，请尝试用更简洁的方式提问）";
                 }
 
-                // 【目标达成率评估】此前已用过工具（多轮任务），模型现在给出答案 →
-                // 注入评估引导，让模型自评完成度，决定是收尾还是继续补充。
-                // 只触发一次：评估后模型再给纯文本答案 → 直接返回，避免死循环。
-                if (toolLoopCount.get() > 0 && !goalEvalDone[0]
+                // 【目标达成率评估】仅多轮工具任务(≥2次工具调用)且模型给出答案时触发一次，
+                // 让模型自评完成度。简单任务(单轮工具/无工具)不评估，直接返回，减少循环频率。
+                if (toolLoopCount.get() >= 2 && !goalEvalDone[0]
                         && iteration < maxIterations && !hintToCallTool) {
                     goalEvalDone[0] = true;
                     JsonObject evalMsg = new JsonObject();
@@ -644,31 +640,6 @@ public class OnlineAgentEngine {
                     messageHistory.add(hintMsg);
                     AILogger.i(TAG, "Injected fallback hint for failed tools: " + failedTools);
                 }
-            }
-
-            // ===== ReAct 反思环节（Observation → Reflection）=====
-            // 工具执行完成后，注入反思引导让模型评估结果决定下一步。
-            // 频率优化（省 token + 防死循环）：
-            // - 仅当"有失败"或"已多轮(≥2)"且反思次数<2 时触发
-            // - 超过 2 次反思不再注入，让模型基于工具结果自行收敛，避免"反思→再调用→再反思"无限循环
-            if (iteration < maxIterations && reflectionCount < MAX_REFLECTION_ROUNDS
-                    && (!failedTools.isEmpty() || iteration >= 2)) {
-                reflectionCount++;
-                StringBuilder reflection = new StringBuilder();
-                reflection.append("【反思】你已执行了工具调用，请基于工具结果评估当前进展：\n");
-                reflection.append("- 工具结果是否符合预期？若不符合，说明原因并决定如何修正（换参数/换工具/换策略）。\n");
-                reflection.append("- 是否还缺少达成目标所需的信息？若缺，决定下一步调用哪个工具获取。\n");
-                reflection.append("- 若所有必要信息已获取、目标已达成：直接输出最终答案（用 tool_calls 之外的纯文本回复），并简要说明依据。\n");
-                reflection.append("- 不要重复调用已成功且结果已利用的工具，不要空转。\n");
-                reflection.append("- 反思次数有限（还剩 " + (MAX_REFLECTION_ROUNDS - reflectionCount)
-                        + " 次），请尽快收敛：能给出最终答案就立即输出，不要为追求完美无限补充。\n");
-                JsonObject reflectionMsg = new JsonObject();
-                reflectionMsg.addProperty("role", "system");
-                reflectionMsg.addProperty("content", reflection.toString());
-                messageHistory.add(reflectionMsg);
-                AILogger.i(TAG, "Injected reflection prompt (" + reflectionCount + "/"
-                        + MAX_REFLECTION_ROUNDS + ", iteration " + iteration
-                        + ", failed=" + failedTools.size() + ")");
             }
 
             // 继续下一轮推理
