@@ -1162,11 +1162,36 @@ public class OnlineAgentEngine {
      * @param cfg 在线模型配置
      * @return true 表示模型具备 agent 能力，应启用接管模式
      */
+    /**
+     * 判断模型是否具备 Agent 能力（是否启用接管模式）。
+     *
+     * 优先"询问模型"：向模型发送最小 function calling 探针请求，
+     * 看它是否真的返回 tool_calls（而非硬编码模型名匹配——模型训练时见过的格式
+     * 与真实能力可能不符，且新模型无法预判）。
+     *
+     * 探针结果优先级：
+     * 1. 探针明确支持（true）→ 接管模式
+     * 2. 探针明确不支持（false）→ 辅助模式
+     * 3. 探针未知/失败（null）→ 回退配置字段/模型名推断（不降级能力）
+     *
+     * @param cfg 在线模型配置
+     * @return true 表示模型具备 agent 能力，应启用接管模式
+     */
     private boolean detectAgentCapability(OnlineModelManager.OnlineModelConfig cfg) {
         if (cfg == null) return false;
-        // 优先使用配置字段（由 OnlineModelManager.refreshAllSupportsFunctionCalling 按模型名推断并持久化）
+        // 1. 探针询问模型（结果带缓存，同模型只探一次）
+        try {
+            Boolean probe = onlineInferenceService.probeFunctionCalling(cfg);
+            if (probe != null) {
+                AILogger.i(TAG, "Function calling probe: " + cfg.modelName + " supports=" + probe);
+                return probe;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Function calling probe error, fallback to model-name: " + t.getMessage());
+        }
+        // 2. 探针未知/失败：回退配置字段（由 OnlineModelManager 按模型名推断并持久化）
         if (cfg.supportsFunctionCalling) return true;
-        // 兜底：字段缺失（旧版本未刷新）时按模型名关键词推断
+        // 3. 兜底：字段缺失（旧版本未刷新）时按模型名关键词推断
         // 优先使用 selectedModel，其次 modelName
         String model = cfg.selectedModel != null && !cfg.selectedModel.isEmpty()
             ? cfg.selectedModel : cfg.modelName;

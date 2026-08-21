@@ -57,6 +57,8 @@ public class OnlineInferenceService {
 
     // 结构化输出能力缓存:key=apiUrl+modelName, value=true支持/false不支持/null未知
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> structuredCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // function calling 能力缓存:key=apiUrl+modelName, value=true支持/false不支持/null未知
+    private final java.util.concurrent.ConcurrentHashMap<String, Boolean> functionCallingCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private OnlineInferenceService(Context context) {
         this.context = context.getApplicationContext();
@@ -216,6 +218,139 @@ public class OnlineInferenceService {
         if (result == null) return null;
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
         return cleaned != null ? cleaned : result;
+    }
+
+    /**
+     * 探测模型是否支持原生 function calling（"询问模型"而非硬编码模型名匹配）。
+     *
+     * 向模型发送一个最小 function calling 测试请求（一个无参工具 + 明确要求调用），
+     * 观察响应：
+     * - 返回合法 tool_calls → 支持（true）
+     * - 返回普通文本/400 错误（tools 参数不支持）→ 不支持（false）
+     *
+     * 结果按 apiUrl+modelName 缓存（同模型只探一次）；探测失败（网络等）返回 null（未知），
+     * 调用方回退到模型名推断，不降级能力。
+     *
+     * @param config 在线模型配置
+     * @return true=支持 / false=不支持 / null=未知（探测失败）
+     */
+    public Boolean probeFunctionCalling(final OnlineModelManager.OnlineModelConfig config) {
+        if (config == null) return null;
+        String key = (config.apiUrl != null ? config.apiUrl : "") + "|" + config.modelName;
+        Boolean cached = functionCallingCapabilityCache.get(key);
+        if (cached != null) return cached;
+        try {
+            Boolean result = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return doProbeFunctionCalling(config);
+                } catch (Exception e) {
+                    AILogger.w(TAG, "Function calling probe failed: " + e.getMessage());
+                    return null;
+                }
+            }, executor).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (result != null) {
+                functionCallingCapabilityCache.put(key, result);
+                AILogger.i(TAG, "Function calling probe: " + config.modelName + " -> " + result);
+            }
+            return result;
+        } catch (Exception e) {
+            AILogger.w(TAG, "Function calling probe timeout/error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 执行探针请求（同步，OpenAI 兼容格式） */
+    private Boolean doProbeFunctionCalling(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        String apiUrl = config.apiUrl;
+        String modelName = config.modelName;
+        String apiKey = config.apiKey;
+        if (apiUrl == null || apiUrl.isEmpty() || modelName == null || apiKey == null || apiKey.isEmpty()) {
+            return null;
+        }
+        if (isAnthropicAPI(apiUrl)) {
+            // Anthropic 用 tools 参数（不同格式），这里保守返回 null（走模型名推断）
+            return null;
+        }
+        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(15000);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setDoOutput(true);
+
+            JsonObject requestBody = new JsonObject();
+            requestBody.addProperty("model", modelName);
+            // 最小探针：一个无参工具，prompt 明确要求调用
+            JsonArray tools = new JsonArray();
+            JsonObject tool = new JsonObject();
+            tool.addProperty("type", "function");
+            JsonObject func = new JsonObject();
+            func.addProperty("name", "ping_probe");
+            func.addProperty("description", "探测工具，无参数");
+            func.add("parameters", new JsonObject());
+            tool.add("function", func);
+            tools.add(tool);
+            requestBody.add("tools", tools);
+
+            JsonArray messages = new JsonArray();
+            JsonObject userMsg = new JsonObject();
+            userMsg.addProperty("role", "user");
+            userMsg.addProperty("content", "请调用 ping_probe 工具。");
+            messages.add(userMsg);
+            requestBody.add("messages", messages);
+            requestBody.addProperty("max_tokens", 64);
+            requestBody.addProperty("temperature", 0f);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(requestBody).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = readErrorStream(connection);
+                // 400 且错误指向 tools/function 不支持 → 明确不支持
+                if (responseCode == 400 && isToolsUnsupportedError(errorBody)) {
+                    return false;
+                }
+                // 其他错误（401/429/5xx 等）→ 未知
+                AILogger.w(TAG, "Probe HTTP " + responseCode + ": " + errorBody);
+                return null;
+            }
+
+            String response = readFullProbeResponse(connection);
+            if (response == null) return null;
+            // 含 tool_calls → 支持
+            if (response.contains("\"tool_calls\"") || response.contains("tool_calls")) {
+                return true;
+            }
+            // 200 但返回普通文本（模型忽略了 tools）→ 不支持
+            return false;
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 读取探针响应全文（与 readFullResponseWithTools 类似，但只判断 tool_calls） */
+    private String readFullProbeResponse(HttpURLConnection connection) throws Exception {
+        InputStream inputStream = connection.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+        StringBuilder response = new StringBuilder();
+        try {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+        } finally {
+            reader.close();
+        }
+        return response.toString();
     }
 
     /**
