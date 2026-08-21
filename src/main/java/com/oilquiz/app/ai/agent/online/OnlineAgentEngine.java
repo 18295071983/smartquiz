@@ -314,25 +314,25 @@ public class OnlineAgentEngine {
         messageHistory.add(userMsg);
 
         // 3. 通过 OnlineToolManager 获取工具定义。
-        // MCP 式注入：默认只注入核心高频工具集（Agent 必需 + 工具发现），
-        // 其余低频工具不占 token——模型经 tool_registry 发现后，主循环检测到
-        // 模型提及未注入工具时动态扩展 tools（见下方扩展逻辑）。
-        // 核心工具集：ui_component(组件/交互) file_generator(文件) workspace(工作区)
-        // memory(记忆) tool_registry(工具发现/MCP) permission_manager(权限)
+        // 缓存安全的 MCP 式注入：
+        // - 固定核心工具集（高频，始终注入，顺序固定）→ 前缀缓存稳定
+        // - 按用户消息意图追加低频工具（同一次用户请求的所有 Agent 轮次 tools 相同，
+        //   任务内缓存稳定；不同任务按意图变化属合理缓存 miss）
+        // 核心集：ui_component(组件/交互) file_generator(文件) workspace(工作区)
+        // memory(记忆) tool_registry(工具发现) permission_manager(权限)
+        // ai_weather(天气高频) network_search(搜索高频) calculator(计算)
         java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
                 "ui_component", "file_generator", "workspace", "memory",
-                "tool_registry", "permission_manager"
+                "tool_registry", "permission_manager",
+                "ai_weather", "network_search", "calculator"
         ));
-        String toolsJson = toolManager.getToolDefinitionsForNames(coreTools);
+        // 按用户消息意图追加低频工具（若用户明确要求某类任务）
+        String toolsJson = toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
         int toolCount = countToolsInJson(toolsJson);
-        AILogger.i(TAG, "Core tool definitions: count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
+        AILogger.i(TAG, "Tool definitions (core+intent): count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {
             AILogger.w(TAG, "No tools available! Agent will run without tool calling capability.");
         }
-        // MCP 式动态扩展状态：已注入工具名集合 + 模型上轮输出（用于检测新工具意图）
-        final java.util.Set<String> injectedToolNames = new java.util.LinkedHashSet<>(coreTools);
-        final java.util.concurrent.atomic.AtomicReference<String> lastModelOutput =
-                new java.util.concurrent.atomic.AtomicReference<>("");
 
         // 4. Agent 主循环
         int iteration = 0;
@@ -343,10 +343,6 @@ public class OnlineAgentEngine {
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
             AILogger.i(TAG, "Agent iteration " + iteration + "/" + maxIterations + " [" + agentMode + "]");
-
-            // MCP 式动态扩展：检测模型上轮输出（文本/工具调用）中提及的未注入工具，
-            // 将其定义加入 toolsJson（模型经 tool_registry 发现后即可正式调用）
-            toolsJson = expandToolsIfNeeded(toolsJson, lastModelOutput.get(), injectedToolNames);
 
             // 开始新一轮思考块
             thinkingChain.startNewBlock(iteration);
@@ -428,7 +424,6 @@ public class OnlineAgentEngine {
 
                     notifyStep("格式修正", "提示模型使用标准工具调用格式（重试 "
                         + consecutiveHintForToolCount + "/" + MAX_CONSECUTIVE_TOOL_HINT + "）");
-                    lastModelOutput.set(finalAnswer);
                     continue; // 继续下一轮，让模型重新输出正确格式
                 }
 
@@ -452,7 +447,6 @@ public class OnlineAgentEngine {
                 AILogger.i(TAG, "Returning final answer (iteration " + iteration
                     + "/" + maxIterations + ", mode=" + agentMode
                     + ", hinted_tool=" + hintToCallTool + ")");
-                lastModelOutput.set(finalAnswer);
                 notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
                 notifyComplete(finalAnswer);
                 return;
@@ -585,14 +579,6 @@ public class OnlineAgentEngine {
                     }
                 }
             }
-
-            // 记录本轮模型输出（工具名 + 内容）供下轮动态扩展检测
-            StringBuilder modelOut = new StringBuilder();
-            if (result.content != null) modelOut.append(result.content);
-            for (OnlineInferenceService.ToolCallInfo tc : result.toolCalls) {
-                if (tc.name != null) modelOut.append(" ").append(tc.name);
-            }
-            lastModelOutput.set(modelOut.toString());
 
             // 工具失败时注入回退建议（仅辅助模式；接管模式下信任模型自主决策，不主动干预）
             if (agentMode == AgentMode.ASSISTED && !failedTools.isEmpty() && toolManager.getToolChain() != null) {
@@ -1208,50 +1194,6 @@ public class OnlineAgentEngine {
         AILogger.i(TAG, "Function calling probe: " + (cfg.modelName != null ? cfg.modelName : "?")
                 + " supports=" + probe);
         return probe;
-    }
-
-    /**
-     * MCP 式动态扩展工具定义：检测模型上轮输出（文本/工具调用）中提及的、
-     * 但尚未注入 tools 的工具名，将其定义合并进 toolsJson。
-     *
-     * 机制：默认只注入核心工具集（省 token），模型经 tool_registry 发现其他工具后
-     * 在文本中表达调用意图（如"我调用 ai_weather 查询"）→ 本轮检测到 → 下一轮
-     * 该工具正式进入 tools，模型即可发起 tool_calls。
-     *
-     * 工具名匹配：模型输出中的 token 恰好等于某工具名（按名称精确匹配，
-     * 避免误伤普通词汇）。扩展过的工具记录在 injectedToolNames，不重复注入。
-     *
-     * @param toolsJson 当前工具定义 JSON
-     * @param modelOutput 模型上轮输出（文本 + 工具名）
-     * @param injectedToolNames 已注入工具名集合（原地更新）
-     * @return 扩展后的工具定义 JSON（无新工具时原样返回）
-     */
-    private String expandToolsIfNeeded(String toolsJson, String modelOutput,
-                                       java.util.Set<String> injectedToolNames) {
-        if (modelOutput == null || modelOutput.isEmpty()) return toolsJson;
-        try {
-            java.util.Set<String> newTools = null;
-            for (String toolName : toolManager.getAllEnabledToolNames()) {
-                if (injectedToolNames.contains(toolName)) continue;
-                // 精确匹配：模型输出中出现完整工具名（工具名多为下划线命名，误伤率低）
-                if (modelOutput.contains(toolName)) {
-                    if (newTools == null) newTools = new java.util.LinkedHashSet<>();
-                    newTools.add(toolName);
-                }
-            }
-            if (newTools == null || newTools.isEmpty()) return toolsJson;
-            // 合并：新工具 + 已有工具定义（用 registry 按名称重建完整列表，避免 JSON 拼接）
-            java.util.Set<String> allNames = new java.util.LinkedHashSet<>(injectedToolNames);
-            allNames.addAll(newTools);
-            String merged = toolManager.getToolDefinitionsForNames(allNames);
-            injectedToolNames.addAll(newTools);
-            AILogger.i(TAG, "MCP dynamic expand: +" + newTools + ", tools=" + allNames.size()
-                    + ", json_len=" + merged.length());
-            return merged;
-        } catch (Exception e) {
-            AILogger.w(TAG, "expandToolsIfNeeded failed: " + e.getMessage());
-            return toolsJson;
-        }
     }
 
     /**
