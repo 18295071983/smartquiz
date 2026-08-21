@@ -267,6 +267,82 @@ public class OnlineModelManager {
     }
 
     /**
+     * 按模型名关键词判断是否支持深度思考（thinking/reasoning 参数）。
+     * 内置常用模型名单：DeepSeek-R1/Reasoner/V3.1、Qwen3、GLM-4.5、Kimi K2、Doubao-1.5、o1/o3/o4 系列。
+     * 未知模型保守返回 false（不传 thinking 参数，避免 400 报错；用户可在模型设置开启后由
+     * isThinkingUnsupportedError 回退兜底）。
+     */
+    public static boolean isThinkingModelName(String modelName) {
+        if (modelName == null) return false;
+        String m = modelName.toLowerCase();
+        // OpenAI o系列（原生 reasoning_effort 参数）
+        if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")
+            || m.startsWith("o1-") || m.startsWith("o3-") || m.startsWith("o4-")
+            || m.startsWith("o1-mini") || m.startsWith("o3-mini")) return true;
+        // DeepSeek：reasoner / r1 / v3.1+ 原生支持 enable_thinking
+        if (m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
+            || m.contains("deepseek-r1-") || m.contains("deepseek-v3.1")
+            || m.contains("deepseek-v3.2") || m.contains("deepseek-chat")) return true;
+        // Qwen3 全系（enable_thinking + chat_template_kwargs）
+        if (m.contains("qwen3")) return true;
+        // GLM-4.5 / GLM-5（enable_thinking）
+        if (m.contains("glm-4.5") || m.contains("glm-4.6") || m.contains("glm-5")) return true;
+        // Kimi K2（thinking 参数）
+        if (m.contains("kimi-k2") || m.contains("moonshot-v1-128k") || m.contains("moonshot-v1-32k")
+            || m.contains("kimi-latest") || m.contains("kimi-thinking")) return true;
+        // 豆包 1.5 pro（thinking 参数）
+        if (m.contains("doubao-1.5") || m.contains("doubao-pro-32k-250528")
+            || m.contains("doubao-thinking")) return true;
+        return false;
+    }
+
+    /**
+     * 按模型名返回思考指令（注入 system prompt，强化思考质量）。
+     * 不同模型思考风格略有差异，内置常用模型的个性化指令；未知模型返回通用指令。
+     */
+    public static String getThinkingInstruction(String modelName) {
+        if (modelName != null) {
+            String m = modelName.toLowerCase();
+            // OpenAI o系列：禁止输出思考过程，只给最终答案
+            if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) {
+                return "你处于深度推理模式。请先进行充分的内部推理（reasoning），再输出最终答案。\n"
+                    + "推理阶段：拆解问题→多角度分析→逐步验证逻辑链条。\n"
+                    + "最终回答：结论先行，简洁明确，只保留关键论据，不要输出思考过程。";
+            }
+            // DeepSeek reasoner：思考链在 reasoning_content，回答保持简洁
+            if (m.contains("deepseek-reasoner") || m.contains("deepseek-r1")) {
+                return "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n"
+                    + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
+                    + "最终回答：结论先行，简洁明确，只保留关键论据。";
+            }
+            // Qwen3：支持 thinking 模式
+            if (m.contains("qwen3")) {
+                return "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n"
+                    + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
+                    + "最终回答：结论先行，简洁明确，只保留关键论据。";
+            }
+        }
+        // 通用思考指令（兜底）
+        return "你当前处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n"
+            + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
+            + "最终回答：结论先行，简洁明确，只保留关键论据。";
+    }
+
+    /**
+     * 按模型名返回 thinking 参数规范（请求体参数名 + 是否用 chat_template_kwargs 双位置）。
+     * 返回 "enable_thinking"（默认，DeepSeek/Qwen/GLM/豆包）或 "reasoning_effort"（OpenAI o系列）。
+     */
+    public static String getThinkingParamName(String modelName) {
+        if (modelName != null) {
+            String m = modelName.toLowerCase();
+            if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) {
+                return "reasoning_effort";
+            }
+        }
+        return "enable_thinking";
+    }
+
+    /**
      * 按模型名关键词判断是否支持原生 function calling（Agent 接管模式判定用）。
      * 名单与 OnlineAgentEngine 历史硬编码判定保持一致，收敛到此处统一维护；
      * 未知模型保守返回 false（降级为本地辅助模式）。

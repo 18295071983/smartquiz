@@ -1446,15 +1446,24 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
-            // 深度思考：enableThinking=true 时开启 thinking（DeepSeek 等返回 reasoning_content）。
-            // 用 chat_template_kwargs 双位置下发，兼容 vLLM/llama.cpp/DeepSeek 官方 API 的参数位置差异。
+            // 深度思考：enableThinking=true 时按模型名选择 thinking 参数。
+            // DeepSeek/Qwen3/GLM/豆包 → enable_thinking（+chat_template_kwargs 双位置，
+            // 兼容 vLLM/llama.cpp/DeepSeek 官方 API 的参数位置差异）；
+            // OpenAI o1/o3/o4 → reasoning_effort。
             if (enableThinking) {
                 try {
-                    requestBody.addProperty("enable_thinking", true);
-                    JsonObject chatTemplateKwargs = new JsonObject();
-                    chatTemplateKwargs.addProperty("enable_thinking", true);
-                    requestBody.add("chat_template_kwargs", chatTemplateKwargs);
-                    AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
+                    String paramName = com.oilquiz.app.ai.model.OnlineModelManager
+                            .getThinkingParamName(modelName);
+                    if ("reasoning_effort".equals(paramName)) {
+                        requestBody.addProperty("reasoning_effort", "high");
+                        AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
+                    } else {
+                        requestBody.addProperty("enable_thinking", true);
+                        JsonObject chatTemplateKwargs = new JsonObject();
+                        chatTemplateKwargs.addProperty("enable_thinking", true);
+                        requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+                        AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
+                    }
                 } catch (Exception ignored) {}
             }
             // 请求流式 usage（缓存命中统计等）：OpenAI/DeepSeek 标准 stream_options.include_usage
