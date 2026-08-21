@@ -127,10 +127,11 @@ public class OnlineToolGuide {
         // 5. 调用规则
         sb.append("【五、调用规则】\n");
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
-        sb.append("  2. 文件路径必须为绝对路径（如 /storage/emulated/0/...）\n");
-        sb.append("  3. 涉及权限的操作（定位/权限管理）会自动触发权限请求\n");
-        sb.append("  4. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
-        sb.append("  5. 如果已有足够信息，直接回答用户，不要调用不必要的工具\n\n");
+        sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
+        sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
+        sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
+        sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
+        sb.append("  6. 如果已有足够信息，直接回答用户，不要调用不必要的工具\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 

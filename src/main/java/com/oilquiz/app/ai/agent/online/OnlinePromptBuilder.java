@@ -53,7 +53,7 @@ public class OnlinePromptBuilder {
         sb.append(buildMemoryGuideSection());
 
         sb.append("【图片生成】\n");
-        sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，无需拼接 URL）；\n");
+        sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，点击可全屏放大查看）；\n");
         sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 open_url 这种绕路方式。\n\n");
 
         sb.append("【输出要求】\n");
