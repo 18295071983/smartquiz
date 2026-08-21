@@ -432,10 +432,10 @@ public class AIChatActivity extends BaseActivity {
             }
 
             messageList.setLayoutManager(new LinearLayoutManager(this));
-            // 禁用 RecyclerView 的默认动画，避免消息更新时的闪烁
-            androidx.recyclerview.widget.DefaultItemAnimator animator = new androidx.recyclerview.widget.DefaultItemAnimator();
-            animator.setSupportsChangeAnimations(false);
-            messageList.setItemAnimator(animator);
+            // 完全禁用 RecyclerView 动画：结构变化(insert/remove)不再被 postpone，
+            // 从根上消除 pre-layout 失配窗口（RecyclerView Inconsistency "offset:-1" 崩溃的必要条件）。
+            // 代价：消息插入/删除无动画，换取聊天列表在高频流式更新下的稳定。
+            messageList.setItemAnimator(null);
             chatHistory = new ArrayList<>();
             chatAdapter = new ChatAdapter(chatHistory, this::handleAction);
             chatAdapter.setRetryClickListener(messageId -> regenerateLastMessage());
@@ -3361,7 +3361,10 @@ public class AIChatActivity extends BaseActivity {
                             StringBuilder sb = rebuildParseProgressMsg(filtered, localFileMap, skippedFiles,
                                     doneCount, totalCount, currentFile, stage);
                             sysMsg.content = sb.toString();
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            int sysPos = chatHistory.indexOf(sysMsg);
+                            if (chatAdapter != null && sysPos >= 0) {
+                                chatAdapter.notifyItemChanged(sysPos);
+                            }
                             scrollToBottom();
                         });
                     }
@@ -3371,7 +3374,11 @@ public class AIChatActivity extends BaseActivity {
                         runOnUiThread(() -> {
                             // 3. 解析完成：展示确定性结果（成功/部分成功/失败+原因）
                             sysMsg.content = buildParseSummaryMsg(filtered, results).toString();
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            // indexOf 可能返回 -1（消息被删/清空）→ 保护后再通知，避免负位置 op
+                            int sysPos = chatHistory.indexOf(sysMsg);
+                            if (chatAdapter != null && sysPos >= 0) {
+                                chatAdapter.notifyItemChanged(sysPos);
+                            }
                             scrollToBottom();
                             saveHistoryAsync();
 
@@ -3401,7 +3408,10 @@ public class AIChatActivity extends BaseActivity {
                                 }
                                 ocrMsg.append("\n⚠️ 图片已通过 OCR 识别完成。如需 AI 智能分析，请先在模型设置中启用在线模型，或先加载本地模型。");
                                 sysMsg.content = ocrMsg.toString();
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                                sysPos = chatHistory.indexOf(sysMsg);
+                            if (chatAdapter != null && sysPos >= 0) {
+                                chatAdapter.notifyItemChanged(sysPos);
+                            }
                                 scrollToBottom();
                                 saveHistoryAsync();
                                 return;
@@ -3716,7 +3726,10 @@ public class AIChatActivity extends BaseActivity {
                             StringBuilder sb = rebuildParseProgressMsg(filtered, localFileMap, skippedFiles,
                                     doneCount, totalCount, currentFile, stage);
                             sysMsg.content = sb.toString();
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            int sysPos = chatHistory.indexOf(sysMsg);
+                            if (chatAdapter != null && sysPos >= 0) {
+                                chatAdapter.notifyItemChanged(sysPos);
+                            }
                             scrollToBottom();
                         });
                     }
@@ -3726,7 +3739,10 @@ public class AIChatActivity extends BaseActivity {
                         runOnUiThread(() -> {
                             // 3. 展示确定性解析结果
                             sysMsg.content = buildParseSummaryMsg(filtered, results).toString();
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(chatHistory.indexOf(sysMsg));
+                            int sysPos = chatHistory.indexOf(sysMsg);
+                            if (chatAdapter != null && sysPos >= 0) {
+                                chatAdapter.notifyItemChanged(sysPos);
+                            }
                             scrollToBottom();
                             saveHistoryAsync();
 
@@ -4784,20 +4800,28 @@ public class AIChatActivity extends BaseActivity {
     private void handleGenerationError(String errorMsg) {
         runOnUiThread(() -> {
             endGeneration();
-            addSystemMessage(errorMsg);
             final int idx = resolveStreamingIndex();
-            if (idx >= 0) {
+            // 生成仍存活(id 非空)才处理流式消息；结束后仅追加错误消息
+            if (idx >= 0 && currentStreamingMessageId != null) {
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0) {
                     ChatMessage msg = chatHistory.get(idx);
                     msg.content = currentStreamingContent.toString();
                     msg.status = ChatMessage.MessageStatus.COMPLETED;
                     msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.FAILED);
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
+                    addSystemMessage(errorMsg);
                 } else {
+                    // 批量修改：先全部改数据，再一次 notifyDataSetChanged，
+                    // 避免同一批次 insert+remove 混合 op 触发 RecyclerView Inconsistency 崩溃（offset:-1）
                     chatHistory.remove(idx);
-                    if (chatAdapter != null) chatAdapter.notifyItemRemoved(idx);
+                    chatHistory.add(ChatMessage.createSystemMessage(
+                            java.util.UUID.randomUUID().toString(), errorMsg,
+                            ChatMessage.SystemMessageType.INFO, System.currentTimeMillis()));
+                    if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
                     saveHistoryAsync();
                 }
+            } else {
+                addSystemMessage(errorMsg);
             }
             currentStreamingContent = null;
             thinkingRoundEnded = false;
@@ -4863,9 +4887,11 @@ public class AIChatActivity extends BaseActivity {
                         }
                         if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
                         if (!nativeInvalid) addSystemMessage("生成中断，已保存部分内容");
-                    } else if (idx >= 0) {
+                    } else if (idx >= 0 && currentStreamingMessageId != null) {
+                        // 批量修改：先移除 + 一次批量通知，后续 addErrorMessage 是纯队尾插入，
+                        // 与 remove 分属不同批次，避免 insert+remove 混合 op 触发 Inconsistency
                         chatHistory.remove(idx);
-                        if (chatAdapter != null) chatAdapter.notifyItemRemoved(idx);
+                        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
                     }
                     saveHistoryAsync();
                     currentStreamingContent = null;
@@ -5133,9 +5159,10 @@ public class AIChatActivity extends BaseActivity {
                     }
                 } else {
                     final int idx = resolveStreamingIndex();
-                    if (idx >= 0) {
+                    if (idx >= 0 && currentStreamingMessageId != null) {
+                        // 批量修改 + 一次批量通知，避免 insert+remove 混合 op 触发 Inconsistency
                         chatHistory.remove(idx);
-                        if (chatAdapter != null) chatAdapter.notifyItemRemoved(idx);
+                        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
                     }
                 }
                 saveHistoryAsync();
@@ -5287,6 +5314,9 @@ public class AIChatActivity extends BaseActivity {
         }
 
         runOnUiThread(() -> {
+            // 幂等保护：重复/迟到的完成事件（onComplete 后又补发 onError 等）直接忽略，
+            // 避免二次执行导致消息索引错乱（RecyclerView Inconsistency 崩溃根因之一）
+            if (currentStreamingMessageId == null) return;
             // 关键：按 streamingId 定位（不用索引），避免 thinking/tool 插入后索引漂移指向错误消息
             final String streamingIdAtComplete = currentStreamingMessageId;
             final int messageIndex = resolveStreamingIndex();
@@ -5519,6 +5549,9 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Agent Callbacks =====================
 
     private class AgentCallbackImpl implements AgentChatHandler.AgentChatCallback {
+        /** 本轮 Agent 是否已结束（onComplete 置位）：防引擎补发 onError 重复走错误路径触发崩溃 */
+        private final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
+
         @Override
         public void onToolCallStart(String toolCallId, String toolName, String args) {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
@@ -5635,6 +5668,8 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onComplete(String fullText) {
+            // 幂等：只处理第一次完成事件（重复/迟到回调直接忽略）
+            if (!completed.compareAndSet(false, true)) return;
             completeGeneration(fullText);
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
@@ -5653,6 +5688,8 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onError(String error) {
             if ("[TOOL_CALL]".equals(error)) return;
+            // 已完成后再报错：忽略（避免 completeGeneration 后又走 handleGenerationError 删错消息）
+            if (completed.get()) return;
             runOnUiThread(() -> {
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
@@ -5886,6 +5923,9 @@ public class AIChatActivity extends BaseActivity {
      * 找不到时回退 currentStreamingMessageIndex（并校验范围）；均无效返回 -1。
      */
     private int resolveStreamingIndex() {
+        // 生成已结束(id 为空)时任何陈旧索引都不可用：返回 -1，避免错误路径
+        // 用过期 currentStreamingMessageIndex 删除错误消息（RecyclerView Inconsistency 崩溃根因之一）
+        if (currentStreamingMessageId == null) return -1;
         int byId = findMessageIndexById(currentStreamingMessageId);
         if (byId >= 0) return byId;
         return (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
@@ -8625,7 +8665,12 @@ public class AIChatActivity extends BaseActivity {
                     msg.status = ChatMessage.MessageStatus.COMPLETED;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
                     saveHistoryAsync(); addSystemMessage("生成中断: " + error);
-                } else { if (idx >= 0) { chatHistory.remove(idx); chatAdapter.notifyItemRemoved(idx); } addSystemMessage(error); }
+                } else if (idx >= 0 && currentStreamingMessageId != null) {
+                    // 批量修改 + 一次批量通知，避免 insert+remove 混合 op 触发 Inconsistency
+                    chatHistory.remove(idx);
+                    if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+                    addSystemMessage(error);
+                }
             } else if (result != null) {
                 if (currentStreamingContent != null && idx >= 0) {
                     ChatMessage msg = chatHistory.get(idx);
@@ -8782,11 +8827,10 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
 
-        // 更新 Adapter 中的统计
-        if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size()) {
-            if (chatAdapter != null) {
-                chatAdapter.updateMessageGenerationStats(currentStreamingMessageIndex, stats.totalTokens, stats.elapsedMs);
-            }
+        // 更新 Adapter 中的统计（用 resolveStreamingIndex：id 为空/索引漂移时自动跳过，防 notify 错消息）
+        int idx = resolveStreamingIndex();
+        if (idx >= 0 && chatAdapter != null) {
+            chatAdapter.updateMessageGenerationStats(idx, stats.totalTokens, stats.elapsedMs);
         }
 
         // 更新顶部 Token 统计显示
