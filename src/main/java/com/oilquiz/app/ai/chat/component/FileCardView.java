@@ -116,6 +116,8 @@ public class FileCardView implements ChatComponent {
 
     private static void openFile(Context context, String uri, String path) {
         try {
+            // 规范化 path：剥离 file:// 前缀（模型可能传 file:///data/...），解析相对路径
+            path = normalizePath(context, path);
             // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
             if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
                 Toast.makeText(context, "该文件卡片没有可打开的路径（文件可能未生成或路径缺失）",
@@ -243,18 +245,31 @@ public class FileCardView implements ChatComponent {
         }
     }
 
-    /** 分享文件（通过系统分享面板） */
+    /** 分享文件（通过系统分享面板）。
+     *  私有目录文件先复制到公共 Download 目录再分享——直接 FileProvider 分享私有目录文件时，
+     *  部分目标 App 无法读取（表现为"需要 root"/"文件不存在"）。 */
     private static void shareFile(Context context, String uri, String path) {
         try {
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("*/*");
             if (!TextUtils.isEmpty(uri)) {
                 share.putExtra(Intent.EXTRA_STREAM, Uri.parse(uri));
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else if (!TextUtils.isEmpty(path)) {
+                // 规范化 path（剥离 file:// 前缀/解析相对路径）
+                path = normalizePath(context, path);
                 java.io.File file = new java.io.File(path);
-                Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
-                        context, "com.oilquiz.app.fileprovider", file);
-                share.putExtra(Intent.EXTRA_STREAM, fileUri);
+                if (!file.exists() || !file.isFile()) {
+                    Toast.makeText(context, "文件不存在: " + file.getName(), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                // 复制到公共 Download 目录（分享目标可读；私有目录文件直接分享会"需要root"）
+                Uri shareUri = copyToPublicDownloads(context, file);
+                if (shareUri == null) {
+                    Toast.makeText(context, "文件复制失败，无法分享", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                share.putExtra(Intent.EXTRA_STREAM, shareUri);
                 share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else {
                 // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
@@ -266,6 +281,70 @@ public class FileCardView implements ChatComponent {
             context.startActivity(Intent.createChooser(share, "分享文件"));
         } catch (Exception e) {
             Toast.makeText(context, "无法分享文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 规范化文件路径：剥离 file:// 前缀；相对路径（工作区文件）解析为绝对路径 */
+    private static String normalizePath(Context context, String path) {
+        if (TextUtils.isEmpty(path)) return path;
+        String p = path.trim();
+        if (p.startsWith("file://")) {
+            p = android.net.Uri.parse(p).getPath();
+        }
+        if (p == null || p.isEmpty()) return path;
+        // 相对路径（非 / 开头、非 content://）→ 工作区解析
+        if (!p.startsWith("/") && !p.startsWith("content://")) {
+            try {
+                com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                        com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+                java.io.File f = ws.resolveFileToFiles(p);
+                if (f == null || !f.exists()) f = ws.resolveFileToTmp(p);
+                if (f != null && f.exists()) return f.getAbsolutePath();
+            } catch (Throwable t) {
+                android.util.Log.w("FileCardView", "workspace resolve failed: " + t.getMessage());
+            }
+        }
+        return p;
+    }
+
+    /** 复制文件到公共 Download 目录（MediaStore，Android 10+ 免权限），返回可分享的 URI */
+    private static Uri copyToPublicDownloads(Context context, java.io.File source) {
+        try {
+            String fileName = source.getName();
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName);
+            String mime = null;
+            int dot = fileName.lastIndexOf('.');
+            if (dot > 0) {
+                mime = android.webkit.MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(fileName.substring(dot + 1).toLowerCase());
+            }
+            values.put(android.provider.MediaStore.Downloads.MIME_TYPE, mime != null ? mime : "application/octet-stream");
+            values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_DOWNLOADS + "/OilQuiz");
+            android.net.Uri collection;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                collection = android.provider.MediaStore.Downloads
+                        .getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            } else {
+                collection = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+            }
+            android.net.Uri item = context.getContentResolver().insert(collection, values);
+            if (item == null) return null;
+            try (java.io.OutputStream os = context.getContentResolver().openOutputStream(item)) {
+                if (os == null) return null;
+                try (java.io.InputStream is = new java.io.FileInputStream(source)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        os.write(buf, 0, n);
+                    }
+                }
+            }
+            return item;
+        } catch (Exception e) {
+            android.util.Log.w("FileCardView", "copy to downloads failed: " + e.getMessage());
+            return null;
         }
     }
 
