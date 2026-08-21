@@ -566,6 +566,14 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.e(TAG, "No model selected, cannot initialize AI service");
                 return false;
             }
+            // 模型文件不存在时明确提示，而不是反复报"加载失败"
+            if (!isCurrentModelFileExists()) {
+                String err = "模型文件不存在: " + currentModelName + "（文件可能已被删除，请重新导入或切换模型）";
+                AILogger.e(TAG, err);
+                serviceState.setError(err);
+                notifyError(err);
+                return false;
+            }
             return loadModelLocked(currentModelName);
         }
     }
@@ -1950,6 +1958,16 @@ public class AIService implements ComponentCallbacks2 {
             return rootModelFile.getAbsolutePath();
         }
         return null;
+    }
+
+    /**
+     * 当前所选模型的模型文件是否存在。
+     * 模型文件被删除/移动后返回 false——UI 应据此提示"模型文件不存在，请重新导入或切换模型"，
+     * 避免每次操作都触发初始化失败报错。
+     */
+    public boolean isCurrentModelFileExists() {
+        if (currentModelName == null || currentModelName.isEmpty()) return false;
+        return findModelPath(currentModelName) != null;
     }
 
     /**
