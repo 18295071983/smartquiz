@@ -267,4 +267,10 @@
     <!-- Violet系 - 暗色模式 -->
     <color name="violet_200">#4338CA</color>
 
+    <!-- Agent 执行汇总卡片 - 暗色模式适配（浅色主题为深字深底，夜间需亮字保证对比度） -->
+    <color name="agent_summary_title">#E5E7EB</color>
+    <color name="agent_summary_value">#F3F4F6</color>
+    <color name="agent_summary_label">#9CA3AF</color>
+    <color name="agent_summary_divider">#374151</color>
+
 </resources>
