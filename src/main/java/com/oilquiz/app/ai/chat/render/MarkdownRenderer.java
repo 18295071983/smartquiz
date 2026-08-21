@@ -210,9 +210,24 @@ public class MarkdownRenderer {
                 Uri uri = Uri.parse(url);
                 String scheme = uri.getScheme();
                 if ("content".equals(scheme)) {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    widget.getContext().startActivity(intent);
+                    // 文件链接（content://）→ 应用内预览（FileRenderActivity 按类型渲染 md/文本/表格/pdf 等）。
+                    // 不能 ACTION_VIEW 交给系统：无 App 能渲染 Markdown 时系统会把 Intent 转给浏览器，
+                    // 中文文件名被 punycode 编码成域名发起 DNS 解析必然失败（实测 Bug）。
+                    try {
+                        Intent intent = new Intent(widget.getContext(),
+                                com.oilquiz.app.ui.activity.FileRenderActivity.class);
+                        intent.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_URI, uri);
+                        if (!(widget.getContext() instanceof android.app.Activity)) {
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        }
+                        widget.getContext().startActivity(intent);
+                    } catch (Exception e) {
+                        android.util.Log.w("MarkdownRenderer", "App preview failed, fallback ACTION_VIEW: " + e.getMessage());
+                        // 兜底：应用内预览失败才交给系统
+                        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        widget.getContext().startActivity(intent);
+                    }
                 } else if ("http".equals(scheme) || "https".equals(scheme)) {
                     // 正确编码 URL 中的非 ASCII 字符，避免浏览器错误 Punycode 编码
                     String encodedUrl = encodeUrlForBrowser(url);
@@ -220,6 +235,30 @@ public class MarkdownRenderer {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     widget.getContext().startActivity(intent);
                 } else {
+                    // 本地文件分支：file://、绝对路径、工作区相对路径 → 应用内预览
+                    // （不能 super.onClick 交给系统：中文文件名会被当域名 punycode 编码 DNS 失败）
+                    java.io.File localFile = resolveLocalFile(widget.getContext(), url, uri);
+                    if (localFile != null && localFile.exists() && localFile.isFile()) {
+                        try {
+                            Intent intent = new Intent(widget.getContext(),
+                                    com.oilquiz.app.ui.activity.FileRenderActivity.class);
+                            intent.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH,
+                                    localFile.getAbsolutePath());
+                            if (!(widget.getContext() instanceof android.app.Activity)) {
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            }
+                            widget.getContext().startActivity(intent);
+                            return;
+                        } catch (Exception e) {
+                            android.util.Log.w("MarkdownRenderer", "Local file preview failed: " + e.getMessage());
+                        }
+                    }
+                    if (localFile != null && !localFile.exists()) {
+                        android.widget.Toast.makeText(widget.getContext(), "文件不存在: " + localFile.getName(),
+                                android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    // 非本地文件（无扩展名/非工作区）：退回系统默认
                     super.onClick(widget);
                 }
             } catch (ActivityNotFoundException e) {
@@ -227,6 +266,40 @@ public class MarkdownRenderer {
             } catch (Exception e) {
                 android.util.Log.w("MarkdownRenderer", "Error opening link: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * 解析本地文件路径：file:// → 取 path；绝对路径 → 直接使用；
+     * 工作区相对路径（如 "报告.md" / "files/报告.md"）→ 用 AgentWorkspace 解析。
+     * 返回 null 表示非本地文件（应退回系统默认处理）。
+     */
+    private static java.io.File resolveLocalFile(Context context, String url, Uri uri) {
+        try {
+            String path = null;
+            if ("file".equals(uri.getScheme())) {
+                path = uri.getPath();
+            } else if (url != null && url.startsWith("/")) {
+                path = url;
+            } else if (url != null && !url.contains("://")
+                    && (url.contains(".") || url.startsWith("files/") || url.startsWith("tmp/"))) {
+                // 相对路径（工作区文件）：AgentWorkspace 解析
+                try {
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                            com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+                    java.io.File f = ws.resolveFileToFiles(url);
+                    if (f == null || !f.exists()) f = ws.resolveFileToTmp(url);
+                    return f;
+                } catch (Throwable t) {
+                    android.util.Log.w("MarkdownRenderer", "workspace resolve failed: " + t.getMessage());
+                    return null;
+                }
+            }
+            if (path == null || path.isEmpty()) return null;
+            return new java.io.File(path);
+        } catch (Exception e) {
+            android.util.Log.w("MarkdownRenderer", "resolveLocalFile failed: " + e.getMessage());
+            return null;
         }
     }
 

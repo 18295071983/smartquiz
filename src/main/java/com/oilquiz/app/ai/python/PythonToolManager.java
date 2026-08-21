@@ -288,11 +288,13 @@ public class PythonToolManager {
 
             // 注入 UI 动作回调：Python 代码里 show_toast/show_dialog/create_component 等
             // 通过 android_ui 模块转发到 Java 执行（Toast/Dialog/进度条/日志），真实显示在手机界面
+            // 注意：必须注入 getUiActionHandler() 同一实例——若 new 一个独立 handler，
+            // Python 创建的组件与工具侧 ui_component(get_result) 是两个注册表互不相通（Bug2）
             try {
                 PyObject uiModule = python.getModule("android_ui");
                 if (uiModule != null) {
                     uiModule.callAttr("set_ui_callback",
-                            PyObject.fromJava(new AndroidUiActionHandler()));
+                            PyObject.fromJava(getUiActionHandler()));
                     Log.i(TAG, "Android UI callback injected");
                 }
             } catch (Throwable t) {
@@ -1085,6 +1087,19 @@ public class PythonToolManager {
                         if (title != null && !title.isEmpty() && !propsObj.has("title")) {
                             propsObj.put("title", title);
                         }
+                        // 交互支持：给每个 action 注入 component_id（action=callback 时用）。
+                        // 否则 Python/模型路径渲染的按钮无 component_id，点击落入 execute() 无回调，
+                        // get_result 只能等满超时（Bug2）
+                        org.json.JSONArray actionsArr = propsObj.optJSONArray("actions");
+                        if (actionsArr != null) {
+                            for (int i = 0; i < actionsArr.length(); i++) {
+                                org.json.JSONObject a = actionsArr.optJSONObject(i);
+                                if (a != null) {
+                                    a.put("component_id", id);
+                                    if (!a.has("action")) a.put("action", "callback");
+                                }
+                            }
+                        }
                         com.oilquiz.app.ai.chat.component.ComponentData data =
                                 new com.oilquiz.app.ai.chat.component.ComponentData(renderType, propsObj);
                         android.view.View view = registry.render(fAct, data);
@@ -1196,20 +1211,30 @@ public class PythonToolManager {
                             }
                         } catch (Exception ignored) {
                         }
-                        final String[] selected = {null};
+                        final int[] selectedIndex = {-1};
                         android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
-                        if (title != null && !title.isEmpty()) b.setTitle(title);
-                        if (message != null && !message.isEmpty()) b.setMessage(message);
+                        // 注意：不能同时 setMessage + setItems（AlertDialog 中 message 会占据内容区，
+                        // 导致选项列表不显示，实测 choice 只显示确认/取消）——message 并入 title 展示
+                        StringBuilder titleText = new StringBuilder();
+                        if (title != null && !title.isEmpty()) titleText.append(title);
+                        if (message != null && !message.isEmpty()) {
+                            if (titleText.length() > 0) titleText.append("\n");
+                            titleText.append(message);
+                        }
+                        if (titleText.length() > 0) b.setTitle(titleText.toString());
                         if (choices.isEmpty()) {
                             choices.add("确定");
                         }
-                        b.setItems(choices.toArray(new String[0]), (d, which) -> {
-                            if (which >= 0 && which < choices.size()) {
-                                selected[0] = choices.get(which);
-                            }
-                        });
+                        // setSingleChoiceItems：单选钮选中反馈（普通 setItems 点选无视觉反馈）
+                        b.setSingleChoiceItems(choices.toArray(new String[0]), selectedIndex[0],
+                                (d, which) -> {
+                                    if (which >= 0 && which < choices.size()) {
+                                        selectedIndex[0] = which;
+                                    }
+                                });
                         b.setPositiveButton("确定", (d, w) -> {
-                            rt.result.set(selected[0] != null ? selected[0] : "cancelled");
+                            rt.result.set(selectedIndex[0] >= 0 && selectedIndex[0] < choices.size()
+                                    ? choices.get(selectedIndex[0]) : "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                             d.dismiss();
                         });

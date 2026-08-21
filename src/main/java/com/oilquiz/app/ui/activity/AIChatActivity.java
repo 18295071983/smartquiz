@@ -5275,7 +5275,9 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void completeGeneration(String fullText) {
-        completeGeneration(fullText, 0, 0);
+        // 传 beginGeneration 记录的真实开始时间；未记录时传 0（内部有 >0 防御，
+        // 避免 chatStartTime=0 导致 totalTime=当前时间戳 的"29787149m"天文耗时）
+        completeGeneration(fullText, 0, generationStartTime > 0 ? generationStartTime : 0);
     }
 
     private void completeGeneration(String fullText, int tokenCount, long chatStartTime) {
@@ -5302,6 +5304,15 @@ public class AIChatActivity extends BaseActivity {
                 statsTime = streamingUpdateManager.getElapsedTimeMs();
                 streamingUpdateManager.flush();
             }
+            // Agent 汇总的 token 数用引擎累计（含多轮工具调用全部输入/输出），
+            // 避免 streamingUpdateManager 只统计 UI 流式 token 导致汇总卡片显示 0
+            int agentTotalTokens = 0;
+            if (agentChatHandler != null) {
+                int inT = agentChatHandler.getExecTotalPromptTokens();
+                int outT = agentChatHandler.getExecTotalCompletionTokens();
+                if (inT > 0 || outT > 0) agentTotalTokens = inT + outT;
+            }
+            if (agentTotalTokens <= 0) agentTotalTokens = statsTokens;
             
             endGeneration();
             // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名 / 缓存命中
@@ -5347,10 +5358,17 @@ public class AIChatActivity extends BaseActivity {
                     // 独立展示：插入一条 AGENT_SUMMARY 系统消息（Agent 执行汇总卡片）
                     // 放到 AI 消息之后，展示耗时/步骤/工具/Token 统计
                     try {
-                        long totalTime = System.currentTimeMillis() - generationStart;
+                        // 防御：generationStart 必须 >0（=0 时 totalTime 变成 1970 以来毫秒时间戳，
+                        // 显示 "29787xxxm 23s" 天文耗时），回退 statsTime 或 0
+                        long totalTime = generationStart > 0
+                                ? System.currentTimeMillis() - generationStart
+                                : (statsTime > 0 ? statsTime : 0);
+                        // totalSteps=Agent 工具步骤数（与详文本"调用工具N次"口径一致），
+                        // 思考轮数在详文本单独展示，避免卡片"3步骤"与"工具4次"矛盾
+                        int agentSteps = agentGroupStepCount > 0 ? agentGroupStepCount : thinkingRoundCount;
                         ChatMessage.AgentSummaryInfo summaryInfo =
-                                new ChatMessage.AgentSummaryInfo(totalTime, thinkingRoundCount,
-                                        agentGroupToolCount, statsTokens, true);
+                                new ChatMessage.AgentSummaryInfo(totalTime, agentSteps,
+                                        agentGroupToolCount, agentTotalTokens, true);
                         summaryInfo.summary = sum.toString();
                         ChatMessage summaryMsg = ChatMessage.createAgentSummaryMessage(summaryInfo);
                         summaryMsg.timestamp = System.currentTimeMillis();

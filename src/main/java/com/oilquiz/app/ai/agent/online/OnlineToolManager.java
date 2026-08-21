@@ -252,10 +252,13 @@ public class OnlineToolManager {
 
         // 权限工具的状态是动态的，不应缓存（避免缓存到过期结果）
         boolean isPermissionTool = "permission_manager".equals(toolName);
+        // ui_component 也不应缓存：create 必须重新执行（注册新组件/返回新 id），
+        // get_result 超时后的 "pending" 若被缓存，二次调用会瞬间返回 pending（Bug2/3）
+        boolean noCacheTool = isPermissionTool || "ui_component".equals(toolName);
 
-        // 检查缓存（权限工具跳过缓存，带 TTL 过期）
+        // 检查缓存（权限/ui_component 工具跳过缓存，带 TTL 过期）
         String cacheKey = toolName + ":" + arguments;
-        String cached = isPermissionTool ? null : getCached(cacheKey);
+        String cached = noCacheTool ? null : getCached(cacheKey);
         if (cached != null) {
             AILogger.d(TAG, "Tool cache HIT: " + toolName);
             long elapsed = 0;
@@ -306,8 +309,8 @@ public class OnlineToolManager {
                 String resultStr = formatResult(result);
                 boolean success = result.isSuccess();
 
-                // 缓存成功结果（权限工具不缓存，状态随时变化；带 TTL 过期）
-                if (success && !isPermissionTool) {
+                // 缓存成功结果（权限/ui_component 工具不缓存，状态随时变化；带 TTL 过期）
+                if (success && !noCacheTool) {
                     putCached(cacheKey, resultStr);
                 }
 
