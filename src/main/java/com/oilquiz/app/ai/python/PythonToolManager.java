@@ -858,7 +858,7 @@ public class PythonToolManager {
                 String dialogType = "info", componentType = "", componentId = "";
                 int current = 0, total = 0, max = 100, progress = 0, waitSeconds = 0;
                 String options = "", defaultValue = "", inputHint = "", props = "", actionLabel = "";
-                String items = "", url = "", clickAction = "";
+                String items = "", url = "", clickAction = "", html = "";
                 int autoClose = 0;
                 if (action != null) {
                     for (Map.Entry<String, Object> e : action.entrySet()) {
@@ -886,6 +886,7 @@ public class PythonToolManager {
                             case "action_label": actionLabel = v; break;
                             case "items": items = v; break;
                             case "url": url = v; break;
+                            case "html": html = v; break;
                             case "click_action": clickAction = v; break;
                             case "auto_close": autoClose = parseInt(v); break;
                             default: break;
@@ -909,7 +910,7 @@ public class PythonToolManager {
                     case "create_component":
                         reply.putAll(createComponent(componentType, componentId, title, message,
                                 dialogType, max, options, defaultValue, inputHint, props, actionLabel,
-                                items, url, clickAction, autoClose));
+                                items, url, clickAction, autoClose, html));
                         break;
                     case "update_component":
                         reply.putAll(updateComponent(componentId, title, message, progress, max));
@@ -946,7 +947,7 @@ public class PythonToolManager {
                                                     String options, String defaultValue, String inputHint,
                                                     String props, String actionLabel,
                                                     String items, String url, String clickAction,
-                                                    int autoCloseSeconds) {
+                                                    int autoCloseSeconds, String html) {
             Map<String, Object> reply = new HashMap<>();
             String type = componentType != null ? componentType : "dialog";
             final String id = (componentId != null && !componentId.isEmpty())
@@ -1042,6 +1043,7 @@ public class PythonToolManager {
             final String fItems = items != null ? items : "";
             final String fUrl = url != null ? url : "";
             final String fClickAction = clickAction != null ? clickAction : "";
+            final String fHtml = html != null ? html : "";
             main.post(() -> {
                 try {
                     if (fAct.isFinishing() || fAct.isDestroyed()) {
@@ -1065,6 +1067,7 @@ public class PythonToolManager {
                     }
                     if ("web".equals(fType)) {
                         renderType = "html";
+                        // url 参数 → url 字段（WebView 直接加载网页/本地文件）
                         if (!propsObj.has("html") && !propsObj.has("url") && !fUrl.isEmpty()) {
                             String u = fUrl.trim();
                             if (u.startsWith("http://") || u.startsWith("https://")) {
@@ -1074,6 +1077,15 @@ public class PythonToolManager {
                                 propsObj.put("url", u.startsWith("file://") ? u : "file://" + u);
                             } else {
                                 propsObj.put("html", u);
+                            }
+                        }
+                        // 顶层 message/html/content 参数 → html 字段（模型常把 HTML 内容放
+                        // message/html/content 顶层参数而非 props 内，否则 HtmlCardView 取不到
+                        // 内容显示"未获取到组件内容"）
+                        if (!propsObj.has("html") && !propsObj.has("url")) {
+                            String topContent = !fHtml.trim().isEmpty() ? fHtml : message;
+                            if (topContent != null && !topContent.trim().isEmpty()) {
+                                propsObj.put("html", topContent);
                             }
                         }
                     } else if ("image".equals(fType)) {
