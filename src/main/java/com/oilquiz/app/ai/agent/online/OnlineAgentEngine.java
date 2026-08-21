@@ -354,8 +354,6 @@ public class OnlineAgentEngine {
         // 连续暗示"要调用工具"但未输出正确 tool_calls 格式的次数，用于防死循环
         int consecutiveHintForToolCount = 0;
         final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
-        // 目标评估只触发一次：评估后模型仍给纯文本答案 → 直接返回，避免"评估→再答→再评估"死循环
-        final boolean[] goalEvalDone = {false};
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
@@ -452,26 +450,8 @@ public class OnlineAgentEngine {
                         + " 次试图调用工具但未使用正确格式，请尝试用更简洁的方式提问）";
                 }
 
-                // 【目标达成率评估】仅多轮工具任务(≥2次工具调用)且模型给出答案时触发一次，
-                // 让模型自评完成度。简单任务(单轮工具/无工具)不评估，直接返回，减少循环频率。
-                if (toolLoopCount.get() >= 2 && !goalEvalDone[0]
-                        && iteration < maxIterations && !hintToCallTool) {
-                    goalEvalDone[0] = true;
-                    JsonObject evalMsg = new JsonObject();
-                    evalMsg.addProperty("role", "system");
-                    evalMsg.addProperty("content",
-                        "【目标评估】请对照用户最初的需求，评估你当前回答的目标达成情况：\n"
-                      + "- 若已完整达成用户目标：保留并完善此回答作为最终答案。\n"
-                      + "- 若仍有遗漏/可改进（如缺数据、未覆盖用户问题的某部分、结果需整理展示）："
-                      + "指出缺口并决定是否继续调用工具补充，或直接补充完善回答。\n"
-                      + "- 若需要继续：直接输出下一步的工具调用（tool_calls），不要输出回答文本。\n"
-                      + "- 若确认完成：输出最终回答。\n"
-                      + "（注意：这是最后一次评估机会，评估后必须给出最终答案，不要再要求继续）");
-                    messageHistory.add(evalMsg);
-                    AILogger.i(TAG, "Injected goal-evaluation prompt (iteration " + iteration + ")");
-                    continue; // 让模型评估后决定收尾或继续
-                }
-
+                // 模型给出最终答案（无 tool_calls）→ 直接返回（信任模型自主判断完成时机，
+                // 不强加目标评估等引导，避免限制模型能力或引发额外循环）
                 JsonObject assistantMsg = new JsonObject();
                 assistantMsg.addProperty("role", "assistant");
                 assistantMsg.addProperty("content", finalAnswer);
