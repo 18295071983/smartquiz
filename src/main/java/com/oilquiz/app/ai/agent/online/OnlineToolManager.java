@@ -198,6 +198,21 @@ public class OnlineToolManager {
         return registry.getToolDefinitions();
     }
 
+    /** 按工具名列表获取定义（MCP 式动态扩展：模型经 tool_registry 发现后注入） */
+    public String getToolDefinitionsForNames(java.util.Collection<String> names) {
+        return registry.getToolDefinitionsForNames(names);
+    }
+
+    /** 获取全部已启用工具名（MCP 式动态扩展：检测模型提及的未注入工具） */
+    public java.util.Set<String> getAllEnabledToolNames() {
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        for (com.oilquiz.app.ai.agent.online.OnlineToolRegistry.ToolMeta meta
+                : registry.getAllToolMetas()) {
+            names.add(meta.name);
+        }
+        return names;
+    }
+
     /**
      * 按用户消息意图获取工具定义子集（省 token）。
      * 用关键词匹配工具类别，只注入相关工具：

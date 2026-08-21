@@ -350,6 +350,28 @@ public class OnlineToolRegistry {
         }
     }
 
+    /**
+     * 按工具名列表构建工具定义 JSON（MCP 式动态扩展用）。
+     * 只包含指定名称的工具；名称不存在/被禁用时跳过。
+     */
+    public String getToolDefinitionsForNames(java.util.Collection<String> names) {
+        if (names == null || names.isEmpty()) return "[]";
+        try {
+            JSONArray tools = new JSONArray();
+            for (String name : names) {
+                ToolMeta meta = toolMetaIndex.get(name);
+                if (meta == null || !isToolEnabled(name)) continue;
+                JSONObject tool = buildToolJsonObject(meta);
+                if (tool != null) tools.put(tool);
+            }
+            AILogger.i(TAG, "Built tool definitions for names: " + tools.length() + "/" + names.size());
+            return tools.toString();
+        } catch (Exception e) {
+            AILogger.e(TAG, "Failed to build named tool definitions: " + e.getMessage(), e);
+            return "[]";
+        }
+    }
+
     private JSONObject buildToolJsonObject(ToolMeta meta) throws JSONException {
         JSONObject tool = new JSONObject();
         tool.put("type", "function");
