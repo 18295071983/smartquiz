@@ -354,6 +354,11 @@ public class OnlineAgentEngine {
         // 连续暗示"要调用工具"但未输出正确 tool_calls 格式的次数，用于防死循环
         int consecutiveHintForToolCount = 0;
         final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
+        // 目标评估只触发一次：评估后模型仍给纯文本答案 → 直接返回，避免"评估→再答→再评估"死循环
+        final boolean[] goalEvalDone = {false};
+        // 反思次数限制：最多反思 MAX_REFLECTION_ROUNDS 次，防止"反思→再调用→再反思"无限循环
+        int reflectionCount = 0;
+        final int MAX_REFLECTION_ROUNDS = 2;
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
@@ -452,8 +457,10 @@ public class OnlineAgentEngine {
 
                 // 【目标达成率评估】此前已用过工具（多轮任务），模型现在给出答案 →
                 // 注入评估引导，让模型自评完成度，决定是收尾还是继续补充。
-                // 简单任务（第一轮直接回答）不评估，避免浪费。
-                if (toolLoopCount.get() > 0 && iteration < maxIterations && !hintToCallTool) {
+                // 只触发一次：评估后模型再给纯文本答案 → 直接返回，避免死循环。
+                if (toolLoopCount.get() > 0 && !goalEvalDone[0]
+                        && iteration < maxIterations && !hintToCallTool) {
+                    goalEvalDone[0] = true;
                     JsonObject evalMsg = new JsonObject();
                     evalMsg.addProperty("role", "system");
                     evalMsg.addProperty("content",
@@ -462,7 +469,8 @@ public class OnlineAgentEngine {
                       + "- 若仍有遗漏/可改进（如缺数据、未覆盖用户问题的某部分、结果需整理展示）："
                       + "指出缺口并决定是否继续调用工具补充，或直接补充完善回答。\n"
                       + "- 若需要继续：直接输出下一步的工具调用（tool_calls），不要输出回答文本。\n"
-                      + "- 若确认完成：输出最终回答。");
+                      + "- 若确认完成：输出最终回答。\n"
+                      + "（注意：这是最后一次评估机会，评估后必须给出最终答案，不要再要求继续）");
                     messageHistory.add(evalMsg);
                     AILogger.i(TAG, "Injected goal-evaluation prompt (iteration " + iteration + ")");
                     continue; // 让模型评估后决定收尾或继续
@@ -640,20 +648,26 @@ public class OnlineAgentEngine {
 
             // ===== ReAct 反思环节（Observation → Reflection）=====
             // 工具执行完成后，注入反思引导让模型评估结果决定下一步。
-            // 频率优化（省 token）：仅当"有失败"或"已多轮(≥2)"时反思——
-            // 单轮成功工具调用后不注入（模型基于工具结果自然继续），避免每轮都多一次反思消耗。
-            if (iteration < maxIterations && (!failedTools.isEmpty() || iteration >= 2)) {
+            // 频率优化（省 token + 防死循环）：
+            // - 仅当"有失败"或"已多轮(≥2)"且反思次数<2 时触发
+            // - 超过 2 次反思不再注入，让模型基于工具结果自行收敛，避免"反思→再调用→再反思"无限循环
+            if (iteration < maxIterations && reflectionCount < MAX_REFLECTION_ROUNDS
+                    && (!failedTools.isEmpty() || iteration >= 2)) {
+                reflectionCount++;
                 StringBuilder reflection = new StringBuilder();
                 reflection.append("【反思】你已执行了工具调用，请基于工具结果评估当前进展：\n");
                 reflection.append("- 工具结果是否符合预期？若不符合，说明原因并决定如何修正（换参数/换工具/换策略）。\n");
                 reflection.append("- 是否还缺少达成目标所需的信息？若缺，决定下一步调用哪个工具获取。\n");
                 reflection.append("- 若所有必要信息已获取、目标已达成：直接输出最终答案（用 tool_calls 之外的纯文本回复），并简要说明依据。\n");
                 reflection.append("- 不要重复调用已成功且结果已利用的工具，不要空转。\n");
+                reflection.append("- 反思次数有限（还剩 " + (MAX_REFLECTION_ROUNDS - reflectionCount)
+                        + " 次），请尽快收敛：能给出最终答案就立即输出，不要为追求完美无限补充。\n");
                 JsonObject reflectionMsg = new JsonObject();
                 reflectionMsg.addProperty("role", "system");
                 reflectionMsg.addProperty("content", reflection.toString());
                 messageHistory.add(reflectionMsg);
-                AILogger.i(TAG, "Injected reflection prompt (iteration " + iteration
+                AILogger.i(TAG, "Injected reflection prompt (" + reflectionCount + "/"
+                        + MAX_REFLECTION_ROUNDS + ", iteration " + iteration
                         + ", failed=" + failedTools.size() + ")");
             }
 
