@@ -298,6 +298,33 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
+            // file_card/file_list 路径解析：模型常传工作区相对路径（如 "report.md" / "files/报告.pdf"），
+            // 解析为绝对路径，否则打开/分享显示"无路径无法打开"
+            try {
+                if ("file_card".equals(renderType) && !props.has("path") && !props.has("uri")) {
+                    Object topPath = parameters.get("path");
+                    if (topPath == null) topPath = parameters.get("file_path");
+                    if (topPath != null && !topPath.toString().trim().isEmpty()) {
+                        props.put("path", resolveWorkspacePath(topPath.toString()));
+                    }
+                } else if ("file_list".equals(renderType)) {
+                    org.json.JSONArray files = props.optJSONArray("files");
+                    if (files != null) {
+                        for (int i = 0; i < files.length(); i++) {
+                            org.json.JSONObject f = files.optJSONObject(i);
+                            if (f != null && !f.has("path")) {
+                                String p = f.optString("path", "");
+                                if (p.isEmpty()) p = f.optString("file_path", "");
+                                if (!p.isEmpty()) {
+                                    f.put("path", resolveWorkspacePath(p));
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
             // 交互支持：props 带 actions 时注册到组件注册表 + 注入 component_id
             boolean interactive = props.has("actions");
             // 无条件生成 component_id（create 响应始终返回，供后续 update/close/get_result 使用）
@@ -387,6 +414,30 @@ public class SystemUIComponentTool implements AITool {
             }
         }
         return params;
+    }
+
+    /**
+     * 解析文件路径：绝对路径/已有文件原样返回；相对路径（工作区文件如 "report.md"、
+     * "files/报告.pdf"、"tmp/xx"）用 AgentWorkspace 解析为绝对路径；
+     * 解析失败返回原值（FileCardView 会提示无路径）。
+     */
+    private String resolveWorkspacePath(String path) {
+        if (path == null || path.trim().isEmpty()) return path;
+        String p = path.trim();
+        // 已是绝对路径或 content:// 或 file:// → 原样
+        if (p.startsWith("/") || p.startsWith("content://") || p.startsWith("file://")) return p;
+        try {
+            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+            java.io.File f = ws.resolveFileToFiles(p);
+            if (f == null || !f.exists()) f = ws.resolveFileToTmp(p);
+            if (f != null && f.exists()) {
+                return f.getAbsolutePath();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "resolveWorkspacePath failed: " + t.getMessage());
+        }
+        return p;
     }
 
     private void putIfNotNull(Map<String, Object> map, String key, Object value) {
