@@ -1,23 +1,26 @@
 package com.oilquiz.app.ai.model;
 
 /**
- * 在线模型配置表 —— 按「API 端点 + 模型名」匹配模型能力。
+ * 在线模型配置表 —— 以「模型名」为唯一匹配键的模型能力配置。
  *
- * 相比纯模型名推断更准：同一模型名在不同服务商端点（官方/代理/中转）上下文可能不同。
+ * 设计原则：上下文窗口/能力是**模型本身的属性**，与调用端点无关
+ * （同一模型走官方还是中转站，窗口相同）。API 地址仅用于标注服务商
+ * （展示用），不参与窗口判断。
+ *
  * 匹配优先级：
- *   1. 精确端点 + 模型名
- *   2. 端点类型（如官方 DeepSeek/OpenAI/Qwen）+ 模型名
- *   3. 纯模型名（跨端点兜底）
- *   4. 未知 → 保守默认 32K
+ *   1. 精确模型名（完全一致）
+ *   2. 前缀匹配（模型名以配置键开头，如 "deepseek-chat" 命中 "deepseek-chat"）
+ *   3. 关键词匹配（如 "gpt-4o" 命中 "gpt-4" 系列规则）
+ *   4. 未知 → 保守 32K
  *
- * 用法：OnlineModelProfile.match(apiUrl, modelName) → ModelProfile（含 contextWindow 等）
+ * 新增模型：往 {@link #MODELS} 表加一行即可（数据驱动，无散落 if-else）。
  */
 public final class OnlineModelProfile {
 
     private OnlineModelProfile() {
     }
 
-    /** 匹配结果：上下文窗口 + 端点类型名 */
+    /** 匹配结果：上下文窗口 + 服务商显示名 */
     public static final class ModelProfile {
         public final int contextWindow;
         public final String provider;
@@ -28,137 +31,130 @@ public final class OnlineModelProfile {
         }
     }
 
+    /** 模型配置条目 */
+    private static final class Entry {
+        final String match;        // 匹配键（模型名关键词，小写）
+        final int contextWindow;   // 上下文窗口（tokens）
+        final String provider;     // 服务商显示名
+
+        Entry(String match, int contextWindow, String provider) {
+            this.match = match;
+            this.contextWindow = contextWindow;
+            this.provider = provider;
+        }
+    }
+
     /**
-     * 按 API 地址 + 模型名匹配配置。
-     * @param apiUrl  API 调用地址（可为 null）
-     * @param modelName 模型名（可为 null）
-     * @return 匹配的配置；无匹配时返回保守默认（32K, "Custom"）
+     * 模型配置表（数据驱动，单一数据源）。
+     * 按「匹配键出现先后」匹配：越靠前的条目优先级越高。
+     * 注意：具体型号条目必须放在系列通配条目之前（如 "gpt-4o" 在 "gpt-4" 前）。
+     */
+    private static final Entry[] MODELS = {
+        // ===== OpenAI =====
+        new Entry("gpt-5", 128000, "OpenAI"),
+        new Entry("gpt-4o", 128000, "OpenAI"),
+        new Entry("gpt-4.1", 128000, "OpenAI"),
+        new Entry("gpt-4-turbo", 128000, "OpenAI"),
+        new Entry("gpt-4", 8192, "OpenAI"),
+        new Entry("o1", 200000, "OpenAI"),
+        new Entry("o3", 200000, "OpenAI"),
+        new Entry("o4", 200000, "OpenAI"),
+        new Entry("gpt-3.5", 16384, "OpenAI"),
+        // ===== Anthropic =====
+        new Entry("claude-3.5", 200000, "Anthropic"),
+        new Entry("claude-3", 200000, "Anthropic"),
+        new Entry("claude-sonnet", 200000, "Anthropic"),
+        new Entry("claude-opus", 200000, "Anthropic"),
+        new Entry("claude-haiku", 200000, "Anthropic"),
+        new Entry("claude", 200000, "Anthropic"),
+        // ===== DeepSeek =====
+        new Entry("deepseek-v3", 128000, "DeepSeek"),
+        new Entry("deepseek-r1", 65536, "DeepSeek"),
+        new Entry("deepseek-reasoner", 65536, "DeepSeek"),
+        new Entry("deepseek-chat", 65536, "DeepSeek"),
+        new Entry("deepseek-coder", 65536, "DeepSeek"),
+        new Entry("deepseek", 65536, "DeepSeek"),
+        // ===== Qwen / DashScope =====
+        new Entry("qwen3-max", 131072, "阿里云Qwen"),
+        new Entry("qwen3-coder", 131072, "阿里云Qwen"),
+        new Entry("qwen2.5-max", 131072, "阿里云Qwen"),
+        new Entry("qwen2.5-coder", 131072, "阿里云Qwen"),
+        new Entry("qwen3", 32768, "阿里云Qwen"),
+        new Entry("qwen2.5", 32768, "阿里云Qwen"),
+        new Entry("qwen-plus", 32768, "阿里云Qwen"),
+        new Entry("qwen-max", 32768, "阿里云Qwen"),
+        new Entry("qwen-turbo", 32768, "阿里云Qwen"),
+        new Entry("qwen", 32768, "阿里云Qwen"),
+        // ===== GLM / 智谱 =====
+        new Entry("glm-5", 128000, "智谱GLM"),
+        new Entry("glm-4.5", 128000, "智谱GLM"),
+        new Entry("glm-4.6", 128000, "智谱GLM"),
+        new Entry("glm-4", 128000, "智谱GLM"),
+        new Entry("glm4", 128000, "智谱GLM"),
+        new Entry("glm", 128000, "智谱GLM"),
+        // ===== Moonshot / Kimi =====
+        new Entry("kimi-k2", 128000, "Moonshot"),
+        new Entry("kimi-latest", 128000, "Moonshot"),
+        new Entry("kimi-thinking", 128000, "Moonshot"),
+        new Entry("moonshot-v1", 128000, "Moonshot"),
+        new Entry("kimi", 128000, "Moonshot"),
+        new Entry("moonshot", 128000, "Moonshot"),
+        // ===== 豆包 / 火山 =====
+        new Entry("doubao-1.5", 131072, "火山豆包"),
+        new Entry("doubao-pro", 131072, "火山豆包"),
+        new Entry("doubao", 131072, "火山豆包"),
+        // ===== Gemini =====
+        new Entry("gemini-2", 1048576, "Google"),
+        new Entry("gemini-1.5", 1048576, "Google"),
+        new Entry("gemini", 1048576, "Google"),
+        // ===== Groq / Together（通用开源模型托管，窗口取决于具体模型，保守 32K） =====
+        new Entry("llama-3", 131072, "开源托管"),
+        new Entry("llama-2", 4096, "开源托管"),
+        new Entry("mixtral", 32768, "开源托管"),
+        new Entry("command-r", 131072, "开源托管"),
+        new Entry("abab", 32768, "MiniMax"),
+        new Entry("yi-large", 32768, "零一万物"),
+        new Entry("yi-medium", 32768, "零一万物"),
+    };
+
+    /**
+     * 按模型名匹配配置。
+     * @param apiUrl  API 地址（仅用于服务商标注，不参与窗口判断）
+     * @param modelName 模型名
+     * @return 匹配结果；未知模型返回保守默认（32K）
      */
     public static ModelProfile match(String apiUrl, String modelName) {
-        String url = apiUrl != null ? apiUrl.toLowerCase() : "";
         String m = modelName != null ? modelName.toLowerCase() : "";
-
-        // ===== 一、按端点识别服务商 =====
-        Provider provider = detectProvider(url);
-
-        // ===== 二、端点 + 模型名精确匹配 =====
-        ModelProfile exact = matchByProviderAndModel(provider, m);
-        if (exact != null) return exact;
-
-        // ===== 三、纯模型名兜底（跨端点） =====
-        ModelProfile byName = matchByModelNameOnly(m);
-        if (byName != null) return byName;
-
-        // ===== 四、端点级默认 =====
-        if (provider != Provider.UNKNOWN) {
-            return new ModelProfile(provider.defaultContextWindow, provider.displayName);
+        if (m.isEmpty()) {
+            return new ModelProfile(32768, providerName(apiUrl));
         }
-
-        return new ModelProfile(32768, "Custom");
-    }
-
-    /** 服务商枚举：默认上下文窗口 + 显示名 */
-    private enum Provider {
-        OPENAI("OpenAI", 128000),
-        AZURE_OPENAI("Azure OpenAI", 128000),
-        ANTHROPIC("Anthropic Claude", 200000),
-        GOOGLE_GEMINI("Google Gemini", 1048576),
-        DEEPSEEK("DeepSeek", 65536),
-        QWEN_DASHSCOPE("阿里云DashScope/Qwen", 131072),
-        ZHIPU_GLM("智谱GLM", 128000),
-        MOONSHOT_KIMI("Moonshot Kimi", 128000),
-        DOUBAO("火山引擎豆包", 131072),
-        GROQ("Groq", 131072),
-        TOGETHER("Together AI", 131072),
-        OLLAMA("Ollama", 32768),
-        LMSTUDIO("LM Studio", 32768),
-        VLLM("vLLM", 32768),
-        CUSTOM("Custom", 32768),
-        UNKNOWN("Custom", 32768);
-
-        final String displayName;
-        final int defaultContextWindow;
-
-        Provider(String displayName, int defaultContextWindow) {
-            this.displayName = displayName;
-            this.defaultContextWindow = defaultContextWindow;
+        // 数据表匹配（顺序 = 优先级）
+        for (Entry e : MODELS) {
+            if (m.contains(e.match)) {
+                return new ModelProfile(e.contextWindow, e.provider);
+            }
         }
+        // 未知模型：保守 32K，服务商按端点标注
+        return new ModelProfile(32768, providerName(apiUrl));
     }
 
-    /** 从 API 地址识别服务商 */
-    private static Provider detectProvider(String url) {
-        if (url == null || url.isEmpty()) return Provider.UNKNOWN;
-        if (url.contains("anthropic")) return Provider.ANTHROPIC;
-        if (url.contains("generativelanguage") || url.contains("gemini.google")) return Provider.GOOGLE_GEMINI;
-        if (url.contains("azure") && url.contains("openai")) return Provider.AZURE_OPENAI;
-        if (url.contains("openai")) return Provider.OPENAI;
-        if (url.contains("deepseek")) return Provider.DEEPSEEK;
-        if (url.contains("dashscope") || url.contains("aliyun")) return Provider.QWEN_DASHSCOPE;
-        if (url.contains("zhipu") || url.contains("bigmodel")) return Provider.ZHIPU_GLM;
-        if (url.contains("moonshot") || url.contains("kimi")) return Provider.MOONSHOT_KIMI;
-        if (url.contains("volces") || url.contains("doubao") || url.contains("ark")) return Provider.DOUBAO;
-        if (url.contains("groq")) return Provider.GROQ;
-        if (url.contains("together")) return Provider.TOGETHER;
-        if (url.contains("ollama")) return Provider.OLLAMA;
-        if (url.contains("lmstudio") || url.contains("127.0.0.1:1234") || url.contains("localhost:1234")) return Provider.LMSTUDIO;
-        if (url.contains("vllm") || url.contains(":8000")) return Provider.VLLM;
-        return Provider.CUSTOM;
-    }
-
-    /** 端点 + 模型名匹配（最高优先级，覆盖端点默认窗口） */
-    private static ModelProfile matchByProviderAndModel(Provider p, String m) {
-        if (p == null || m.isEmpty()) return null;
-        switch (p) {
-            case DEEPSEEK:
-                if (m.contains("v3") || m.contains("r1")) return new ModelProfile(128000, "DeepSeek");
-                if (m.contains("chat") || m.contains("reasoner")) return new ModelProfile(65536, "DeepSeek");
-                return null;
-            case OPENAI:
-            case AZURE_OPENAI:
-                if (m.contains("gpt-5") || m.contains("gpt-4o") || m.contains("gpt-4.1")) return new ModelProfile(128000, p.displayName);
-                if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return new ModelProfile(128000, p.displayName);
-                if (m.contains("gpt-4-turbo")) return new ModelProfile(128000, p.displayName);
-                if (m.contains("gpt-3.5")) return new ModelProfile(16384, p.displayName);
-                return null;
-            case ANTHROPIC:
-                if (m.contains("claude")) return new ModelProfile(200000, "Anthropic Claude");
-                return null;
-            case QWEN_DASHSCOPE:
-                if (m.contains("max") || m.contains("coder") || m.contains("long")) return new ModelProfile(131072, "Qwen");
-                if (m.contains("qwen3") || m.contains("qwen2.5")) return new ModelProfile(32768, "Qwen");
-                return null;
-            case ZHIPU_GLM:
-                if (m.contains("glm")) return new ModelProfile(128000, "GLM");
-                return null;
-            case MOONSHOT_KIMI:
-                if (m.contains("kimi") || m.contains("moonshot")) return new ModelProfile(128000, "Kimi");
-                return null;
-            case DOUBAO:
-                if (m.contains("doubao") || m.contains("1.5") || m.contains("pro")) return new ModelProfile(131072, "豆包");
-                return null;
-            case GOOGLE_GEMINI:
-                if (m.contains("gemini")) return new ModelProfile(1048576, "Gemini");
-                return null;
-            default:
-                return null;
-        }
-    }
-
-    /** 纯模型名匹配（跨端点兜底；端点已匹配且未命中时不覆盖端点默认） */
-    private static ModelProfile matchByModelNameOnly(String m) {
-        if (m.isEmpty()) return null;
-        if (m.contains("gpt-5") || m.contains("gpt-4o") || m.contains("gpt-4.1")) return new ModelProfile(128000, "OpenAI");
-        if (m.contains("gpt-4-turbo")) return new ModelProfile(128000, "OpenAI");
-        if (m.contains("gpt-3.5")) return new ModelProfile(16384, "OpenAI");
-        if (m.contains("claude")) return new ModelProfile(200000, "Anthropic");
-        if (m.contains("deepseek-v3")) return new ModelProfile(128000, "DeepSeek");
-        if (m.contains("deepseek")) return new ModelProfile(65536, "DeepSeek");
-        if (m.contains("qwen3-max") || m.contains("qwen2.5-max") || m.contains("qwen3-coder")) return new ModelProfile(131072, "Qwen");
-        if (m.contains("qwen")) return new ModelProfile(32768, "Qwen");
-        if (m.contains("glm")) return new ModelProfile(128000, "GLM");
-        if (m.contains("kimi") || m.contains("moonshot")) return new ModelProfile(128000, "Kimi");
-        if (m.contains("doubao")) return new ModelProfile(131072, "豆包");
-        if (m.contains("gemini")) return new ModelProfile(1048576, "Gemini");
-        return null;
+    /** 从 API 地址推断服务商显示名（仅展示用） */
+    private static String providerName(String apiUrl) {
+        if (apiUrl == null) return "Custom";
+        String url = apiUrl.toLowerCase();
+        if (url.contains("anthropic")) return "Anthropic";
+        if (url.contains("generativelanguage") || url.contains("gemini.google")) return "Google";
+        if (url.contains("azure") && url.contains("openai")) return "Azure OpenAI";
+        if (url.contains("openai")) return "OpenAI";
+        if (url.contains("deepseek")) return "DeepSeek";
+        if (url.contains("dashscope") || url.contains("aliyun")) return "阿里云";
+        if (url.contains("zhipu") || url.contains("bigmodel")) return "智谱";
+        if (url.contains("moonshot") || url.contains("kimi")) return "Moonshot";
+        if (url.contains("volces") || url.contains("doubao") || url.contains("ark")) return "火山";
+        if (url.contains("groq")) return "Groq";
+        if (url.contains("together")) return "Together";
+        if (url.contains("ollama")) return "Ollama";
+        if (url.contains("127.0.0.1") || url.contains("localhost")) return "本地";
+        return "Custom";
     }
 }
