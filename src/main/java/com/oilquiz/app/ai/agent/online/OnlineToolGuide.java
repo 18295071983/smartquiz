@@ -65,20 +65,12 @@ public class OnlineToolGuide {
 
         StringBuilder sb = new StringBuilder();
         sb.append("═══════════════════════════════════════════════════════\n");
-        sb.append("         在线模型工具使用指南（原生 Function Calling）\n");
+        sb.append("         工具使用指南（原生 Function Calling）\n");
         sb.append("═══════════════════════════════════════════════════════\n\n");
 
-        // 1. 调用协议
-        sb.append("【一、调用协议】\n");
-        sb.append("使用原生 function calling 调用工具，无需任何文本格式标记：\n");
-        sb.append("  • 系统已通过 API 的 tools 参数注册所有可用工具\n");
-        sb.append("  • 直接在响应中发起 tool_calls，系统会自动执行并将结果以 tool 角色消息返回\n");
-        sb.append("  • 可在一个响应中发起多个 tool_calls（并行执行）\n");
-        sb.append("  • 参数为 JSON 对象，严格匹配下方工具定义的参数名与类型\n");
-        sb.append("  • 必填参数缺失会导致执行失败，请确保参数完整\n\n");
-
-        // 2. 工具清单（按类别分组，仅列名称——完整描述与参数由 API tools 参数提供，避免重复占 token）
-        sb.append("【二、工具清单（按类别，完整定义见 tools 参数）】\n");
+        // 1. 工具清单（仅列名称一行速查——模型内置 function calling 知识，
+        //    完整参数定义由 API tools 参数提供，不在此重复，避免占 token）
+        sb.append("【可用工具】\n");
         Map<String, List<String>> categoryIndex = registry.getCategoryIndex();
         for (Map.Entry<String, List<String>> e : categoryIndex.entrySet()) {
             sb.append("  ▸ ").append(categoryDisplayName(e.getKey())).append(": ");
@@ -89,10 +81,11 @@ public class OnlineToolGuide {
             }
             sb.append("\n");
         }
-        sb.append("\n");
+        sb.append("（每个工具的完整参数定义见 API 的 tools 参数，按定义填参即可；"
+                + "不确定时用 tool_registry(action=get, tool=工具名) 查看）\n\n");
 
-        // 3. 工具组合示例（静态链 + 学习到的历史模式）
-        sb.append("【三、工具组合示例】\n");
+        // 2. 工具组合示例（静态链 + 学习到的历史模式）
+        sb.append("【工具组合示例】\n");
         List<String[]> combos = chain.getCombinationPairs();
         if (!combos.isEmpty()) {
             for (String[] pair : combos) {
@@ -117,15 +110,15 @@ public class OnlineToolGuide {
         }
         sb.append("\n");
 
-        // 4. 错误处理指引
-        sb.append("【四、错误处理】\n");
+        // 3. 错误处理指引（精简：模型内置重试逻辑，仅保留关键规则）
+        sb.append("【错误处理】\n");
         sb.append("  • 参数错误：系统会注入该工具的详细参数定义和缺失参数分析，请据此修正后重试\n");
         sb.append("  • 工具不适用：系统会推荐替代工具（回退链），请判断是否适合后调用\n");
         sb.append("  • 同一工具连续失败 2 次：更换策略或向用户澄清，不要无限重试\n");
         sb.append("  • 缺少前置信息时（如查天气无城市），可先调用依赖工具（如 location）补充\n\n");
 
-        // 5. 调用规则
-        sb.append("【五、调用规则】\n");
+        // 4. 应用定制规则（模型内置知识没有这些，必须明确告知）
+        sb.append("【调用规则】\n");
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
