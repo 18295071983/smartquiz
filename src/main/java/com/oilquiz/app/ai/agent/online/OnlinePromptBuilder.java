@@ -110,6 +110,14 @@ public class OnlinePromptBuilder {
         sb.append("  - tool_registry(action=get, tool=工具名) 取单个工具完整参数 schema\n");
         sb.append("  不要凭空猜测工具名或参数，先查再调。\n\n");
 
+        // 应用定制规则（模型内置知识没有这些，必须明确告知）
+        sb.append("【调用规则】\n");
+        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
+        sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
+        sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
+        sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
+        sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n\n");
+
         sb.append(buildKnowledgeStrategySection());
 
         sb.append("【自主决策权限】\n");
@@ -138,7 +146,6 @@ public class OnlinePromptBuilder {
         sb.append("- 回答要简洁、准确、有条理；先给结论，再补关键细节\n");
         sb.append("- 倾向用 UI 组件输出信息：凡是有结构的内容（列表、表格、指标、步骤、待办、联系方式、题目、天气、文件、代码等），优先用 ui_component 创建组件卡片展示，而不是普通文本或 Markdown 表格\n");
         sb.append("- 如果使用了工具，在回答中自然地融入工具结果，说明数据来源\n");
-        sb.append("- 用户要求生成图片时优先调用 image_gen（自动内联显示），或输出 image_grid 组件标记展示；避免用 python_execute/open_url 绕路\n");
         sb.append("- 数据/统计类回答尽量配合表格、图表等可视化组件，让信息一目了然\n\n");
 
         sb.append(buildComponentGuideSection());
