@@ -27,7 +27,7 @@ import org.json.JSONObject;
 
 @Tool(
     value = "database",
-    description = "数据库操作工具。支持任意SQL(execute_sql)、查看表结构(list_tables/get_table_schema)、题目查询与管理、用户管理、分数记录等。大批量导入用bulk_import(接受questions数组或file_path JSON文件路径，一次可导入数百道，自动跳过无效条目)，add_questions也可一次传多道题目(数量不限)",
+    description = "数据库操作：任意SQL(execute_sql)、表结构(list_tables/get_table_schema)、题目查询/增删改(bulk_import批量导入)、用户与分数管理",
     category = "data",
     actions = {
         @Action(name = "execute_sql", description = "执行任意SQL(SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)"),
