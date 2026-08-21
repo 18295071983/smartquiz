@@ -213,49 +213,78 @@ public class OnlineToolManager {
     public String getToolDefinitionsForMessageAndCore(String message, java.util.Set<String> coreTools) {
         try {
             java.util.Set<String> include = new java.util.LinkedHashSet<>(coreTools);
-            // 按用户消息意图追加低频工具
+            java.util.Set<String> matched = new java.util.LinkedHashSet<>();
+            // 按用户消息意图追加低频工具（多方向命中：一条消息可命中多个意图，全量注入相关工具）
             if (message != null && !message.trim().isEmpty()) {
                 String msg = message.toLowerCase();
-                if (containsAny(msg, "天气", "气温", "温度", "预报", "weather")) {
-                    include.add("ai_weather");
+                // 天气
+                if (containsAny(msg, "天气", "气温", "温度", "预报", "weather", "下雨", "晴天", "摄氏度")) {
+                    include.add("ai_weather"); matched.add("weather");
                 }
-                if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news", "find", "查询", "读网页", "网页", "调研", "research")) {
-                    include.add("smart_research");
-                    include.add("webpage_reader");
+                // 搜索/查资料/调研（区分"查记录"等数据库意图）
+                if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news",
+                        "find", "读网页", "网页", "调研", "research", "资料", "资讯", "百科")) {
+                    include.add("smart_research"); include.add("webpage_reader"); matched.add("search");
                 }
-                if (containsAny(msg, "翻译", "translate", "译成", "英文", "日语", "韩语", "翻译成")) {
-                    include.add("translation");
+                // 翻译
+                if (containsAny(msg, "翻译", "translate", "译成", "英文怎么说", "日语", "韩语", "翻译成", "中文意思")) {
+                    include.add("translation"); matched.add("translation");
                 }
-                if (containsAny(msg, "文件", "目录", "读取", "打开文件", "解析", "file", "list")) {
-                    include.add("file_reader");
-                    include.add("file_analyzer");
+                // 文件读取/解析
+                if (containsAny(msg, "读取文件", "打开文件", "解析文件", "文件内容", "读取", "file_reader", "读文件")) {
+                    include.add("file_reader"); include.add("file_analyzer"); matched.add("file_read");
                 }
-                if (containsAny(msg, "生成文件", "写文件", "创建文件", "保存文件", "报告", "文档", "导出", "markdown", "md文件")) {
-                    include.add("file_generator");
+                // 文件生成/导出（用户要产出物）
+                if (containsAny(msg, "生成文件", "写文件", "创建文件", "保存文件", "生成报告", "生成文档",
+                        "导出", "report", "生成markdown", "生成md", "生成表格文件", "生成txt", "写入文件")) {
+                    include.add("file_generator"); matched.add("file_write");
                 }
-                if (containsAny(msg, "图片", "生成图", "画图", "image", "照片", "识别图片", "图片生成")) {
-                    include.add("image_gen");
+                // 图片（生成 + 识别）
+                if (containsAny(msg, "生成图片", "生成图", "画图", "画一张", "image_gen", "图片生成", "绘制")) {
+                    include.add("image_gen"); matched.add("image_gen");
                 }
-                if (containsAny(msg, "数据库", "题库", "database", "查询记录")) {
-                    include.add("database");
+                if (containsAny(msg, "识别图片", "图片里", "照片里", "看图", "ocr", "识别图像")) {
+                    include.add("file_analyzer"); matched.add("image_ocr");
                 }
-                if (containsAny(msg, "python", "代码", "计算", "脚本", "运行", "数据分析", "统计", "算一下")) {
-                    include.add("python_execute");
-                    include.add("python_calculate");
-                    include.add("python_analyze_data");
+                // 数据库/题库（精确区分，避免"查询"误入搜索）
+                if (containsAny(msg, "数据库", "题库", "题目", "背诵", "测验", "刷题", "database", "records")) {
+                    include.add("database"); matched.add("database");
                 }
-                if (containsAny(msg, "定位", "位置", "坐标", "location", "gps")) {
-                    include.add("location");
+                // Python/计算/数据分析（"计算"倾向 calculator，"代码/脚本/分析数据"倾向 python）
+                if (containsAny(msg, "python", "代码", "脚本", "数据分析", "统计数据", "处理数据", "运行程序",
+                        "写个程序", "爬虫", "自动化")) {
+                    include.add("python_execute"); include.add("python_analyze_data"); matched.add("python");
                 }
-                if (containsAny(msg, "时间", "日期", "现在几点", "time", "date")) {
-                    include.add("time_date");
+                if (containsAny(msg, "计算", "算一下", "数学", "calculator", "等于多少", "加减乘除")) {
+                    include.add("python_calculate"); matched.add("calc");
                 }
-                if (containsAny(msg, "应用", "打开app", "启动", "app操作", "运行应用")) {
-                    include.add("app_operation");
+                // 定位
+                if (containsAny(msg, "定位", "位置", "坐标", "在哪里", "location", "gps", "附近")) {
+                    include.add("location"); matched.add("location");
                 }
-                if (containsAny(msg, "电话", "联系人", "短信", "call", "contact", "sms")) {
-                    include.add("app_toolkit");
+                // 时间/日期
+                if (containsAny(msg, "现在几点", "当前时间", "今天日期", "今天是", "time", "date")) {
+                    include.add("time_date"); matched.add("time");
                 }
+                // 应用操作
+                if (containsAny(msg, "打开应用", "启动应用", "打开app", "运行应用", "app操作", "打开软件")) {
+                    include.add("app_operation"); matched.add("app");
+                }
+                // 设备/系统资源
+                if (containsAny(msg, "系统信息", "设备信息", "内存", "存储空间", "电池", "wifi", "系统资源")) {
+                    include.add("system_resource"); matched.add("system");
+                }
+                // 电话/联系人/短信
+                if (containsAny(msg, "打电话", "拨号", "联系人", "发短信", "通讯录", "call", "sms", "contact")) {
+                    include.add("app_toolkit"); matched.add("phone");
+                }
+                // 学习计划/备考（答题宝核心场景）
+                if (containsAny(msg, "学习计划", "备考", "复习计划", "学习安排", "考试计划")) {
+                    include.add("file_generator"); matched.add("study_plan");
+                }
+            }
+            if (!matched.isEmpty()) {
+                AILogger.i(TAG, "Intent matched: " + matched + " → tools=" + include.size());
             }
             return registry.getToolDefinitionsForNames(include);
         } catch (Exception e) {
