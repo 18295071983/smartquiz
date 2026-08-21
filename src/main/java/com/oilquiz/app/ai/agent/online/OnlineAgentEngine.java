@@ -106,6 +106,18 @@ public class OnlineAgentEngine {
     /** 本次执行（一次用户消息，含多轮工具调用）累计的输入/输出 token —— 真正的总消耗 */
     private volatile int execTotalPromptTokens = 0;
     private volatile int execTotalCompletionTokens = 0;
+    /** 当前模型上下文窗口（tokens，按模型名推断） */
+    private volatile int contextWindowTokens = 0;
+
+    /**
+     * 获取上下文用量信息（供 UI 展示）。
+     * @return {window, used, remaining} —— 上下文窗口、已用（最近请求输入）、剩余
+     */
+    public int[] getContextWindowInfo() {
+        int window = contextWindowTokens > 0 ? contextWindowTokens : 32768;
+        int used = lastPromptTokens > 0 ? lastPromptTokens : execTotalPromptTokens;
+        return new int[]{window, used, Math.max(0, window - used)};
+    }
 
     public OnlineAgentEngine(Activity activity, OnlineToolManager toolManager) {
         this.activity = activity;
@@ -205,6 +217,12 @@ public class OnlineAgentEngine {
      */
     private void doExecute(String userMessage, int maxTokens) {
         OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
+        
+        // 记录模型上下文窗口（供历史压缩阈值 + UI 展示上下文用量）
+        if (cfg != null) {
+            contextWindowTokens = cfg.contextWindow > 0 ? cfg.contextWindow
+                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.modelName);
+        }
         
         if (cfg == null) {
             finishGeneration();
@@ -642,13 +660,24 @@ public class OnlineAgentEngine {
 
     /**
      * 截断并压缩消息历史（发送前调用）。
-     * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 超过 HISTORY_TOKEN_BUDGET。
+     * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 超过动态预算
+     * （基于模型上下文窗口的 60%，为工具结果/回答预留空间；未知模型回退 24K）。
      * 策略：保留首条 system 消息 + 摘要消息 + 最近 MAX_HISTORY_MESSAGES-1 条消息。
      * 安全保证：截断点不会落在 tool 消息上（否则其对应的 assistant.tool_calls 被移除，
      * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
      * 摘要：把移除的旧消息压缩为一条 system 摘要消息（长对话"不失忆"且省 token）。
      */
     private void trimMessageHistory(OnlineModelManager.OnlineModelConfig cfg) {
+        // 动态预算：基于模型上下文窗口（contextWindow × 60%），预留 40% 给工具结果/回答
+        int budget = HISTORY_TOKEN_BUDGET;
+        if (cfg != null) {
+            int ctx = cfg.contextWindow > 0 ? cfg.contextWindow
+                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.modelName);
+            if (ctx > 0) {
+                budget = (int) (ctx * 0.6);
+                budget = Math.max(budget, 8192); // 下限 8K，避免极小上下文过度频繁压缩
+            }
+        }
         // 计算消息数超限还是 token 超预算
         int tokenCount = 0;
         for (JsonObject msg : messageHistory) {
@@ -656,7 +685,7 @@ public class OnlineAgentEngine {
                     ? msg.get("content").getAsString() : "";
             tokenCount += estimateTokens(content);
         }
-        boolean overBudget = tokenCount > HISTORY_TOKEN_BUDGET;
+        boolean overBudget = tokenCount > budget;
         boolean overCount = messageHistory.size() > MAX_HISTORY_MESSAGES;
         if (!overBudget && !overCount) return;
 
@@ -670,7 +699,7 @@ public class OnlineAgentEngine {
                         ? msg.get("content").getAsString() : "";
                 running += estimateTokens(content);
                 toRemove++;
-                if (running >= tokenCount - HISTORY_TOKEN_BUDGET / 2) break;
+                if (running >= tokenCount - budget / 2) break;
             }
         }
         if (overCount) {
@@ -743,7 +772,7 @@ public class OnlineAgentEngine {
             }
             AILogger.i(TAG, "Trimmed message history: removed " + actualRemoved
                 + " old messages (summarized), " + messageHistory.size() + " remaining"
-                + ", tokens " + tokenCount + " -> budget " + HISTORY_TOKEN_BUDGET);
+                + ", tokens " + tokenCount + " -> budget " + budget);
         }
     }
 

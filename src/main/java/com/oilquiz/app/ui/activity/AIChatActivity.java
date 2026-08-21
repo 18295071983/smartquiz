@@ -6573,6 +6573,16 @@ public class AIChatActivity extends BaseActivity {
                         int hitRate = (int) Math.round(hit * 100.0 / in);
                         text += String.format(" · ⚡命中率 %d%%", hitRate);
                     }
+                    // 追加上下文用量（窗口/已用/剩余）——来自模型 API 上下文大小推断 + 最近请求输入
+                    try {
+                        int[] ctx = agentChatHandler.getContextWindowInfo();
+                        if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
+                            text += String.format(" · 🧠上下文 %dK 用 %.0f%%",
+                                    ctx[0] / 1000,
+                                    Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
+                        }
+                    } catch (Throwable ignored) {
+                    }
                 }
                 if (stats.sessionTotalTokens > 0) {
                     text += String.format("（会话累计 %d）", stats.sessionTotalTokens);
