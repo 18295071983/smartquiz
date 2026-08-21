@@ -235,9 +235,14 @@ public class OnlineAgentEngine {
             }
             // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式
             try {
-                String wsPath = com.oilquiz.app.ai.agent.online.AgentWorkspace
-                        .getInstance(activity).getWorkspacePath();
+                com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                        com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(activity);
+                String wsPath = ws.getWorkspacePath();
+                String wsLocation = ws.isPublicWorkspace()
+                        ? "公共目录(Download/OilQuiz，用户可直接看到和管理)"
+                        : "应用私有目录(用户需通过App管理页查看)";
                 systemPrompt += "\n【文件与工作区】你有专属文件工作目录（工作区）: " + wsPath
+                        + "（" + wsLocation + "）"
                         + "\n【何时生成文件】用户要求「写/生成/创建/导出」文档、报告、配置、代码、Markdown、表格等时，用 file_generator 工具生成；"
                         + "要求画图时用 image_gen。"
                         + "\n【长期 vs 临时】用户要保留的产物（报告/文档/图片/导出）用 file_generator/image_gen 生成，默认存入长期文件区 files/（跨任务保留）；"
@@ -246,7 +251,11 @@ public class OnlineAgentEngine {
                         + "workspace(action=list) 查看工作区文件（[长期]/[临时]标记）；workspace(action=read, fileName=文件名) 读取文本内容；"
                         + "workspace(action=delete, fileName=文件名) 删除；workspace(action=clear) 清空。"
                         + "也可用 file_reader 读取工具返回的绝对路径。"
-                        + "\n【重要】不要用 /storage/emulated/0/ 猜测工作区文件路径（工作区在应用私有目录，绝对路径以工具返回为准）；"
+                        + "\n【权限请求】如果工作区在私有目录，且用户要求文件可被直接看到/分享/备份，可主动用 "
+                        + "permission_manager(action=request_and_wait, permission=存储) 请求「所有文件访问」权限"
+                        + "（授权后工作区自动切换到公共目录 Download/OilQuiz，文件对所有 App 可见）。"
+                        + "其他权限同理：需要相机/录音/定位/通知等时，先 permission_manager(action=request_and_wait, permission=对应权限名)。"
+                        + "\n【重要】不要用 /storage/emulated/0/ 猜测工作区文件路径（绝对路径以工具返回为准）；"
                         + "引用工作区文件用相对路径（如 <a href=\"report.md\">），用户点击会在 App 内预览。\n"
                         + "【文件链接规则】生成 HTML 页面时自动适配本环境："
                         + "引用工作区里的文件用相对路径（如 <a href=\"report.md\">），"
