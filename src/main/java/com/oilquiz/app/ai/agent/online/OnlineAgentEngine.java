@@ -42,10 +42,10 @@ import java.util.Locale;
 public class OnlineAgentEngine {
 
     private static final String TAG = "OnlineAgentEngine";
-    /** 辅助模式最大迭代轮数 */
-    private static final int MAX_ITERATIONS = 20;
-    /** 接管模式最大迭代轮数（模型自主控制，放宽上限） */
-    private static final int MAX_ITERATIONS_TAKEOVER = 30;
+    /** 辅助模式最大迭代轮数（安全兜底，正常任务远达不到；仅防死循环） */
+    private static final int MAX_ITERATIONS = 50;
+    /** 接管模式最大迭代轮数（信任模型自主控制，上限仅作安全兜底防死循环） */
+    private static final int MAX_ITERATIONS_TAKEOVER = 100;
     private static final int MAX_TOKENS = 4096;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
