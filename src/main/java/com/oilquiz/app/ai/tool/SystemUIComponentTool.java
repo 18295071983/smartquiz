@@ -228,6 +228,16 @@ public class SystemUIComponentTool implements AITool {
                         props.put("html", url);
                     }
                 }
+                // 顶层 html/content/text 参数 → html 字段（模型常把 HTML 内容放顶层参数而非 props 内，
+                // 否则 HtmlCardView 从 props.html 取不到内容，显示"html 数据解析为空"）
+                if (!props.has("html") && !props.has("url")) {
+                    Object htmlObj = parameters.get("html");
+                    if (htmlObj == null) htmlObj = parameters.get("content");
+                    if (htmlObj == null) htmlObj = parameters.get("text");
+                    if (htmlObj != null && !htmlObj.toString().trim().isEmpty()) {
+                        props.put("html", htmlObj.toString());
+                    }
+                }
                 if (!props.has("title")) {
                     Object title = parameters.get("title");
                     if (title != null) props.put("title", title.toString());
@@ -250,9 +260,26 @@ public class SystemUIComponentTool implements AITool {
                 Object title = parameters.get("title");
                 if (title != null) props.put("title", title.toString());
             }
-            if (!props.has("content") && !props.has("text")) {
-                Object message = parameters.get("message");
-                if (message != null) props.put("content", message.toString());
+            // 顶层 content/text/html 兜底补进 props（模型常把内容放顶层参数而非 props 内，
+            // 否则 HtmlCardView/InfoCardView 等取不到内容显示"数据解析为空"）
+            if (!props.has("content") && !props.has("text") && !props.has("html")) {
+                Object content = parameters.get("content");
+                if (content == null) content = parameters.get("text");
+                if (content == null) content = parameters.get("html");
+                if (content != null) {
+                    // html 组件用 html 字段；其他组件用 content 字段
+                    if ("html".equals(renderType) || "web".equals(componentType)) {
+                        props.put("html", content.toString());
+                    } else {
+                        props.put("content", content.toString());
+                    }
+                } else if (parameters.get("message") != null) {
+                    if ("html".equals(renderType) || "web".equals(componentType)) {
+                        props.put("html", parameters.get("message").toString());
+                    } else {
+                        props.put("content", parameters.get("message").toString());
+                    }
+                }
             }
             // 顶层 actions（模型常把交互按钮放顶层参数而非 props 内）并入 props，
             // 否则 interactive=false 时按钮被静默忽略且不返回 component_id（Bug3）
