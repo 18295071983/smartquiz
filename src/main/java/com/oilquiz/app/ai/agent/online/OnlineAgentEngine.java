@@ -281,8 +281,9 @@ public class OnlineAgentEngine {
                 AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(activity).size() + " entries");
             }
 
-            // 获取环境上下文（日期、位置、天气），注入为系统消息辅助Agent思考
-            notifyStep("环境感知", "正在获取位置和天气信息...");
+            // 获取环境上下文（日期、位置——天气不注入，Agent 用 ai_weather 工具主动获取），
+            // 注入为系统消息辅助Agent思考
+            notifyStep("环境感知", "正在获取位置信息...");
             String envContext = buildEnvironmentContext();
             if (envContext != null && !envContext.isEmpty()) {
                 JsonObject envMsg = new JsonObject();
