@@ -228,17 +228,28 @@ public class OnlineInferenceService {
      * - 返回合法 tool_calls → 支持（true）
      * - 返回普通文本/400 错误（tools 参数不支持）→ 不支持（false）
      *
-     * 结果按 apiUrl+modelName 缓存（同模型只探一次）；探测失败（网络等）返回 null（未知），
-     * 调用方回退到模型名推断，不降级能力。
+     * 结果按 apiUrl+modelName **持久化缓存**（SharedPreferences）：
+     * 用户不更换模型就永远不会重复探测，不浪费请求、不破坏前缀缓存；
+     * 内存缓存做首层加速。
+     *
+     * 探测失败（网络等）默认倾向支持（用户常用模型基本都支持 function calling），
+     * 避免误判降级为辅助模式。
      *
      * @param config 在线模型配置
-     * @return true=支持 / false=不支持 / null=未知（探测失败）
+     * @return true=支持（探测成功或失败默认倾向支持）/ false=不支持
      */
-    public Boolean probeFunctionCalling(final OnlineModelManager.OnlineModelConfig config) {
-        if (config == null) return null;
+    public boolean probeFunctionCalling(final OnlineModelManager.OnlineModelConfig config) {
+        if (config == null) return true; // 无配置默认支持（避免降级）
         String key = (config.apiUrl != null ? config.apiUrl : "") + "|" + config.modelName;
+        // 1. 内存缓存
         Boolean cached = functionCallingCapabilityCache.get(key);
         if (cached != null) return cached;
+        // 2. 持久化缓存（App 重启后仍记住，不重新探测）
+        Boolean persisted = loadFunctionCallingCapability(key);
+        if (persisted != null) {
+            functionCallingCapabilityCache.put(key, persisted);
+            return persisted;
+        }
         try {
             Boolean result = CompletableFuture.supplyAsync(() -> {
                 try {
@@ -250,14 +261,47 @@ public class OnlineInferenceService {
             }, executor).get(15, java.util.concurrent.TimeUnit.SECONDS);
             if (result != null) {
                 functionCallingCapabilityCache.put(key, result);
+                saveFunctionCallingCapability(key, result);
                 AILogger.i(TAG, "Function calling probe: " + config.modelName + " -> " + result);
+                return result;
             }
-            return result;
+            // 探测失败（超时/网络）：默认倾向支持（用户常用模型基本都支持 FC）
+            AILogger.w(TAG, "Function calling probe unknown for " + config.modelName
+                    + ", defaulting to supported (avoid degrading)");
+            return true;
         } catch (Exception e) {
             AILogger.w(TAG, "Function calling probe timeout/error: " + e.getMessage());
+            return true; // 失败默认支持，不降级
+        }
+    }
+
+    private static final String PREFS_FC_PROBE = "fc_probe_cache";
+    private static final String PREFS_FC_PREFIX = "fc_";
+
+    /** 从 SharedPreferences 读持久化的 function calling 能力（null=未缓存） */
+    private Boolean loadFunctionCallingCapability(String key) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_FC_PROBE, Context.MODE_PRIVATE);
+            String v = prefs.getString(PREFS_FC_PREFIX + key, null);
+            if (v == null) return null;
+            return "1".equals(v);
+        } catch (Throwable t) {
             return null;
         }
     }
+
+    /** 持久化 function calling 能力到 SharedPreferences */
+    private void saveFunctionCallingCapability(String key, boolean value) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_FC_PROBE, Context.MODE_PRIVATE);
+            prefs.edit().putString(PREFS_FC_PREFIX + key, value ? "1" : "0").apply();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "saveFunctionCallingCapability failed: " + t.getMessage());
+        }
+    }
+
 
     /** 执行探针请求（同步，OpenAI 兼容格式） */
     private Boolean doProbeFunctionCalling(OnlineModelManager.OnlineModelConfig config) throws Exception {

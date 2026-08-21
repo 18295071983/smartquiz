@@ -1179,23 +1179,11 @@ public class OnlineAgentEngine {
      */
     private boolean detectAgentCapability(OnlineModelManager.OnlineModelConfig cfg) {
         if (cfg == null) return false;
-        // 1. 探针询问模型（结果带缓存，同模型只探一次）
-        try {
-            Boolean probe = onlineInferenceService.probeFunctionCalling(cfg);
-            if (probe != null) {
-                AILogger.i(TAG, "Function calling probe: " + cfg.modelName + " supports=" + probe);
-                return probe;
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Function calling probe error, fallback to model-name: " + t.getMessage());
-        }
-        // 2. 探针未知/失败：回退配置字段（由 OnlineModelManager 按模型名推断并持久化）
-        if (cfg.supportsFunctionCalling) return true;
-        // 3. 兜底：字段缺失（旧版本未刷新）时按模型名关键词推断
-        // 优先使用 selectedModel，其次 modelName
-        String model = cfg.selectedModel != null && !cfg.selectedModel.isEmpty()
-            ? cfg.selectedModel : cfg.modelName;
-        return OnlineModelManager.isFunctionCallingModelName(model);
+        // 探针询问模型（结果持久化缓存：不换模型不重复探测；失败默认支持不降级）
+        boolean probe = onlineInferenceService.probeFunctionCalling(cfg);
+        AILogger.i(TAG, "Function calling probe: " + (cfg.modelName != null ? cfg.modelName : "?")
+                + " supports=" + probe);
+        return probe;
     }
 
     /**
