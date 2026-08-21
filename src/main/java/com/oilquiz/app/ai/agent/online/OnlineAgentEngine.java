@@ -221,7 +221,7 @@ public class OnlineAgentEngine {
         // 记录模型上下文窗口（供历史压缩阈值 + UI 展示上下文用量）
         if (cfg != null) {
             contextWindowTokens = cfg.contextWindow > 0 ? cfg.contextWindow
-                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.modelName);
+                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.apiUrl, cfg.modelName);
         }
         
         if (cfg == null) {
@@ -672,7 +672,7 @@ public class OnlineAgentEngine {
         int budget = HISTORY_TOKEN_BUDGET;
         if (cfg != null) {
             int ctx = cfg.contextWindow > 0 ? cfg.contextWindow
-                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.modelName);
+                    : com.oilquiz.app.ai.model.OnlineModelManager.getContextWindowForModel(cfg.apiUrl, cfg.modelName);
             if (ctx > 0) {
                 budget = (int) (ctx * 0.6);
                 budget = Math.max(budget, 8192); // 下限 8K，避免极小上下文过度频繁压缩

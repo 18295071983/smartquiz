@@ -249,7 +249,7 @@ public class OnlineModelManager {
     }
 
     /**
-     * 刷新所有模型的 contextWindow 字段（按模型名推断）。
+     * 刷新所有模型的 contextWindow 字段（按「API 地址 + 模型名」配置表匹配）。
      * 使配置的上下文窗口有真实值（此前恒为 4096 死值），
      * 供 Agent 历史压缩阈值计算与 UI 上下文用量展示。
      */
@@ -259,7 +259,7 @@ public class OnlineModelManager {
             if (probe == null || probe.isEmpty()) {
                 probe = config.selectedModel;
             }
-            config.contextWindow = getContextWindowForModel(probe);
+            config.contextWindow = getContextWindowForModel(config.apiUrl, probe);
         }
     }
 
@@ -314,37 +314,19 @@ public class OnlineModelManager {
     }
 
     /**
-     * 按模型名推断上下文窗口大小（tokens）。
-     * 用于计算历史压缩阈值（接近上下文上限时压缩）与 UI 展示上下文用量。
-     * 内置常用模型的实际上下文；未知模型保守返回 32K（现代主流模型普遍 ≥32K）。
+     * 按「API 地址 + 模型名」匹配上下文窗口大小（tokens）。
+     * 委托 {@link OnlineModelProfile} 配置表：端点+模型名优先，模型名兜底，未知保守 32K。
+     * 用于计算历史压缩阈值与 UI 展示上下文用量。
+     */
+    public static int getContextWindowForModel(String apiUrl, String modelName) {
+        return OnlineModelProfile.match(apiUrl, modelName).contextWindow;
+    }
+
+    /**
+     * 按模型名推断上下文窗口大小（tokens）——无 API 地址时的兜底（仅模型名匹配）。
      */
     public static int getContextWindowForModel(String modelName) {
-        if (modelName == null) return 32768;
-        String m = modelName.toLowerCase();
-        // OpenAI
-        if (m.contains("gpt-4o") || m.contains("gpt-4.1") || m.contains("gpt-5")
-            || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return 128000;
-        if (m.contains("gpt-4-turbo")) return 128000;
-        if (m.contains("gpt-3.5")) return 16384;
-        // Claude
-        if (m.contains("claude")) return 200000;
-        // DeepSeek（chat 64K, reasoner 64K, v3.x 128K）
-        if (m.contains("deepseek-v3") || m.contains("deepseek-v3.1") || m.contains("deepseek-v3.2")) return 128000;
-        if (m.contains("deepseek") || m.contains("deepseek-chat") || m.contains("deepseek-reasoner")) return 65536;
-        // Qwen（qwen3 32K-128K 视版本；max/plus 32K）
-        if (m.contains("qwen3-max") || m.contains("qwen3-coder")) return 131072;
-        if (m.contains("qwen2.5-max") || m.contains("qwen2.5-coder")) return 131072;
-        if (m.contains("qwen") || m.contains("qwen3") || m.contains("qwen2.5")) return 32768;
-        // GLM（128K）
-        if (m.contains("glm")) return 128000;
-        // Kimi/Moonshot（128K）
-        if (m.contains("kimi") || m.contains("moonshot")) return 128000;
-        // 豆包（128K）
-        if (m.contains("doubao")) return 131072;
-        // Gemini（1M）
-        if (m.contains("gemini")) return 1048576;
-        // 智谱/文心/其他 → 保守 32K
-        return 32768;
+        return OnlineModelProfile.match(null, modelName).contextWindow;
     }
 
     /**
