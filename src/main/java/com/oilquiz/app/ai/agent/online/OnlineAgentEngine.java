@@ -46,7 +46,7 @@ public class OnlineAgentEngine {
     private static final int MAX_ITERATIONS = 50;
     /** 接管模式最大迭代轮数（信任模型自主控制，上限仅作安全兜底防死循环） */
     private static final int MAX_ITERATIONS_TAKEOVER = 100;
-    private static final int MAX_TOKENS = 4096;
+    private static final int MAX_TOKENS = 16384;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
     /** 历史摘要消息最大长度（字符），超出只保留最新部分，防止摘要本身撑爆上下文 */
@@ -172,7 +172,9 @@ public class OnlineAgentEngine {
         lastCacheHitTokens = 0;
         inferenceStartTime = System.currentTimeMillis();
 
-        int effectiveMaxTokens = maxTokens > 0 ? maxTokens : MAX_TOKENS;
+        // 在线模型每轮输出上限：用宽松值（16384），不被外部保守配置（4096 是给本地模型的）截断。
+        // 在线 API 通常支持大 max_tokens（模型自己决定实际输出），App 不设紧限制。
+        int effectiveMaxTokens = Math.max(maxTokens > 0 ? maxTokens : 0, MAX_TOKENS);
 
         executor.submit(() -> {
             try {

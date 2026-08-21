@@ -46,7 +46,7 @@ public class OnlineInferenceService {
 
     private static final String TAG = "OnlineInferenceService";
     private static final int DEFAULT_TIMEOUT_MS = 30000;
-    private static final int DEFAULT_MAX_TOKENS = 2048;
+    private static final int DEFAULT_MAX_TOKENS = 16384;
     private static final float DEFAULT_TEMPERATURE = 0.7f;
 
     private static volatile OnlineInferenceService INSTANCE;
