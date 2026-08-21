@@ -6680,6 +6680,13 @@ public class AIChatActivity extends BaseActivity {
             return true;
         }
         if (aiService == null) { showToast("未选择本地模型，请切换到在线模型"); return false; }
+        // 模型文件不存在：明确提示并停止（避免每次发送都触发初始化失败反复报错）
+        if (!aiService.isCurrentModelFileExists()) {
+            showToast("模型文件不存在，请重新导入或切换模型");
+            addSystemMessage("⚠️ 模型文件不存在：当前模型文件可能已被删除，请到模型设置中重新导入模型或切换到在线模型",
+                    ChatMessage.SystemMessageType.WARNING);
+            return false;
+        }
         boolean modelInMemory = modelBridge != null && modelBridge.isModelInMemory();
         if (!modelInMemory || !modelBridge.isModelInitialized()) {
             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(true);
