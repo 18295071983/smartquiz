@@ -398,6 +398,16 @@ public class WebViewActivity extends BaseActivity {
 
         // 检查是否首次启动（延迟执行，确保WebView初始化完成）
         new android.os.Handler().postDelayed(() -> {
+            // 优先 file_path（本地文件完整预览链路：智能编码检测防 GBK 乱码）
+            String localPath = getIntent() != null ? getIntent().getStringExtra("file_path") : null;
+            if (localPath != null && !localPath.isEmpty()) {
+                java.io.File f = new java.io.File(localPath);
+                if (f.exists() && f.isFile()) {
+                    AppLogger.d(TAG, "加载本地文件(file_path): " + localPath);
+                    loadFile(f);
+                    return;
+                }
+            }
             if (customUrl != null) {
                 // 加载自定义URL
                 loadUrl(customUrl);
