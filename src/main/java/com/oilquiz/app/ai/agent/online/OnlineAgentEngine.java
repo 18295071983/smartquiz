@@ -225,12 +225,13 @@ public class OnlineAgentEngine {
             String systemPrompt = agentMode == AgentMode.TAKEOVER
                 ? promptBuilder.buildSystemPromptTakeover()
                 : promptBuilder.buildSystemPrompt();
-            // 深度思考：开启时注入思考指令，引导模型先系统分析再作答
-            // （API thinking 参数触发 reasoning_content，此指令强化思考质量）
+            // 深度思考：开启时按模型名注入对应思考指令（DeepSeek/Qwen3/o系列等指令不同，
+            // API thinking 参数触发 reasoning_content，此指令强化思考质量）
             if (enableThinking) {
-                systemPrompt += "\n【深度思考】你当前处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n"
-                        + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
-                        + "最终回答：结论先行，简洁明确，只保留关键论据。\n";
+                systemPrompt += "\n【深度思考】"
+                        + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingInstruction(
+                                cfg != null ? cfg.modelName : null)
+                        + "\n";
             }
             // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式
             try {
