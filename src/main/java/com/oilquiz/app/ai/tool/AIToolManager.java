@@ -21,7 +21,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import com.oilquiz.app.ai.tool.FileTool;
 import com.oilquiz.app.ai.tool.DatabaseTool;
 import com.oilquiz.app.ai.tool.NetworkSearchTool;
 import com.oilquiz.app.ai.tool.WebPageReaderTool;
@@ -35,6 +34,9 @@ import com.oilquiz.app.ai.tool.AppToolkitAITool;
 import com.oilquiz.app.ai.python.PythonExecuteTool;
 import com.oilquiz.app.ai.python.PythonCalculateTool;
 import com.oilquiz.app.ai.python.PythonDataAnalysisTool;
+import com.oilquiz.app.ai.python.PythonWebReaderTool;
+import com.oilquiz.app.ai.python.PythonFileOpsTool;
+import com.oilquiz.app.ai.python.PythonChartTool;
 import com.oilquiz.app.ai.python.AIToolCreatorTool;
 
 /**
@@ -206,7 +208,6 @@ public class AIToolManager {
      * 注册工具工厂（懒加载）
      */
     private void registerToolFactories() {
-        registerToolFactory("file", FileTool.class, FileTool::new);
         registerToolFactory("database", DatabaseTool.class, DatabaseTool::new);
         registerToolFactory("network_search", NetworkSearchTool.class, NetworkSearchTool::new);
         registerToolFactory("webpage_reader", WebPageReaderTool.class, WebPageReaderTool::new);
@@ -217,18 +218,25 @@ public class AIToolManager {
         registerToolFactory("file_generator", FileGeneratorTool.class, FileGeneratorTool::new);
         registerToolFactory("permission_manager", PermissionManagerTool.class, PermissionManagerTool::new);
         registerToolFactory("app_operation", AppOperationTool.class, AppOperationTool::new);
-        registerToolFactory("translation", TranslationTool.class, TranslationTool::new);
         registerToolFactory("location", LocationTool.class, LocationTool::new);
         registerToolFactory("ai_weather", AIWeatherManager.class, AIWeatherManager::new);
         registerToolFactory("app_toolkit", AppToolkitAITool.class, AppToolkitAITool::new);
         registerToolFactory("create_dynamic_tool", DynamicToolManagerTool.class, DynamicToolManagerTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
+        registerToolFactory("update_models_profile", UpdateModelsProfileTool.class, UpdateModelsProfileTool::new);
+        registerToolFactory("get_models_profile", GetModelsProfileTool.class, GetModelsProfileTool::new);
+        registerToolFactory("voice_input", VoiceInputTool.class, VoiceInputTool::new);
+        registerToolFactory("speech_synthesis", SpeechSynthesisTool.class, SpeechSynthesisTool::new);
+        registerToolFactory("excel_tool", ExcelTool.class, ExcelTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
             registerToolFactory("python_calculate", PythonCalculateTool.class, PythonCalculateTool::new);
             registerToolFactory("python_analyze_data", PythonDataAnalysisTool.class, PythonDataAnalysisTool::new);
+            registerToolFactory("python_web_reader", PythonWebReaderTool.class, PythonWebReaderTool::new);
+            registerToolFactory("python_file_ops", PythonFileOpsTool.class, PythonFileOpsTool::new);
+            registerToolFactory("python_chart", PythonChartTool.class, PythonChartTool::new);
             registerToolFactory("ai_create_tool", AIToolCreatorTool.class, AIToolCreatorTool::new);
             registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
             registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
@@ -370,12 +378,14 @@ public class AIToolManager {
             "page", "page_size", "difficulty", "limit", "num_results", "maxResults", "maxDepth", "maxLinks",
             "startLine", "endLine", "start_line", "end_line", "maxLength",
             "width", "height", "x", "y", "angle",
-            "sheet_index", "max_rows", "max_items"
+            "sheet_index", "max_rows", "max_items",
+            "duration_seconds", "timeout_seconds",
+            "row", "row_start", "row_end"
     ));
 
     /** 已知应为布尔类型的参数名 */
     private static final java.util.Set<String> BOOLEAN_PARAM_NAMES = new java.util.HashSet<>(java.util.Arrays.asList(
-            "regex", "newLine", "allowMultiple", "includeDetails", "enableThinking"
+            "regex", "newLine", "allowMultiple", "includeDetails", "enableThinking", "save_voice"
     ));
 
     /**
@@ -837,28 +847,35 @@ public class AIToolManager {
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .category("calculator")
                     .build();
-            case "translation":
-                return ToolDefinition.builder("translation", "翻译工具，翻译文本")
-                    .addParameter("text", "string", "待翻译文本", true)
-                    .addParameter("target_lang", "string", "目标语言，如：zh, en, ja, ko", false, "zh")
-                    .category("translation")
-                    .build();
             case "file_reader":
-                return ToolDefinition.builder("file_reader", "文件阅读工具，支持读取文本文件、按行读取、搜索文本、提取实体、预览")
-                    .addParameter("file_path", "string", "文件路径", true)
-                    .addParameter("action", "string", "操作类型: read(默认)/read_lines/extract_text/search_text/extract_entities/preview", false, "read")
-                    .addParameter("encoding", "string", "文件编码(默认UTF-8)", false, "UTF-8")
+                return ToolDefinition.builder("file_reader", "文件阅读工具：读取全文/按行/区间提取/搜索/实体提取/预览/解析结构化文件(Excel/CSV/JSON/XML)/列目录(list)。自动检测编码(UTF-8/UTF-16/GB18030/GBK)，支持content:// URI(file_uri)。大文件用 read_lines/preview/search_text 分片读取。Excel整表解析用本工具parse_excel；需要按条件查询/修改Excel请用 excel_tool")
+                    .addParameter("file_path", "string", "文件路径(支持content://开头URI，与file_uri二选一)", false)
+                    .addParameter("file_uri", "string", "content:// URI(文件选择器/分享的Uri，与file_path二选一)", false)
+                    .addParameter("action", "string", "操作类型: read(默认)/read_lines/extract_text/search_text/extract_entities/preview/parse_structured/parse_excel/parse_csv/parse_json/parse_xml/list", false, "read")
+                    .addParameter("directory_path", "string", "目录路径(list用，留空默认应用目录)", false)
+                    .addParameter("encoding", "string", "文件编码(留空自动检测UTF-8/UTF-16/GB18030/GBK；也可指定如GBK)", false)
                     .addParameter("startLine", "integer", "起始行号(read_lines用)", false)
                     .addParameter("endLine", "integer", "结束行号(read_lines用)", false)
-                    .addParameter("keyword", "string", "搜索关键词(search_text用)", false)
-                    .addParameter("regex", "string", "正则表达式(search_text用)", false)
-                    .addParameter("maxLength", "integer", "最大读取长度(read用)", false)
+                    .addParameter("startMarker", "string", "起始标记(extract_text用)", false)
+                    .addParameter("endMarker", "string", "结束标记(extract_text用)", false)
+                    .addParameter("keyword", "string", "搜索关键词(search_text用，等价参数pattern)", false)
+                    .addParameter("regex", "boolean", "是否正则表达式(search_text用，默认false)", false, false)
+                    .addParameter("entity_pattern", "string", "自定义正则表达式(extract_entities用，提取任意模式)", false)
+                    .addParameter("maxLength", "integer", "最大预览长度(preview用，默认1000)", false, 1000)
+                    .addParameter("delimiter", "string", "CSV分隔符(parse_csv用，默认逗号，支持tab)", false, ",")
+                    .addParameter("max_rows", "integer", "最大解析行数(parse_excel/parse_csv用，默认500)", false, 500)
+                    .addParameter("sheet_index", "integer", "工作表索引(parse_excel用，默认0)", false, 0)
+                    .addParameter("json_path", "string", "JSON子节点路径(parse_json用，如 data.items)", false)
+                    .addParameter("target_tag", "string", "目标标签(parse_xml用，只提取该标签)", false)
+                    .addParameter("max_items", "integer", "最大条目数(parse_xml用，默认200)", false, 200)
                     .category("file")
                     .build();
             case "file_analyzer":
-                return ToolDefinition.builder("file_analyzer", "文件分析工具，分析文件内容")
-                    .addParameter("file_path", "string", "文件路径", true)
-                    .addParameter("analysis_type", "string", "分析类型（可选）", false)
+                return ToolDefinition.builder("file_analyzer", "文件分析工具：综合分析/统计/关键词/词频/格式检测/目录分析/查找重复文件(大小+内容哈希)")
+                    .addParameter("action", "string", "操作类型: analyze(默认)/statistics/keywords/word_count/detect_format/analyze_directory/find_duplicates", false, "analyze")
+                    .addParameter("file_path", "string", "文件路径(analyze/statistics/keywords/word_count/detect_format用)", false)
+                    .addParameter("directory_path", "string", "目录路径(analyze_directory/find_duplicates用)", false)
+                    .addParameter("topN", "integer", "关键词数量(keywords用，默认10)", false, 10)
                     .category("file")
                     .build();
             case "file_generator":
@@ -926,10 +943,10 @@ public class AIToolManager {
                     .category("location")
                     .build();
             case "webpage_reader":
-                return ToolDefinition.builder("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要")
+                return ToolDefinition.builder("webpage_reader", "网页阅读工具(Jsoup解析)：抓取网页返回标题/描述/标题结构/正文(text字段)/链接/摘要/关键词/分类。read=读取解析；extract=提取关键信息(可传已有content)；summarize=生成摘要；read_multiple=并行批量读取(urls数组)；follow_links=跟踪链接。单页上限5MB")
                     .addParameter("action", "string", "操作类型: read(默认)/extract/summarize/read_multiple/follow_links", false, "read")
                     .addParameter("url", "string", "网页URL(read/extract/summarize/follow_links用，与content二选一)", false)
-                    .addParameter("urls", "array", "URL列表(read_multiple用)", false)
+                    .addParameter("urls", "array", "URL列表(read_multiple用，并行抓取)", false)
                     .addParameter("content", "string", "网页内容(extract/summarize用，与url二选一)", false)
                     .addParameter("query", "string", "搜索查询词(相关性计算用)", false)
                     .addParameter("maxDepth", "integer", "最大链接深度(follow_links用，默认2)", false, 2)
@@ -937,13 +954,13 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command有安全管控：危险命令(rm/reboot/su/dd/chmod/kill/wget等)与敏感路径(/data/data、/proc、/sys、凭据文件)会被拦截，单条命令10秒超时")
                     .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址", false)
                     .addParameter("phone", "string", "电话号码", false)
                     .addParameter("message", "string", "短信内容", false)
-                    .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500）", false)
+                    .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500。危险命令/敏感路径被拦截，10秒超时）", false)
                     .addParameter("setting_type", "string", "设置类型: system/secure/global", false)
                     .addParameter("setting_key", "string", "设置键名", false)
                     .addParameter("setting_value", "string", "设置值", false)
@@ -953,9 +970,10 @@ public class AIToolManager {
                     .build();
             case "python_execute":
                 return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库21种(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；web=网页卡片、image=图片卡片)：chart/info_card/table_card/alert_card/metric_card/steps_card/list_card/note_card/todo_card/progress_card/json_viewer/code_card/link_card/grid_card/contact_card/file_card/file_list/image_grid/quiz_card/weather_card/html；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回")
-                    .addParameter("code", "string", "Python代码（可选）", false)
+                    .addParameter("code", "string", "Python代码（可选，上限200KB）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
+                    .addParameter("timeout", "integer", "执行超时秒数(默认30，范围5~120；超时返回TimeoutError)", false, 30)
                     .category("python")
                     .build();
             case "python_analyze_data":
@@ -964,12 +982,44 @@ public class AIToolManager {
                     .addParameter("task", "string", "任务描述（可选，如统计/求平均/去重/排序/转换格式等）", false)
                     .category("python")
                     .build();
-            case "file":
-                return ToolDefinition.builder("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件")
-                    .addParameter("action", "string", "操作类型: get_file_info, read_file, list_files", true)
-                    .addParameter("file_path", "string", "文件路径（用于get_file_info和read_file操作）", false)
-                    .addParameter("directory_path", "string", "目录路径（用于list_files操作）", false)
-                    .category("file")
+            case "python_web_reader":
+                return ToolDefinition.builder("python_web_reader", "Python网页工具(requests+bs4)：抓取网页/API并提取信息。fetch=GET/POST抓取(可带headers/params/JSON body)；extract=bs4提取标题/正文/链接/表格/JSON-LD；fetch_json=请求JSON API。适合登录态/Cookie/自定义请求头/API等Java网页工具不便处理的场景")
+                    .addParameter("action", "string", "操作: fetch(默认)/extract/fetch_json", false, "fetch")
+                    .addParameter("url", "string", "目标URL", true)
+                    .addParameter("method", "string", "HTTP方法(GET/POST，默认GET)", false, "GET")
+                    .addParameter("headers", "object", "自定义请求头JSON，如{\"Cookie\":\"...\",\"User-Agent\":\"...\"}", false)
+                    .addParameter("params", "object", "URL查询参数JSON", false)
+                    .addParameter("data", "object", "POST的JSON body", false)
+                    .addParameter("content", "string", "已有HTML内容(extract用，与url二选一)", false)
+                    .addParameter("timeout", "integer", "超时秒数(默认15)", false, 15)
+                    .addParameter("max_chars", "integer", "内容最大输出字符数(默认8000)", false, 8000)
+                    .category("python")
+                    .build();
+            case "python_file_ops":
+                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=严格解析CSV(标准库RFC4180)/JSON/XML/Excel(xlsx读写)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析/xlsx写入等场景")
+                    .addParameter("action", "string", "操作: read(默认)/parse/write/append/replace", false, "read")
+                    .addParameter("file_path", "string", "文件路径", true)
+                    .addParameter("content", "string", "内容(write/append用)", false)
+                    .addParameter("old_text", "string", "被替换文本(replace用)", false)
+                    .addParameter("new_text", "string", "替换为(replace用，可为空=删除)", false)
+                    .addParameter("encoding", "string", "编码(write/append用，默认utf-8)", false, "utf-8")
+                    .addParameter("format", "string", "解析格式(parse用: csv/json/xml/xlsx，留空按扩展名)", false)
+                    .addParameter("max_rows", "integer", "最大行数(parse用，默认500)", false, 500)
+                    .addParameter("max_chars", "integer", "最大输出字符数(默认8000)", false, 8000)
+                    .addParameter("sheet_index", "integer", "工作表索引(parse xlsx用，默认0)", false, 0)
+                    .category("python")
+                    .build();
+            case "python_chart":
+                return ToolDefinition.builder("python_chart", "Python绘图工具(Pillow)：数据可视化生成PNG图片。bar=柱状图(支持多系列)/line=折线图(支持多系列)/pie=饼图/scatter=散点图。data传JSON：bar/line用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie用{\"labels\":[...],\"values\":[...]}；scatter用{\"points\":[[x,y],...]}。图片默认保存到工作区files/(用workspace查看)，可指定output_path。与image_gen(AI生图)不同，本工具画数据图表")
+                    .addParameter("action", "string", "图表类型: bar/line/pie/scatter", true)
+                    .addParameter("data", "object", "数据JSON(必填，格式见描述)", true)
+                    .addParameter("title", "string", "图表标题(可选)", false)
+                    .addParameter("width", "integer", "图片宽度(默认800)", false, 800)
+                    .addParameter("height", "integer", "图片高度(默认500)", false, 500)
+                    .addParameter("output_path", "string", "保存路径(默认工作区files/)", false)
+                    .addParameter("colors", "array", "系列颜色数组(可选，默认内置色板)", false)
+                    .addParameter("show_values", "boolean", "是否显示数值(默认true)", false, true)
+                    .category("python")
                     .build();
             case "app_operation":
                 return ToolDefinition.builder("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面")
@@ -1022,7 +1072,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "app_toolkit":
-                return ToolDefinition.builder("app_toolkit", "应用工具集，聚合天气/计算/OCR/图像/文件/网页等能力，通过action指定具体操作")
+                return ToolDefinition.builder("app_toolkit", "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作。文件读取/解析请用 file_reader 工具")
                     .addParameter("action", "string",
                         "操作类型(必填)。可选值:\n" +
                         "  天气: weather_current, weather_forecast, weather_hourly, weather_air, weather_alerts, weather_indices, weather_all\n" +
@@ -1030,11 +1080,9 @@ public class AIToolManager {
                         "  OCR: ocr_recognize(在线视觉模型,高精度), ocr_recognize_pdf, ocr_set_language, ocr_get_language\n" +
                         "  图像识别: image_label_recognize, object_detect\n" +
                         "  图像处理: image_save, image_scale, image_crop, image_rotate, image_generate_color, image_generate_text\n" +
-                        "  文件解析: file_parse_text, file_parse_csv, file_parse_json, file_read_lines, file_get_type\n" +
                         "  网页解析: web_parse_html, web_get_title, web_get_links, web_get_images, web_get_text\n" +
                         "  其他: get_info, get_guide", true)
                     .addParameter("image_path", "string", "图片路径(OCR/图像操作使用)", false)
-                    .addParameter("file_path", "string", "文件路径(文件解析操作使用)", false)
                     .addParameter("expression", "string", "数学表达式(calculate操作使用)", false)
                     .addParameter("url", "string", "网页URL(网页解析操作使用)", false)
                     .addParameter("language", "string", "OCR语言(可选)", false)
@@ -1050,6 +1098,52 @@ public class AIToolManager {
                     .addParameter("parameters", "string", "参数定义", false)
                     .addParameter("logic", "string", "执行逻辑", false)
                     .category("tool")
+                    .build();
+            case "voice_input":
+                return ToolDefinition.builder("voice_input", "语音输入工具：将语音/音频转换为文字（语音识别ASR）。支持识别音频文件(recognize)、交互式录音识别(record，弹出录音组件让用户说话，点完成结束，录音前自动停止TTS播放防串音)、固定时长录音识别(record_and_recognize，需录音权限)、检查可用性(check)。未配置语音识别模型时提示先配置（如 qwen3-asr-flash / whisper-1）")
+                    .addParameter("action", "string", "操作类型: recognize(默认,识别音频文件)/record(交互式录音组件)/record_and_recognize(固定时长录音)/check(检查可用性)", false, "recognize")
+                    .addParameter("audio_path", "string", "音频文件路径(mp3/m4a/wav/amr等，与audio_uri二选一)", false)
+                    .addParameter("audio_uri", "string", "音频content:// URI(与audio_path二选一)", false)
+                    .addParameter("language", "string", "语言提示(zh/en)，默认自动检测", false)
+                    .addParameter("duration_seconds", "integer", "录音时长/上限(秒)：record_and_recognize固定录音默认15，record交互式默认30上限60", false, 15)
+                    .addParameter("title", "string", "录音组件标题(record用，默认🎤请说话)", false)
+                    .addParameter("hint", "string", "录音组件提示文字(record用)", false)
+                    .addParameter("timeout_seconds", "integer", "识别超时(秒)，默认30；record等待用户操作超时默认90", false, 30)
+                    .category("speech")
+                    .build();
+            case "speech_synthesis":
+                return ToolDefinition.builder("speech_synthesis", "语音合成工具：将文字合成为语音并播放，或保存为音频文件(TTS)。在线TTS不可用时自动回退系统TTS。synthesize=阻塞播放；speak=带播放组件朗读(弹出🔊对话框可见可停止,返回component_id,用ui_component get_result等待completed/stopped)；save=保存文件；play=播放音频；stop=停止；voices/set_voice=音色。播放与应用层共享SpeechManager，应用层停止按钮同样生效")
+                    .addParameter("action", "string", "操作类型: synthesize(默认,阻塞播放)/speak(带组件朗读,非阻塞)/save(合成保存为文件)/play(播放音频文件)/stop(停止播放)/check(检查可用性)/voices(获取音色列表)/set_voice(设置音色)", false, "synthesize")
+                    .addParameter("text", "string", "要合成/朗读的文字(synthesize/speak/save用)", false)
+                    .addParameter("voice", "string", "音色ID(如alloy/echo/nova/shimmer，或sys:系统音色；voices可查列表)", false)
+                    .addParameter("title", "string", "播放组件标题(speak用，默认🔊正在朗读)", false)
+                    .addParameter("output_path", "string", "输出音频文件路径(save用，不传自动保存到缓存目录)", false)
+                    .addParameter("audio_path", "string", "音频文件路径(play用)", false)
+                    .addParameter("save_voice", "boolean", "是否持久化音色(set_voice用，默认false)", false, false)
+                    .addParameter("duration_seconds", "integer", "最长播放时长(speak用，0=不限)", false, 0)
+                    .addParameter("timeout_seconds", "integer", "合成/播放超时(秒)，默认30，播放最长300", false, 30)
+                    .category("speech")
+                    .build();
+            case "excel_tool":
+                return ToolDefinition.builder("excel_tool", "Excel表格工具(xls/xlsx)：查询与修改。查询=sheets(工作表列表)/query(按条件过滤行:列名+op+match_value)/cell(读单元格)；修改=write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)，修改后自动保存回原文件或output_path。坐标：sheet(名称或索引)、cell_ref(A1如B3)或row(1-based)+column(列名/列字母/列号)。支持content:// URI(file_uri)。整表解析/阅读用 file_reader.parse_excel")
+                    .addParameter("action", "string", "操作: sheets/query/cell/write_cell/add_row/add_sheet", true)
+                    .addParameter("file_path", "string", "文件路径(支持content://开头URI，与file_uri二选一)", false)
+                    .addParameter("file_uri", "string", "content:// URI(与file_path二选一)", false)
+                    .addParameter("output_path", "string", "另存路径(修改类操作，不传默认保存回原文件)", false)
+                    .addParameter("sheet", "string", "工作表名称或索引(默认0)", false)
+                    .addParameter("cell_ref", "string", "单元格A1引用如B3(cell/write_cell用)", false)
+                    .addParameter("row", "integer", "1-based行号(与column配合)", false)
+                    .addParameter("column", "string", "列名(表头)/列字母/1-based列号(与row配合)", false)
+                    .addParameter("value", "string", "写入值(write_cell用，自动识别数字/布尔/文本，=开头为公式)", false)
+                    .addParameter("values", "array", "行数据数组(add_row用，如[\"张三\",18,\"北京\"])", false)
+                    .addParameter("new_sheet_name", "string", "新工作表名称(add_sheet用)", false)
+                    .addParameter("column_name", "string", "条件列名(query用，别名row_column)", false)
+                    .addParameter("op", "string", "比较操作: eq(等于,默认)/ne/contains/gt/gte/lt/lte", false, "eq")
+                    .addParameter("match_value", "string", "匹配值(query用)", false)
+                    .addParameter("row_start", "integer", "起始行号(query用，1-based，含)", false)
+                    .addParameter("row_end", "integer", "结束行号(query用，1-based，含)", false)
+                    .addParameter("max_rows", "integer", "最大返回行数(query用，默认100)", false, 100)
+                    .category("data")
                     .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/

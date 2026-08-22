@@ -31,12 +31,37 @@ public final class ComponentActions {
     /** 组件结果回调：component_id → 用户操作结果（供 Agent get_result 取回） */
     private static volatile java.util.function.BiConsumer<String, String> resultCallback;
 
+    /**
+     * 按 component_id 的增量回调注册表（替代覆盖式 setResultCallback）：
+     * 多会话/多组件并发创建时互不覆盖，close 后移除。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.function.BiConsumer<String, String>>
+            componentCallbacks = new java.util.concurrent.ConcurrentHashMap<>();
+
     private ComponentActions() {
     }
 
     /**
+     * 按 component_id 注册组件结果回调（推荐）。
+     * 回调按 id 独立存放，多个组件同时存在时互不覆盖。
+     */
+    public static void registerComponentCallback(String componentId,
+                                                 java.util.function.BiConsumer<String, String> callback) {
+        if (componentId != null && callback != null) {
+            componentCallbacks.put(componentId, callback);
+        }
+    }
+
+    /** 移除指定组件的回调（组件关闭/销毁时调用，避免常驻泄漏） */
+    public static void unregisterComponentCallback(String componentId) {
+        if (componentId != null) {
+            componentCallbacks.remove(componentId);
+        }
+    }
+
+    /**
      * 注册组件结果回调（由系统 UI 组件工具设置）。
-     * 聊天流组件按钮点击 action=callback 时，把 value 回传给组件注册表。
+     * 兼容旧用法：全局兜底回调，按 component_id 转发。
      */
     public static void setResultCallback(java.util.function.BiConsumer<String, String> callback) {
         resultCallback = callback;
@@ -68,10 +93,22 @@ public final class ComponentActions {
         }
     }
 
-    /** 通知组件结果（组件按钮 action=callback 时调用）。回调为空时用 context 兜底注册。 */
+    /** 通知组件结果（组件按钮 action=callback 时调用）。优先按 component_id 分发，未注册时回退全局回调。 */
     private static void notifyResult(Context context, String componentId, String value) {
         android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
                 + " cb=" + (resultCallback != null));
+        // 1. 按 component_id 精确分发（增量注册表优先）
+        if (componentId != null) {
+            java.util.function.BiConsumer<String, String> cb = componentCallbacks.get(componentId);
+            if (cb != null) {
+                try {
+                    cb.accept(componentId, value);
+                } catch (Throwable ignored) {
+                }
+                return;
+            }
+        }
+        // 2. 回退全局回调（兼容旧组件/未注册场景）
         java.util.function.BiConsumer<String, String> cb = resultCallback;
         if (cb == null) {
             cb = ensureResultCallback(context);

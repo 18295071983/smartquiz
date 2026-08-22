@@ -98,12 +98,8 @@ public class ToolGuideFlow {
                 return buildAiWeather();
             case "network_search":
                 return buildNetworkSearch();
-            case "translation":
-                return buildTranslation();
             case "database":
                 return buildDatabase();
-            case "file":
-                return buildFile();
             case "location":
                 return buildLocation();
             case "app_operation":
@@ -301,36 +297,6 @@ public class ToolGuideFlow {
                 "网络搜索、智能问答、网页读取", steps);
     }
 
-    /** translation 翻译 */
-    private static ToolGuideFlow buildTranslation() {
-        List<GuideStep> steps = new ArrayList<>();
-        // 步骤1：输入待翻译文本
-        steps.add(GuideStep.inputStep(
-                "翻译什么内容?",
-                "输入要翻译的文本",
-                "text",
-                "输入待翻译文本",
-                true,
-                true
-        ));
-        // 步骤2：选择目标语言
-        steps.add(GuideStep.optionStep(
-                "翻译成什么?",
-                "选目标语言",
-                "target_lang",
-                Arrays.asList(
-                        new GuideStep.Option("中文", "zh"),
-                        new GuideStep.Option("英文", "en"),
-                        new GuideStep.Option("日文", "ja"),
-                        new GuideStep.Option("韩文", "ko")
-                )
-        ));
-        // 步骤3：确认执行
-        steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
-        return new ToolGuideFlow("translation", "翻译",
-                "文本翻译，支持中英日韩等多种语言", steps);
-    }
-
     /** database 数据库工具 */
     private static ToolGuideFlow buildDatabase() {
         List<GuideStep> steps = new ArrayList<>();
@@ -398,44 +364,6 @@ public class ToolGuideFlow {
         steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
         return new ToolGuideFlow("database", "题库数据库",
                 "题目浏览与搜索、表结构查看、分类统计、数据库信息等", steps);
-    }
-
-    /** file 文件工具 */
-    private static ToolGuideFlow buildFile() {
-        List<GuideStep> steps = new ArrayList<>();
-        // 步骤1：选择操作类型
-        steps.add(GuideStep.optionStep(
-                "想做什么?",
-                "选要做的文件操作",
-                "action",
-                Arrays.asList(
-                        new GuideStep.Option("获取文件信息", "get_file_info"),
-                        new GuideStep.Option("读取文件内容", "read_file"),
-                        new GuideStep.Option("列出目录文件", "list_files")
-                )
-        ));
-        // 步骤2：选择文件（仅 get_file_info | read_file）—— 使用文件选择器
-        steps.add(GuideStep.filePickerStep(
-                "选择文件",
-                "点击按钮打开文件管理器选择文件",
-                "file_path",
-                true,
-                null,
-                false,
-                "action", "get_file_info|read_file"
-        ));
-        // 步骤2b：选择目录（仅 list_files）—— 使用目录选择器，也允许手动输入
-        steps.add(GuideStep.directoryPickerStep(
-                "选择目录",
-                "点击按钮打开文件管理器选择目录，留空默认应用目录",
-                "directory_path",
-                false,
-                "action", "list_files"
-        ));
-        // 步骤3：确认执行
-        steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
-        return new ToolGuideFlow("file", "文件操作",
-                "文件信息、读取、目录列举等", steps);
     }
 
     /** location 定位工具 */

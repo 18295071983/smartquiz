@@ -313,9 +313,6 @@ public class AIIconMapper {
             case "analysis":
             case "report":
                 return R.drawable.ic_ai_analyze;
-            case "translate":
-            case "translation":
-                return R.drawable.ic_ai_translate;
             case "generate":
             case "create":
             case "compose":

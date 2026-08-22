@@ -57,7 +57,8 @@ public class PythonCalculateTool extends BaseAITool {
             }
             
             String code = buildCalculationCode(expression, task);
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null);
+            // 数学计算场景给短超时（默认30s对纯计算过长；防死循环残留线程）
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, 10);
             
             return formatResult(result, expression);
             
@@ -75,9 +76,33 @@ public class PythonCalculateTool extends BaseAITool {
             "import math\n" +
             "import statistics\n" +
             "import random\n" +
+            "import ast\n" +
             "\n" +
             "task = %s\n" +
             "expression = %s\n" +
+            "\n" +
+            "# ===== AST 白名单安全检查（防沙箱绕过/内存耗尽） =====\n" +
+            "ALLOWED_MODULES = {'math', 'statistics'}\n" +
+            "ALLOWED_FUNCS = {'abs', 'pow', 'round', 'int', 'float', 'min', 'max', 'sum', 'len', 'random'}\n" +
+            "def check_expression(expr):\n" +
+            "    tree = ast.parse(expr, mode='eval')\n" +
+            "    for node in ast.walk(tree):\n" +
+            "        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,\n" +
+            "                            ast.Lambda, ast.Subscript, ast.Slice, ast.Starred, ast.Yield,\n" +
+            "                            ast.Await)):\n" +
+            "            raise ValueError('不允许的语法: ' + type(node).__name__)\n" +
+            "        if isinstance(node, ast.Attribute):\n" +
+            "            v = node.value\n" +
+            "            if not (isinstance(v, ast.Name) and v.id in ALLOWED_MODULES):\n" +
+            "                raise ValueError('不允许的属性访问')\n" +
+            "        elif isinstance(node, ast.Call):\n" +
+            "            f = node.func\n" +
+            "            if isinstance(f, ast.Name) and f.id not in ALLOWED_FUNCS:\n" +
+            "                raise ValueError('不允许的函数: ' + f.id)\n" +
+            "        elif isinstance(node, ast.Name):\n" +
+            "            if node.id not in ALLOWED_MODULES and node.id not in ALLOWED_FUNCS:\n" +
+            "                raise ValueError('不允许的变量/函数名: ' + node.id)\n" +
+            "    return tree\n" +
             "\n" +
             "print(f'任务: {task}')\n" +
             "print(f'表达式: {expression}')\n" +
@@ -86,25 +111,20 @@ public class PythonCalculateTool extends BaseAITool {
             "    '__builtins__': {},\n" +
             "    'math': math,\n" +
             "    'statistics': statistics,\n" +
-            "    'abs': abs,\n" +
-            "    'pow': pow,\n" +
-            "    'round': round,\n" +
-            "    'int': int,\n" +
-            "    'float': float,\n" +
-            "    'min': min,\n" +
-            "    'max': max,\n" +
-            "    'sum': sum,\n" +
-            "    'len': len,\n" +
-            "    'range': range,\n" +
-            "    'list': list,\n" +
+            "    'random': random,\n" +
+            "    'abs': abs, 'pow': pow, 'round': round,\n" +
+            "    'int': int, 'float': float, 'min': min, 'max': max, 'sum': sum, 'len': len,\n" +
             "}\n" +
             "\n" +
             "try:\n" +
+            "    check_expression(expression)\n" +
             "    result = eval(expression, safe_globals, {})\n" +
-            "    print(f'计算结果: {result}')\n" +
+            "    if isinstance(result, (int, float)):\n" +
+            "        print(f'计算结果: {result}')\n" +
+            "    else:\n" +
+            "        print(f'计算结果: {result}')\n" +
             "except Exception as e:\n" +
-            "    print(f'计算错误: {e}')\n" +
-            "    result = str(e)",
+            "    print('计算错误: ' + str(e))",
             quoteString(taskDesc),
             quoteString(expression)
         );
@@ -131,6 +151,14 @@ public class PythonCalculateTool extends BaseAITool {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("expression", expression);
         additionalInfo.put("attempts", result.attempts);
+        
+        // 脚本内已把表达式/安全检查错误标记为 "计算错误:" 前缀（正常退出0），这里转成失败结果
+        if (result.success && result.stdout != null && result.stdout.contains("计算错误:")) {
+            int idx = result.stdout.indexOf("计算错误:");
+            String errMsg = result.stdout.substring(idx + "计算错误:".length()).trim();
+            additionalInfo.put("error", errMsg);
+            return new AIToolResult("计算失败: " + errMsg, additionalInfo, false);
+        }
         
         if (result.success) {
             StringBuilder output = new StringBuilder();

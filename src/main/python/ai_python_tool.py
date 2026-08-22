@@ -407,13 +407,14 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
         """执行保存的脚本"""
         return self.engine.run_script(name, args)
     
-    def run_code(self, code: str, timeout: int = 60) -> Dict[str, Any]:
+    def run_code(self, code: str, timeout: int = 60, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         直接执行 Python 代码（不解释为任务描述）
         
         Args:
             code: 要执行的 Python 代码
             timeout: 超时时间（秒）
+            context: 上下文数据 dict（可选，脚本内作为变量注入）
             
         Returns:
             执行结果字典
@@ -432,7 +433,8 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
         exec_result = self.engine.execute_with_auto_fix(
             code,
             max_attempts=3,
-            timeout=timeout
+            timeout=timeout,
+            variables=context
         )
         
         result.update({

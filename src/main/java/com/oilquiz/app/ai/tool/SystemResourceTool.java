@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Tool(
     value = "system_resource",
@@ -56,6 +57,30 @@ import java.util.Map;
 )
 public class SystemResourceTool implements AITool {
     private static final String TAG = "SystemResourceTool";
+
+    /** Shell 命令执行超时（秒）：超时强制终止，防止命令挂起阻塞 Agent */
+    private static final long SHELL_TIMEOUT_SECONDS = 10;
+    /** Shell 输出最大字符数：超出截断并终止进程（防 top/cat 大文件撑爆） */
+    private static final int MAX_SHELL_OUTPUT_CHARS = 20000;
+
+    /** 危险命令黑名单（词边界匹配，防分段/管道绕过） */
+    private static final String[] BANNED_COMMANDS = {
+            "rm", "rmdir", "format", "factory_reset", "reboot", "shutdown", "halt", "poweroff",
+            "su", "dd", "mkfs", "mkfs.ext", "mount", "umount", "chmod", "chown", "chgrp",
+            "wipe", "erase", "mknod", "fdisk", "parted", "resize2fs", "e2fsck",
+            "kill", "pkill", "killall", "killall5", "telnet", "nc", "netcat", "ssh", "scp",
+            "wget", "curl", "iptables", "ip6tables", "setenforce", "chroot", "fastboot", "adb",
+            "busybox", "xargs", "mv", "ln", "svc", "sepolicy", "truncate", "tune2fs"
+    };
+
+    /** 敏感路径黑名单：读取/写入其他应用数据、内核接口、凭据文件一律拒绝 */
+    private static final String[] BANNED_PATHS = {
+            "/data/data/", "/data/user/", "/data/system/", "/data/local/",
+            "/proc/", "/sys/", "/dev/block", "/dev/mem", "/dev/kmem", "/dev/sd",
+            "/etc/shadow", "/etc/passwd", "/etc/sudoers", "/data/misc/keychain",
+            ".keystore", "id_rsa", "id_dsa", "authorized_keys", "credential", "token"
+    };
+
     private final Context context;
     
     private static final Map<String, String> APP_PACKAGE_MAP = new HashMap<>();
@@ -998,26 +1023,43 @@ public class SystemResourceTool implements AITool {
             return new AIToolResult("缺少参数: command", parameters);
         }
         
-        // 安全检查：禁止危险命令（按命令片段匹配，防止 `echo a; rm -rf /`、`$(rm ...)` 绕过）
+        // ===== 安全检查（多层防护） =====
         String lowerCmd = command.toLowerCase().trim();
         String normalized = lowerCmd.replaceAll("\\s+", " ");
-        String[] bannedCommands = {"rm", "format", "factory_reset", "reboot", "shutdown", "su",
-                "dd", "mkfs", "mount", "chmod", "chown", "mkfs.ext", "wipe", "erase"};
+        
+        // 1. 拦截命令替换/反引号注入
+        if (normalized.contains("$(") || normalized.contains("`") || normalized.contains("${")) {
+            return new AIToolResult("安全限制：不允许命令替换/变量注入: " + command, parameters);
+        }
+        
+        // 2. 拦截敏感路径（读取/写入其他应用数据、内核接口、凭据文件）
+        for (String bannedPath : BANNED_PATHS) {
+            if (normalized.contains(bannedPath)) {
+                return new AIToolResult("安全限制：不允许访问敏感路径: " + bannedPath, parameters);
+            }
+        }
+        
+        // 3. 危险命令黑名单（按命令片段拆分，防 `echo a; rm -rf /`、`$(rm)` 等绕过）
         String[] parts = normalized.split("[;&|$()\\s]+");
         for (String part : parts) {
-            for (String banned : bannedCommands) {
-                if (part.equals(banned) || part.startsWith(banned + " ")) {
+            String p = part.trim();
+            if (p.isEmpty()) continue;
+            for (String banned : BANNED_COMMANDS) {
+                if (p.equals(banned) || p.startsWith(banned + " ")) {
                     return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
                 }
             }
         }
-        // 拦截命令替换/反引号注入
-        if (normalized.contains("$(") || normalized.contains("`")) {
-            return new AIToolResult("安全限制：不允许命令替换: " + command, parameters);
+        
+        // 4. find 带破坏性参数（-delete/-exec/-ok）单独拦截（普通 find 只读允许）
+        if (normalized.contains("find") && (normalized.contains("-delete") || normalized.contains("-exec")
+                || normalized.contains("-ok") || normalized.contains("-execdir"))) {
+            return new AIToolResult("安全限制：不允许 find 破坏性操作: " + command, parameters);
         }
-        if (lowerCmd.startsWith("rm ") || lowerCmd.startsWith("format ") || lowerCmd.contains("reboot")
-                || lowerCmd.contains("shutdown") || lowerCmd.contains("&& rm") || lowerCmd.contains("; rm")) {
-            return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
+        
+        // 5. 重定向到系统设备/分区拒绝（路径黑名单已覆盖 /dev/，此处兜底设备直写）
+        if (normalized.matches(".*>\\s*/dev/[^ ]+.*") || normalized.matches(".*>>\\s*/dev/[^ ]+.*")) {
+            return new AIToolResult("安全限制：不允许写入系统设备: " + command, parameters);
         }
         
         try {
@@ -1035,24 +1077,37 @@ public class SystemResourceTool implements AITool {
     }
     
     /**
-     * 执行 Shell 命令并返回输出
+     * 执行 Shell 命令并返回输出（带超时，防止命令挂起永久阻塞 Agent）
      */
     private String executeShell(String command) {
+        Process process = null;
         try {
             // 2>&1 合并 stderr 到 stdout，避免单独读取 stdout/stderr 时管道缓冲写满导致死锁
-            Process process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command + " 2>&1"});
+            process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command + " 2>&1"});
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             StringBuilder output = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
                 output.append(line).append("\n");
+                if (output.length() > MAX_SHELL_OUTPUT_CHARS) {
+                    // 输出超限：截断并终止进程（如 top/cat 大文件）
+                    process.destroy();
+                    output.append("\n...(输出过长已截断)");
+                    break;
+                }
             }
-            process.waitFor();
+            if (!process.waitFor(SHELL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return "(命令执行超时(" + SHELL_TIMEOUT_SECONDS + "s)，已终止)";
+            }
             reader.close();
 
             String out = output.toString().trim();
             return out.isEmpty() ? "(无输出)" : out;
         } catch (Exception e) {
+            if (process != null) {
+                process.destroyForcibly();
+            }
             return "执行失败: " + e.getMessage();
         }
     }

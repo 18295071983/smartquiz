@@ -309,7 +309,15 @@ public class ModelListFetcher {
                 if (!id.contains("embedding") && !id.contains("ada") && !id.contains("babbage") &&
                     !id.contains("curie") && !id.contains("davinci") && !id.contains("text-") &&
                     !id.contains("-search") && !id.contains("-similarity") && !id.contains("-bison")) {
-                    models.add(ApiModel.fromOpenAI(id, ownedBy, created));
+                    ApiModel model = ApiModel.fromOpenAI(id, ownedBy, created);
+                    // 配置时直接提取服务商返回的真实上下文字段（如 context_length / max_model_len），
+                    // 命中则覆盖名称推断值，并标记为真实值（配置保存时优先采用）
+                    Integer realLen = OnlineInferenceService.extractContextWindow(modelObj);
+                    if (realLen != null && realLen > 0) {
+                        model.contextLength = realLen;
+                        model.contextLengthFromApi = true;
+                    }
+                    models.add(model);
                 }
             }
         }

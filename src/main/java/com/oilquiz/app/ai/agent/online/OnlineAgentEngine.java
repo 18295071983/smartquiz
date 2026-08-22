@@ -47,6 +47,10 @@ public class OnlineAgentEngine {
     /** 接管模式最大迭代轮数（信任模型自主控制，上限仅作安全兜底防死循环） */
     private static final int MAX_ITERATIONS_TAKEOVER = 100;
     private static final int MAX_TOKENS = 16384;
+    /** 工具调用轮的输出上限：工具轮只需简短 tool_call（通常 <1K），
+     *  设小上限避免大 max_tokens 被中转站预扣额度/防工具轮跑飞长文；
+     *  最终答案轮仍用 MAX_TOKENS（16384）不受限。 */
+    private static final int TOOL_ITERATION_MAX_TOKENS = 8192;
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
     /** 历史摘要消息最大长度（字符），超出只保留最新部分，防止摘要本身撑爆上下文 */
@@ -89,6 +93,10 @@ public class OnlineAgentEngine {
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
     private final AtomicInteger toolLoopCount = new AtomicInteger(0);
+
+    /** 上次模型摘要时间（限频用：长任务中每轮 trim 都可能触发模型摘要，30s 内只做一次） */
+    private volatile long lastModelSummaryTime = 0;
+    private static final long MODEL_SUMMARY_MIN_INTERVAL_MS = 30_000;
 
     // OpenAI 格式消息历史（直接使用 JsonObject，支持 tool 角色消息）
     private final List<JsonObject> messageHistory = new ArrayList<>();
@@ -186,6 +194,8 @@ public class OnlineAgentEngine {
 
         // 在线模型每轮输出上限：用宽松值（16384），不被外部保守配置（4096 是给本地模型的）截断。
         // 在线 API 通常支持大 max_tokens（模型自己决定实际输出），App 不设紧限制。
+        // max_tokens 只是上限（按实际生成计费），最终答案轮用大值防截断；
+        // 工具调用轮只需简短 tool_call，streamOneIteration 内用小上限（见 TOOL_ITERATION_MAX_TOKENS）。
         int effectiveMaxTokens = Math.max(maxTokens > 0 ? maxTokens : 0, MAX_TOKENS);
 
         executor.submit(() -> {
@@ -236,6 +246,22 @@ public class OnlineAgentEngine {
             finishGeneration();
             notifyError("没有激活的在线模型");
             return;
+        }
+
+        // 0. 深度思考门控：仅当模型支持 thinking/reasoning 参数时才开启（避免对不支持的服务商
+        //    发送 enable_thinking 导致 HTTP 400）。不支持时静默降级为普通模式：
+        //    - 不注入思考指令（下方 system 提示词构建已检查 enableThinking 字段）
+        //    - 不向 API 传 thinking 参数（streamOneIteration 使用同一字段）
+        if (enableThinking) {
+            String modelName = cfg.modelName;
+            if (!com.oilquiz.app.ai.model.OnlineModelManager.isThinkingModelName(modelName)) {
+                AILogger.w(TAG, "Deep thinking requested but model does not support it, "
+                        + "degrading to normal mode: " + modelName);
+                enableThinking = false;
+                notifyStep("深度思考", "当前模型不支持深度思考，已自动切换为普通模式");
+            } else {
+                AILogger.i(TAG, "Deep thinking enabled for model: " + modelName);
+            }
         }
 
         // 0. 检测在线模型 agent 能力，选择执行模式
@@ -500,9 +526,18 @@ public class OnlineAgentEngine {
             // ===== 有工具调用：重置"连续暗示次数"计数 =====
             consecutiveHintForToolCount = 0;
 
-            // 有工具调用但 finish_reason=length：工具参数可能被截断，记录警告
+            // 有工具调用但 finish_reason=length：工具参数可能被截断。
+            // 截断处若恰是合法 JSON 前缀会执行非预期动作（删错文件/写入截断内容），
+            // 因此丢弃本轮 tool_calls，要求模型重新完整输出。
             if ("length".equals(result.finishReason)) {
-                AILogger.w(TAG, "Tool calls may be truncated due to max_tokens (finish_reason=length)");
+                AILogger.w(TAG, "Tool calls truncated due to max_tokens (finish_reason=length), discarding");
+                JsonObject sysMsg = new JsonObject();
+                sysMsg.addProperty("role", "system");
+                sysMsg.addProperty("content", "注意：上一轮输出因长度限制被截断，工具调用参数不完整，已全部丢弃。"
+                        + "请重新完整输出工具调用（arguments 必须是完整闭合的 JSON），或直接给出最终回答。");
+                messageHistory.add(sysMsg);
+                notifyStep("截断修正", "工具参数可能被截断，已丢弃并要求模型重新完整输出");
+                continue;
             }
 
             // 有工具调用
@@ -588,9 +623,10 @@ public class OnlineAgentEngine {
                         if (callback != null) callback.onToolCallComplete(tr.toolCallId, tr.toolName, tr);
                     });
 
-                    // 在思考链中记录工具调用
+                    // 在思考链中记录工具调用（arguments 完整传入，展示层可看参数）
                     String resultSummary = tr.success ? (tr.result != null ? tr.result.substring(0, Math.min(200, tr.result.length())) : "") : tr.error;
-                    thinkingChain.appendToolCall(tr.toolName, "", tr.success, resultSummary);
+                    thinkingChain.appendToolCall(tr.toolName,
+                            tc.arguments != null ? tc.arguments : "", tr.success, resultSummary);
 
                     // 将工具结果加入消息历史（OpenAI tool 角色）
                     JsonObject toolMsg = new JsonObject();
@@ -811,13 +847,15 @@ public class OnlineAgentEngine {
         if (dialogue.length() == 0) return null;
 
         // 2. 优先模型语义压缩（非流式单次请求，显式关闭 thinking 快速返回）
-        if (cfg != null) {
+        //    限频：30s 内只调一次模型摘要（长任务每轮 trim 都可能触发，避免同步阻塞 + 消耗额度）
+        if (cfg != null && System.currentTimeMillis() - lastModelSummaryTime >= MODEL_SUMMARY_MIN_INTERVAL_MS) {
             try {
                 String prompt = "请将以下AI对话压缩成一份简洁的中文摘要（保留关键信息：用户需求、结论、重要事实、未完成事项），"
                         + "不超过500字，直接输出摘要内容：\n\n" + dialogue;
                 String summary = onlineInferenceService.generateOnceAsync(prompt, cfg, 1024)
                         .get(SUMMARY_MODEL_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
                 if (summary != null && !summary.trim().isEmpty()) {
+                    lastModelSummaryTime = System.currentTimeMillis();
                     AILogger.i(TAG, "Model-generated history summary: " + summary.trim().length()
                         + " chars (from " + dialogue.length() + " chars dialogue)");
                     return summary.trim();
@@ -881,22 +919,37 @@ public class OnlineAgentEngine {
         // 截断消息历史，避免长对话或多次工具调用后超出模型上下文窗口
         trimMessageHistory(cfg);
 
-        JsonArray messagesArray = new JsonArray();
-        for (JsonObject msg : messageHistory) {
-            messagesArray.add(msg);
-        }
+        // 构建发送用消息数组（副本）：按本轮思考开关规范化 reasoning_content。
+        // DeepSeek 思考模式硬性要求（社区多起 400 实证，如 opencode PR #24150 "inject reasoning_content
+        // for ALL assistant msgs"）：请求中**所有** assistant 消息都必须带 reasoning_content 字段，
+        // 否则 API 返回 HTTP 400 "The 'reasoning_content' in the thinking mode must be passed back to the API"。
+        // 历史里旧轮次（用户此前普通模式 / 修复前持久化的历史）的 assistant 消息没有该字段，
+        // 一旦本轮开启思考就会触发 400 —— 开启时对缺失字段补空串；关闭时移除残留字段
+        // （思考轮字段发给非思考请求同样可能 400）。只规范化副本，不修改 messageHistory 本体。
+        JsonArray messagesArray = buildOutgoingMessagesArray();
 
-        onlineInferenceService.generateStreamWithToolsV2(messagesArray, cfg, maxTokens, toolsJson,
+        // 工具轮用小上限（只需简短 tool_call）；最终答案轮（toolsJson=null）保持传入的大值防截断
+        int iterMaxTokens = toolsJson != null
+                ? Math.min(maxTokens, TOOL_ITERATION_MAX_TOKENS)
+                : maxTokens;
+
+        // idle 超时计时：任何 token（思考/正文）到达都刷新，防止慢模型生成长答案被误判超时
+        final java.util.concurrent.atomic.AtomicLong streamLastActivity =
+                new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
+
+        onlineInferenceService.generateStreamWithToolsV2(messagesArray, cfg, iterMaxTokens, toolsJson,
             enableThinking,
             new OnlineInferenceService.NativeToolStreamCallback() {
                 @Override
                 public void onStart() {
+                    streamLastActivity.set(System.currentTimeMillis());
                     AILogger.i(TAG, "Stream started");
                 }
 
                 @Override
                 public void onReasoningToken(String token) {
                     if (isCancelled.get()) return;
+                    streamLastActivity.set(System.currentTimeMillis());
                     totalTokenCount++;
                     thinkingChain.appendReasoningToken(token);
                     activity.runOnUiThread(() -> {
@@ -907,6 +960,7 @@ public class OnlineAgentEngine {
                 @Override
                 public void onContentToken(String token) {
                     if (isCancelled.get()) return;
+                    streamLastActivity.set(System.currentTimeMillis());
                     totalTokenCount++;
                     activity.runOnUiThread(() -> {
                         if (callback != null) callback.onToken(token);
@@ -986,11 +1040,24 @@ public class OnlineAgentEngine {
             });
 
         try {
-            boolean completed = latch.await(120, java.util.concurrent.TimeUnit.SECONDS);
+            // idle 超时（替代一次性 120s 硬超时）：流式下每 5s 检查一次，
+            // 只要还有 token 到达就继续等——慢模型生成长答案不再被误判超时
+            final long idleTimeoutMs = 120_000L;
+            boolean completed = false;
+            while (!completed) {
+                boolean done = latch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                if (done) {
+                    completed = true;
+                    break;
+                }
+                if (System.currentTimeMillis() - streamLastActivity.get() > idleTimeoutMs) {
+                    break; // 长时间无新 token：判定 idle 超时
+                }
+            }
             if (!completed) {
-                // 超时：流式推理 120 秒未完成
+                // 超时：流式推理长时间无响应
                 finishGeneration();
-                AILogger.w(TAG, "Stream timed out after 120s, content_len=" + result.content.length());
+                AILogger.w(TAG, "Stream idle timeout (120s no tokens), content_len=" + result.content.length());
                 if (!result.content.isEmpty()) {
                     notifyComplete(result.content + "\n\n（注：推理超时，回答可能不完整）");
                 } else {
@@ -1019,6 +1086,51 @@ public class OnlineAgentEngine {
         }
         
         return result;
+    }
+
+    /**
+     * 构建发送用消息数组（副本）：按本轮思考开关规范化 assistant 消息的 reasoning_content 字段。
+     * 不修改 messageHistory 本体（思考轮的真实 reasoning_content 保留在历史中，供持久化与回传）。
+     *
+     * DeepSeek 思考模式硬性要求（社区多起 400 实证，如 opencode PR #24150 "inject reasoning_content
+     * for ALL assistant msgs"）：请求中**所有** assistant 消息都必须带 reasoning_content 字段，
+     * 否则 API 返回 HTTP 400 "The 'reasoning_content' in the thinking mode must be passed back to the API"。
+     *
+     * 场景：深度思考开关是「本条」语义（发送后自动复位关闭），历史里会混有
+     * - 思考轮（assistant 消息带 reasoning_content）与
+     * - 普通轮（assistant 消息没有该字段，例如用户上一轮未开思考、或修复前持久化的历史）。
+     * 一旦本轮开启思考，把缺少字段的旧 assistant 消息发给 DeepSeek 就会 400。
+     *
+     * 处理：
+     * - enableThinking=true  → 所有 assistant 消息补齐 reasoning_content（缺失补空字符串）；
+     * - enableThinking=false → 移除残留的 reasoning_content（思考轮字段发给非思考请求同样可能 400）。
+     */
+    private JsonArray buildOutgoingMessagesArray() {
+        JsonArray out = new JsonArray();
+        try {
+            for (JsonObject msg : messageHistory) {
+                JsonObject copy = msg.deepCopy();
+                String role = copy.has("role") && !copy.get("role").isJsonNull()
+                        ? copy.get("role").getAsString() : "";
+                if ("assistant".equals(role)) {
+                    if (enableThinking) {
+                        if (!copy.has("reasoning_content") || copy.get("reasoning_content").isJsonNull()) {
+                            copy.addProperty("reasoning_content", "");
+                        }
+                    } else {
+                        copy.remove("reasoning_content");
+                    }
+                }
+                out.add(copy);
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "buildOutgoingMessagesArray failed, sending raw history: " + e.getMessage());
+            out = new JsonArray();
+            for (JsonObject msg : messageHistory) {
+                out.add(msg);
+            }
+        }
+        return out;
     }
 
     /**
@@ -1132,6 +1244,27 @@ public class OnlineAgentEngine {
      *
      * @return true 表示文本中强烈暗示要调用工具却没有正确输出 tool_calls
      */
+    /**
+     * 动态获取工具标识符：AIToolManager 当前注册工具名 + 常用意图别名，
+     * 始终与注册表同步（不再硬编码过时工具表）。
+     */
+    private String[] getToolIds() {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        try {
+            if (activity != null) {
+                ids.addAll(com.oilquiz.app.ai.tool.AIToolManager
+                        .getInstance(activity.getApplicationContext()).getRegisteredToolNames());
+            }
+        } catch (Exception ignored) {
+        }
+        // 常见别名/伪代码名（非注册工具，仅用于识别"暗示调用"）
+        ids.addAll(java.util.Arrays.asList(
+                "weather", "web_search", "search_tool", "wiki", "wikipedia",
+                "calculator", "calc", "note_tool", "drawing_tool",
+                "get_weather", "translate", "翻译", "搜索", "查天气"));
+        return ids.toArray(new String[0]);
+    }
+
     private boolean hintForToolCall(String content) {
         if (content == null) return false;
         String text = content.trim();
@@ -1140,11 +1273,8 @@ public class OnlineAgentEngine {
         if (text.length() > 800) text = text.substring(0, 800);
         String lower = text.toLowerCase(java.util.Locale.ROOT);
 
-        // 工具标识符列表（仅作为"紧邻动词"或"伪代码调用"判断使用，不单独匹配）
-        final String[] toolIds = {
-            "env_loc", "env_time", "weather", "web_search", "search_tool",
-            "wiki", "wikipedia", "calculator", "calc", "note_tool", "drawing_tool"
-        };
+        // 工具标识符列表（动态取注册工具名 + 别名）
+        final String[] toolIds = getToolIds();
 
         // 1. 伪代码调用语法：工具名 + 紧跟左括号（半角或全角）
         for (String tid : toolIds) {
@@ -1167,8 +1297,8 @@ public class OnlineAgentEngine {
             }
         }
 
-        // 3. 中文明确动作句式：动作动词 + 紧邻（≤6字）的工具标识符
-        // 必须同时有动词和具体工具名，避免"调用工具"这种空泛表达误触发
+        // 3. 中文明确动作句式：动作动词 + 紧邻（≤15字符）的注册工具名
+        // （不再匹配"工具/函数/接口"宽泛词——"我将使用工具计算"这类正常回复会误触发）
         final String[] zhVerbs = {"调用", "使用", "执行", "运用", "启用", "需要调用", "我要调用", "我将调用", "准备调用"};
         for (String verb : zhVerbs) {
             int idx = text.indexOf(verb);
@@ -1180,11 +1310,6 @@ public class OnlineAgentEngine {
                         AILogger.i(TAG, "hintForToolCall matched: zh verb '" + verb + "' + tool '" + tid + "'");
                         return true;
                     }
-                }
-                // 也支持"调用 weather 工具"这种"动词 + 工具名 + 工具"句式
-                if (window.contains("工具") || window.contains("函数") || window.contains("接口")) {
-                    AILogger.i(TAG, "hintForToolCall matched: zh verb '" + verb + "' + '工具/函数/接口'");
-                    return true;
                 }
                 idx = text.indexOf(verb, idx + 1);
             }
@@ -1284,7 +1409,7 @@ public class OnlineAgentEngine {
         if (cfg == null || userMessage == null) return null;
         try {
             String intents = java.util.Arrays.asList(
-                    "weather", "search", "translation", "file_read", "file_write",
+                    "weather", "search", "file_read", "file_write",
                     "image_gen", "image_ocr", "database", "python", "calc",
                     "location", "time", "app", "system", "phone", "study_plan"
             ).toString();
@@ -1377,6 +1502,11 @@ public class OnlineAgentEngine {
     }
 
     public void clearHistory() {
+        // 生成中禁止清空：执行线程正在读写 messageHistory，并发清空会导致 CME/状态错乱
+        if (isGenerating.get()) {
+            AILogger.w(TAG, "clearHistory ignored: generating in progress");
+            return;
+        }
         messageHistory.clear();
         thinkingChain.clear();
         deleteHistoryFile();
@@ -1481,6 +1611,11 @@ public class OnlineAgentEngine {
      * 用于"清空全部对话"操作（UI 层同时清空所有会话）。
      */
     public void clearAllHistory() {
+        // 生成中禁止清空（并发读写 messageHistory 风险）
+        if (isGenerating.get()) {
+            AILogger.w(TAG, "clearAllHistory ignored: generating in progress");
+            return;
+        }
         messageHistory.clear();
         thinkingChain.clear();
         try {
@@ -1561,6 +1696,11 @@ public class OnlineAgentEngine {
      * 传 null/空 表示回到默认会话。
      */
     public void setSessionId(String newSessionId) {
+        // 生成中禁止切换会话：messageHistory 正被执行线程读写，切换会污染会话内容
+        if (isGenerating.get()) {
+            AILogger.w(TAG, "setSessionId ignored: generating in progress");
+            return;
+        }
         String old = this.sessionId;
         boolean changed = (old == null) ? (newSessionId != null && !newSessionId.isEmpty())
                 : !old.equals(newSessionId);

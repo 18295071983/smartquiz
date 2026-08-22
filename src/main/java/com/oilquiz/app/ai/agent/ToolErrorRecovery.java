@@ -94,7 +94,7 @@ public class ToolErrorRecovery {
         }
 
         // 文本类参数缺失
-        if (containsAny(lower, "text", "文本", "内容", "content", "待翻译")
+        if (containsAny(lower, "text", "文本", "内容", "content")
                 && !hasParam(currentParams, "text")) {
             missing.add(new MissingParam("text", "文本内容", false));
         }

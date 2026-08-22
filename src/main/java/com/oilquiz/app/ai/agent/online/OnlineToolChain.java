@@ -58,9 +58,8 @@ public class OnlineToolChain {
         // 回退链（从 UnifiedAgentEngine.TOOL_FALLBACK_MAP 迁移）
         addFallbackChainInternal("ai_weather", "location", "network_search");
         addFallbackChainInternal("network_search", "smart_research", "webpage_reader");
-        addFallbackChainInternal("file_reader", "app_toolkit", "file");
+        addFallbackChainInternal("file_reader", "app_toolkit");
         addFallbackChainInternal("python_calculate", "python_execute");
-        addFallbackChainInternal("translation", "network_search");
         addFallbackChainInternal("location", "network_search");
         addFallbackChainInternal("smart_research", "network_search", "webpage_reader");
         addFallbackChainInternal("database", "network_search");
@@ -75,11 +74,9 @@ public class OnlineToolChain {
         addChainInternal(ChainType.COMBINATION, "location", "ai_weather");
         addChainInternal(ChainType.COMBINATION, "python_calculate", "file_generator");
         addChainInternal(ChainType.COMBINATION, "file_reader", "file_analyzer");
-        addChainInternal(ChainType.COMBINATION, "file_reader", "translation");
 
         // 并行链：可并行执行的工具组
         addChainInternal(ChainType.PARALLEL, "ai_weather", "network_search"); // 同时查天气和搜索
-        addChainInternal(ChainType.PARALLEL, "translation", "python_calculate");
 
         AILogger.i(TAG, "Default chains initialized");
     }

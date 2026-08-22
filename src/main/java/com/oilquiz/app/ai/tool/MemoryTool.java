@@ -72,15 +72,20 @@ public class MemoryTool implements AITool {
                     if (key.trim().isEmpty() || value.trim().isEmpty()) {
                         return AIToolResult.fail("save 需要 key 和 value 参数");
                     }
+                    if (value.trim().length() > 2048) {
+                        return AIToolResult.fail("记忆内容过长（>" + 2048 + "字符），请精简后保存");
+                    }
                     boolean replaced = store.get(key.trim()) != null;
                     boolean ok = store.save(key.trim(), value.trim());
+                    if (!ok) {
+                        return AIToolResult.fail("记忆保存失败（存储异常）", null);
+                    }
                     Map<String, Object> result = new HashMap<>();
-                    result.put("status", ok ? "saved" : "failed");
+                    result.put("status", "saved");
                     result.put("key", key.trim());
                     result.put("replaced", replaced);
                     result.put("total", store.size());
-                    result.put("message", !ok ? "保存失败"
-                            : (replaced ? "已更新记忆: " + key.trim() : "已保存记忆: " + key.trim()));
+                    result.put("message", replaced ? "已更新记忆: " + key.trim() : "已保存记忆: " + key.trim());
                     return AIToolResult.success(result);
                 }
                 case "recall": {
@@ -111,6 +116,15 @@ public class MemoryTool implements AITool {
                     return AIToolResult.success(result);
                 }
                 case "clear": {
+                    // 清空不可恢复，需显式 confirm=true 确认（防 prompt 注入误触）
+                    Object confirmObj = parameters.get("confirm");
+                    boolean confirm = confirmObj instanceof Boolean ? (Boolean) confirmObj
+                            : Boolean.parseBoolean(String.valueOf(confirmObj));
+                    if (!confirm) {
+                        Map<String, Object> info = new HashMap<>();
+                        info.put("requiresConfirm", true);
+                        return AIToolResult.fail("清空所有记忆不可恢复，如需清空请传 confirm=true 再次调用", info);
+                    }
                     store.clear();
                     Map<String, Object> result = new HashMap<>();
                     result.put("status", "cleared");

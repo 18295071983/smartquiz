@@ -7,6 +7,7 @@ import com.oilquiz.app.util.AILogger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -155,6 +156,10 @@ public class AgentMemoryStore {
 
     // ==================== 持久化 ====================
 
+    /** 上次加载是否失败（文件损坏）：防止后续 save 覆盖本可恢复的旧记忆 */
+    private volatile boolean loadFailed = false;
+
+    /** 原子写：先写 .tmp 再 rename 覆盖，避免写一半崩溃导致 JSON 损坏 */
     private synchronized void persist() {
         try {
             JSONArray arr = new JSONArray();
@@ -165,9 +170,18 @@ public class AgentMemoryStore {
                 obj.put("updatedAt", e.updatedAt);
                 arr.put(obj);
             }
-            FileOutputStream fos = new FileOutputStream(memoryFile);
-            fos.write(arr.toString(2).getBytes("UTF-8"));
-            fos.close();
+            byte[] data = arr.toString(2).getBytes("UTF-8");
+            File tmp = new File(memoryFile.getAbsolutePath() + ".tmp");
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(data);
+            }
+            if (!tmp.renameTo(memoryFile)) {
+                // rename 失败（罕见）回退直接写
+                try (FileOutputStream fos = new FileOutputStream(memoryFile)) {
+                    fos.write(data);
+                }
+                tmp.delete();
+            }
             AILogger.d(TAG, "Memory persisted: " + memories.size() + " entries");
         } catch (Exception e) {
             AILogger.w(TAG, "Persist memory failed: " + e.getMessage());
@@ -177,11 +191,8 @@ public class AgentMemoryStore {
     private synchronized void load() {
         try {
             if (!memoryFile.exists()) return;
-            FileInputStream fis = new FileInputStream(memoryFile);
-            byte[] bytes = new byte[(int) memoryFile.length()];
-            int read = fis.read(bytes);
-            fis.close();
-            if (read <= 0) return;
+            byte[] bytes = readAllBytes(memoryFile);
+            if (bytes.length == 0) return;
             JSONArray arr = new JSONArray(new String(bytes, "UTF-8"));
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.optJSONObject(i);
@@ -197,6 +208,28 @@ public class AgentMemoryStore {
             AILogger.i(TAG, "Memory loaded: " + memories.size() + " entries");
         } catch (Exception e) {
             AILogger.w(TAG, "Load memory failed: " + e.getMessage());
+            // 解析失败：备份损坏文件（只备一次），防止后续 save 覆盖导致历史记忆无法恢复
+            loadFailed = true;
+            try {
+                File bak = new File(memoryFile.getAbsolutePath() + ".bak");
+                if (!bak.exists()) {
+                    java.nio.file.Files.copy(memoryFile.toPath(), bak.toPath());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 循环读满文件（单次 read 可能读不满） */
+    private static byte[] readAllBytes(File f) throws java.io.IOException {
+        try (FileInputStream fis = new FileInputStream(f)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = fis.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
         }
     }
 

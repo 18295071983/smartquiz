@@ -329,19 +329,30 @@ public class FileAnalyzerTool implements AITool {
         }
         
         try {
+            // 第一步：按文件大小分组（快速筛掉不可能重复的文件）
             Map<Long, List<String>> sizeMap = new HashMap<>();
-            
             collectFilesBySize(dir, sizeMap);
             
+            // 第二步：同大小组内再按内容 SHA-256 哈希分组（避免同大小不同内容误报）
             List<Map<String, Object>> duplicates = new ArrayList<>();
             for (Map.Entry<Long, List<String>> entry : sizeMap.entrySet()) {
                 List<String> files = entry.getValue();
-                if (files.size() > 1) {
-                    Map<String, Object> group = new HashMap<>();
-                    group.put("size", entry.getKey());
-                    group.put("count", files.size());
-                    group.put("files", files);
-                    duplicates.add(group);
+                if (files.size() < 2) continue;
+                
+                Map<String, List<String>> hashGroups = new HashMap<>();
+                for (String path : files) {
+                    String hash = computeSha256(new File(path));
+                    if (hash == null) continue; // 读取失败的文件跳过（权限/占用等）
+                    hashGroups.computeIfAbsent(hash, k -> new ArrayList<>()).add(path);
+                }
+                for (List<String> sameContent : hashGroups.values()) {
+                    if (sameContent.size() > 1) {
+                        Map<String, Object> group = new HashMap<>();
+                        group.put("size", entry.getKey());
+                        group.put("count", sameContent.size());
+                        group.put("files", sameContent);
+                        duplicates.add(group);
+                    }
                 }
             }
             
@@ -349,10 +360,33 @@ public class FileAnalyzerTool implements AITool {
             result.put("status", "success");
             result.put("duplicates", duplicates);
             result.put("duplicateGroups", duplicates.size());
+            result.put("note", "按文件大小+内容SHA-256双重校验，同组文件内容完全一致");
             
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
             return new AIToolResult("查找重复文件失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /** 计算文件内容 SHA-256（小文件直读；大文件分块读取，避免内存溢出） */
+    private String computeSha256(File file) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest.digest()) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
         }
     }
     

@@ -7,6 +7,7 @@ import android.util.Log;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.oilquiz.app.ai.callback.StreamCallback;
@@ -345,11 +346,18 @@ public class OnlineInferenceService {
         return null;
     }
 
-    /** 从模型 JSON 中提取上下文窗口（兼容多字段名） */
-    private static Integer extractContextWindow(JsonObject item) {
-        if (item == null) return null;
+    /** 从模型 JSON 中提取上下文窗口（兼容多字段名）。
+     *  public 供同包 {@link ModelListFetcher} 在配置时解析模型列表复用它，字段表单点维护。 */
+    public static Integer extractContextWindow(JsonObject item) {
+        return extractContextWindow(item, 0);
+    }
+
+    /** 递归提取（限制深度，兼容 meta / extra_info.default_envs 等嵌套结构） */
+    private static Integer extractContextWindow(JsonObject item, int depth) {
+        if (item == null || depth > 3) return null;
         String[] keys = {"context_length", "max_context", "context_window",
-                "max_model_len", "contextLength", "contextWindow", "max_context_length"};
+                "max_model_len", "contextLength", "contextWindow", "max_context_length",
+                "max_input_tokens"};
         for (String k : keys) {
             if (item.has(k) && !item.get(k).isJsonNull()) {
                 try {
@@ -359,9 +367,13 @@ public class OnlineInferenceService {
                 }
             }
         }
-        // 嵌套对象兜底（如 meta: {context_window: ...}）
-        if (item.has("meta") && item.get("meta").isJsonObject()) {
-            return extractContextWindow(item.getAsJsonObject("meta"));
+        // 嵌套对象兜底（如 meta: {...}、阿里云百炼 extra_info.default_envs: {max_input_tokens: ...}）
+        String[] nested = {"meta", "extra_info", "default_envs"};
+        for (String n : nested) {
+            if (item.has(n) && item.get(n).isJsonObject()) {
+                Integer w = extractContextWindow(item.getAsJsonObject(n), depth + 1);
+                if (w != null) return w;
+            }
         }
         return null;
     }
@@ -1811,21 +1823,28 @@ public class OnlineInferenceService {
             // DeepSeek/Qwen3/GLM/豆包 → enable_thinking（+chat_template_kwargs 双位置，
             // 兼容 vLLM/llama.cpp/DeepSeek 官方 API 的参数位置差异）；
             // OpenAI o1/o3/o4 → reasoning_effort。
+            // 门控：模型名不在支持名单（isThinkingModelName=false）时不发送 thinking 参数，
+            // 避免对不支持的服务商 400 报错——静默降级为普通模式（引擎层已优先降级，此处为最后防线）。
             if (enableThinking) {
-                try {
-                    String paramName = com.oilquiz.app.ai.model.OnlineModelManager
-                            .getThinkingParamName(modelName);
-                    if ("reasoning_effort".equals(paramName)) {
-                        requestBody.addProperty("reasoning_effort", "high");
-                        AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
-                    } else {
-                        requestBody.addProperty("enable_thinking", true);
-                        JsonObject chatTemplateKwargs = new JsonObject();
-                        chatTemplateKwargs.addProperty("enable_thinking", true);
-                        requestBody.add("chat_template_kwargs", chatTemplateKwargs);
-                        AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
-                    }
-                } catch (Exception ignored) {}
+                if (!com.oilquiz.app.ai.model.OnlineModelManager.isThinkingModelName(modelName)) {
+                    AILogger.w(TAG, "Deep thinking skipped: model does not support thinking param: "
+                            + modelName + " (treated as normal mode)");
+                } else {
+                    try {
+                        String paramName = com.oilquiz.app.ai.model.OnlineModelManager
+                                .getThinkingParamName(modelName);
+                        if ("reasoning_effort".equals(paramName)) {
+                            requestBody.addProperty("reasoning_effort", "high");
+                            AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
+                        } else {
+                            requestBody.addProperty("enable_thinking", true);
+                            JsonObject chatTemplateKwargs = new JsonObject();
+                            chatTemplateKwargs.addProperty("enable_thinking", true);
+                            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+                            AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
+                        }
+                    } catch (Exception ignored) {}
+                }
             }
             // 请求流式 usage（缓存命中统计等）：OpenAI/DeepSeek 标准 stream_options.include_usage
             try {
@@ -1868,10 +1887,14 @@ public class OnlineInferenceService {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, null, enableThinking, callback);
                     return;
                 }
-                // thinking 参数导致 400（部分服务商不支持）：去掉 thinking 重试
+                // thinking 参数导致 400（部分服务商不支持）：去掉 thinking 重试。
+                // 注意：重试时必须同时剥离 assistant 消息里的 reasoning_content 字段
+                //（DeepSeek 思考模式硬性要求：思考请求中所有 assistant 消息都要带该字段；
+                //  反过来非思考请求带该字段也可能 400）。
                 if (responseCode == 400 && enableThinking && isThinkingUnsupportedError(errorBody)) {
                     AILogger.i(TAG, "Model does not support thinking param (400), retrying without thinking");
-                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, toolsJson, false, callback);
+                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
+                            stripReasoningContent(messages), maxTokens, toolsJson, false, callback);
                     return;
                 }
                 String errorMsg = buildHttpErrorMessage(responseCode, errorBody);
@@ -1894,6 +1917,31 @@ public class OnlineInferenceService {
             || lower.contains("thinking")
             || lower.contains("chat_template_kwargs")
             || lower.contains("unrecognized");
+    }
+
+    /**
+     * 返回剥离了 assistant 消息 reasoning_content 字段的消息数组副本。
+     * 用于「去掉 thinking 重试」：非思考请求若仍带 reasoning_content 字段，DeepSeek 等
+     * 服务商同样可能返回 400（思考模式字段不能发给非思考请求）。不修改原数组。
+     */
+    private JsonArray stripReasoningContent(JsonArray messages) {
+        if (messages == null) return null;
+        JsonArray copy = new JsonArray();
+        for (JsonElement el : messages) {
+            JsonObject msg = el.isJsonObject() ? el.getAsJsonObject() : null;
+            if (msg == null) {
+                copy.add(el.deepCopy());
+                continue;
+            }
+            JsonObject msgCopy = msg.deepCopy();
+            String role = msgCopy.has("role") && !msgCopy.get("role").isJsonNull()
+                    ? msgCopy.get("role").getAsString() : "";
+            if ("assistant".equals(role)) {
+                msgCopy.remove("reasoning_content");
+            }
+            copy.add(msgCopy);
+        }
+        return copy;
     }
 
     /** 依次尝试多个 JSON 字段名，返回第一个存在的整数值（兼容各服务商字段差异），无则返回 0 */

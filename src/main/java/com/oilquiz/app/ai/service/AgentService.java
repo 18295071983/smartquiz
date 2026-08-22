@@ -233,15 +233,11 @@ public class AgentService {
         toolNameAliases.put("calculator", "python_calculate");
         toolNameAliases.put("database_query", "database");
         toolNameAliases.put("database", "database");
-        toolNameAliases.put("translation", "translation");
-        toolNameAliases.put("translate", "translation");
         toolNameAliases.put("search_questions", "database");
         toolNameAliases.put("web_page_reader", "webpage_reader");
         toolNameAliases.put("read_webpage", "webpage_reader");
         toolNameAliases.put("read_url", "webpage_reader");
         toolNameAliases.put("file_analysis", "file_analyzer");
-        toolNameAliases.put("file_op", "file");
-        toolNameAliases.put("file_tool", "file");
         toolNameAliases.put("app_op", "app_operation");
         toolNameAliases.put("navigate", "app_operation");
         toolNameAliases.put("go_to", "app_operation");
@@ -262,15 +258,12 @@ public class AgentService {
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
         registerToolSchema("calculator", "执行数学计算", "expression(数学表达式,必填)");
         registerToolSchema("database", "数据库操作工具，支持任意SQL、表结构查看、题目查询与管理、用户管理、分数记录等", "action(操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), sql(SQL语句,execute_sql用), table_name(表名,get_table_schema用), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
-        registerToolSchema("translation", "翻译工具，翻译文本", "text(待翻译文本,必填), target_lang(目标语言:zh/en/ja/ko,默认zh,可选), source_lang(源语言,可选)");
-        registerToolSchema("translate", "翻译文本", "text(待翻译文本,必填), target_lang(目标语言,可选)");
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
         registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能", "action(操作类型: research/quick_search/deep_read/summarize_topic,默认research), topic(研究主题,research用), query(搜索关键词,quick_search用), url(网页URL,deep_read用), depth(研究深度,默认1), maxResults(最大结果数,默认5), includeDetails(是否包含详情,默认false)");
         registerToolSchema("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器", "action(操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text,默认open_app), app(应用名称或包名,支持模糊匹配), url(URL地址), phone(电话号码), message(短信内容), command(Shell命令), setting_type(设置类型:system/secure/global), setting_key(设置键名), setting_value(设置值), control_action(应用控制:force_stop/clear_data/detailed_info), setting(设置页:wifi/bluetooth/location等)。提示:不确定应用名时先用list_apps查看已安装应用列表");
         registerToolSchema("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面", "action(操作类型: navigate/list_pages/go_home/go_back,默认navigate), page(页面名称:user/question/quiz/study_plan/wrong_question/note/ocr/ai等,可选)");
-        registerToolSchema("file", "文件操作工具，用于获取文件信息、读取文件内容、列出目录文件", "action(操作类型: get_file_info/read_file/list_files,必填), file_path(文件路径,可选), directory_path(目录路径,可选)");
-        registerToolSchema("file_reader", "读取文件内容", "file_path(文件路径,必填)");
+        registerToolSchema("file_reader", "文件阅读工具：读取全文/按行/区间提取/搜索/实体提取/预览/解析结构化文件(Excel/CSV/JSON/XML)/列目录(list)。自动检测编码(UTF-8/GB18030等)，支持content:// URI", "action(read/read_lines/extract_text/search_text/extract_entities/preview/parse_structured/parse_excel/parse_csv/parse_json/parse_xml/list,默认read), file_path(文件路径,支持content://开头URI), file_uri(content://URI), encoding(编码,留空自动检测), startLine(起始行号), endLine(结束行号), startMarker(起始标记), endMarker(结束标记), pattern(搜索关键词), keyword(搜索关键词别名), regex(是否正则,默认false), entity_pattern(自定义实体正则), maxLength(预览长度,默认1000), delimiter(CSV分隔符,默认逗号), max_rows(最大行数,默认500), sheet_index(Excel工作表,默认0), json_path(JSON子路径), target_tag(XML标签), max_items(XML最大条目,默认200), directory_path(目录路径,list用)");
         registerToolSchema("file_analyzer", "分析文件", "file_path(文件路径,必填), analysis_type(分析类型,可选)");
         registerToolSchema("file_generator", "生成文件", "file_name(文件名,必填), content(内容,必填), format(格式,可选)");
         registerToolSchema("permission_manager", "智能权限管理工具，支持权限检查、请求和管理功能", "action(操作类型: check/check_all/request/request_and_wait/get_status/list_permissions/explain_permission/can_request,默认check), permission(权限名称:camera/位置/录音/存储/拨打电话/发送短信等,可选), permissions(权限列表,可选)");
@@ -304,11 +297,6 @@ public class AgentService {
         registerToolParamSchema("python_calculate",
             new ToolParamSchema("expression", "string", "数学表达式，如：2+3*4", true, null),
             new ToolParamSchema("task", "string", "任务描述（可选）", false, null));
-
-        registerToolParamSchema("translation",
-            new ToolParamSchema("text", "string", "待翻译文本", true, null),
-            new ToolParamSchema("target_lang", "string", "目标语言，如：zh, en, ja, ko", false, "zh"),
-            new ToolParamSchema("source_lang", "string", "源语言，如：zh, en, ja, ko", false, null));
 
         registerToolParamSchema("smart_research",
             new ToolParamSchema("action", "string", "操作类型：research(完整研究)/quick_search(快速搜索)/deep_read(深度阅读)/summarize_topic(主题摘要)", false, "research"),
@@ -1269,7 +1257,6 @@ public class AgentService {
                 {"搜索", "查找资料", "检索", "网上查", "帮我搜索", "搜索一下"},
                 {"计算", "算一下", "等于多少", "加起来", "乘以"},
                 {"数据库", "题库", "错题", "学习统计", "做题记录"},
-                {"翻译", "translate", "翻译成"},
                 {"生成题目", "出题", "练习题"},
                 {"搜索题目", "找题", "查找题目"},
                 {"打开", "启动应用", "打开应用", "启动"},
@@ -1317,8 +1304,6 @@ public class AgentService {
                 return "calculate";
             if (lower.contains("数据库") || lower.contains("题库") || lower.contains("错题"))
                 return "database";
-            if (lower.contains("翻译") || lower.contains("translate"))
-                return "translation";
             if (lower.contains("生成题目") || lower.contains("出题"))
                 return "generate_questions";
             if (lower.contains("搜索题目") || lower.contains("找题"))
@@ -1328,7 +1313,7 @@ public class AgentService {
             if (lower.contains("网页") || lower.contains("链接") || lower.contains("http"))
                 return "web";
             if (lower.contains("文件") || lower.contains("读取") || lower.contains("生成文件"))
-                return "file";
+                return "file_read";
         } catch (Exception e) {
             AILogger.e(TAG, "Error determining intent type: " + e.getMessage());
         }
@@ -1393,7 +1378,7 @@ public class AgentService {
             switch (strategy) {
                 case MINIMAL:
                     for (ToolSchema tool : unique.values()) {
-                        if ("calculate".equals(tool.name) || "translation".equals(tool.name) || "translate".equals(tool.name) || "network_search".equals(tool.name)) {
+                        if ("calculate".equals(tool.name) || "network_search".equals(tool.name)) {
                             selectedTools.add(tool);
                         }
                     }
@@ -1405,7 +1390,7 @@ public class AgentService {
                 default:
                     for (ToolSchema tool : unique.values()) {
                         if ("get_weather".equals(tool.name) || "network_search".equals(tool.name) ||
-                            "calculate".equals(tool.name) || "translation".equals(tool.name) ||
+                            "calculate".equals(tool.name) ||
                             "database".equals(tool.name) || "web_page_reader".equals(tool.name) ||
                             "smart_research".equals(tool.name) || "system_resource".equals(tool.name) ||
                             "file_reader".equals(tool.name) || "file_analyzer".equals(tool.name) ||
@@ -1455,12 +1440,11 @@ public class AgentService {
             case "search": return "network_search";
             case "calculate": return "python_calculate";
             case "database": return "database";
-            case "translation": return "translation";
             case "generate_questions": return "database";
             case "search_questions": return "database";
             case "system": return "system_resource";
             case "web": return "webpage_reader";
-            case "file": return "file";
+            case "file": case "file_read": return "file_reader";
             default: return null;
         }
     }

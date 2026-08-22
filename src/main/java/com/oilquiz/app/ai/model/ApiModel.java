@@ -28,6 +28,12 @@ public class ApiModel implements Serializable {
     public int contextLength;
     
     /**
+     * contextLength 是否来自服务商 API 返回的真实字段（context_length/max_model_len 等），
+     * 而非模型名启发式推断。配置保存时只有真实值才直接采用，推断值需走 API 补查。
+     */
+    public boolean contextLengthFromApi;
+    
+    /**
      * 是否已弃用
      */
     public boolean deprecated;
@@ -92,46 +98,20 @@ public class ApiModel implements Serializable {
     }
     
     /**
-     * 从模型 ID 检测上下文长度（基于名称规则）
+     * 从模型 ID 推断上下文长度。
+     * 复用数据驱动配置表 {@link OnlineModelProfile}（deepseek→64K、qwen3→32K、gemini→1M 等），
+     * 替代旧的名称启发式（只认 32k/16k 关键词、其余一律 4096 死值）。
+     * 服务商 API 返回真实字段时由调用方覆盖此推断值。
      */
     private static int detectContextLength(String modelId) {
-        String lower = modelId.toLowerCase();
-        if (lower.contains("32k") || lower.contains("32k")) {
-            return 32000;
-        }
-        if (lower.contains("16k")) {
-            return 16000;
-        }
-        if (lower.contains("gpt-4")) {
-            return 8192;
-        }
-        if (lower.contains("gpt-3.5-turbo-16k")) {
-            return 16385;
-        }
-        return 4096; // 默认 4K
+        return OnlineModelProfile.match(null, modelId).contextWindow;
     }
     
     /**
-     * 从模型名称检测 Anthropic 模型的上下文长度
+     * 从模型名称推断 Anthropic 模型的上下文长度（复用配置表，claude 系列统一 200K）。
      */
     private static int detectAnthropicContextLength(String modelName) {
-        String lower = modelName.toLowerCase();
-        if (lower.contains("200k")) {
-            return 200000;
-        }
-        if (lower.contains("100k")) {
-            return 100000;
-        }
-        if (lower.contains("opus")) {
-            return 200000; // Claude 3 Opus
-        }
-        if (lower.contains("sonnet")) {
-            return 200000; // Claude 3 Sonnet
-        }
-        if (lower.contains("haiku")) {
-            return 200000; // Claude 3 Haiku
-        }
-        return 4096; // 默认
+        return OnlineModelProfile.match(null, modelName).contextWindow;
     }
     
     /**

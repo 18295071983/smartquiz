@@ -107,8 +107,17 @@ public class AgentExecutionView extends LinearLayout {
         logView.setTextSize(12f);
         logView.setLineSpacing(0, 1.2f);
 
-        String typeColor = getTypeColor(type);
-        logView.setText(android.text.Html.fromHtml("<font color=\"" + typeColor + "\">" + getTypeIcon(type) + " [" + type + "]</font> " + content, android.text.Html.FROM_HTML_MODE_LEGACY));
+        // 日志标签颜色：使用主题色资源（浅色/夜间自动适配），替代硬编码十六进制，
+        // 避免夜间模式下深底浅字/浅底深字对比度不足看不清
+        int typeColorRes = getTypeColorRes(type);
+        String typeColorHex = colorToHex(getContext().getResources().getColor(typeColorRes));
+        // 内容正文使用主题主文字色（text_primary，比 text_secondary 更深），
+        // 保证浅色/夜间两种主题下日志都清晰可读
+        String contentColorHex = colorToHex(getContext().getResources().getColor(R.color.text_primary));
+        String prefix = "<font color=\"" + typeColorHex + "\">" + getTypeIcon(type) + " [" + type + "]</font> ";
+        logView.setText(android.text.Html.fromHtml(prefix
+                + "<font color=\"" + contentColorHex + "\">" + escapeHtml(content) + "</font>",
+                android.text.Html.FROM_HTML_MODE_LEGACY));
         logView.setTextIsSelectable(true);
         logView.setPadding(0, 2, 0, 2);
 
@@ -216,15 +225,32 @@ public class AgentExecutionView extends LinearLayout {
         setAlpha(1f);
     }
 
-    private String getTypeColor(String type) {
-        if (type == null) return "#666666";
+    /**
+     * 返回日志类型对应的主题色资源 id（浅色/夜间自动适配）。
+     * 替换旧 getTypeColor（硬编码十六进制，夜间模式下对比度不足）。
+     */
+    private int getTypeColorRes(String type) {
+        if (type == null) return R.color.text_secondary;
         String upper = type.toUpperCase();
-        if (upper.contains("THINKING") || upper.contains("思考")) return "#1976D2";
-        if (upper.contains("TOOL_CALL") || upper.contains("工具调用")) return "#4CAF50";
-        if (upper.contains("TOOL_RESULT") || upper.contains("工具结果")) return "#FF9800";
-        if (upper.contains("ERROR") || upper.contains("失败")) return "#F44336";
-        if (upper.contains("INFERENCE") || upper.contains("推理")) return "#9C27B0";
-        return "#666666";
+        if (upper.contains("THINKING") || upper.contains("思考")) return R.color.blue;
+        if (upper.contains("TOOL_CALL") || upper.contains("工具调用")) return R.color.success;
+        if (upper.contains("TOOL_RESULT") || upper.contains("工具结果")) return R.color.warning;
+        if (upper.contains("ERROR") || upper.contains("失败")) return R.color.error;
+        if (upper.contains("INFERENCE") || upper.contains("推理")) return R.color.purple_500;
+        return R.color.text_secondary;
+    }
+
+    /** 将 int 颜色转为 #RRGGBB 十六进制（用于 Html 片段） */
+    private static String colorToHex(int color) {
+        return String.format(java.util.Locale.US, "#%06X", 0xFFFFFF & color);
+    }
+
+    /** 转义 HTML 特殊字符，避免日志内容破坏 fromHtml 结构 */
+    private static String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private String getTypeIcon(String type) {

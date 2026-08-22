@@ -150,28 +150,36 @@ public class AgentWorkspace {
         return getFilesDir().getAbsolutePath();
     }
 
-    /** 在指定文件名前拼接工作区路径 */
+    /** 在指定文件名前拼接工作区路径（相对名拒绝 `..` 路径穿越；绝对路径原样放行由调用方把关） */
     public File resolveFile(String fileName) {
-        if (fileName == null || fileName.isEmpty()) return null;
-        File f = new File(fileName);
-        if (f.isAbsolute()) return f;
-        return new File(getWorkspaceDir(), fileName);
+        return resolveSafely(getWorkspaceDir(), fileName);
     }
 
     /** 解析到长期文件区（用户保留文件） */
     public File resolveFileToFiles(String fileName) {
-        if (fileName == null || fileName.isEmpty()) return null;
-        File f = new File(fileName);
-        if (f.isAbsolute()) return f;
-        return new File(getFilesDir(), fileName);
+        return resolveSafely(getFilesDir(), fileName);
     }
 
     /** 解析到临时缓存区（执行中间文件） */
     public File resolveFileToTmp(String fileName) {
+        return resolveSafely(getTmpDir(), fileName);
+    }
+
+    /** 安全拼接：拒绝相对路径中的 `..` 段（防 prompt 注入越界读写工作区外文件），返回 null 表示非法 */
+    private File resolveSafely(File base, String fileName) {
         if (fileName == null || fileName.isEmpty()) return null;
         File f = new File(fileName);
         if (f.isAbsolute()) return f;
-        return new File(getTmpDir(), fileName);
+        // 拒绝路径穿越：任何 .. 段都视为非法（Windows 反斜杠也归一处理）
+        String normalized = fileName.replace('\\', '/');
+        String[] segments = normalized.split("/");
+        for (String seg : segments) {
+            if ("..".equals(seg)) {
+                AILogger.w(TAG, "拒绝路径穿越: " + fileName);
+                return null;
+            }
+        }
+        return new File(base, fileName);
     }
 
     /** 列出工作区文件（按修改时间倒序；含 tmp/files 标记） */
@@ -249,16 +257,25 @@ public class AgentWorkspace {
                 if (!f.isFile()) continue;
                 java.io.File dest = new java.io.File(filesDir, f.getName());
                 if (dest.exists()) continue; // 目标已存在不覆盖
+                // 原子迁移：先写 .tmp 再 rename，避免写一半崩溃留下半截文件
+                java.io.File tmp = new java.io.File(filesDir, f.getName() + ".tmp");
                 try (java.io.InputStream is = new java.io.FileInputStream(f);
-                     java.io.OutputStream os = new java.io.FileOutputStream(dest)) {
+                     java.io.OutputStream os = new java.io.FileOutputStream(tmp)) {
                     byte[] buf = new byte[8192];
                     int n;
                     while ((n = is.read(buf)) != -1) {
                         os.write(buf, 0, n);
                     }
-                    migrated++;
                 } catch (Exception e) {
+                    tmp.delete(); // 失败清理半截文件
                     AILogger.w(TAG, "迁移文件失败: " + f.getName() + " - " + e.getMessage());
+                    continue;
+                }
+                if (tmp.renameTo(dest)) {
+                    migrated++;
+                } else {
+                    tmp.delete();
+                    AILogger.w(TAG, "迁移重命名失败: " + f.getName());
                 }
             }
             if (migrated > 0) {

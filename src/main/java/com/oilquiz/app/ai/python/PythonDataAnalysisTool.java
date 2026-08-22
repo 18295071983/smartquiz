@@ -88,13 +88,12 @@ public class PythonDataAnalysisTool extends BaseAITool {
                 return AIToolResult.fail("请提供 data 参数（数据数组），如 [1,2,3,4,5]");
             }
             
-            Map<String, Object> contextData = new HashMap<>();
-            contextData.put("data", dataList);
-            
             String taskDesc = task != null ? task : "数据分析";
             String code = buildAnalysisCode(dataList, taskDesc);
             
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, contextData);
+            // 数据已作为字面量注入脚本，不依赖 contextData（executeCode 3参版不透传 ctx）；
+            // 数据分析给 30s 超时
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, 30);
             
             return formatResult(result, dataList.size());
             
@@ -114,85 +113,94 @@ public class PythonDataAnalysisTool extends BaseAITool {
             "from collections import Counter\n" +
             "\n" +
             "task = %s\n" +
-            "data = %s\n" +
+            "# 数据用 json.loads 注入（JSON 的 true/false/null 是合法 JSON，不能直接当 Python 字面量）\n" +
+            "data = json.loads(%s)\n" +
             "\n" +
-            "print('任务: ' + str(task))\n" +
-            "print('数据量: ' + str(len(data)))\n" +
+            "try:\n" +
+            "    print('任务: ' + str(task))\n" +
+            "    print('数据量: ' + str(len(data)))\n" +
             "\n" +
-            "result = {}\n" +
-            "result['count'] = len(data)\n" +
+            "    result = {}\n" +
+            "    result['count'] = len(data)\n" +
             "\n" +
-            "if len(data) > 0 and isinstance(data[0], dict):\n" +
-            "    # dict列表：提取数值字段分析\n" +
-            "    numeric_fields = {}\n" +
-            "    for key in data[0].keys():\n" +
-            "        vals = []\n" +
+            "    if len(data) > 0 and isinstance(data[0], dict):\n" +
+            "        # dict列表：按所有行的键并集分析（避免 data[0] 独有键导致字段丢失）\n" +
+            "        all_keys = []\n" +
             "        for row in data:\n" +
-            "            v = row.get(key)\n" +
-            "            if isinstance(v, (int, float)):\n" +
-            "                vals.append(float(v))\n" +
-            "        if len(vals) == len(data) and len(vals) > 0:\n" +
-            "            numeric_fields[key] = vals\n" +
-            "    if numeric_fields:\n" +
-            "        print('数值字段统计:')\n" +
-            "        for field, nums in numeric_fields.items():\n" +
-            "            info = {\n" +
-            "                'count': len(nums),\n" +
-            "                'mean': round(statistics.mean(nums), 2),\n" +
-            "                'median': statistics.median(nums),\n" +
-            "                'max': max(nums),\n" +
-            "                'min': min(nums),\n" +
-            "                'sum': sum(nums)\n" +
-            "            }\n" +
-            "            if len(nums) > 1:\n" +
-            "                info['stdev'] = round(statistics.stdev(nums), 2)\n" +
-            "            result[field] = info\n" +
-            "            print('  [' + field + ']')\n" +
-            "            print('    平均值=' + str(info['mean']) + ' 中位数=' + str(info['median']))\n" +
-            "            print('    最大=' + str(info['max']) + ' 最小=' + str(info['min']) + ' 总和=' + str(info['sum']))\n" +
-            "            if 'stdev' in info:\n" +
-            "                print('    标准差=' + str(info['stdev']))\n" +
-            "    # 非数值字段展示\n" +
-            "    str_fields = [k for k in data[0].keys() if k not in numeric_fields]\n" +
-            "    if str_fields:\n" +
-            "        print('文本字段:')\n" +
-            "        for field in str_fields:\n" +
-            "            vals = [str(row.get(field, '')) for row in data]\n" +
-            "            c = Counter(vals)\n" +
-            "            unique = len(c)\n" +
-            "            print('  [' + field + '] 唯一值: ' + str(unique))\n" +
-            "            for val, cnt in c.most_common(5):\n" +
-            "                print('    ' + str(val) + ': ' + str(cnt))\n" +
-            "else:\n" +
-            "    if all(isinstance(x, (int, float)) for x in data):\n" +
-            "        nums = [float(x) for x in data]\n" +
-            "        result['mean'] = statistics.mean(nums)\n" +
-            "        result['median'] = statistics.median(nums)\n" +
-            "        result['max'] = max(nums)\n" +
-            "        result['min'] = min(nums)\n" +
-            "        result['sum'] = sum(nums)\n" +
-            "        if len(nums) > 1:\n" +
-            "            result['stdev'] = statistics.stdev(nums)\n" +
-            "            result['variance'] = statistics.variance(nums)\n" +
-            "        print('统计信息:')\n" +
-            "        print('  平均值: ' + str(round(result['mean'], 2)))\n" +
-            "        print('  中位数: ' + str(result['median']))\n" +
-            "        print('  最大值: ' + str(result['max']))\n" +
-            "        print('  最小值: ' + str(result['min']))\n" +
-            "        print('  总和: ' + str(result['sum']))\n" +
-            "        if 'stdev' in result:\n" +
-            "            print('  标准差: ' + str(round(result['stdev'], 2)))\n" +
+            "            for k in row.keys():\n" +
+            "                if k not in all_keys:\n" +
+            "                    all_keys.append(k)\n" +
+            "        numeric_fields = {}\n" +
+            "        for key in all_keys:\n" +
+            "            vals = []\n" +
+            "            for row in data:\n" +
+            "                v = row.get(key)\n" +
+            "                if isinstance(v, (int, float)):\n" +
+            "                    vals.append(float(v))\n" +
+            "            if len(vals) == len(data) and len(vals) > 0:\n" +
+            "                numeric_fields[key] = vals\n" +
+            "        if numeric_fields:\n" +
+            "            print('数值字段统计:')\n" +
+            "            for field, nums in numeric_fields.items():\n" +
+            "                info = {\n" +
+            "                    'count': len(nums),\n" +
+            "                    'mean': round(statistics.mean(nums), 2),\n" +
+            "                    'median': statistics.median(nums),\n" +
+            "                    'max': max(nums),\n" +
+            "                    'min': min(nums),\n" +
+            "                    'sum': sum(nums)\n" +
+            "                }\n" +
+            "                if len(nums) > 1:\n" +
+            "                    info['stdev'] = round(statistics.stdev(nums), 2)\n" +
+            "                result[field] = info\n" +
+            "                print('  [' + field + ']')\n" +
+            "                print('    平均值=' + str(info['mean']) + ' 中位数=' + str(info['median']))\n" +
+            "                print('    最大=' + str(info['max']) + ' 最小=' + str(info['min']) + ' 总和=' + str(info['sum']))\n" +
+            "                if 'stdev' in info:\n" +
+            "                    print('    标准差=' + str(info['stdev']))\n" +
+            "        # 非数值字段展示\n" +
+            "        str_fields = [k for k in all_keys if k not in numeric_fields]\n" +
+            "        if str_fields:\n" +
+            "            print('文本字段:')\n" +
+            "            for field in str_fields:\n" +
+            "                vals = [str(row.get(field, '')) for row in data]\n" +
+            "                c = Counter(vals)\n" +
+            "                unique = len(c)\n" +
+            "                print('  [' + field + '] 唯一值: ' + str(unique))\n" +
+            "                for val, cnt in c.most_common(5):\n" +
+            "                    print('    ' + str(val) + ': ' + str(cnt))\n" +
             "    else:\n" +
-            "        counter = Counter([str(x) for x in data])\n" +
-            "        result['unique_count'] = len(counter)\n" +
-            "        print('频率统计:')\n" +
-            "        for item, count in counter.most_common(10):\n" +
-            "            print('  ' + str(item) + ': ' + str(count))\n" +
+            "        if all(isinstance(x, (int, float)) for x in data):\n" +
+            "            nums = [float(x) for x in data]\n" +
+            "            result['mean'] = statistics.mean(nums)\n" +
+            "            result['median'] = statistics.median(nums)\n" +
+            "            result['max'] = max(nums)\n" +
+            "            result['min'] = min(nums)\n" +
+            "            result['sum'] = sum(nums)\n" +
+            "            if len(nums) > 1:\n" +
+            "                result['stdev'] = statistics.stdev(nums)\n" +
+            "                result['variance'] = statistics.variance(nums)\n" +
+            "            print('统计信息:')\n" +
+            "            print('  平均值: ' + str(round(result['mean'], 2)))\n" +
+            "            print('  中位数: ' + str(result['median']))\n" +
+            "            print('  最大值: ' + str(result['max']))\n" +
+            "            print('  最小值: ' + str(result['min']))\n" +
+            "            print('  总和: ' + str(result['sum']))\n" +
+            "            if 'stdev' in result:\n" +
+            "                print('  标准差: ' + str(round(result['stdev'], 2)))\n" +
+            "        else:\n" +
+            "            counter = Counter([str(x) for x in data])\n" +
+            "            result['unique_count'] = len(counter)\n" +
+            "            print('频率统计:')\n" +
+            "            for item, count in counter.most_common(10):\n" +
+            "                print('  ' + str(item) + ': ' + str(count))\n" +
             "\n" +
-            "print()\n" +
-            "print('分析完成')",
+            "    print()\n" +
+            "    print('分析完成')\n" +
+            "except Exception as e:\n" +
+            "    print('分析错误: ' + str(e))",
             quoteString(task),
-            jsonData
+            quoteString(jsonData)
         );
     }
     
@@ -243,6 +251,14 @@ public class PythonDataAnalysisTool extends BaseAITool {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("data_count", dataCount);
         additionalInfo.put("attempts", result.attempts);
+        
+        // 脚本内已用 try/except 捕获，错误标记为 "分析错误:" 前缀（正常退出0，避免触发 LLM auto-fix 循环）
+        if (result.success && result.stdout != null && result.stdout.contains("分析错误:")) {
+            int idx = result.stdout.indexOf("分析错误:");
+            String errMsg = result.stdout.substring(idx + "分析错误:".length()).trim();
+            additionalInfo.put("error", errMsg);
+            return new AIToolResult("数据分析失败: " + errMsg, additionalInfo, false);
+        }
         
         if (result.success) {
             StringBuilder output = new StringBuilder();

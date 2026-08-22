@@ -12,7 +12,12 @@ import java.util.regex.Pattern;
 
 public class DynamicToolExecutor {
     private static final String TAG = "DynamicToolExecutor";
-    
+
+    /** 嵌套 call_tool 最大深度（防动态工具递归互调死循环） */
+    private static final int MAX_CALL_DEPTH = 5;
+    /** 当前线程的 call_tool 嵌套深度（ThreadLocal：并发调用互不干扰） */
+    private static final ThreadLocal<Integer> CALL_DEPTH = ThreadLocal.withInitial(() -> 0);
+
     private final Context context;
     private final Map<String, Object> variables = new HashMap<>();
     
@@ -455,10 +460,26 @@ public class DynamicToolExecutor {
                 toolParams = parseSimpleJson(jsonStr);
             }
             
+            // ===== 递归/嵌套调用防护 =====
+            // 1. 禁止调用元工具（动态工具创建自身/互调会造成无限递归）
+            if ("create_dynamic_tool".equals(toolName) || "ai_create_tool".equals(toolName)) {
+                return "安全限制: 动态工具禁止调用 " + toolName + "（避免递归创建）";
+            }
+            // 2. 嵌套调用深度限制（动态工具 A call_tool 动态工具 B 再 call_tool...）
+            int depth = CALL_DEPTH.get();
+            if (depth >= MAX_CALL_DEPTH) {
+                return "安全限制: 工具嵌套调用超过 " + MAX_CALL_DEPTH + " 层，已终止";
+            }
+            
             AIToolManager toolManager = AIToolManager.getInstance(context);
             if (toolManager.hasTool(toolName)) {
-                AIToolResult result = toolManager.executeTool(toolName, toolParams);
-                return result.getResult() != null ? result.getResult().toString() : "工具执行完成";
+                CALL_DEPTH.set(depth + 1);
+                try {
+                    AIToolResult result = toolManager.executeTool(toolName, toolParams);
+                    return result.getResult() != null ? result.getResult().toString() : "工具执行完成";
+                } finally {
+                    CALL_DEPTH.set(depth);
+                }
             } else {
                 return "工具不存在: " + toolName;
             }

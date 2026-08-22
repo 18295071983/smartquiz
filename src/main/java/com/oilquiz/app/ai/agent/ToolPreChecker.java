@@ -289,19 +289,6 @@ public class ToolPreChecker {
                 }
                 break;
 
-            case "translation":
-                required.add("text");
-                required.add("target_lang");
-                break;
-
-            case "file":
-                if ("get_file_info".equals(action) || "read_file".equals(action)) {
-                    required.add("file_path");
-                } else if ("list_files".equals(action)) {
-                    required.add("directory_path");
-                }
-                break;
-
             case "app_operation":
                 if (action == null) break;
                 switch (action) {

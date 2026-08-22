@@ -361,6 +361,17 @@ public class ExcelSheetPicker {
             }
         }
         if (nonEmpty == 0) return false; // EMPTY 归为 EMPTY 类型
+        // 表头结构优先：≥4 个非空列且绝大多数是短词（<12 字，列名特征）→ 是表头行，
+        // 即使含"说明"列（说明/备注是常见列名）也绝不判为说明行。
+        // 否则含"说明"列的表头会被当成说明行，表头检测错位到数据行。
+        if (nonEmpty >= 4) {
+            int shortCount = 0;
+            for (int i = 0; i < row.size(); i++) {
+                String t = row.get(i) == null ? "" : row.get(i).trim();
+                if (!t.isEmpty() && t.length() < 12) shortCount++;
+            }
+            if (shortCount * 10 >= nonEmpty * 7) return false;
+        }
         double emptyRatio = (double) empty / (nonEmpty + empty);
         // 条件：含说明关键词  或  (空列占比高 且 非空列少 且 集中在前几列)
         if (hasDescKw) return true;

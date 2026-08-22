@@ -352,10 +352,6 @@ public class ToolResultInterpreter {
                     return databaseTemplate(result);
                 case "location":
                     return locationTemplate(result);
-                case "translation":
-                    return translationTemplate(result);
-                case "file":
-                    return fileToolTemplate(result);
                 case "app_operation":
                     return appOperationTemplate(result);
                 case "file_reader":
@@ -821,98 +817,7 @@ public class ToolResultInterpreter {
         return sb.toString();
     }
 
-    /** 翻译模板：对齐 translation 结构，内容完整不截断 */
-    private static String translationTemplate(Object result) {
-        if (result instanceof String) {
-            String s = ((String) result).trim();
-            return s.isEmpty() ? "翻译完成" : s;
-        }
-        JsonObject obj = toJsonObject(result);
-        if (obj == null) return fallbackPretty(result);
-
-        String status = strDeep(obj, "status");
-        String err = strDeep(obj, "error", "message");
-        if ("error".equalsIgnoreCase(status) || err != null) {
-            StringBuilder sb = new StringBuilder("❌ 翻译失败");
-            if (err != null) sb.append("：").append(err);
-            else {
-                String m = strDeep(obj, "msg");
-                if (m != null) sb.append("：").append(m);
-            }
-            return sb.toString();
-        }
-        String orig = strDeep(obj, "original_text", "source_text", "source", "text");
-        String dest = strDeep(obj, "target_language", "targetLang", "to");
-        String trans = strDeep(obj, "translated_text", "translation", "result", "translated");
-        String engine = strDeep(obj, "engine");
-        String detect = strDeep(obj, "detected_language", "source_language");
-
-        StringBuilder sb = new StringBuilder();
-        if (detect != null) sb.append("🔍 检测语言：").append(detect).append("  ");
-        if (dest != null) sb.append("→ ").append(dest);
-        if (engine != null) sb.append("  （模型：").append(engine).append("）");
-        if (orig != null) {
-            sb.append("\n\n📝 原文：\n").append(orig);
-        }
-        if (trans != null && !trans.isEmpty()) {
-            sb.append("\n\n✅ 译文：\n").append(trans);
-        }
-        if (trans == null || trans.isEmpty()) {
-            if (orig != null) return sb.toString() + "\n（暂未返回译文内容）";
-            return fallbackPretty(result);
-        }
-        return sb.toString().trim();
-    }
-
     // ---------- file 系列 / app 操作 / 网页 / 调研 / 系统 等模板（简短版） ----------
-
-    /** file 工具：文件信息/读取/列目录（内容完整不截断） */
-    private static String fileToolTemplate(Object result) {
-        if (result instanceof String) {
-            String s = ((String) result).trim();
-            return s.isEmpty() ? "（无文件结果）" : s;
-        }
-        JsonObject obj = toJsonObject(result);
-        if (obj == null) return fallbackPretty(result);
-        StringBuilder sb = new StringBuilder();
-        String path = strDeep(obj, "file_path", "path", "file", "name");
-        String size = strDeep(obj, "size", "length", "file_size");
-        String type = strDeep(obj, "type", "mime", "mime_type", "extension");
-        String content = strDeep(obj, "content", "data", "text", "body");
-        String count = strDeep(obj, "count", "total", "files_count", "num_files");
-
-        if (count != null) {
-            sb.append("📁 共 ").append(count).append(" 个文件");
-            String folder = strDeep(obj, "directory", "folder", "dir", "path");
-            if (folder != null) sb.append("  位于 ").append(folder);
-            for (String k : new String[]{"files", "items", "list", "entries"}) {
-                if (obj.has(k) && obj.get(k).isJsonArray()) {
-                    JsonArray arr = obj.getAsJsonArray(k);
-                    int n = Math.min(arr.size(), 5);
-                    if (n > 0) sb.append("，包括：\n");
-                    for (int i = 0; i < n; i++) {
-                        try {
-                            JsonElement e = arr.get(i);
-                            String fn = null;
-                            if (e.isJsonPrimitive()) fn = e.getAsString();
-                            else if (e.isJsonObject()) fn = strDeep(e.getAsJsonObject(), "name", "filename", "file");
-                            if (fn != null) sb.append("• ").append(truncateLines(fn, Integer.MAX_VALUE)).append("\n");
-                        } catch (Exception ignored) {}
-                    }
-                    break;
-                }
-            }
-        } else if (content != null) {
-            if (path != null) sb.append("📄 ").append(path).append(" 内容：\n");
-            sb.append(content);
-        } else {
-            if (path != null) sb.append("📄 ").append(path);
-            if (size != null) sb.append(" · 大小 ").append(size);
-            if (type != null) sb.append(" · 类型 ").append(type);
-            if (sb.length() == 0) return fallbackPretty(result);
-        }
-        return sb.toString().trim();
-    }
 
     /** app_operation 应用操作（完整不截断） */
     private static String appOperationTemplate(Object result) {

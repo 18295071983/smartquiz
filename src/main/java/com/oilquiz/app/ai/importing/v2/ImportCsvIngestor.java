@@ -268,7 +268,7 @@ public class ImportCsvIngestor {
         List<ContentValues> unique = new ArrayList<>(batch.size());
         List<String> texts = new ArrayList<>(batch.size());
         for (ContentValues cv : batch) {
-            String key = normalizeKey(cv.getAsString("questionText"));
+            String key = dedupKey(cv);
             if (seen.add(key)) {
                 unique.add(cv);
                 texts.add(cv.getAsString("questionText"));
@@ -282,7 +282,7 @@ public class ImportCsvIngestor {
         List<ContentValues> toInsert = new ArrayList<>();
         List<ContentValues> dups = new ArrayList<>();
         for (ContentValues cv : unique) {
-            String key = normalizeKey(cv.getAsString("questionText"));
+            String key = dedupKey(cv);
             if (existing.contains(key)) {
                 stats.duplicated++;
                 dups.add(cv);
@@ -327,8 +327,8 @@ public class ImportCsvIngestor {
             for (ContentValues cv : dups) {
                 String text = cv.getAsString("questionText");
                 if (text == null || text.trim().isEmpty()) continue;
-                Cursor c = sqlite.query("SELECT id, category, explanation, correctAnswer FROM question "
-                        + "WHERE questionText = ? LIMIT 1", new Object[]{text});
+                Cursor c = sqlite.query("SELECT id, category, explanation, correctAnswer, questionType "
+                        + "FROM question WHERE questionText = ? LIMIT 1", new Object[]{text});
                 try {
                     if (!c.moveToNext()) continue;
                     long id = c.getLong(0);
@@ -336,9 +336,11 @@ public class ImportCsvIngestor {
                     String dbCat = c.getString(1);
                     String dbExp = c.getString(2);
                     String dbAns = c.getString(3);
+                    String dbType = c.getString(4);
                     String newCat = cv.getAsString("category");
                     String newExp = cv.getAsString("explanation");
                     String newAns = cv.getAsString("correctAnswer");
+                    String newType = cv.getAsString("questionType");
                     if (legal.contains("category") && (dbCat == null || dbCat.trim().isEmpty())
                             && newCat != null && !newCat.trim().isEmpty()) {
                         upd.put("category", newCat.trim());
@@ -350,6 +352,11 @@ public class ImportCsvIngestor {
                     if (legal.contains("correctAnswer") && (dbAns == null || dbAns.trim().isEmpty())
                             && newAns != null && !newAns.trim().isEmpty()) {
                         upd.put("correctAnswer", newAns.trim());
+                    }
+                    // 题型同样回填：残缺映射/早期导入留下的 NULL 题型在重导时自动补齐
+                    if (legal.contains("questionType") && (dbType == null || dbType.trim().isEmpty())
+                            && newType != null && !newType.trim().isEmpty()) {
+                        upd.put("questionType", newType.trim());
                     }
                     if (upd.size() > 0) {
                         if (legal.contains("updatedAt")) upd.put("updatedAt", System.currentTimeMillis());
@@ -378,7 +385,7 @@ public class ImportCsvIngestor {
             AppDatabase db = AppDatabase.getDatabase(context);
             SupportSQLiteDatabase sqlite = db.getOpenHelper().getReadableDatabase();
             StringBuilder sql = new StringBuilder(
-                    "SELECT questionText FROM question WHERE questionText IN (");
+                    "SELECT questionText, correctAnswer FROM question WHERE questionText IN (");
             for (int i = 0; i < texts.size(); i++) {
                 if (i > 0) sql.append(',');
                 sql.append('?');
@@ -387,7 +394,8 @@ public class ImportCsvIngestor {
             Cursor c = sqlite.query(sql.toString(), texts.toArray(new Object[0]));
             try {
                 while (c.moveToNext()) {
-                    result.add(normalizeKey(c.getString(0)));
+                    result.add(normalizeKey(c.getString(0)) + "\u0001"
+                            + normalizeKey(c.getString(1)));
                 }
             } finally {
                 c.close();
@@ -485,6 +493,18 @@ public class ImportCsvIngestor {
         // 与 Python 侧 \s（含全角空格 U+3000）语义一致：统一剔除所有空白后比较，
         // 避免"全角/半角空格变体"绕过批内/库内去重造成重复入库
         return s.replaceAll("[\\s\\u3000]+", "");
+    }
+
+    /**
+     * 去重 key = 题干 + 答案（与 Python parse_file 的重复统计口径一致）。
+     * 仅题干相同不算重复：填空/简答/问答常有同一题干对应多版本答案
+     * （如 1）2）3）4） 与 ⑴⑵⑶⑷ 编号不同的变体），静默丢弃其一会让
+     * 导入数少于源文件行数且无法解释；题干+答案完全相同才去重。
+     */
+    private static String dedupKey(ContentValues cv) {
+        String q = normalizeKey(cv.getAsString("questionText"));
+        String a = normalizeKey(cv.getAsString("correctAnswer"));
+        return q + "\u0001" + a;
     }
 
     private static void closeQuiet(java.io.Closeable c) {

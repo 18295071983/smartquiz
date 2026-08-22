@@ -66,6 +66,9 @@ public class OnlineModelManager {
         // === 新增：模型能力元数据 ===
         public ModelCapabilities capabilities;    // 模型能力标签
         public int contextWindow = 4096;          // 上下文窗口大小（tokens）
+        /** 上下文窗口是否来自服务商 API 真实检测（/models 字段或 /models/{name} 详情）。
+         *  仅 true 时该值可信保留；false（名称推断/旧默认 4096 死值）启动时按配置表重算。 */
+        public boolean contextWindowFromApi = false;
         public int maxOutputTokens = 2048;        // 最大输出长度
         public boolean supportsVision = false;    // 是否支持视觉理解
         public boolean supportsAudio = false;     // 是否支持音频处理
@@ -216,6 +219,10 @@ public class OnlineModelManager {
                     config.supportsVision = obj.optBoolean("supportsVision", false);
                     config.supportsCode = obj.optBoolean("supportsCode", false);
                     config.supportsFunctionCalling = obj.optBoolean("supportsFunctionCalling", false);
+                    // 配置时检测到的真实上下文窗口（0=未持久化，由 refreshAllContextWindows 按配置表推断兜底）
+                    config.contextWindow = obj.optInt("contextWindow", 0);
+                    // 窗口是否来自 API 真实检测：仅 true 时保留该值，推断值/旧死值启动时重算
+                    config.contextWindowFromApi = obj.optBoolean("contextWindowFromApi", false);
                     
                     // 加载使用量信息
                     if (obj.has("usageInfo")) {
@@ -245,22 +252,35 @@ public class OnlineModelManager {
         // 统一刷新所有模型的 supportsFunctionCalling 标记（按模型名自动推断 Agent 接管能力）
         refreshAllSupportsFunctionCalling();
         // 统一刷新所有模型的 contextWindow（按模型名推断上下文窗口，供历史压缩/UI展示）
-        refreshAllContextWindows();
+        if (refreshAllContextWindows()) {
+            saveToPrefs(); // 重算结果落盘（修正旧 4096 死值）
+        }
     }
 
     /**
      * 刷新所有模型的 contextWindow 字段（按「API 地址 + 模型名」配置表匹配）。
-     * 使配置的上下文窗口有真实值（此前恒为 4096 死值），
+     * 仅当该配置的窗口**不是** API 真实检测值（contextWindowFromApi=false，含旧默认 4096 死值）
+     * 时按配置表推断填充——配置时 API 检测到的真实值优先，配置表推断只作为未检测时的兜底。
      * 供 Agent 历史压缩阈值计算与 UI 上下文用量展示。
+     * @return 是否有配置的窗口值被重算（调用方据此落盘持久化）
      */
-    private void refreshAllContextWindows() {
+    private boolean refreshAllContextWindows() {
+        boolean changed = false;
         for (OnlineModelConfig config : modelList) {
+            if (config.contextWindowFromApi && config.contextWindow > 0) {
+                continue; // API 真实检测到的窗口，保留
+            }
             String probe = config.modelName;
             if (probe == null || probe.isEmpty()) {
                 probe = config.selectedModel;
             }
-            config.contextWindow = getContextWindowForModel(config.apiUrl, probe);
+            int inferred = getContextWindowForModel(config.apiUrl, probe);
+            if (inferred != config.contextWindow) {
+                config.contextWindow = inferred;
+                changed = true;
+            }
         }
+        return changed;
     }
 
     /**
@@ -296,16 +316,19 @@ public class OnlineModelManager {
         if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")
             || m.startsWith("o1-") || m.startsWith("o3-") || m.startsWith("o4-")
             || m.startsWith("o1-mini") || m.startsWith("o3-mini")) return true;
-        // DeepSeek：reasoner / r1 / v3.1+ 原生支持 enable_thinking
+        // DeepSeek：reasoner / r1 / v3.1+ / v4 原生支持 enable_thinking
         if (m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
             || m.contains("deepseek-r1-") || m.contains("deepseek-v3.1")
-            || m.contains("deepseek-v3.2") || m.contains("deepseek-chat")) return true;
+            || m.contains("deepseek-v3.2") || m.contains("deepseek-v3.3")
+            || m.contains("deepseek-v4") || m.contains("deepseek-chat")) return true;
         // Qwen3 全系（enable_thinking + chat_template_kwargs）
         if (m.contains("qwen3")) return true;
-        // GLM-4.5 / GLM-5（enable_thinking）
-        if (m.contains("glm-4.5") || m.contains("glm-4.6") || m.contains("glm-5")) return true;
-        // Kimi K2（thinking 参数）
-        if (m.contains("kimi-k2") || m.contains("moonshot-v1-128k") || m.contains("moonshot-v1-32k")
+        // GLM-4.5+ / GLM-5（enable_thinking）
+        if (m.contains("glm-4.5") || m.contains("glm-4.6") || m.contains("glm-4.7")
+            || m.contains("glm-5")) return true;
+        // Kimi K2/K3（thinking 参数）
+        if (m.contains("kimi-k2") || m.contains("kimi-k3")
+            || m.contains("moonshot-v1-128k") || m.contains("moonshot-v1-32k")
             || m.contains("kimi-latest") || m.contains("kimi-thinking")) return true;
         // 豆包 1.5 pro（thinking 参数）
         if (m.contains("doubao-1.5") || m.contains("doubao-pro-32k-250528")
@@ -465,6 +488,8 @@ public class OnlineModelManager {
                 obj.put("supportsVision", config.supportsVision);
                 obj.put("supportsCode", config.supportsCode);
                 obj.put("supportsFunctionCalling", config.supportsFunctionCalling);
+                obj.put("contextWindow", config.contextWindow);
+                obj.put("contextWindowFromApi", config.contextWindowFromApi);
                 
                 // 保存使用量信息
                 if (config.usageInfo != null) {
@@ -535,6 +560,9 @@ public class OnlineModelManager {
     public OnlineModelConfig addModel(String name, String apiUrl, String modelName, String apiKey) {
         OnlineModelConfig config = new OnlineModelConfig(
             UUID.randomUUID().toString(), name, apiUrl, modelName, apiKey, true, System.currentTimeMillis());
+        // 上下文窗口先按配置表推断兜底（保存时若配置界面检测到真实值会覆盖并持久化）
+        config.contextWindow = getContextWindowForModel(apiUrl, modelName);
+        config.contextWindowFromApi = false;
         
         // 自动检测是否为语音服务商（通过端点 URL 判断）
         if (apiUrl != null) {
@@ -962,7 +990,14 @@ public class OnlineModelManager {
         }
         if (name != null) config.name = name;
         if (apiUrl != null) config.apiUrl = apiUrl;
-        if (modelName != null) config.modelName = modelName;
+        if (modelName != null) {
+            // 模型名变化：旧窗口值不再适用，先按配置表重新推断（配置界面检测到的真实值随后覆盖）
+            if (!modelName.equals(config.modelName)) {
+                config.modelName = modelName;
+                config.contextWindow = getContextWindowForModel(config.apiUrl, modelName);
+                config.contextWindowFromApi = false;
+            }
+        }
         if (apiKey != null) config.apiKey = apiKey;
         config.enabled = enabled;
         saveToPrefs();
@@ -1007,7 +1042,12 @@ public class OnlineModelManager {
         OnlineModelConfig config = getModel(modelId);
         if (config != null) {
             config.selectedModel = selectedModel;
-            config.modelName = selectedModel; // 同时更新 modelName
+            // 同时更新 modelName；模型名变化时旧窗口不再适用，按配置表重新推断
+            if (selectedModel != null && !selectedModel.equals(config.modelName)) {
+                config.modelName = selectedModel;
+                config.contextWindow = getContextWindowForModel(config.apiUrl, selectedModel);
+                config.contextWindowFromApi = false;
+            }
             saveToPrefs();
             notifyListChanged();
         }

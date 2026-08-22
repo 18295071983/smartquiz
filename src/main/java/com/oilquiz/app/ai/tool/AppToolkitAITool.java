@@ -13,7 +13,6 @@ import com.oilquiz.app.manager.ImageLabelManager;
 import com.oilquiz.app.manager.ObjectDetectionManager;
 import com.oilquiz.app.manager.OCRManager;
 import com.oilquiz.app.toolkit.AppToolkit;
-import com.oilquiz.app.util.FileParserUtil;
 import com.oilquiz.app.util.ImageGeneratorUtil.ImageFormat;
 
 import org.json.JSONArray;
@@ -29,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 
 @Tool(
     value = "app_toolkit",
-    description = "应用工具集，聚合天气/计算/OCR/图像/文件/网页等能力，通过action指定具体操作",
+    description = "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作",
     category = "utility",
     aliases = {"toolkit", "工具集", "工具箱"},
     actions = {
@@ -39,7 +38,6 @@ import java.util.concurrent.TimeUnit;
         @Action(name = "ocr_recognize", description = "OCR文字识别"),
         @Action(name = "image_label", description = "图片标签识别"),
         @Action(name = "object_detect", description = "物体检测"),
-        @Action(name = "file_parse", description = "文件解析"),
         @Action(name = "webpage_parse", description = "网页解析")
     },
     params = {
@@ -65,7 +63,7 @@ public class AppToolkitAITool implements AITool {
     
     @Override
     public String getDescription() {
-        return "应用工具集，聚合天气/计算/OCR/图像/文件/网页等能力，通过action指定具体操作";
+        return "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作";
     }
     
     @Override
@@ -145,18 +143,6 @@ public class AppToolkitAITool implements AITool {
                 case "image_generate_text":
                     return imageGenerateText(parameters);
                     
-                // 文件解析功能
-                case "file_parse_text":
-                    return fileParseText(parameters);
-                case "file_parse_csv":
-                    return fileParseCsv(parameters);
-                case "file_parse_json":
-                    return fileParseJson(parameters);
-                case "file_read_lines":
-                    return fileReadLines(parameters);
-                case "file_get_type":
-                    return fileGetType(parameters);
-                    
                 // 网页解析功能
                 case "web_parse_html":
                     return webParseHtml(parameters);
@@ -213,21 +199,6 @@ public class AppToolkitAITool implements AITool {
                         parameters.put("pdf_path", parameters.get("file_path"));
                     } else if (parameters.containsKey("path")) {
                         parameters.put("pdf_path", parameters.get("path"));
-                    }
-                }
-                break;
-            case "file_parse_text":
-            case "file_parse_csv":
-            case "file_parse_json":
-            case "file_read_lines":
-            case "file_get_type":
-                if (!parameters.containsKey("file_path")) {
-                    if (parameters.containsKey("path")) {
-                        parameters.put("file_path", parameters.get("path"));
-                    } else if (parameters.containsKey("image_path")) {
-                        parameters.put("file_path", parameters.get("image_path"));
-                    } else if (parameters.containsKey("pdf_path")) {
-                        parameters.put("file_path", parameters.get("pdf_path"));
                     }
                 }
                 break;
@@ -1004,167 +975,6 @@ public class AppToolkitAITool implements AITool {
         return new AIToolResult(resultMap, parameters);
     }
     
-    // ==================== 文件解析功能 ====================
-    
-    private AIToolResult fileParseText(Map<String, Object> parameters) {
-        String filePath = (String) parameters.get("file_path");
-        
-        if (filePath == null) {
-            return new AIToolResult("缺少参数: file_path", parameters);
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
-        }
-        
-        String content = toolkit.parseTextFile(file);
-        
-        if (content == null) {
-            return new AIToolResult("解析文件失败", parameters);
-        }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("status", "success");
-        resultMap.put("content", content);
-        resultMap.put("length", content.length());
-        resultMap.put("fileName", file.getName());
-        
-        return new AIToolResult(resultMap, parameters);
-    }
-    
-    private AIToolResult fileParseCsv(Map<String, Object> parameters) {
-        String filePath = (String) parameters.get("file_path");
-        
-        if (filePath == null) {
-            return new AIToolResult("缺少参数: file_path", parameters);
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
-        }
-        
-        List<String[]> data = toolkit.parseCsvFile(file);
-        
-        if (data == null) {
-            return new AIToolResult("解析CSV文件失败", parameters);
-        }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("status", "success");
-        resultMap.put("rowCount", data.size());
-        resultMap.put("columnCount", data.size() > 0 ? data.get(0).length : 0);
-        resultMap.put("data", data);
-        
-        return new AIToolResult(resultMap, parameters);
-    }
-    
-    private AIToolResult fileParseJson(Map<String, Object> parameters) {
-        String filePath = (String) parameters.get("file_path");
-        String type = (String) parameters.get("type");
-        
-        if (filePath == null) {
-            return new AIToolResult("缺少参数: file_path", parameters);
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
-        }
-        
-        Object resultObj = null;
-        String resultType = "";
-        
-        if ("array".equalsIgnoreCase(type)) {
-            resultObj = toolkit.parseJsonArrayFile(file);
-            resultType = "array";
-        } else if ("map".equalsIgnoreCase(type)) {
-            resultObj = toolkit.parseJsonToMap(file);
-            resultType = "map";
-        } else {
-            resultObj = toolkit.parseJsonFile(file);
-            resultType = "object";
-        }
-        
-        if (resultObj == null) {
-            return new AIToolResult("解析JSON文件失败", parameters);
-        }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("status", "success");
-        resultMap.put("type", resultType);
-        resultMap.put("data", resultObj);
-        
-        return new AIToolResult(resultMap, parameters);
-    }
-    
-    private AIToolResult fileReadLines(Map<String, Object> parameters) {
-        String filePath = (String) parameters.get("file_path");
-        Integer startLine = (Integer) parameters.get("start_line");
-        Integer endLine = (Integer) parameters.get("end_line");
-        
-        if (filePath == null) {
-            return new AIToolResult("缺少参数: file_path", parameters);
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
-        }
-        
-        List<String> lines = toolkit.readLines(file);
-        
-        if (lines == null) {
-            return new AIToolResult("读取文件失败", parameters);
-        }
-        
-        // 截取指定范围（clamp 防止越界：start_line 超过总行数时 start > end 会抛异常）
-        int start = startLine != null ? startLine - 1 : 0;
-        int end = endLine != null ? endLine : lines.size();
-
-        if (start < 0) start = 0;
-        if (start > lines.size()) start = lines.size();
-        if (end > lines.size()) end = lines.size();
-        if (start > end) start = end;
-        
-        List<String> resultLines = lines.subList(start, end);
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("status", "success");
-        resultMap.put("lines", resultLines);
-        resultMap.put("totalLines", lines.size());
-        resultMap.put("startLine", start + 1);
-        resultMap.put("endLine", end);
-        
-        return new AIToolResult(resultMap, parameters);
-    }
-    
-    private AIToolResult fileGetType(Map<String, Object> parameters) {
-        String filePath = (String) parameters.get("file_path");
-        
-        if (filePath == null) {
-            return new AIToolResult("缺少参数: file_path", parameters);
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return new AIToolResult("文件不存在: " + filePath, parameters);
-        }
-        
-        FileParserUtil.FileType type = toolkit.getFileType(file);
-        String extension = toolkit.getFileExtension(file);
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("status", "success");
-        resultMap.put("type", type.name());
-        resultMap.put("extension", extension);
-        resultMap.put("fileName", file.getName());
-        resultMap.put("size", file.length());
-        
-        return new AIToolResult(resultMap, parameters);
-    }
-    
     // ==================== 网页解析功能 ====================
     
     private AIToolResult webParseHtml(Map<String, Object> parameters) {
@@ -1347,7 +1157,6 @@ public class AppToolkitAITool implements AITool {
         categories.put("image_label", "图像标签识别");
         categories.put("object_detection", "目标检测");
         categories.put("image", "图片处理");
-        categories.put("file", "文件解析");
         categories.put("web", "网页解析");
         resultMap.put("categories", categories);
         
@@ -1390,13 +1199,6 @@ public class AppToolkitAITool implements AITool {
         imageActions.put("image_generate_color", "生成纯色图片");
         imageActions.put("image_generate_text", "生成文字图片");
         
-        Map<String, String> fileActions = new HashMap<>();
-        fileActions.put("file_parse_text", "解析文本文件");
-        fileActions.put("file_parse_csv", "解析CSV文件");
-        fileActions.put("file_parse_json", "解析JSON文件");
-        fileActions.put("file_read_lines", "按行读取文件");
-        fileActions.put("file_get_type", "获取文件类型");
-        
         Map<String, String> webActions = new HashMap<>();
         webActions.put("web_parse_html", "解析HTML");
         webActions.put("web_get_title", "获取网页标题");
@@ -1411,7 +1213,6 @@ public class AppToolkitAITool implements AITool {
         actions.put("image_label", imageLabelActions);
         actions.put("object_detection", objectDetectionActions);
         actions.put("image", imageActions);
-        actions.put("file", fileActions);
         actions.put("web", webActions);
         
         resultMap.put("actions", actions);

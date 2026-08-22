@@ -185,6 +185,10 @@
             android:exported="false" />
         <activity android:name=".ui.activity.AIImportActivity" android:exported="true" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity
+            android:name=".ui.activity.ImportPreviewActivity"
+            android:exported="false"
+            android:label="导入数据预览" />
+        <activity
             android:name=".ui.activity.ImportGuideActivity"
             android:exported="true" /><!-- TODO: 真机测试完成后改回 exported=false -->
         <activity

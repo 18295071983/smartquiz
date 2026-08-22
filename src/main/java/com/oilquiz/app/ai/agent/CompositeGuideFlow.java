@@ -155,27 +155,8 @@ public class CompositeGuideFlow {
                 "搜什么关键词?", "输入关键词", "keyword", "搜关键词", true, false));
         steps.add(step1);
 
-        // 步骤2：翻译结果（可选，引用上一步结果）
-        CompositeStep step2 = new CompositeStep();
-        step2.toolName = "translation";
-        step2.actionDescription = "翻译结果";
-        step2.icon = "🌐";
-        step2.autoExecute = false;
-        step2.paramRefs = new HashMap<>();
-        step2.paramRefs.put("text", "$prev.result");
-        step2.guideSteps = new ArrayList<>();
-        step2.guideSteps.add(ToolGuideFlow.GuideStep.optionStep(
-                "翻译成什么?", "选择语言", "target_lang",
-                Arrays.asList(
-                        new ToolGuideFlow.GuideStep.Option("中文", "zh"),
-                        new ToolGuideFlow.GuideStep.Option("英文", "en"),
-                        new ToolGuideFlow.GuideStep.Option("日文", "ja"),
-                        new ToolGuideFlow.GuideStep.Option("韩文", "ko")
-                )));
-        steps.add(step2);
-
         return new CompositeGuideFlow("study", "学习查询",
-                "依次:搜索题目→翻译结果", "📚", steps);
+                "搜索题目", "📚", steps);
     }
 
     /** 网页研究：搜索→读网页 */

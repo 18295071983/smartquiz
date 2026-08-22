@@ -16,6 +16,9 @@ import java.util.function.Function;
 
 public class PythonToolManager {
     private static final String TAG = "PythonToolManager";
+
+    /** 代码执行默认超时（秒）：Python 端 join 超时后返回 TimeoutError */
+    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static volatile PythonToolManager instance;
     
     private final Context context;
@@ -167,6 +170,44 @@ public class PythonToolManager {
             err.put("message", "获取UI组件结果失败: " + t.getMessage());
             return err;
         }
+    }
+
+    /**
+     * 创建语音合成专用组件（原生播放对话框）：
+     * 自动朗读 text，用户可点"停止"中断；播放完成 → result="completed"，
+     * 停止 → "stopped"。供 speech_synthesis 工具播放时让用户可见/可控。
+     */
+    public Map<String, Object> createSpeechPlayerComponent(String componentId, String title,
+                                                           String text, int autoCloseSeconds) {
+        Map<String, Object> action = new HashMap<>();
+        action.put("type", "create_component");
+        action.put("component_type", "speech_player");
+        action.put("component_id", componentId != null ? componentId : "");
+        action.put("title", title != null ? title : "🔊 正在朗读");
+        action.put("message", text != null ? text : "");
+        if (autoCloseSeconds > 0) {
+            action.put("auto_close", autoCloseSeconds);
+        }
+        return getUiActionHandler().handleMap(action);
+    }
+
+    /**
+     * 创建语音识别专用组件（原生录音对话框）：
+     * 自动开始录音，用户点"完成"或 autoClose 到点后停止并保存音频，
+     * 后续 getUiComponentResult 返回音频文件路径（供 voice_input recognize）。
+     */
+    public Map<String, Object> createVoiceRecorderComponent(String componentId, String title,
+                                                           String message, int autoCloseSeconds) {
+        Map<String, Object> action = new HashMap<>();
+        action.put("type", "create_component");
+        action.put("component_type", "voice_recorder");
+        action.put("component_id", componentId != null ? componentId : "");
+        action.put("title", title != null ? title : "🎤 请说话");
+        action.put("message", message != null ? message : "");
+        if (autoCloseSeconds > 0) {
+            action.put("auto_close", autoCloseSeconds);
+        }
+        return getUiActionHandler().handleMap(action);
     }
 
     /**
@@ -386,6 +427,17 @@ public class PythonToolManager {
      * 调用 Python 端的 run_code 方法，直接执行代码而不生成模板
      */
     public ExecutionResult executeCode(String code, Map<String, Object> contextData) {
+        return executeCode(code, contextData, DEFAULT_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * 直接执行 Python 代码（带超时与上下文透传）
+     *
+     * @param timeoutSeconds 超时秒数；Python 端工作线程 join 超时后返回 TimeoutError。
+     *                       超时后的 daemon 线程无法强杀，调用方应避免频繁超时。
+     * @param contextData    上下文数据（以 dict 形式传给 Python 端，脚本内可用；null 则不传）
+     */
+    public ExecutionResult executeCode(String code, Map<String, Object> contextData, int timeoutSeconds) {
         if (!initialized) {
             if (!initialize()) {
                 return new ExecutionResult(false, null, "Python tool manager not initialized");
@@ -393,9 +445,17 @@ public class PythonToolManager {
         }
         
         try {
-            Log.i(TAG, "Executing code directly (" + code.length() + " chars)");
+            Log.i(TAG, "Executing code directly (" + code.length() + " chars, timeout=" + timeoutSeconds
+                    + "s, ctx=" + (contextData != null ? contextData.size() : 0) + ")");
             
-            PyObject result = aiPythonTool.callAttr("run_code", code);
+            PyObject result;
+            if (contextData != null && !contextData.isEmpty()) {
+                // 真正透传 contextData（此前被丢弃）：Python 端 run_code(code, timeout, context)
+                result = aiPythonTool.callAttr("run_code", code, timeoutSeconds,
+                        PyObject.fromJava(contextData));
+            } else {
+                result = aiPythonTool.callAttr("run_code", code, timeoutSeconds);
+            }
             
             if (result == null) {
                 return new ExecutionResult(false, null, "No result returned from run_code");
@@ -980,6 +1040,16 @@ public class PythonToolManager {
                     if (fAct.isFinishing() || fAct.isDestroyed()) {
                         rt.result.set("cancelled");
                         synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        return;
+                    }
+                    // 语音识别专用组件：原生录音对话框（提示用户说话 → 录音 → 完成后返回音频文件路径）
+                    if ("voice_recorder".equals(fType)) {
+                        showVoiceRecorderDialog(fAct, rt, id, title, message, autoCloseSeconds);
+                        return;
+                    }
+                    // 语音合成专用组件：原生播放对话框（朗读文本 + 停止按钮，播放完成/停止后返回状态）
+                    if ("speech_player".equals(fType)) {
+                        showSpeechPlayerDialog(fAct, rt, id, title, message, autoCloseSeconds);
                         return;
                     }
                     // 内置 UI 组件（ComponentRegistry 已注册类型：chart/info_card/table_card/... 22 种）：
@@ -1615,9 +1685,239 @@ public class PythonToolManager {
             main.postDelayed(rt.autoCloseTask, autoCloseSeconds * 1000L);
         }
 
+        /**
+         * 语音识别专用组件：原生录音对话框。
+         * 自动开始录音（MediaRecorder），显示计时；用户点"完成"或 autoClose 到点后停止，
+         * 保存 m4a 到缓存目录，result 返回音频文件路径（供 voice_input recognize）。
+         * 用户取消/返回键 → result="cancelled"。无录音权限 → result="cancelled:缺少录音权限"。
+         */
+        private void showVoiceRecorderDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                             final String componentId, final String title,
+                                             final String message, final int autoCloseSeconds) {
+            // 录音权限检查
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context,
+                    android.Manifest.permission.RECORD_AUDIO)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                rt.result.set("cancelled:缺少录音权限");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            // 麦克风互斥：应用层正在录音时，Agent 不能同时录（防止串音/冲突）
+            if (!com.oilquiz.app.ai.speech.SpeechManager.getInstance(context)
+                    .tryAcquireRecording("agent")) {
+                rt.result.set("cancelled:应用层正在录音，请先停止应用层录音再试");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            final java.io.File audioFile = new java.io.File(context.getCacheDir(),
+                    "agent_voice_" + System.currentTimeMillis() + ".m4a");
+            final android.media.MediaRecorder[] recorderRef = new android.media.MediaRecorder[1];
+            final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            final int[] seconds = {0};
+            final Runnable[] ticker = new Runnable[1];
+            final boolean[] stopped = {false};
+
+            android.widget.TextView statusView = new android.widget.TextView(act);
+            statusView.setTextSize(18);
+            statusView.setGravity(android.view.Gravity.CENTER);
+            statusView.setPadding(0, 20, 0, 20);
+            android.widget.Button doneBtn = new android.widget.Button(act);
+            doneBtn.setText("完成");
+            android.widget.LinearLayout layout = new android.widget.LinearLayout(act);
+            layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+            layout.setPadding(60, 20, 60, 20);
+            layout.addView(statusView);
+            layout.addView(doneBtn);
+
+            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(title != null && !title.isEmpty() ? title : "🎤 请说话")
+                    .setMessage(message != null && !message.isEmpty() ? message : "正在录音，说完请点「完成」")
+                    .setView(layout)
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        stopRecorder(recorderRef);
+                        if (ticker[0] != null) handler.removeCallbacks(ticker[0]);
+                        if (!stopped[0]) {
+                            stopped[0] = true;
+                            com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).releaseRecording("agent");
+                            rt.result.set("cancelled");
+                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        }
+                    })
+                    .create();
+            rt.dialog = dialog;
+
+            ticker[0] = () -> {
+                if (!stopped[0]) {
+                    seconds[0]++;
+                    statusView.setText("🔴 录音中 " + String.format(java.util.Locale.US,
+                            "%02d:%02d", seconds[0] / 60, seconds[0] % 60));
+                    handler.postDelayed(ticker[0], 1000);
+                }
+            };
+
+            doneBtn.setOnClickListener(v -> {
+                if (stopped[0]) return;
+                stopped[0] = true;
+                stopRecorder(recorderRef);
+                if (ticker[0] != null) handler.removeCallbacks(ticker[0]);
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).releaseRecording("agent");
+                rt.result.set(audioFile.getAbsolutePath());
+                dialog.dismiss();
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+
+            // 录音准备/启动放后台线程（MediaRecorder prepare 可能耗时）
+            new Thread(() -> {
+                try {
+                    android.media.MediaRecorder recorder = new android.media.MediaRecorder();
+                    recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC);
+                    recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4);
+                    recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
+                    recorder.setAudioSamplingRate(44100);
+                    recorder.setAudioEncodingBitRate(128000);
+                    recorder.setOutputFile(audioFile.getAbsolutePath());
+                    recorder.prepare();
+                    recorder.start();
+                    recorderRef[0] = recorder;
+                    act.runOnUiThread(() -> {
+                        if (act.isFinishing() || act.isDestroyed()) {
+                            stopRecorder(recorderRef);
+                            com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).releaseRecording("agent");
+                            rt.result.set("cancelled");
+                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                            return;
+                        }
+                        dialog.show();
+                        statusView.setText("🔴 录音中 00:00");
+                        handler.postDelayed(ticker[0], 1000);
+                    });
+                } catch (Exception e) {
+                    Log.w(TAG, "录音启动失败: " + e.getMessage());
+                    stopRecorder(recorderRef);
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).releaseRecording("agent");
+                    rt.result.set("cancelled:录音启动失败");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                }
+            }).start();
+
+            // 录音上限：autoClose 秒后自动停止（语义=最长录音时长）
+            if (autoCloseSeconds > 0) {
+                handler.postDelayed(() -> {
+                    if (!stopped[0]) {
+                        doneBtn.performClick();
+                    }
+                }, autoCloseSeconds * 1000L);
+            }
+        }
+
+        /**
+         * 语音合成专用组件：原生播放对话框。
+         * 自动用 SpeechManager 朗读文本（与应用层共享同一播放器，应用层"停止朗读"同样生效）；
+         * 播放完成 → result="completed"；用户点停止/返回键 → 停止播放 + result="stopped"。
+         * autoCloseSeconds>0 时作为最长播放时长。
+         */
+        private void showSpeechPlayerDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                            final String componentId, final String title,
+                                            final String text, final int autoCloseSeconds) {
+            if (text == null || text.trim().isEmpty()) {
+                rt.result.set("cancelled:无朗读文本");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+            android.widget.TextView statusView = new android.widget.TextView(act);
+            statusView.setTextSize(16);
+            statusView.setGravity(android.view.Gravity.CENTER);
+            statusView.setPadding(20, 20, 20, 20);
+            android.widget.Button stopBtn = new android.widget.Button(act);
+            stopBtn.setText("⏹️ 停止");
+            android.widget.LinearLayout layout = new android.widget.LinearLayout(act);
+            layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+            layout.setPadding(50, 10, 50, 20);
+            layout.addView(statusView);
+            layout.addView(stopBtn);
+
+            final boolean[] finished = {false};
+
+            // 播放完成/停止的统一收尾（幂等，线程安全：result.set + 主线程 dismiss）
+            final java.util.function.Consumer<String> finisher = new java.util.function.Consumer<String>() {                @Override
+                public void accept(String result) {
+                    if (finished[0]) return;
+                    finished[0] = true;
+                    handler.post(() -> {
+                        if (rt.dialog != null && rt.dialog.isShowing()) {
+                            rt.dialog.dismiss();
+                        }
+                    });
+                    rt.result.set(result);
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                }
+            };
+
+            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(title != null && !title.isEmpty() ? title : "🔊 正在朗读")
+                    .setView(layout)
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).stopSpeaking();
+                        finisher.accept("stopped");
+                    })
+                    .create();
+            rt.dialog = dialog;
+
+            stopBtn.setOnClickListener(v -> {
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).stopSpeaking();
+                finisher.accept("stopped");
+            });
+
+            final com.oilquiz.app.ai.speech.SpeechManager speech =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(context);
+            speech.speak(text, new com.oilquiz.app.ai.speech.TTSService.PlaybackCallback() {
+                @Override
+                public void onStart() {
+                    handler.post(() -> {
+                        if (!finished[0] && act != null && !act.isFinishing()) {
+                            dialog.show();
+                            statusView.setText("🔊 正在朗读...（点「停止」或应用层停止按钮可中断）");
+                        }
+                    });
+                }
+
+                @Override
+                public void onComplete() {
+                    finisher.accept("completed");
+                }
+
+                @Override
+                public void onError(String message) {
+                    finisher.accept("error:" + (message != null ? message : "播放失败"));
+                }
+            });
+
+            // 最长播放时长（autoClose 语义）
+            if (autoCloseSeconds > 0) {
+                handler.postDelayed(() -> {
+                    if (!finished[0]) {
+                        speech.stopSpeaking();
+                    }
+                }, autoCloseSeconds * 1000L);
+            }
+        }
+
+        /** 停止并释放 MediaRecorder（幂等） */
+        private void stopRecorder(android.media.MediaRecorder[] ref) {
+            android.media.MediaRecorder r = ref[0];
+            ref[0] = null;
+            if (r != null) {
+                try { r.stop(); } catch (Exception ignored) { }
+                try { r.release(); } catch (Exception ignored) { }
+            }
+        }
+
         /** 更新组件：progress 更新进度/消息；dialog 更新标题/内容；notification 更新通知内容/进度。 */        private Map<String, Object> updateComponent(String componentId, String title,
-                                                    String message, int progress, int max) {
-            Map<String, Object> reply = new HashMap<>();
+                                                    String message, int progress, int max) {            Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
             if (rt == null) {
                 reply.put("success", false);

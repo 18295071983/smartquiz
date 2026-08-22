@@ -47,7 +47,7 @@ public class AIConfig {
         }
     }
 
-    private int maxTokens = 4096;
+    private int maxTokens = 16384;
     private float temperature = 0.7f;
     private float topP = 0.9f;
     private int topK = 40;
@@ -65,10 +65,10 @@ public class AIConfig {
 
     private void loadFromPreferences() {
         try {
-            maxTokens = prefs.getInt("max_tokens", 4096);
+            maxTokens = prefs.getInt("max_tokens", 16384);
         } catch (ClassCastException e) {
-            prefs.edit().remove("max_tokens").putInt("max_tokens", 4096).apply();
-            maxTokens = 4096;
+            prefs.edit().remove("max_tokens").putInt("max_tokens", 16384).apply();
+            maxTokens = 16384;
         }
         
         try {

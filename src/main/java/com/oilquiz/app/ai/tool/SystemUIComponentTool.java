@@ -145,6 +145,8 @@ public class SystemUIComponentTool implements AITool {
                     } else if (parameters.get("wait_seconds") != null) {
                         try { waitSeconds = Integer.parseInt(parameters.get("wait_seconds").toString()); } catch (Exception ignored) {}
                     }
+                    // 夹取 1~120 秒：防止模型传超大值阻塞 Agent 线程数小时
+                    waitSeconds = Math.max(1, Math.min(120, waitSeconds));
                     Map<String, Object> result = pythonToolManager.getUiComponentResult(componentId, waitSeconds);
                     return new AIToolResult(result, parameters);
                 }
@@ -177,7 +179,7 @@ public class SystemUIComponentTool implements AITool {
         if (type == null) return false;
         // 任意未识别类型也可作为自定义组件进聊天流（ComponentRegistry 有兜底渲染）
         String[] nativeTypes = {"dialog", "progress", "input", "choice", "multi_choice",
-                "date", "time", "snackbar", "list", "notification", "toast"};
+                "date", "time", "snackbar", "list", "notification", "toast", "voice_recorder"};
         for (String nt : nativeTypes) {
             if (nt.equals(type)) return false;
         }
@@ -221,9 +223,16 @@ public class SystemUIComponentTool implements AITool {
                     if (url.startsWith("http://") || url.startsWith("https://")) {
                         props.put("url", url);
                     } else if (isLocalFilePath(url)) {
-                        // 本地网页文件：转 file:// 让 WebView 直接加载渲染（不再当 HTML 字符串显示源码）
-                        String path = url.startsWith("file://") ? url : "file://" + url;
-                        props.put("url", path);
+                        // 本地网页文件：只放行 Agent 工作区目录内文件（防注入读取任意路径），
+                        // 存在则转 file:// 让 WebView 加载，否则提示（不渲染错误路径）
+                        String raw = url.startsWith("file://") ? android.net.Uri.parse(url).getPath() : url;
+                        String resolved = resolveWorkspacePath(raw);
+                        java.io.File f = new java.io.File(resolved);
+                        if (f.exists() && f.isFile() && isInsideWorkspace(f)) {
+                            props.put("url", "file://" + f.getAbsolutePath());
+                        } else {
+                            props.put("html", "无法加载本地文件（仅支持工作区目录内的网页文件）: " + url);
+                        }
                     } else {
                         props.put("html", url);
                     }
@@ -331,8 +340,9 @@ public class SystemUIComponentTool implements AITool {
             String componentId = "chat_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 10000);
             if (interactive) {
                 pythonToolManager.registerChatComponent(componentId);
-                // 全局回调：聊天流组件按钮点击 → 写入 result
-                com.oilquiz.app.ai.chat.component.ComponentActions.setResultCallback(
+                // 按 component_id 增量注册回调：多组件并发互不覆盖（覆盖式 setResultCallback 已废弃该用法）
+                com.oilquiz.app.ai.chat.component.ComponentActions.registerComponentCallback(
+                        componentId,
                         (cid, value) -> {
                             if (cid != null && value != null) {
                                 pythonToolManager.notifyChatComponentResult(cid, value);
@@ -458,6 +468,21 @@ public class SystemUIComponentTool implements AITool {
         return lower.endsWith(".html") || lower.endsWith(".htm")
                 || lower.endsWith(".xhtml") || lower.endsWith(".mht")
                 || lower.endsWith(".svg");
+    }
+
+    /** 校验文件位于 Agent 工作区目录内（web 本地加载白名单，防注入读取应用私有/系统文件） */
+    private boolean isInsideWorkspace(java.io.File f) {
+        try {
+            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+            java.io.File root = new java.io.File(ws.getWorkspacePath());
+            String filePath = f.getCanonicalPath();
+            String rootPath = root.getCanonicalPath();
+            return filePath.startsWith(rootPath + java.io.File.separator)
+                    || filePath.equals(rootPath);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override

@@ -259,6 +259,25 @@ public class SmartQuizApplication extends Application {
         try {
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
 
+            // 用户配置了在线模型（激活或已启用）→ 主用在线模型，跳过本地 GGUF 模型预加载。
+            // 本地模型改为按需加载（用户切换到本地模型时才初始化），避免白白占用数百 MB 内存。
+            try {
+                com.oilquiz.app.ai.model.OnlineModelManager onlineManager =
+                        com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
+                if (onlineManager.hasActiveOnlineModel()) {
+                    com.oilquiz.app.util.AILogger.i(TAG,
+                            "检测到激活的在线模型，跳过本地模型预加载（本地模型按需加载）");
+                    return;
+                }
+                if (onlineManager.hasModels()) {
+                    com.oilquiz.app.util.AILogger.i(TAG,
+                            "检测到已配置的在线模型（未激活），跳过本地模型预加载（本地模型按需加载）");
+                    return;
+                }
+            } catch (Throwable t) {
+                com.oilquiz.app.util.AILogger.w(TAG, "检查在线模型配置失败，按默认流程预加载: " + t.getMessage());
+            }
+
             // 调用 getInstance 仅获取单例并同步状态，不在此处阻塞加载模型
             AIService aiService = AIService.getInstance(this);
 

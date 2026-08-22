@@ -3,11 +3,9 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 import android.util.Log;
 
-import com.oilquiz.app.ai.agent.online.OnlineToolManager;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
-import com.oilquiz.app.ai.agent.online.OnlineToolRegistry;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -45,11 +43,9 @@ import java.util.Map;
 public class ToolRegistryTool implements AITool {
     private static final String TAG = "ToolRegistryTool";
     private final Context context;
-    private final OnlineToolManager toolManager;
 
     public ToolRegistryTool(Context context) {
         this.context = context.getApplicationContext();
-        this.toolManager = OnlineToolManager.getInstance(context);
     }
 
     @Override

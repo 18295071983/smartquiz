@@ -47,14 +47,25 @@ public class ImageGenTool implements AITool {
     /** 可用模型（白名单校验 + 非法回退） */
     private static final String[] SUPPORTED_MODELS = {"flux", "flux-realism", "flux-anime", "turbo"};
 
-    /** 简单结果缓存：key = prompt|model|w|h|style → 已生成的图片文件路径 */
+    /** 简单结果缓存：key = prompt|model|w|h|style → 已生成的图片文件路径（上限 200 条防内存增长） */
     private static final java.util.concurrent.ConcurrentHashMap<String, String> cache =
             new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int MAX_CACHE_ENTRIES = 200;
+
+    /** 图片下载专用客户端：生图首字节常需 10-60s+，需独立长读超时（默认客户端 30s 会导致假失败） */
+    private static final okhttp3.OkHttpClient IMAGE_CLIENT = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(150, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build();
 
     private final Context context;
 
     public ImageGenTool() {
-        this.context = null;
+        // 无参构造（反射/动态工具路径）兜底取应用上下文，避免 context=null 潜伏 NPE
+        this.context = com.oilquiz.app.SmartQuizApplication.getInstance() != null
+                ? com.oilquiz.app.SmartQuizApplication.getInstance().getApplicationContext()
+                : null;
     }
 
     public ImageGenTool(Context context) {
@@ -122,12 +133,17 @@ public class ImageGenTool implements AITool {
                 return AIToolResult.fail("文生图失败: 多次尝试后仍无法生成，请稍后再试或更换描述");
             }
 
+            // 缓存（上限 200 条，超出清空防内存无限增长）
+            if (cache.size() >= MAX_CACHE_ENTRIES) {
+                cache.clear();
+            }
             cache.put(cacheKey, imageFile.getAbsolutePath());
             return buildResult(imageFile, prompt, width, height);
 
         } catch (Exception e) {
             AILogger.e(TAG, "Image generation failed: " + e.getMessage(), e);
-            return AIToolResult.fail("文生图失败: " + e.getMessage());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            return AIToolResult.fail("文生图失败: " + msg);
         }
     }
 
@@ -156,7 +172,8 @@ public class ImageGenTool implements AITool {
                     .get()
                     .build();
 
-            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            // 图片下载用独立客户端（长读超时 150s，避免 30s 默认超时导致生图假失败）
+            try (Response response = IMAGE_CLIENT.newCall(request).execute()) {
                 if (!response.isSuccessful()) {
                     AILogger.w(TAG, "Image gen HTTP " + response.code() + ": " + response.message());
                     return null;
@@ -164,9 +181,19 @@ public class ImageGenTool implements AITool {
                 okhttp3.ResponseBody body = response.body();
                 if (body == null) return null;
 
+                // 校验响应确实是图片（防止 200 但返回 HTML/JSON 错误页）
+                String contentType = body.contentType() != null ? body.contentType().toString() : "";
+                if (!contentType.toLowerCase().startsWith("image/")) {
+                    AILogger.w(TAG, "非图片响应 Content-Type: " + contentType);
+                    return null;
+                }
+
                 File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context).getWorkspaceDir();
                 if (!dir.exists()) dir.mkdirs();
-                File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ".jpg");
+                String ext = ".jpg";
+                if (contentType.toLowerCase().contains("png")) ext = ".png";
+                else if (contentType.toLowerCase().contains("webp")) ext = ".webp";
+                File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ext);
 
                 try (InputStream input = body.byteStream();
                      FileOutputStream output = new FileOutputStream(imageFile)) {
@@ -261,13 +288,10 @@ public class ImageGenTool implements AITool {
             }
             return toolResult;
         } catch (Exception e) {
+            // FileProvider 失败（如工作区目录未导出）明确报错，不再静默返回"成功但无图"
             AILogger.e(TAG, "Build result failed: " + e.getMessage(), e);
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "success");
-            result.put("prompt", prompt);
-            result.put("imagePath", imageFile.getAbsolutePath());
-            result.put("message", "图片已生成");
-            return AIToolResult.success(result);
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            return AIToolResult.fail("图片已生成（" + imageFile.getAbsolutePath() + "）但无法提供预览: " + msg);
         }
     }
 
