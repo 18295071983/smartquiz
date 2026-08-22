@@ -599,6 +599,54 @@ public class LlamaHelper {
 
     private static native void nativeGenerateWithTools(String[] roles, byte[][] contents, byte[] toolsJson, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
 
+    /**
+     * 统一 JSON 协议入口（spec §7.1）
+     * 请求：{"action":"chat","messages":[...],"tools":[...],"tool_choice":"auto|required|none",
+     *        "enable_thinking":bool,"max_tokens":int,"temperature":float,"top_p":float,"top_k":int}
+     * C++ 层完成模板格式化 + KV 增量生成 + parse 解析，统一 onJson 事件回调。
+     */
+    public static void chatJson(String requestJson, JsonCallback callback) {
+        String threadName = Thread.currentThread().getName();
+        AILogger.i(TAG, "[chatJson] 入口: thread=" + threadName
+                + ", requestLen=" + (requestJson != null ? requestJson.length() : 0));
+
+        if (!libraryLoaded) {
+            if (callback != null) callback.onError("AI model not available");
+            return;
+        }
+        if (requestJson == null || requestJson.isEmpty()) {
+            if (callback != null) callback.onError("Empty request");
+            return;
+        }
+
+        // 获取推理锁（与 generateWithTools 同一把写锁，防止并发推理）
+        try {
+            if (!inferenceLock.writeLock().tryLock(120, TimeUnit.SECONDS)) {
+                AILogger.e(TAG, "[chatJson] 获取推理锁超时");
+                if (callback != null) callback.onError("Inference lock timeout");
+                return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (callback != null) callback.onError("Interrupted");
+            return;
+        }
+
+        try {
+            nativeChatJson(requestJson.getBytes(StandardCharsets.UTF_8), callback);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.e(TAG, "[chatJson] UnsatisfiedLinkError: " + e.getMessage());
+            if (callback != null) callback.onError("Native method not available");
+        } catch (Throwable t) {
+            AILogger.e(TAG, "[chatJson] 异常: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            if (callback != null) callback.onError("chatJson failed: " + t.getMessage());
+        } finally {
+            inferenceLock.writeLock().unlock();
+        }
+    }
+
+    private static native void nativeChatJson(byte[] requestJson, JsonCallback callback);
+
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
         String threadName = Thread.currentThread().getName();
@@ -1392,6 +1440,28 @@ public class LlamaHelper {
          * 在 onComplete 之前调用，包含模型输出的 reasoning_content。
          */
         default void onReasoning(String reasoning) {}
+    }
+
+    /**
+     * 统一 JSON 协议回调（spec §7.1）
+     * C++ 层 chatJson 通过 onJson 发送事件：token / tool_call / reasoning / complete / error（§4.2）
+     */
+    public interface JsonCallback {
+        void onJson(String json);
+        /**
+         * SAFE_RUN_INFERENCE 崩溃恢复路径兼容（native 崩溃时直接调 onError 裸字符串）。
+         * 默认实现转成 error JSON 事件。
+         */
+        default void onError(String error) {
+            try {
+                org.json.JSONObject j = new org.json.JSONObject();
+                j.put("type", "error");
+                j.put("message", error != null ? error : "Unknown native error");
+                onJson(j.toString());
+            } catch (Exception ignored) {
+                onJson("{\"type\":\"error\",\"message\":\"Native error\"}");
+            }
+        }
     }
     
     // 基于 llama_tokenize 的精确 Token 计数

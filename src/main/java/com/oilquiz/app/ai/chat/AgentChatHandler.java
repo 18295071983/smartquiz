@@ -45,6 +45,7 @@ public class AgentChatHandler {
     private final AgentChatCallback callback;
     private final AgentRouter engine;
     private final SmartIntentRecognizer intentRecognizer;
+    private final com.oilquiz.app.ai.refactor.AIConfig aiConfig;
     private AgentSoftwareLayer softwareLayer;
     private volatile boolean isShutdown = false;
 
@@ -62,6 +63,7 @@ public class AgentChatHandler {
         // 使用 AgentRouter 自动路由到本地/在线引擎
         this.engine = new AgentRouter(activity, aiService, inferenceRouter, agentService);
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
+        this.aiConfig = new com.oilquiz.app.ai.refactor.AIConfig(activity);
         
         // 初始化新的 AgentSoftwareLayer
         this.softwareLayer = new AgentSoftwareLayer(activity, aiService);
@@ -302,11 +304,23 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
-        // 路由分支：在线模型 → OnlineAgentEngine，本地模型 → UnifiedAgentEngine
-        engine.execute(message, maxTokens, enableThinking);
+        // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎
+        boolean useLocalAgent = aiConfig != null && aiConfig.isLocalAgentEnabled()
+                && !engine.isOnlineModelActive();
+        if (useLocalAgent) {
+            AILogger.i(TAG, "Local model + localAgentEnabled → AgentSoftwareLayer (JSON 协议)");
+            softwareLayer.processMessage(message, enableThinking);
+        } else {
+            // 在线模型 → OnlineAgentEngine
+            engine.execute(message, maxTokens, enableThinking);
+        }
     }
 
     public void cancel() {
+        // R3-2：本地软件层也需打断 native 生成（softwareLayer.cancel 内会调 stopGeneration）
+        if (softwareLayer != null && softwareLayer.isProcessing()) {
+            softwareLayer.cancel();
+        }
         engine.cancel();
     }
 

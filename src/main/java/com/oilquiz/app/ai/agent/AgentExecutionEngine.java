@@ -151,8 +151,8 @@ public class AgentExecutionEngine {
         softwareLayer.setCallback(createSoftwareCallback(messageId, state));
         softwareLayerMap.put(messageId, softwareLayer);
 
-        // 在后台执行
-        softwareLayer.processMessage(userMessage);
+        // 在后台执行（R8-1：Agent 模式 enableThinking=false，与产品决策一致）
+        softwareLayer.processMessage(userMessage, false);
     }
 
     /**

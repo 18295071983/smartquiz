@@ -56,6 +56,8 @@ public class AIConfig {
     private boolean autoModeEnabled = false; // 禁用自动模式切换，所有模式由用户手动选择
     private boolean intentRecognitionEnabled = true;
     private boolean agentEnabled = true; // 启用 Agent 模式
+    private boolean useJsonProtocol = true;      // 本地推理 JSON 协议开关（spec §10.2 回退用）
+    private boolean localAgentEnabled = false;   // 本地 Agent 复活入口开关（spec §3.1.1，R3-1）
     private OptimizationMode optimizationMode = OptimizationMode.BALANCED;
 
     public AIConfig(Context context) {
@@ -121,6 +123,20 @@ public class AIConfig {
             prefs.edit().remove("agent_enabled").putBoolean("agent_enabled", true).apply();
             agentEnabled = true;
         }
+
+        try {
+            useJsonProtocol = prefs.getBoolean("use_json_protocol", true);
+        } catch (ClassCastException e) {
+            prefs.edit().remove("use_json_protocol").putBoolean("use_json_protocol", true).apply();
+            useJsonProtocol = true;
+        }
+
+        try {
+            localAgentEnabled = prefs.getBoolean("local_agent_enabled", false);
+        } catch (ClassCastException e) {
+            prefs.edit().remove("local_agent_enabled").putBoolean("local_agent_enabled", false).apply();
+            localAgentEnabled = false;
+        }
         
         try {
             optimizationMode = OptimizationMode.fromId(prefs.getInt("optimization_mode", OptimizationMode.BALANCED.id));
@@ -141,6 +157,8 @@ public class AIConfig {
             .putBoolean("auto_mode_enabled", autoModeEnabled)
             .putBoolean("intent_recognition_enabled", intentRecognitionEnabled)
             .putBoolean("agent_enabled", agentEnabled)
+            .putBoolean("use_json_protocol", useJsonProtocol)
+            .putBoolean("local_agent_enabled", localAgentEnabled)
             .putInt("optimization_mode", optimizationMode.id)
             .apply();
     }
@@ -171,6 +189,12 @@ public class AIConfig {
 
     public boolean isAgentEnabled() { return agentEnabled; }
     public void setAgentEnabled(boolean agentEnabled) { this.agentEnabled = agentEnabled; saveToPreferences(); }
+
+    public boolean isUseJsonProtocol() { return useJsonProtocol; }
+    public void setUseJsonProtocol(boolean useJsonProtocol) { this.useJsonProtocol = useJsonProtocol; saveToPreferences(); }
+
+    public boolean isLocalAgentEnabled() { return localAgentEnabled; }
+    public void setLocalAgentEnabled(boolean localAgentEnabled) { this.localAgentEnabled = localAgentEnabled; saveToPreferences(); }
 
     public OptimizationMode getOptimizationMode() { return optimizationMode; }
     public void setOptimizationMode(OptimizationMode mode) { this.optimizationMode = mode; saveToPreferences(); }

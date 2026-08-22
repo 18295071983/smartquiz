@@ -4,8 +4,6 @@ import android.content.Context;
 
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
-import com.oilquiz.app.ai.agent.online.OnlineToolManager;
-import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
@@ -94,7 +92,6 @@ public class AgentLoopEngine {
 
     private final AIService aiService;
     private final AIToolManager toolManager;
-    private final OnlineToolManager onlineToolManager;
     private final AIConfig aiConfig;
     private LoopCallback callback;
 
@@ -113,7 +110,6 @@ public class AgentLoopEngine {
     public AgentLoopEngine(Context context, AIService aiService) {
         this.aiService = aiService;
         this.toolManager = AIToolManager.getInstance(context);
-        this.onlineToolManager = new OnlineToolManager(context);
         this.aiConfig = new AIConfig(context);
     }
 
@@ -123,7 +119,7 @@ public class AgentLoopEngine {
 
     // ==================== 主循环 ====================
 
-    public AgentResponse run(String userMessage) {
+    public AgentResponse run(String userMessage, boolean enableThinking) {
         long startTime = System.currentTimeMillis();
         int totalTokens = 0;
         int toolCallCount = 0;
@@ -173,14 +169,33 @@ public class AgentLoopEngine {
             long genStart = System.currentTimeMillis();
             GenerateResult genResult = null;
 
+            // 构建请求 JSON（spec §7.2.1 step b）
+            String toolChoice = (iteration == 1 && !selectedTools.isEmpty()) ? "required" : "auto";
+            int iterMaxTokens = iteration == 1 ? 500 : 1000;
+            String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
+            if (requestJson == null) {
+                AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
+                break;
+            }
+
             try {
-                // C++ 层通过 common_chat_parse 解析模型原生 FC 输出，
-                // 通过 JNI 回调直接传递 onToolCalls/onReasoning
-                genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, true);
+                if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
+                    // 新协议：chatJson → 统一 onJson 事件
+                    genResult = generateWithChatJsonSync(requestJson);
+                } else {
+                    // 回退开关：旧 generateWithTools 路径
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
+                }
             } catch (UnsatisfiedLinkError e) {
-                AILogger.w(TAG, "nativeGenerateWithTools unavailable, fallback to prompt mode");
-                String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
-                genResult = new GenerateResult(fallbackResponse, "", new ArrayList<>());
+                // §10.2：chatJson 不可用 → 自动切回旧路径；再失败 → prompt 模式
+                AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
+                try {
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
+                } catch (UnsatisfiedLinkError e2) {
+                    AILogger.w(TAG, "nativeGenerateWithTools unavailable, fallback to prompt mode");
+                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
+                    genResult = new GenerateResult(fallbackResponse, "", new ArrayList<>());
+                }
             } catch (Exception e) {
                 AILogger.e(TAG, "Generate failed at iter " + iteration + ": " + e.getMessage());
             }
@@ -196,12 +211,6 @@ public class AgentLoopEngine {
                 callback.onIterationEnd(iteration, response);
             }
 
-            if (response == null || response.trim().isEmpty()) {
-                AILogger.w(TAG, "Empty response at iteration " + iteration);
-                break;
-            }
-            lastMeaningfulResponse = response;
-
             // 提取思考过程（C++ 层通过 onReasoning 回调传递，也检查文本中的标签）
             if (genResult.reasoning != null && !genResult.reasoning.isEmpty() && callback != null) {
                 callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(genResult.reasoning, 120));
@@ -211,6 +220,41 @@ public class AgentLoopEngine {
             List<ToolCall> toolCalls = genResult.toolCalls;
             if (toolCalls == null || toolCalls.isEmpty()) {
                 toolCalls = parseToolCalls(response);
+            }
+
+            // R4-1：执行工具前补齐 tool_call id（assistant 消息与 tool 消息共用同一 id）
+            int callSeq = 0;
+            for (ToolCall tc : toolCalls) {
+                if (tc.id == null || tc.id.isEmpty()) tc.id = "call_" + (++callSeq);
+            }
+
+            // 空回复检查：新协议下工具轮的 complete.content 通常为空（纯 tool_call 输出），
+            // 仅在"无工具调用且内容为空"时才处理；首轮 required 空输出走 F4 prompt 模式重试
+            if ((response == null || response.trim().isEmpty()) && toolCalls.isEmpty()) {
+                if (iteration == 1) {
+                    AILogger.i(TAG, "First iteration empty output, trying prompt-mode fallback (F4)");
+                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
+                    if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
+                        List<ToolCall> fbCalls = parseToolCalls(fallbackResponse);
+                        if (!fbCalls.isEmpty()) {
+                            history.add(new ChatMessage("assistant", cleanResponse(fallbackResponse), fbCalls));
+                            toolCalls = fbCalls;
+                            // 继续走工具执行（不 break）
+                        } else {
+                            AILogger.w(TAG, "Empty response at iteration " + iteration);
+                            break;
+                        }
+                    } else {
+                        AILogger.w(TAG, "Empty response at iteration " + iteration);
+                        break;
+                    }
+                } else {
+                    AILogger.w(TAG, "Empty response at iteration " + iteration);
+                    break;
+                }
+            }
+            if (response != null && !response.trim().isEmpty()) {
+                lastMeaningfulResponse = response;   // 工具轮空内容不覆盖最后有效回复
             }
 
             if (toolCalls.isEmpty()) {
@@ -263,8 +307,8 @@ public class AgentLoopEngine {
                 return buildResponse(cleanResponse, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, iteration);
             }
 
-            // 将模型回复追加到历史（去掉思考标签，保持历史干净）
-            history.add(new ChatMessage("assistant", cleanResponse(response)));
+            // 将模型回复追加到历史（content 用纯净正文 + 结构化 tool_calls，A2/R4-1）
+            history.add(new ChatMessage("assistant", cleanResponse(response), toolCalls));
 
             // 循环保护①：去重。同一 tool+args 已执行过则不再执行；连续两轮全是重复调用 → 强制收尾
             List<ToolCall> freshCalls = new ArrayList<>();
@@ -279,8 +323,10 @@ public class AgentLoopEngine {
             }
             if (freshCalls.isEmpty()) {
                 consecutiveDuplicates++;
+                // R4-1：tool 消息带唯一合成 id（非真实调用，防模板 call_order 匹配错乱）
                 history.add(new ChatMessage("tool",
-                        "[系统提示] 该工具调用已执行过且结果已在上方给出，请勿重复调用。请基于已有结果直接给出最终回答。"));
+                        "[系统提示] 该工具调用已执行过且结果已在上方给出，请勿重复调用。请基于已有结果直接给出最终回答。",
+                        "call_hint_" + System.nanoTime(), true));
                 if (consecutiveDuplicates >= 2) {
                     AILogger.w(TAG, "Repeated duplicate tool calls, forcing final answer");
                     forcedByLoopGuard = true;
@@ -298,7 +344,7 @@ public class AgentLoopEngine {
                 break;
             }
 
-            // 执行所有新工具调用，结果以 tool role 追加到历史
+            // 执行所有新工具调用，结果以 tool role 追加到历史（P1-3：本地 toolManager，R4-1：带 tool_call_id）
             for (ToolCall tc : freshCalls) {
                 toolCallCount++;
                 String toolName = tc.toolName;
@@ -306,13 +352,14 @@ public class AgentLoopEngine {
 
                 if (callback != null) callback.onToolCall(toolName, argsStr);
 
-                OnlineToolResult result = onlineToolManager.executeTool(tc.id, toolName, argsStr);
-                boolean success = result.success;
-                String resultStr = result.result != null ? result.result : result.error;
+                // 本地工具执行（spec §7.2.2.1：AIToolResult 适配）
+                AIToolResult result = executeToolSafely(toolName, tc.args);
+                boolean success = result.isSuccess();
+                String resultStr = success ? String.valueOf(result.getResult()) : result.getErrorMessage();
 
                 if (callback != null) callback.onToolResult(toolName, success, resultStr);
 
-                history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH)));
+                history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
                 AILogger.i(TAG, "Tool " + toolName + (success ? " OK" : " FAIL")
                         + ": " + truncate(resultStr, 100));
             }
@@ -458,6 +505,167 @@ public class AgentLoopEngine {
                 + " toolCalls=" + nativeToolCalls.size());
 
         return new GenerateResult(content, reasoning, nativeToolCalls);
+    }
+
+    /**
+     * 新协议同步调用（spec §7.2.1 step c/d）：
+     * LlamaHelper.chatJson → C++ chatJson → 统一 onJson 事件。
+     * onJson 状态机：token(流式) / tool_call(收集) / reasoning(思考) / complete(本轮结束) / error(终止)
+     */
+    private GenerateResult generateWithChatJsonSync(String requestJson) {
+        CountDownLatch latch = new CountDownLatch(1);
+        final List<ToolCall> toolCallsHolder = new ArrayList<>();
+        final StringBuilder reasoningBuf = new StringBuilder();
+        final String[] contentHolder = {null};
+        final String[] errorHolder = {null};
+        final boolean[] done = {false};   // F10：幂等标志，error/complete 后忽略迟到事件
+
+        LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
+            @Override
+            public void onJson(String json) {
+                if (done[0]) return;
+                try {
+                    JSONObject event = new JSONObject(json);
+                    String type = event.optString("type", "");
+                    switch (type) {
+                        case "token":
+                            // is_tool_call=true 的 token（tool_call JSON 片段）吞掉不渲染（§5.2）
+                            if (!event.optBoolean("is_tool_call", false)) {
+                                String token = event.optString("content", "");
+                                if (!token.isEmpty() && callback != null) {
+                                    callback.onToken(token);
+                                }
+                            }
+                            break;
+                        case "tool_call":
+                            toolCallsHolder.add(parseToolCallEvent(event));
+                            break;
+                        case "reasoning":
+                            String reasoning = event.optString("content", "");
+                            if (!reasoning.isEmpty()) {
+                                reasoningBuf.append(reasoning);
+                                if (callback != null) callback.onThinkingUpdate(reasoning);
+                            }
+                            break;
+                        case "complete":
+                            contentHolder[0] = event.optString("content", "");
+                            done[0] = true;
+                            latch.countDown();
+                            break;
+                        case "error":
+                            errorHolder[0] = event.optString("message", "Unknown error");
+                            done[0] = true;
+                            latch.countDown();
+                            break;
+                        default:
+                            AILogger.w(TAG, "Unknown onJson event type: " + type);
+                            break;
+                    }
+                } catch (Exception e) {
+                    AILogger.e(TAG, "onJson parse error: " + e.getMessage());
+                    if (!done[0]) {
+                        errorHolder[0] = "onJson parse error: " + e.getMessage();
+                        done[0] = true;
+                        latch.countDown();
+                    }
+                }
+            }
+        });
+
+        try {
+            boolean completed = latch.await(SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!completed) {
+                AILogger.e(TAG, "chatJson timeout after " + SYNC_TIMEOUT_MS + "ms");
+                return null;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+
+        if (errorHolder[0] != null) {
+            // cancelled（R3-2）与真实错误统一视为本轮失败，走 run() 统一退出路径
+            AILogger.e(TAG, "chatJson error: " + errorHolder[0]);
+            return null;
+        }
+
+        String content = contentHolder[0] != null ? contentHolder[0].trim() : "";
+        AILogger.i(TAG, "generateWithChatJsonSync result: contentLen=" + content.length()
+                + " reasoningLen=" + reasoningBuf.length()
+                + " toolCalls=" + toolCallsHolder.size());
+
+        return new GenerateResult(content, reasoningBuf.toString(), toolCallsHolder);
+    }
+
+    /** 解析 tool_call 事件（§4.2）：id/name/arguments(JSON 字符串) */
+    private ToolCall parseToolCallEvent(JSONObject event) {
+        String idStr = event.optString("id", "");
+        String id = (idStr == null || idStr.isEmpty()) ? null : idStr;
+        String name = event.optString("name", "");
+        String argsStr = event.optString("arguments", "{}");
+        JSONObject argsJson;
+        try {
+            argsJson = new JSONObject(argsStr);
+        } catch (Exception e) {
+            argsJson = new JSONObject();
+        }
+        return new ToolCall(id, name, argsJson);
+    }
+
+    /**
+     * 构建 OpenAI 格式请求 JSON（spec §4.1 / §7.2.3）
+     * 支持 assistant.tool_calls（结构化）与 tool.tool_call_id（R4-1）
+     * 失败返回 null（org.json 的 put 抛受检 JSONException，内部消化）
+     */
+    private String buildRequestJson(List<ChatMessage> history, String toolsJson,
+                                     String toolChoice, int maxTokens, boolean enableThinking) {
+        try {
+            JSONObject req = new JSONObject();
+            req.put("action", "chat");
+
+            JSONArray msgs = new JSONArray();
+            for (ChatMessage m : history) {
+                JSONObject msg = new JSONObject();
+                msg.put("role", m.role);
+                msg.put("content", m.content != null ? m.content : "");
+                if (m.toolCalls != null && !m.toolCalls.isEmpty()) {
+                    JSONArray tcs = new JSONArray();
+                    for (ToolCall tc : m.toolCalls) {
+                        // A3：id 必须来自执行工具前的补齐（R4-1），这里不临时生成
+                        if (tc.id == null || tc.id.isEmpty()) continue;
+                        JSONObject call = new JSONObject();
+                        call.put("id", tc.id);
+                        call.put("type", "function");
+                        JSONObject fn = new JSONObject();
+                        fn.put("name", tc.toolName);
+                        fn.put("arguments", tc.args.toString());
+                        call.put("function", fn);
+                        tcs.put(call);
+                    }
+                    if (tcs.length() > 0) msg.put("tool_calls", tcs);
+                }
+                if (m.toolCallId != null) {
+                    msg.put("tool_call_id", m.toolCallId);
+                }
+                msgs.put(msg);
+            }
+            req.put("messages", msgs);
+
+            if (toolsJson != null && !toolsJson.isEmpty()) {
+                req.put("tools", new JSONArray(toolsJson));
+            }
+            req.put("tool_choice", toolChoice);
+            req.put("enable_thinking", enableThinking);   // R8-1：调用方传入（Agent 模式默认 false）
+            req.put("max_tokens", maxTokens);
+            req.put("temperature", 0.6f);
+            req.put("top_p", 0.9f);
+            req.put("top_k", 40);
+
+            return req.toString();
+        } catch (org.json.JSONException e) {
+            AILogger.e(TAG, "buildRequestJson failed: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -1080,17 +1288,29 @@ public class AgentLoopEngine {
 
     // ==================== 内部类 ====================
 
+    /**
+     * 对话消息（spec §7.2.4）
+     * toolCalls：assistant 消息携带的工具调用（OpenAI 格式结构化，R4-1）
+     * toolCallId：tool 消息对应的调用 ID（必须与 assistant tool_calls 的 id 一致，R4-1）
+     */
     private static class ChatMessage {
         final String role;
         final String content;
-        ChatMessage(String role, String content) {
+        final List<ToolCall> toolCalls;
+        final String toolCallId;
+        ChatMessage(String role, String content) { this(role, content, null, null); }
+        ChatMessage(String role, String content, List<ToolCall> toolCalls) { this(role, content, toolCalls, null); }
+        ChatMessage(String role, String content, String toolCallId, boolean isToolResult) { this(role, content, null, toolCallId); }
+        private ChatMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
             this.role = role;
             this.content = content;
+            this.toolCalls = toolCalls;
+            this.toolCallId = toolCallId;
         }
     }
 
     private static class ToolCall {
-        final String id;
+        String id;          // 非 final：执行工具前补齐（R4-1）
         final String toolName;
         final JSONObject args;
         ToolCall(String id, String name, JSONObject args) { this.id = id; this.toolName = name; this.args = args; }

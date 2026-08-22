@@ -154,7 +154,8 @@ public class AgentRouter {
 
     // ==================== 内部方法 ====================
 
-    private boolean isOnlineModelActive() {
+    /** 当前是否在线模型（本地 Agent 复活入口路由判断用，R3-1） */
+    public boolean isOnlineModelActive() {
         try {
             if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
                 return true;
