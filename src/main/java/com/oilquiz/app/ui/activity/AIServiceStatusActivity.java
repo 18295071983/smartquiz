@@ -116,6 +116,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private SwitchMaterial aiEnableSwitch;
     private AppCompatSpinner optimizationModeSpinner;
     private SwitchMaterial agentSwitch;
+    private SwitchMaterial useJsonProtocolSwitch;
+    private SwitchMaterial localAgentSwitch;
     private AppCompatSpinner tokenSpinner;
 
     @Override
@@ -219,6 +221,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         aiEnableSwitch = findViewById(R.id.ai_enable_switch);
         optimizationModeSpinner = findViewById(R.id.optimization_mode_spinner);
         agentSwitch = findViewById(R.id.agent_switch);
+        useJsonProtocolSwitch = findViewById(R.id.use_json_protocol_switch);
+        localAgentSwitch = findViewById(R.id.local_agent_switch);
 
         // 初始化按钮
         MaterialButton btnInitializeModel = findViewById(R.id.btn_initialize_model);
@@ -310,6 +314,28 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                         agentLight.setBackgroundResource(isChecked ? R.drawable.circle_green : R.drawable.circle_red);
                     }
                 });
+            });
+        }
+
+        // 本地推理 JSON 协议开关（spec §10.2 回退用；默认 true 新协议优先）
+        if (useJsonProtocolSwitch != null) {
+            useJsonProtocolSwitch.setChecked(aiConfig.isUseJsonProtocol());
+            useJsonProtocolSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                aiConfig.setUseJsonProtocol(isChecked);
+                Toast.makeText(this, isChecked
+                        ? "已启用本地推理JSON协议（重启AI对话后生效）"
+                        : "已回退旧推理接口（重启AI对话后生效）", Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        // 本地 Agent 复活开关（spec §3.1.1，实验功能；默认 false）
+        if (localAgentSwitch != null) {
+            localAgentSwitch.setChecked(aiConfig.isLocalAgentEnabled());
+            localAgentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                aiConfig.setLocalAgentEnabled(isChecked);
+                Toast.makeText(this, isChecked
+                        ? "已启用本地Agent（实验），需本地模型"
+                        : "已禁用本地Agent", Toast.LENGTH_SHORT).show();
             });
         }
 

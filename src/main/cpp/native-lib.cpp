@@ -2862,6 +2862,10 @@ public:
         std::string genError;               // 生成失败信息（R7-1）
         // §5.2 第一阶段：required → 所有 token 标记 is_tool_call=true；auto/none → false
         bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
+        // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
+        // 检测到后锁定 is_tool_call=true，减少 UI 短暂闪烁（已发出的前几个 token 无法撤回）
+        const int PARTIAL_PARSE_INTERVAL = 16;   // 每收 N 个 token 检测一次
+        int partialParseCounter = 0;
 
         auto tokenCallback = [&](const std::string& text, bool isComplete, const std::string& error) {
             if (!isComplete) {
@@ -2870,6 +2874,23 @@ public:
                     return;
                 }
                 collectedText += text;
+                // 第二阶段增量检测：仅 auto/none 且尚未进入 tool_call 时启用
+                if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
+                    if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
+                        partialParseCounter = 0;
+                        try {
+                            common_chat_parser_params pp(chat_params);
+                            pp.parse_tool_calls = true;
+                            common_chat_msg partial = common_chat_parse(collectedText, true, pp);
+                            if (!partial.tool_calls.empty()) {
+                                isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
+                                LOGI("chatJson: is_partial detected tool_call output");
+                            }
+                        } catch (const std::exception& e) {
+                            LOGW("chatJson: partial parse failed (ignored): %s", e.what());
+                        }
+                    }
+                }
                 // R9-1：UTF-8 完整性——只发完整前缀，不完整尾部留在 buffer
                 std::string combined = utf8Buffer + text;
                 std::string completePart;
