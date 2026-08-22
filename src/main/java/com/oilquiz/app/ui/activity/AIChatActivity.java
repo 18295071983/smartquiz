@@ -63,6 +63,7 @@ import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.agent.ToolErrorRecovery;
 import com.oilquiz.app.ai.agent.ToolPreChecker;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
+import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.chat.MessageAttachmentAdapter;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.jni.LlamaHelper;
@@ -4261,7 +4262,10 @@ public class AIChatActivity extends BaseActivity {
         try {
             // 简化路由：在线模型 → 完整 Agent（工具调用自动）；本地模型 → 普通对话
             // （模式精简为 普通/深度思考 两个，深度思考由普通对话路径注入思考指令+enableThinking）
-            if (shouldUseOnlineModel()) {
+            // R3-1/R8-2：本地 Agent 实验开关开启时，本地模型也走 Agent
+            // （startAgentLoop 内再分流到 AgentSoftwareLayer，本地可调用工具）
+            if (shouldUseOnlineModel()
+                    || (aiConfig != null && aiConfig.isLocalAgentEnabled())) {
                 showOnlineAgentFriendlyGuide(message);
                 processChatMessageWithAgent(message);
                 return;
@@ -4462,6 +4466,41 @@ public class AIChatActivity extends BaseActivity {
         scrollToBottom();
     }
 
+    /** 本地 Agent 多轮上下文：最多携带的历史消息条数（约 2 轮对话，减少 prompt 提升速度） */
+    private static final int AGENT_HISTORY_MAX_MESSAGES = 4;
+
+    /**
+     * 从 UI 对话历史构建本地 Agent 的多轮上下文：
+     * 从尾部定位当前用户消息（最后一次 user 消息），跳过它及之后的所有消息
+     * （AI 占位消息、系统横幅），只收集之前真实的 user/assistant 轮次，最多 8 条。
+     */
+    private java.util.List<AgentLoopEngine.HistoryEntry> buildAgentHistory(
+            java.util.List<ChatMessage> history) {
+        java.util.List<AgentLoopEngine.HistoryEntry> result = new java.util.ArrayList<>();
+        if (history == null) return result;
+
+        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题）
+        int currentUserIdx = -1;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage m = history.get(i);
+            if (m != null && "user".equals(m.getRole())) {
+                currentUserIdx = i;
+                break;
+            }
+        }
+        if (currentUserIdx < 0) return result;
+
+        // 收集当前用户消息之前的真实对话轮次
+        for (int j = currentUserIdx - 1; j >= 0 && result.size() < AGENT_HISTORY_MAX_MESSAGES; j--) {
+            ChatMessage m = history.get(j);
+            if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
+            String role = m.getRole();
+            if (!"user".equals(role) && !"assistant".equals(role)) continue;
+            result.add(0, new AgentLoopEngine.HistoryEntry(role, m.getContent()));
+        }
+        return result;
+    }
+
     private void processChatMessageWithAgent(String message) {
         try {
             synchronized (streamingLock) {
@@ -4475,8 +4514,10 @@ public class AIChatActivity extends BaseActivity {
             // 检测是否使用在线模型
             boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
 
-            // 本地模型：本地 Agent 引擎已弃用（工具调用不稳定），统一降级普通对话
-            if (!useOnlineModel) {
+            // 本地模型：默认降级普通对话；仅当显式开启"本地 Agent"实验开关时放行，
+            // 由 AgentChatHandler.startAgentLoop 内部再分流到 AgentSoftwareLayer（本地可调用工具）
+            boolean localAgentEnabled = aiConfig != null && aiConfig.isLocalAgentEnabled();
+            if (!useOnlineModel && !localAgentEnabled) {
                 addSystemMessage("🤖 本地模型暂不支持 Agent 工具调用，已使用普通对话。");
                 processChatMessageNormal(message);
                 return;
@@ -4566,7 +4607,9 @@ public class AIChatActivity extends BaseActivity {
             // 生成状态监控：Agent 生成可能较慢（本地模型），启动即显示处理中状态，
             // 避免用户"一直等待"无反馈（onThinkingToken/onToolCallStart/onComplete 会覆盖更新）
             updateAgentStatusBar("⏳ 模型处理中...", true);
-            agentChatHandler.startAgentLoop(message, maxTokens, enableThinking);
+            // 多轮上下文：把最近几轮对话传给本地 Agent（在线引擎自带会话历史，忽略该参数）
+            java.util.List<AgentLoopEngine.HistoryEntry> agentHistory = buildAgentHistory(chatHistory);
+            agentChatHandler.startAgentLoop(message, maxTokens, enableThinking, agentHistory);
 
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessageWithAgent: " + e.getMessage());

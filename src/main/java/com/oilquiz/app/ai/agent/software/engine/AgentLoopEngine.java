@@ -54,6 +54,8 @@ public class AgentLoopEngine {
     private static final int MAX_TOOL_RESULT_LENGTH = 2000;
     /** 最终回复最大生成 token（与预算计算保持一致） */
     private static final int FINAL_RESPONSE_MAX_TOKENS = 1000;
+    /** 普通对话（意图未命中）最大生成 token：小模型生成慢，500 足够普通回答 */
+    private static final int PLAIN_CHAT_MAX_TOKENS = 500;
     /** 工具执行超时（毫秒） */
     private static final long TOOL_TIMEOUT_MS = 15000;
     /** 工具失败重试次数 */
@@ -62,37 +64,84 @@ public class AgentLoopEngine {
     private static final long SYNC_TIMEOUT_MS = 60000;
     /** 单轮推理最大生成 token（与预算计算保持一致） */
     private static final int ITER_MAX_TOKENS = 500;
-    /** 单次执行最多注入的工具数（防止全量工具定义塞满上下文） */
-    private static final int MAX_TOOLS_PER_RUN = 6;
-    /** 工具 schema 的 token 预算，超过则继续裁剪工具集 */
-    private static final int MAX_SCHEMA_TOKENS = 1500;
+    /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
+    private static final int MAX_TOOLS_PER_RUN = 5;
+    /** 工具 schema 的 token 预算（无 ui_component 后 2500 足够覆盖常驻+命中工具） */
+    private static final int MAX_SCHEMA_TOKENS = 2500;
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
+    /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
+    private static final long UI_WAIT_MS = 30000;
 
-    /** 关键词路由表：根据用户消息智能选择相关工具，避免全量注入 */
+    /** 工具 → 中文标签（程序化总结时使用，覆盖全部常用注册工具） */
+    private static final java.util.Map<String, String> TOOL_LABELS = new java.util.HashMap<>();
+    static {
+        TOOL_LABELS.put("ai_weather", "天气");
+        TOOL_LABELS.put("location", "位置");
+        TOOL_LABELS.put("network_search", "搜索");
+        TOOL_LABELS.put("webpage_reader", "网页");
+        TOOL_LABELS.put("smart_research", "调研");
+        TOOL_LABELS.put("database", "题库");
+        TOOL_LABELS.put("system_resource", "系统资源");
+        TOOL_LABELS.put("dynamic_clock", "时间");
+        TOOL_LABELS.put("calculator", "计算");
+        TOOL_LABELS.put("python_analyze_data", "数据分析");
+        TOOL_LABELS.put("file_reader", "文件");
+        TOOL_LABELS.put("file_analyzer", "文件分析");
+        TOOL_LABELS.put("file_generator", "文件生成");
+        TOOL_LABELS.put("excel_tool", "Excel");
+        TOOL_LABELS.put("workspace", "工作区");
+        TOOL_LABELS.put("image_gen", "图片生成");
+        TOOL_LABELS.put("python_execute", "代码");
+        TOOL_LABELS.put("app_operation", "应用");
+        TOOL_LABELS.put("system_ui_control", "系统UI");
+        TOOL_LABELS.put("memory", "记忆");
+        TOOL_LABELS.put("deepseek_balance", "余额");
+        TOOL_LABELS.put("deepseek_usage_calc", "用量");
+        TOOL_LABELS.put("clean_import_files", "模型清理");
+        TOOL_LABELS.put("speech_synthesis", "朗读");
+        TOOL_LABELS.put("voice_input", "语音输入");
+        TOOL_LABELS.put("tool_registry", "工具");
+        TOOL_LABELS.put("get_models_profile", "模型");
+        TOOL_LABELS.put("permission_manager", "权限");
+    }
+
+    /** 程序化执行结果：text 为程序直接输出的最终回复（不调模型） */
+    private static class ProgResult {
+        final boolean success;
+        final String text;
+        ProgResult(boolean success, String text) {
+            this.success = success;
+            this.text = text;
+        }
+    }
+
+    /** 关键词路由表：3 个工具（时间已由环境上下文注入，无需工具） */
     private static final String[][] TOOL_ROUTES = {
-            {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾"},
-            {"location", "位置,定位,我在哪,附近,周边,坐标"},
-            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新"},
-            {"smart_research", "调研,研究,深度搜索,资料,报告"},
-            {"file_reader", "读文件,读取文件,打开文件,文件内容,目录,路径"},
-            {"file_analyzer", "分析文件,文件分析,解析文件"},
-            {"file_generator", "生成文件,创建文件,生成网页,导出,保存为,html,写一个页面"},
-            {"database", "题库,题目,数据库,sqlite,sql查询,数据表"},
-            {"app_operation", "打开应用,启动应用,跳转应用,打开app"},
-            {"app_toolkit", "快捷指令,应用工具箱"},
-            {"system_resource", "内存,cpu,电量,存储空间,系统信息"},
-            {"python_calculate", "计算,算一下,数学,求和,平均,统计"},
-            {"python_analyze_data", "数据分析,数据处理,分析数据,表格分析"},
-            {"python_execute", "python,脚本,执行代码"},
-            {"webpage_reader", "网页,链接,url,http"},
+            {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
+            {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
+            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
     };
-    /** 无关键词命中时的默认核心工具集 */
-    private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search", "file_generator"};
+    /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
+    private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search"};
+
+    /** 动态工具关键词路由表：程序硬编码，消息命中关键词即注入对应动态工具
+     *  （不依赖模型猜工具名；工具需已注册，未注册自动跳过） */
+    private static final String[][] DYNAMIC_TOOL_ROUTES = {
+            {"deepseek_usage_calc", "余额,用量,费用,deepseek,花费,计费,花了"},
+            {"deepseek_balance", "余额,deepseek"},
+            {"dynamic_clock", "时间,日期,现在几点,时钟,星期几"},
+            {"clean_import_files", "清理模型,删除模型,模型清理,清理文件"},
+            {"show_progress", "进度,进度条,汇报进度"},
+            {"system_ui_control", "对话框,弹窗,toast,提示框,进度条显示"},
+    };
 
     private final AIService aiService;
     private final AIToolManager toolManager;
     private final AIConfig aiConfig;
+    private final android.content.Context appContext;
+    /** UI 交互辅助：程序直接用 ui_component 组件与用户交互（追问/确认/进度/卡片） */
+    private final UiInteractor uiInteractor;
     private LoopCallback callback;
 
     public interface LoopCallback {
@@ -109,8 +158,10 @@ public class AgentLoopEngine {
 
     public AgentLoopEngine(Context context, AIService aiService) {
         this.aiService = aiService;
+        this.appContext = context != null ? context.getApplicationContext() : null;
         this.toolManager = AIToolManager.getInstance(context);
         this.aiConfig = new AIConfig(context);
+        this.uiInteractor = new UiInteractor(toolManager);
     }
 
     public void setCallback(LoopCallback callback) {
@@ -119,7 +170,26 @@ public class AgentLoopEngine {
 
     // ==================== 主循环 ====================
 
+    /** 历史对话条目：供多轮上下文传入（role 仅 user/assistant） */
+    public static class HistoryEntry {
+        public final String role;
+        public final String content;
+        public HistoryEntry(String role, String content) {
+            this.role = role;
+            this.content = content;
+        }
+    }
+
     public AgentResponse run(String userMessage, boolean enableThinking) {
+        return run(userMessage, enableThinking, null);
+    }
+
+    /**
+     * 主循环入口（带多轮上下文）。
+     * @param priorHistory 最近若干轮对话历史（role: user/assistant），可为 null；当前消息单独传入
+     */
+    public AgentResponse run(String userMessage, boolean enableThinking,
+                             List<HistoryEntry> priorHistory) {
         long startTime = System.currentTimeMillis();
         int totalTokens = 0;
         int toolCallCount = 0;
@@ -142,7 +212,69 @@ public class AgentLoopEngine {
 
         List<ChatMessage> history = new ArrayList<>();
         history.add(new ChatMessage("system", buildSystemPrompt()));
+        // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
+        // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
+        if (priorHistory != null) {
+            for (HistoryEntry h : priorHistory) {
+                if (h == null || h.content == null || h.content.trim().isEmpty()) continue;
+                history.add(new ChatMessage(h.role, h.content));
+            }
+        }
         history.add(new ChatMessage("user", userMessage));
+
+        // ===== 程序化意图编排（IntentEngine）：确定性优先，模型只做表达 =====
+        // 意图命中且槽位齐全 → 程序执行工具链，程序化输出；
+        // 缺必填槽位 → UI 组件/文本追问用户（挂起，下一轮补）；
+        // 无意图命中 → 转普通对话（模型直接回答，不进入工具循环）。
+        // 统一用 handled 标志分流（避免 return 后死代码，FC 循环保留在下方 if 内）
+        boolean handled = false;
+        String finalAnswer = null;
+
+        IntentOutcome outcome = runIntentOrchestration(userMessage, history);
+        if (outcome.answered) {
+            // 追问/提示已作为本轮回答输出
+            finalAnswer = outcome.reply;
+            handled = true;
+        } else if (outcome.directReply != null && !outcome.directReply.isEmpty()) {
+            // 意图编排程序化输出：不调用模型总结，直接输出工具结果
+            AILogger.i(TAG, "Intent orchestration direct output (no model summary), len="
+                    + outcome.directReply.length());
+            finalAnswer = outcome.directReply;
+            handled = true;
+        } else {
+            // ===== 意图未命中 → 转普通对话 =====
+            // 模型直接回答（不注入工具、不进入 FC 工具循环），行为与普通聊天一致。
+            AILogger.i(TAG, "No intent matched → plain chat mode");
+            GenerateResult plain = generatePlainChat(history, enableThinking);
+            if (plain != null && plain.content != null && !plain.content.trim().isEmpty()) {
+                String clean = cleanResponse(plain.content);
+                totalTokens += plain.content.length();
+                if (!clean.isEmpty() && !isPromptLeakage(clean)) {
+                    AILogger.i(TAG, "Plain chat answer: " + truncate(clean, 80));
+                    finalAnswer = clean;
+                    handled = true;
+                }
+            }
+            if (!handled) {
+                // 普通生成失败 → 简单兜底
+                finalAnswer = buildSimpleFallback(userMessage);
+                handled = true;
+            }
+        }
+
+        if (handled) {
+            AILogger.i(TAG, "Program-driven answer ready, len=" + finalAnswer.length());
+            streamDirectAnswer(finalAnswer);
+            if (callback != null) callback.onComplete(finalAnswer);
+            return buildResponse(finalAnswer, totalTokens,
+                    System.currentTimeMillis() - startTime, toolCallCount, 1);
+        }
+
+        // ===== 历史遗留：模型自主 FC 循环 =====
+        // 当前流程永不进入（handled 恒 true）——意图命中走程序化输出，意图未命中转普通对话。
+        // 保留代码以防未来需要恢复模型自主调用工具能力（modelAutonomyEnabled 置 true）。
+        boolean modelAutonomyEnabled = false;
+        if (modelAutonomyEnabled) {
 
         // 循环保护状态：已执行调用去重、工具轮次计数、最近一次有效回复
         java.util.Set<String> executedCallKeys = new java.util.HashSet<>();
@@ -170,8 +302,11 @@ public class AgentLoopEngine {
             GenerateResult genResult = null;
 
             // 构建请求 JSON（spec §7.2.1 step b）
-            String toolChoice = (iteration == 1 && !selectedTools.isEmpty()) ? "required" : "auto";
-            int iterMaxTokens = iteration == 1 ? 500 : 1000;
+            // tool_choice 恒为 auto：实测 tool_choice=required 会让 Qwen3-4B 退化
+            // （输出模板标签/重复文本而非 tool_call，FcTest 实证 tool_calls=0 + 乱码），
+            // auto 让模型按提示词与工具定义自行判断，需要时自然输出原生 tool_call
+            String toolChoice = "auto";
+            int iterMaxTokens = iteration == 1 ? ITER_MAX_TOKENS : FINAL_RESPONSE_MAX_TOKENS;
             String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
             if (requestJson == null) {
                 AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
@@ -187,20 +322,25 @@ public class AgentLoopEngine {
                     genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
                 }
             } catch (UnsatisfiedLinkError e) {
-                // §10.2：chatJson 不可用 → 自动切回旧路径；再失败 → prompt 模式
+                // §10.2：chatJson 不可用 → 自动切回旧路径；仍失败则本轮失败（模型原生 FC，无标签兜底）
                 AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
                 try {
                     genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
-                    AILogger.w(TAG, "nativeGenerateWithTools unavailable, fallback to prompt mode");
-                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
-                    genResult = new GenerateResult(fallbackResponse, "", new ArrayList<>());
+                    AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Generate failed at iter " + iteration + ": " + e.getMessage());
             }
 
-            String response = genResult != null ? genResult.content : null;
+            // genResult 为 null（chatJson error/cancelled/timeout，或生成失败）：
+            // 本轮视为失败，break 走统一退出路径（lastMeaningfulResponse/兜底回答），防 NPE
+            if (genResult == null) {
+                AILogger.w(TAG, "genResult null at iteration " + iteration + " (error/cancelled/timeout), breaking");
+                break;
+            }
+
+            String response = genResult.content;
             int iterTokens = response != null ? response.length() : 0;
             totalTokens += iterTokens;
 
@@ -216,10 +356,13 @@ public class AgentLoopEngine {
                 callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(genResult.reasoning, 120));
             }
 
-            // 优先使用 C++ 层 common_chat_parse 解析的工具调用，如果没有则回退到文本解析
-            List<ToolCall> toolCalls = genResult.toolCalls;
-            if (toolCalls == null || toolCalls.isEmpty()) {
-                toolCalls = parseToolCalls(response);
+            // 工具调用解析：优先 C++ 层 common_chat_parse（原生 JSON tool_call）；
+            // 实测 Qwen3-4B 输出的是 <tool_call>{...}</tool_call> 标签格式（FcTest 实证），
+            // common_chat_parse 解析不出，需回退标签解析才能拿到工具调用
+            List<ToolCall> toolCalls = genResult.toolCalls != null
+                    ? genResult.toolCalls : new ArrayList<>();
+            if (toolCalls.isEmpty() && response != null) {
+                toolCalls = parseToolCallsTag(response);
             }
 
             // R4-1：执行工具前补齐 tool_call id（assistant 消息与 tool 消息共用同一 id）
@@ -228,30 +371,11 @@ public class AgentLoopEngine {
                 if (tc.id == null || tc.id.isEmpty()) tc.id = "call_" + (++callSeq);
             }
 
-            // 空回复检查：新协议下工具轮的 complete.content 通常为空（纯 tool_call 输出），
-            // 仅在"无工具调用且内容为空"时才处理；首轮 required 空输出走 F4 prompt 模式重试
+            // 空回复检查：工具轮的 complete.content 通常为空（纯 tool_call 输出），
+            // 仅"无工具调用且内容为空"才处理；模型原生 FC，无标签重试，直接 break 走统一退出
             if ((response == null || response.trim().isEmpty()) && toolCalls.isEmpty()) {
-                if (iteration == 1) {
-                    AILogger.i(TAG, "First iteration empty output, trying prompt-mode fallback (F4)");
-                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
-                    if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
-                        List<ToolCall> fbCalls = parseToolCalls(fallbackResponse);
-                        if (!fbCalls.isEmpty()) {
-                            history.add(new ChatMessage("assistant", cleanResponse(fallbackResponse), fbCalls));
-                            toolCalls = fbCalls;
-                            // 继续走工具执行（不 break）
-                        } else {
-                            AILogger.w(TAG, "Empty response at iteration " + iteration);
-                            break;
-                        }
-                    } else {
-                        AILogger.w(TAG, "Empty response at iteration " + iteration);
-                        break;
-                    }
-                } else {
-                    AILogger.w(TAG, "Empty response at iteration " + iteration);
-                    break;
-                }
+                AILogger.w(TAG, "Empty response at iteration " + iteration + " with no tool calls, breaking");
+                break;
             }
             if (response != null && !response.trim().isEmpty()) {
                 lastMeaningfulResponse = response;   // 工具轮空内容不覆盖最后有效回复
@@ -260,33 +384,6 @@ public class AgentLoopEngine {
             if (toolCalls.isEmpty()) {
                 AILogger.i(TAG, "No tool call at iteration " + iteration + ", using model answer directly");
                 String cleanResponse = cleanResponse(response);
-
-                // ===== 降级重试机制 =====
-                // 如果第一轮 native FC 没解析到工具调用，说明模型不支持原生 FC，
-                // 走降级路径：使用 prompt 模式（<tool_call>{...}</tool_call> 标签）重试
-                boolean fallbackDone = false;
-                if (iteration == 1 && genResult.toolCalls == null) {
-                    AILogger.i(TAG, "First iteration, native FC returned empty tool calls, falling back to prompt mode");
-                    String fallbackResponse = generateFallbackPrompt(history, iteration, selectedTools);
-                    if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
-                        // 从降级回复中解析工具调用
-                        List<ToolCall> fallbackToolCalls = parseToolCalls(fallbackResponse);
-                        if (!fallbackToolCalls.isEmpty()) {
-                            AILogger.i(TAG, "Fallback prompt mode found " + fallbackToolCalls.size() + " tool calls, retrying");
-                            // 将降级回复追加到历史
-                            history.add(new ChatMessage("assistant", cleanResponse(fallbackResponse)));
-                            // 将降级路径解析到的工具调用作为正式的 toolCalls
-                            toolCalls = fallbackToolCalls;
-                            fallbackDone = true;
-                            // 通过 continue 进入下一轮循环（iteration++），走正常的工具执行流程
-                        }
-                    }
-                }
-
-                if (fallbackDone) {
-                    // 降级重试成功，跳出当前 if，进入下一轮循环执行工具
-                    continue;
-                }
 
                 if (cleanResponse.isEmpty()) {
                     // 清理后为空（可能全是 </think> 标签），break 走统一退出路径
@@ -374,9 +471,26 @@ public class AgentLoopEngine {
         // ===== 统一退出路径 =====
         // 所有退出原因（超时/最大迭代/循环保护/上下文溢出/空回复/泄漏）统一走这里
         AILogger.w(TAG, "Loop ended, using unified exit path");
-        String clean = cleanResponse(lastMeaningfulResponse);
+
+        // 最终回答生成：执行过工具调用但循环被强制收尾、尚未产出完整回答时，
+        // 基于全部工具结果生成一次总结回复。单次调用、不注入工具（tool_choice=none），
+        // 模型无法再发起工具调用 → 不会重新进入循环，也不会反复总结。
+        String clean = null;
+        if (toolCallCount > 0) {
+            GenerateResult finalGen = generateFinalAnswer(history, enableThinking);
+            if (finalGen != null && finalGen.content != null && !finalGen.content.trim().isEmpty()) {
+                clean = cleanResponse(finalGen.content);
+                totalTokens += finalGen.content.length();
+                AILogger.i(TAG, "Final summary generated: " + truncate(clean, 120));
+            } else {
+                AILogger.w(TAG, "Final summary generation failed, falling back to last meaningful response");
+            }
+        }
+        if (clean == null || clean.isEmpty()) {
+            clean = cleanResponse(lastMeaningfulResponse);
+        }
         if (!clean.isEmpty() && !isPromptLeakage(clean)) {
-            AILogger.i(TAG, "Using last meaningful response as final answer");
+            AILogger.i(TAG, "Using final answer: " + truncate(clean, 80));
             streamDirectAnswer(clean);
             if (callback != null) callback.onComplete(clean);
             return buildResponse(clean, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
@@ -386,10 +500,78 @@ public class AgentLoopEngine {
         streamDirectAnswer(fb);
         if (callback != null) callback.onComplete(fb);
         return buildResponse(fb, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
+
+        } // end modelAutonomyEnabled (legacy model FC loop)
+        // 理论不可达（前方已全部 return），仅满足编译器
+        return buildResponse("", totalTokens, System.currentTimeMillis() - startTime, toolCallCount, 1);
     }
 
-    private AgentResponse buildResponse(String answer, int tokens, long time, int toolCalls, int steps) {
-        AgentResponse r = new AgentResponse(answer);
+    /**
+     * 最终回答生成：循环结束后，基于全部历史（含工具结果）生成一次总结回复。
+     *
+     * 防循环设计：
+     * 1. 在迭代循环之外调用，至多执行一次；
+     * 2. 不注入任何工具（tools 为空 + tool_choice=none），模型无法输出 tool_call，
+     *    结果不会触发工具执行或循环重入；
+     * 3. 失败/超时/空输出直接返回 null 回退，绝不重试；
+     * 4. 末尾追加"请基于以上结果给出最终回答"指令，引导小模型做总结而非续写工具调用。
+     */
+    private GenerateResult generateFinalAnswer(List<ChatMessage> history, boolean enableThinking) {
+        AILogger.i(TAG, "Generating final summary answer based on all results...");
+        try {
+            // 留出输出空间：把历史裁剪到 budget - 1000，避免总结输出时上下文溢出
+            int budget = computePromptBudget();
+            List<ChatMessage> trimmed = trimHistoryToFit(history, "",
+                    Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
+
+            // 追加总结指令（作为最后一轮 user 消息，引导模型整合结果给结论）
+            List<ChatMessage> summaryHistory = new ArrayList<>(trimmed);
+            summaryHistory.add(new ChatMessage("user",
+                    "请基于以上对话和工具返回的结果，用中文给出最终回答。"));
+
+            String requestJson = buildRequestJson(summaryHistory, "", "none",
+                    FINAL_RESPONSE_MAX_TOKENS, enableThinking);
+            if (requestJson == null) return null;
+
+            if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
+                return generateWithChatJsonSync(requestJson);
+            }
+            // 旧路径：不带工具生成（native 层 tools 为空 → tool_choice=NONE）
+            return generateWithToolsSync(summaryHistory, new byte[0],
+                    FINAL_RESPONSE_MAX_TOKENS, 0.6f, enableThinking);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "Final answer generation: native unavailable: " + e.getMessage());
+            return null;
+        } catch (Exception e) {
+            AILogger.e(TAG, "Final answer generation failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 普通对话生成（意图未命中时）：模型直接回答，不注入工具、不进 FC 循环，
+     * 行为与普通聊天一致。失败返回 null。
+     */
+    private GenerateResult generatePlainChat(List<ChatMessage> history, boolean enableThinking) {
+        try {
+            int budget = computePromptBudget();
+            List<ChatMessage> trimmed = trimHistoryToFit(history, "",
+                    Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
+            String requestJson = buildRequestJson(trimmed, "", "none",
+                    PLAIN_CHAT_MAX_TOKENS, enableThinking);
+            if (requestJson == null) return null;
+            if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
+                return generateWithChatJsonSync(requestJson);
+            }
+            return generateWithToolsSync(trimmed, new byte[0],
+                    PLAIN_CHAT_MAX_TOKENS, 0.6f, enableThinking);
+        } catch (Exception e) {
+            AILogger.e(TAG, "Plain chat generation failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private AgentResponse buildResponse(String answer, int tokens, long time, int toolCalls, int steps) {        AgentResponse r = new AgentResponse(answer);
         r.stats = new AgentStats(tokens, time, toolCalls, steps);
         return r;
     }
@@ -704,30 +886,28 @@ public class AgentLoopEngine {
         }
     }
 
-    /**
-     * 降级方案：当 nativeGenerateWithTools 不可用时，使用 prompt 模式模拟工具调用
-     */
-    private String generateFallbackPrompt(List<ChatMessage> history, int iteration, List<String> toolNames) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("你是一个可以使用工具的智能助手。\n");
-        prompt.append("可用工具：\n").append(buildToolsPromptText(toolNames)).append("\n");
-        prompt.append("对话历史：\n");
-        for (ChatMessage m : history) {
-            prompt.append(m.role).append(": ").append(m.content).append("\n\n");
-        }
-        prompt.append("规则：\n");
-        prompt.append("1. 需要调用工具时，必须严格按照以下格式输出，不要输出其他内容：\n");
-        prompt.append("   <tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
-        prompt.append("2. 信息已足够或不需要工具时，直接回答用户问题，给出结论。\n");
-        prompt.append("3. 不要重复问题、不要自问自答、不要描述\"我将调用工具\"而不实际调用。\n");
-        return LlamaHelper.generate(prompt.toString(), 500, 0.7f);
-    }
-
     // ==================== 智能工具选择与预算守卫 ====================
 
     /**
+     * 用户消息是否命中工具关键词路由（不含常驻默认工具）。
+     * 决定首轮 tool_choice：命中 → required（强制调工具）；闲聊 → auto（直接回答）。
+     */
+    private boolean hasKeywordToolMatch(String userMessage) {
+        if (userMessage == null) return false;
+        String msg = userMessage.toLowerCase();
+        for (String[] route : TOOL_ROUTES) {
+            for (String keyword : route[1].split(",")) {
+                if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * 根据用户消息关键词智能选择相关工具（不再全量注入，避免塞满上下文）。
-     * 规则：关键词路由命中 → 取命中工具；无命中 → 默认核心工具集；
+     * 规则：关键词路由命中 → 取命中工具；无命中 → 不注入工具（闲聊提速）；
      * 最后按 schema token 预算与数量上限继续裁剪。
      */
     private List<String> selectRelevantTools(String userMessage) {
@@ -748,26 +928,46 @@ public class AgentLoopEngine {
             }
         }
 
-        // 无命中时用默认核心工具集保底
-        if (selected.isEmpty()) {
+        // 关键词命中后补入常驻基础工具（天气/搜索/时间，保证组合能力）；
+        // 无任何关键词命中（纯闲聊如"你好"）→ 不注入工具。CPU 设备上工具 schema
+        // 占 ~1700 token（ui_component 最大），去掉后闲聊 prompt 从 2172 降到 ~400，
+        // 首轮全量解码快 5 倍，避免"处理中"久等
+        if (!selected.isEmpty()) {
             for (String name : DEFAULT_CORE_TOOLS) {
+                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
                 if (registered.contains(name) && !selected.contains(name)) {
                     selected.add(name);
                 }
             }
         }
 
-        // 全部未命中（工具表异常）时退化为限量全集，保证可用性
-        if (selected.isEmpty()) {
+        // 工具注册表异常（为空）时退化为限量全集，保证可用性
+        if (selected.isEmpty() && registered.isEmpty()) {
             for (String name : registered) {
                 if (selected.size() >= 4) break;
                 selected.add(name);
             }
         }
 
-        // 动态工具：用户消息中直接提到工具名时选中（修复动态工具无法被本地Agent调用的问题）
+        // 动态工具：①按硬编码关键词路由注入（输入特定关键词→对应动态工具）；
+        // ②消息里直接提到工具名也选中（兜底）
         try {
-            for (String dynName : toolManager.getDynamicToolNames()) {
+            List<String> dynamicNames = toolManager.getDynamicToolNames();
+            java.util.Set<String> dynSet = new java.util.HashSet<>(dynamicNames);
+            // ① 关键词路由
+            for (String[] route : DYNAMIC_TOOL_ROUTES) {
+                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
+                String toolName = route[0];
+                if (!dynSet.contains(toolName) || selected.contains(toolName)) continue;
+                for (String keyword : route[1].split(",")) {
+                    if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
+                        selected.add(toolName);
+                        break;
+                    }
+                }
+            }
+            // ② 提工具名兜底
+            for (String dynName : dynamicNames) {
                 if (selected.size() >= MAX_TOOLS_PER_RUN) break;
                 if (!selected.contains(dynName)
                         && dynName != null && !dynName.isEmpty()
@@ -783,11 +983,11 @@ public class AgentLoopEngine {
 
     /**
      * 计算单次推理的 prompt token 预算：
-     * 按上下文容量的 80% 计算，上限留出足够推理空间。
+     * 按实际生效上下文的 80% 计算（80% prompt + 剩余留作输出），上限留出足够推理空间。
      */
     private int computePromptBudget() {
         try {
-            int ctxSize = aiConfig != null ? aiConfig.getContextSize() : 0;
+            int ctxSize = getEffectiveContextSize();
             if (ctxSize > 0) {
                 return (int) (ctxSize * PROMPT_BUDGET_RATIO);
             }
@@ -798,11 +998,36 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 获取 Agent 最大迭代轮次，与上下文容量联动。
+     * 实际生效的上下文窗口：以"实际加载的 native 上下文"为准（它就是真实 KV 缓存容量，
+     * chatCreate 优先取模型 n_ctx，如 Qwen3-4B=32768），预算按它 ×80% 已留足输出余量。
+     * 优化模式预设（4096~16384）只是资源旋钮，可能小于真实窗口（预设 8k vs 实际 32k），
+     * 若取两者较小者会把预算压到 6554，schema 吃掉 4150 后多轮历史被裁剪过度。
+     * 预设仅在实际值不可用时兜底。
+     */
+    private int getEffectiveContextSize() {
+        int preset = aiConfig != null ? aiConfig.getContextSize() : 0;
+        int real = 0;
+        try {
+            real = LlamaHelper.getContextSize();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getContextSize failed: " + t.getMessage());
+        }
+        int ctxSize = real > 0 ? real : preset;
+        if (ctxSize <= 0) {
+            ctxSize = 8192; // 兜底
+        }
+        if (real > 0 && preset > 0 && preset != real) {
+            AILogger.i(TAG, "Effective context: preset=" + preset + ", native=" + real + ", using " + ctxSize);
+        }
+        return ctxSize;
+    }
+
+    /**
+     * 获取 Agent 最大迭代轮次，与实际生效上下文容量联动。
      */
     private int getAgentMaxIterations() {
         try {
-            int ctxSize = aiConfig != null ? aiConfig.getContextSize() : 0;
+            int ctxSize = getEffectiveContextSize();
             if (ctxSize >= 65536) return 15;
             if (ctxSize >= 32768) return 12;
         } catch (Throwable t) {
@@ -832,9 +1057,11 @@ public class AgentLoopEngine {
             }
         }
 
-        // 2) 仍超：从头部截断最旧的消息，保留 system(0) 与最新 N 轮
+        // 2) 仍超：从最旧消息开始丢弃（移除 index 1，system 之后第一个），
+        //    保留 system + 最新 N 轮。注意不能用 remove(size-2)：那会从中间删，
+        //    留下"最旧+最新"两条、丢掉中间较新的上下文（与注释宣称的保留最新 N 轮相反）
         while (trimmed.size() > 3 && total > budgetTokens) {
-            trimmed.remove(trimmed.size() - 2);
+            trimmed.remove(1);
             total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
         }
 
@@ -845,32 +1072,106 @@ public class AgentLoopEngine {
     // ==================== Prompt 构建 ====================
 
     private String buildSystemPrompt() {
+        // 极简提示词：意图命中走程序化输出（不经模型），意图未命中走普通对话
+        // （模型直接回答、不注入工具），因此提示词只保留身份 + 环境上下文，
+        // 工具调用规则/回答格式等指令段全部移除（模型已不再调用工具）。
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一个智能AI助手，可以使用工具来帮助用户完成任务。\n\n");
+        sb.append("你是答题宝AI助手，用中文简洁自然地与用户对话。\n\n");
 
-        sb.append("【工具使用】\n");
-        sb.append("- 需要外部信息或执行操作时，必须调用工具，不要只用自然语言回复\n");
-        sb.append("- 工具返回结果后，分析结果决定是否需要继续调用其他工具\n");
-        sb.append("- 同一工具连续失败2次，停止重试并说明原因\n\n");
-
-        sb.append("【工具调用格式】\n");
-        sb.append("需要调用工具时，使用以下格式输出：\n");
-        sb.append("  <tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
-        sb.append("多个工具调用时依次输出多个上述格式。\n");
-        sb.append("不需要工具时，直接给出最终回答。\n\n");
-
-        sb.append("【回答要求】\n");
-        sb.append("- 用中文回答，简洁准确\n");
-        sb.append("- 基于工具返回的结果给出结论，不要说'请稍等'之类的话\n");
-        sb.append("- 不要描述'我将调用工具'，直接调用工具后基于结果回答\n\n");
-
-        sb.append("【UI 组件输出】\n");
-        sb.append("有结构的信息（列表/表格/指标/信息卡/步骤/待办/代码等）用组件标记输出，界面自动渲染成卡片，比纯文本更美观：\n");
-        sb.append("  ```component:info_card\\n{\"title\":\"标题\",\"items\":[{\"label\":\"字段\",\"value\":\"值\"}]}```\n");
-        sb.append("可用类型：info_card(信息卡)/table_card(表格)/list_card(列表)/metric_card(指标)/alert_card(提示)/steps_card(步骤)/todo_card(待办)/chart(图表)/code_card(代码)/note_card(备注)/html(富内容)；也可用任意自定义类型名（通用卡片展示）。\n");
-        sb.append("格式：```component:类型\\n{JSON}\\n```，JSON 用双引号，一个标记块一个组件；无法保证 JSON 合法时用普通文本即可。\n");
+        // 环境上下文注入（当前时间/位置）：模型可直接回答"今天几号/现在几点/附近"等，无需调工具
+        try {
+            sb.append(buildEnvironmentContext()).append("\n");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
+        }
 
         return sb.toString();
+    }
+
+    // ==================== 环境上下文注入 ====================
+
+    /** 位置缓存有效期（毫秒）：10 分钟内不重复定位 */
+    private static final long LOCATION_CACHE_TTL_MS = 10 * 60 * 1000L;
+    /** 位置获取超时（毫秒）：定位慢不能拖慢每条消息 */
+    private static final long LOCATION_FETCH_TIMEOUT_MS = 3000;
+
+    private volatile String cachedLocation;
+    private volatile long cachedLocationTime;
+
+    /**
+     * 构建环境上下文：当前日期时间（必含）+ 位置（缓存+短超时+权限检查，失败静默跳过）。
+     * 与在线引擎一致（OnlineAgentEngine.buildEnvironmentContext）。
+     */
+    private String buildEnvironmentContext() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【环境上下文】\n");
+        try {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                    "yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA);
+            sb.append("当前日期：").append(sdf.format(new java.util.Date())).append("\n");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Format time failed: " + t.getMessage());
+        }
+        String location = getCachedLocation();
+        if (location != null && !location.isEmpty()) {
+            sb.append("当前位置：").append(location).append("\n");
+        }
+        sb.append("（以上环境信息已自动获取，回答时可据此理解\"今天\"、\"附近\"等指代；时间/日期无需再调工具）");
+        return sb.toString();
+    }
+
+    /** 获取位置（缓存+超时+权限检查）：无权限/失败/超时返回 null 静默跳过 */
+    private String getCachedLocation() {
+        long now = System.currentTimeMillis();
+        if (cachedLocation != null && now - cachedLocationTime < LOCATION_CACHE_TTL_MS) {
+            return cachedLocation;
+        }
+        // 无定位权限时不尝试（避免触发权限请求打断对话）
+        try {
+            if (appContext == null) return null;
+            boolean fine = appContext.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            boolean coarse = appContext.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            if (!fine && !coarse) return null;
+        } catch (Throwable t) {
+            return null;
+        }
+        final java.util.concurrent.atomic.AtomicReference<String> holder = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+        Thread t = new Thread(() -> {
+            try {
+                java.util.Map<String, Object> params = new java.util.HashMap<>();
+                params.put("action", "get_city");
+                AIToolResult r = toolManager.executeTool("location", params);
+                if (r != null && r.isSuccess() && r.getResult() != null) {
+                    holder.set(String.valueOf(r.getResult()));
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                synchronized (done) { done.set(true); done.notifyAll(); }
+            }
+        }, "agent-loc-fetch");
+        t.setDaemon(true);
+        t.start();
+        synchronized (done) {
+            try {
+                long waitMs = LOCATION_FETCH_TIMEOUT_MS;
+                while (!done.get() && waitMs > 0) {
+                    long start = System.currentTimeMillis();
+                    done.wait(Math.min(waitMs, 500));
+                    waitMs -= (System.currentTimeMillis() - start);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        String loc = holder.get();
+        if (loc != null && !loc.isEmpty()) {
+            cachedLocation = loc;
+            cachedLocationTime = now;
+        }
+        return loc;
     }
 
     private String buildToolsJson(List<String> toolNames) {
@@ -918,15 +1219,6 @@ public class AgentLoopEngine {
         return tools.toString();
     }
 
-    private String buildToolsPromptText(List<String> toolNames) {
-        StringBuilder sb = new StringBuilder();
-        for (String name : toolNames) {
-            ToolDefinition def = toolManager.resolveToolDefinition(name);
-            if (def != null) sb.append(def.toPromptFormat()).append("\n");
-        }
-        return sb.toString();
-    }
-
     private String serializeHistory(List<ChatMessage> history) {
         StringBuilder sb = new StringBuilder();
         for (ChatMessage m : history) {
@@ -939,8 +1231,8 @@ public class AgentLoopEngine {
 
     /** 系统提示词的特征片段：命中即判定为泄漏 */
     private static final String[] PROMPT_LEAK_MARKERS = {
-            "【工具使用】", "【工具使用规范】", "【输出要求】", "【推理与终止规则】",
-            "你是一个智能AI助手，可以使用工具", "你是一个智能AI助手，拥有多种工具",
+            "【规则】", "【回答】", "【环境上下文】",
+            "你是答题宝AI助手", "你是一个智能AI助手，可以使用工具", "你是一个智能AI助手，拥有多种工具",
             "系统会自动执行你发起的工具调用", "严禁自问自答、重复已说过的内容"
     };
 
@@ -963,6 +1255,10 @@ public class AgentLoopEngine {
                 .replaceAll("(?s)<thought>.*?</thought>", "")
                 .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
+                // 剥 ChatML 标记（模型偶尔输出模板前缀 <|im_start|>assistant / <|im_end|>）
+                .replaceAll("<\\|im_start\\|>\\s*assistant", "")
+                .replaceAll("<\\|im_start\\|>", "")
+                .replaceAll("<\\|im_end\\|>", "")
                 .trim();
         // 去掉模型可能重复输出的"用户:"/"assistant:"等对话角色前缀，防止自问自答式续写
         cleaned = cleaned.replaceAll("(?i)^(user|assistant|system|用户|助手)\\s*[:：]\\s*", "");
@@ -1016,165 +1312,623 @@ public class AgentLoopEngine {
         }
     }
 
-    // ==================== 工具调用解析 ====================
+    // ==================== 工具调用标签解析 ====================
 
-    // 降级模式的 <tool_call> 标签
+    /** 模型输出的 <tool_call> 标签（Qwen3-4B 实测输出此格式，common_chat_parse 不识别） */
     private static final Pattern TOOL_CALL_TAG =
             Pattern.compile("<tool_call>(.*?)</tool_call>", Pattern.DOTALL);
 
     /**
-     * 解析模型输出中的工具调用。
-     * 支持多种格式：
-     * 1. 原生 FC 格式：模型直接输出 JSON（通过 common_chat_templates 处理）
-     * 2. 降级标签格式：<tool_call>{...}</tool_call>
-     * 3. 通用 JSON 块：响应中的 {...} 块
+     * 从回复文本解析 <tool_call> 标签包裹的 JSON 工具调用。
+     * 实测 Qwen3-4B 输出：<tool_call>{"name":"ai_weather","arguments":{"city":"北京"}}</tool_call>
      */
-    private List<ToolCall> parseToolCalls(String response) {
+    private List<ToolCall> parseToolCallsTag(String response) {
         List<ToolCall> calls = new ArrayList<>();
         if (response == null) return calls;
-
-        // 1. 先尝试标签格式
         Matcher tagMatcher = TOOL_CALL_TAG.matcher(response);
         while (tagMatcher.find()) {
-            ToolCall tc = parseToolCallJson(tagMatcher.group(1).trim());
+            ToolCall tc = parseToolCallJsonFromTag(tagMatcher.group(1).trim());
             if (tc != null) calls.add(tc);
         }
-
-        // 2. 如果标签格式没找到，尝试从原始 JSON 块解析。
-        // 只接受以 { 开头的回复：避免把正文中的普通 JSON 文本误判为工具调用导致死循环
-        if (calls.isEmpty() && response.trim().startsWith("{")) {
-            for (String block : findJsonBlocks(response)) {
-                ToolCall tc = parseToolCallJson(block);
-                if (tc != null) calls.add(tc);
-            }
-        }
-
-        // 3. 去重：相同工具名 + 相同参数的重复调用只保留一个，避免重复执行
-        return dedupeToolCalls(calls);
+        return calls;
     }
 
-    /**
-     * 去重工具调用：小模型可能重复输出同一 tool_calls，按 name+args 去重。
-     */
-    private List<ToolCall> dedupeToolCalls(List<ToolCall> calls) {
-        if (calls == null || calls.size() <= 1) return calls;
-        List<ToolCall> dedup = new ArrayList<>();
-        for (ToolCall call : calls) {
-            boolean dup = false;
-            for (ToolCall existing : dedup) {
-                if (existing.toolName.equals(call.toolName)
-                        && existing.args.toString().equals(call.args.toString())) {
-                    dup = true;
-                    break;
-                }
-            }
-            if (!dup) dedup.add(call);
-        }
-        return dedup;
-    }
-
-    /**
-     * 查找文本中所有的 JSON 对象块（使用括号计数）
-     */
-    private List<String> findJsonBlocks(String text) {
-        List<String> blocks = new ArrayList<>();
-        if (text == null) return blocks;
-
-        int depth = 0;
-        boolean inStr = false, started = false;
-        StringBuilder cur = new StringBuilder();
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '"' && (i == 0 || text.charAt(i - 1) != '\\')) {
-                inStr = !inStr;
-                if (started) cur.append(c);
-            } else if (!inStr) {
-                if (c == '{') {
-                    if (!started) { started = true; depth = 0; cur.setLength(0); }
-                    depth++;
-                    cur.append(c);
-                } else if (c == '}') {
-                    depth--;
-                    cur.append(c);
-                    if (depth == 0 && started) {
-                        blocks.add(cur.toString());
-                        cur.setLength(0);
-                        started = false;
-                    }
-                } else if (started) {
-                    cur.append(c);
-                }
-            } else if (started) {
-                cur.append(c);
-            }
-        }
-        return blocks;
-    }
-
-    /**
-     * 解析 JSON 为 ToolCall，支持多种格式：
-     * - {"name": "xxx", "args": {...}}
-     * - {"function": {"name": "xxx", "arguments": "..."}} (OpenAI)
-     */
-    private ToolCall parseToolCallJson(String jsonStr) {
+    /** 解析标签内 JSON：{"name": "...", "arguments": {...}} */
+    private ToolCall parseToolCallJsonFromTag(String jsonStr) {
         try {
             JSONObject json = new JSONObject(jsonStr);
-
-            // 支持 OpenAI envelope 格式：{"tool_calls": [{"function": {"name":..., "arguments":{...}}}]}
-            JSONArray toolCallsArr = json.optJSONArray("tool_calls");
-            if (toolCallsArr != null && toolCallsArr.length() > 0) {
-                JSONObject tc = toolCallsArr.optJSONObject(0);
-                if (tc != null) {
-                    JSONObject fn = tc.optJSONObject("function");
-                    String name = fn != null ? fn.optString("name", "") : tc.optString("name", "");
-                    if (name.isEmpty()) return null;
-                    JSONObject args = new JSONObject();
-                    if (fn != null) {
-                        String argsStr = fn.optString("arguments", "");
-                        if (!argsStr.trim().isEmpty()) {
-                            try { args = new JSONObject(argsStr); } catch (Exception ignored) {}
-                        }
-                    }
-                    return new ToolCall(name, args);
-                }
-            }
-
-            // 尝试多种字段名提取工具名
             String name = json.optString("name", json.optString("tool", ""));
-            if (name.isEmpty()) {
-                JSONObject fn = json.optJSONObject("function");
-                if (fn != null) name = fn.optString("name", "");
-            }
-
             if (name.isEmpty()) return null;
-
-            // 尝试多种字段名提取参数
-            JSONObject args = json.optJSONObject("args");
-            if (args == null) args = json.optJSONObject("arguments");
-            if (args == null) {
-                JSONObject fn = json.optJSONObject("function");
-                if (fn != null) {
-                    String argsStr = fn.optString("arguments", "");
-                    if (!argsStr.isEmpty()) {
-                        try { args = new JSONObject(argsStr); } catch (Exception ignored) {}
-                    }
-                }
-            }
+            JSONObject args = json.optJSONObject("arguments");
+            if (args == null) args = json.optJSONObject("args");
             if (args == null) args = new JSONObject();
-
             return new ToolCall(name, args);
         } catch (Exception e) {
-            AILogger.w(TAG, "Parse tool call failed: " + truncate(jsonStr, 80));
+            AILogger.w(TAG, "Parse tool call tag failed: " + truncate(jsonStr, 80));
         }
         return null;
     }
 
-    // ==================== 工具执行 ====================
+    // ==================== 程序化意图编排 ====================
+
+    private final IntentEngine intentEngine = new IntentEngine();
+    /** 追问挂起状态：上一轮缺槽位时记录意图与已收集槽位，下一轮消息补全 */
+    private IntentEngine.Intent pendingIntent;
+    private java.util.Map<String, String> pendingSlots;
+
+    /** 意图编排结果 */
+    private static class IntentOutcome {
+        boolean answered;   // 已输出最终回答（追问/失败提示），run() 直接结束
+        boolean injected;   // 工具结果已注入历史，模型总结
+        String reply = "";
+        String directReply; // 程序化最终输出（不调模型总结），非 null 时 run() 直接输出
+    }
+
+    /**
+     * 程序化意图编排：
+     * - 追问挂起中 → 本轮消息补槽位，齐则执行工具链，仍缺则继续追问
+     * - 新消息命中意图 → 提取槽位；缺必填 → 挂起并追问；齐 → 执行工具链
+     * - 无意图命中 → 返回空结果，走模型自主 FC
+     */
+    private IntentOutcome runIntentOrchestration(String userMessage, List<ChatMessage> history) {
+        IntentOutcome outcome = new IntentOutcome();
+        try {
+            // 1) 追问挂起中：本轮消息用于补槽位
+            if (pendingIntent != null) {
+                IntentEngine.Intent it = pendingIntent;
+                java.util.Map<String, String> slots = pendingSlots != null
+                        ? new java.util.HashMap<>(pendingSlots) : new java.util.HashMap<>();
+                slots.putAll(intentEngine.extractSlots(userMessage, it));
+                // 程序自动补齐（用工具获取，减少追问）
+                autoFillSlots(it, slots);
+                java.util.List<String> missing = intentEngine.missingRequired(it, slots);
+                pendingIntent = null;
+                pendingSlots = null;
+                if (!missing.isEmpty()) {
+                    // 优先 UI 组件弹窗交互补槽位；用户未响应才回退文本追问挂起
+                    if (!collectMissingViaUi(it, slots, missing)) {
+                        pendingIntent = it;
+                        pendingSlots = slots;
+                        outcome.answered = true;
+                        // 重算仍缺槽位（UI 部分收集后可能已有槽位已填）
+                        outcome.reply = buildMissingReply(it, slots,
+                                intentEngine.missingRequired(it, slots));
+                        return outcome;
+                    }
+                }
+                ProgResult pr = executeIntentChain(it, slots);
+                if (pr != null && pr.text != null && !pr.text.trim().isEmpty()) {
+                    // 程序化输出：直接作为最终回复，不调模型总结
+                    outcome.directReply = pr.text;
+                    outcome.injected = true;
+                } else {
+                    outcome.answered = true;
+                    outcome.reply = "我暂时无法完成这个操作，请换个方式描述或直接告诉我需要什么。";
+                }
+                return outcome;
+            }
+
+            // 2) 新消息：意图匹配
+            IntentEngine.Intent intent = intentEngine.match(userMessage);
+            if (intent == null) return outcome; // 模型自主
+            java.util.Map<String, String> slots = intentEngine.extractSlots(userMessage, intent);
+            // 程序自动补齐缺失槽位（用工具获取，不硬编码追问）
+            autoFillSlots(intent, slots);
+            java.util.List<String> missing = intentEngine.missingRequired(intent, slots);
+            if (!missing.isEmpty()) {
+                // 优先 UI 组件弹窗交互补槽位；用户未响应才回退文本追问挂起
+                if (!collectMissingViaUi(intent, slots, missing)) {
+                    pendingIntent = intent;
+                    pendingSlots = slots;
+                    outcome.answered = true;
+                    // 重算仍缺槽位（UI 部分收集后可能已有槽位已填）
+                    outcome.reply = buildMissingReply(intent, slots,
+                            intentEngine.missingRequired(intent, slots));
+                    return outcome;
+                }
+            }
+            ProgResult pr = executeIntentChain(intent, slots);
+            if (pr != null && pr.text != null && !pr.text.trim().isEmpty()) {
+                // 程序化输出：直接作为最终回复，不调模型总结
+                outcome.directReply = pr.text;
+                outcome.injected = true;
+            } else {
+                outcome.answered = true;
+                outcome.reply = "我暂时无法完成这个操作，请换个方式描述或直接告诉我需要什么。";
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Intent orchestration failed: " + t.getMessage());
+        }
+        return outcome;
+    }
+
+    /**
+     * 程序自动补齐缺失槽位：不确定时程序自行调用工具获取信息，减少追问与硬编码。
+     * - city 缺失 → 调 location 工具定位城市
+     * - path 缺失（读文件）→ 调 file_reader(list) 列出文件，供用户/模型选择
+     */
+    private void autoFillSlots(IntentEngine.Intent intent, java.util.Map<String, String> slots) {
+        if (intent == null || intent.requiredSlots == null) return;
+        for (String slot : intent.requiredSlots) {
+            String v = slots.get(slot);
+            if (v != null && !v.trim().isEmpty()) continue;
+            if ("city".equals(slot)) {
+                // 定位城市：复用环境缓存（内部调 location 工具，带权限检查与超时）
+                String city = getCachedLocation();
+                if (city != null && !"当前位置".equals(city) && !city.isEmpty()) {
+                    slots.put("city", city);
+                    AILogger.i(TAG, "Auto-filled slot city=" + city + " via location tool");
+                }
+            } else if ("path".equals(slot)) {
+                // 读文件缺路径：程序列出可用文件，注入列表供选择（不硬编码路径规则）
+                try {
+                    JSONObject listArgs = new JSONObject();
+                    listArgs.put("action", "list");
+                    AIToolResult r = executeToolSafely("file_reader", listArgs);
+                    if (r != null && r.isSuccess() && r.getResult() != null) {
+                        String list = String.valueOf(r.getResult());
+                        slots.put("__file_list", truncate(list, MAX_TOOL_RESULT_LENGTH));
+                        AILogger.i(TAG, "Auto-listed files for path slot: " + list.length() + " chars");
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    /** 生成追问文本（列出缺失槽位的问题；已列出文件的场景特殊处理） */
+    private String buildMissingReply(IntentEngine.Intent intent, java.util.Map<String, String> slots,
+                                     java.util.List<String> missing) {
+        // 读文件缺路径但程序已列出文件 → 回复文件列表供选择
+        if ("read_file".equals(intent.name) && missing.contains("path")
+                && slots.containsKey("__file_list")) {
+            return "可用的文件如下：\n" + slots.get("__file_list")
+                    + "\n\n请告诉我您想读哪个文件（名称或完整路径）。";
+        }
+        StringBuilder sb = new StringBuilder("我需要确认一下：");
+        for (String s : missing) {
+            sb.append("\n• ").append(intentEngine.questionFor(intent, s));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * UI 组件交互收集缺失槽位：用 choice/input 弹窗问用户（不依赖模型）。
+     * 任一槽位用户未响应（超时/取消/关闭）→ 返回 false，调用方回退文本追问挂起。
+     */
+    private boolean collectMissingViaUi(IntentEngine.Intent intent,
+                                        java.util.Map<String, String> slots,
+                                        java.util.List<String> missing) {
+        if (missing == null || missing.isEmpty()) return true;
+        for (String s : missing) {
+            String answer = askSlotViaUi(intent, s, slots);
+            if (answer != null && !answer.trim().isEmpty()) {
+                slots.put(s, normalizeSlotAnswer(s, answer.trim()));
+                AILogger.i(TAG, "UI-collected slot " + s + "=" + slots.get(s));
+            } else {
+                AILogger.i(TAG, "UI ask for slot " + s + " no response, fallback to text");
+                return false;
+            }
+        }
+        return intentEngine.missingRequired(intent, slots).isEmpty();
+    }
+
+    /** 单个槽位的 UI 询问：有预置候选选项 → choice 组件；否则 input 组件 */
+    private String askSlotViaUi(IntentEngine.Intent intent, String slot,
+                                java.util.Map<String, String> slots) {
+        String question = intentEngine.questionFor(intent, slot);
+        String title = intent.description != null ? intent.description : intent.name;
+        java.util.List<String> options = slotUiOptions(slot, slots);
+        if (options != null && !options.isEmpty()) {
+            return uiInteractor.askChoice(title, question, options, UI_WAIT_MS);
+        }
+        return uiInteractor.askInput(title, question, UI_WAIT_MS);
+    }
+
+    /** 槽位候选选项（程序预置，覆盖常用槽位） */
+    private java.util.List<String> slotUiOptions(String slot, java.util.Map<String, String> slots) {
+        if ("city".equals(slot)) {
+            return java.util.Arrays.asList(
+                    "北京", "上海", "广州", "深圳", "成都", "杭州", "重庆", "武汉", "西安", "南京");
+        }
+        if ("action".equals(slot)) {
+            return java.util.Arrays.asList("列出文件", "清理模型文件");
+        }
+        if ("confirm".equals(slot)) {
+            return java.util.Arrays.asList("确认", "取消");
+        }
+        if ("app".equals(slot)) {
+            // 打开应用缺应用名：常用应用选项（程序预置，用户点选即可）
+            return java.util.Arrays.asList("微信", "浏览器", "设置", "计算器", "相机", "日历", "电话", "短信");
+        }
+        if ("path".equals(slot) && slots != null && slots.containsKey("__file_list")) {
+            // 程序已列出文件 → 提取文件名作为选择项（正则抓取带扩展名的名称）
+            java.util.List<String> names = new java.util.ArrayList<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("([\\w\\u4e00-\\u9fa5\\-.]+(?:\\.\\w{1,8}))")
+                    .matcher(String.valueOf(slots.get("__file_list")));
+            while (m.find() && names.size() < 8) {
+                String name = m.group(1);
+                if (!names.contains(name)) names.add(name);
+            }
+            return names.isEmpty() ? null : names;
+        }
+        return null;
+    }
+
+    /** UI 选项值 → 槽位内部值映射 */
+    private String normalizeSlotAnswer(String slot, String answer) {
+        if ("action".equals(slot)) {
+            if ("列出文件".equals(answer)) return "list";
+            if ("清理模型文件".equals(answer)) return "clean";
+        }
+        if ("confirm".equals(slot)) {
+            if ("确认".equals(answer)) return "true";
+            if ("取消".equals(answer)) return "false";
+        }
+        return answer;
+    }
+
+    /**
+     * 执行意图：有预置 flow → 执行编排流程（多工具/多 action，步骤间参数传递）；
+     * 无 flow → 按工具链顺序执行（兼容单工具意图）。
+     * 返回程序化输出文本（不调模型总结）。
+     */
+    private ProgResult executeIntentChain(IntentEngine.Intent intent,
+                                          java.util.Map<String, String> slots) {
+        if (intent == null) return null;
+        if (intent.flow != null && !intent.flow.isEmpty()) {
+            return executeFlow(intent, slots);
+        }
+        return executeToolChain(intent, slots);
+    }
+
+    /**
+     * 编排流程执行（预置执行方向）：
+     * 每步 = 工具 + action + 参数映射（"$槽位名" 引用槽位/上一步输出），
+     * optional 步骤失败不阻断；步骤输出按工具提取进运行时变量供后续步骤使用。
+     * 程序化输出：结果格式化后直接返回，不注入历史、不调模型总结。
+     */
+    private ProgResult executeFlow(IntentEngine.Intent intent,
+                                   java.util.Map<String, String> slots) {
+        java.util.Map<String, String> rt = new java.util.HashMap<>(slots); // 运行时变量
+        StringBuilder results = new StringBuilder();
+        boolean anySuccess = false;
+        boolean anyFailed = false;
+        // 流程多步骤：程序创建进度条组件（用户可见），每步更新、收尾关闭
+        String progressCid = null;
+        if (intent.flow.size() > 1) {
+            progressCid = uiInteractor.createProgress("智能任务处理中",
+                    "准备执行 " + intent.flow.size() + " 步编排流程…");
+        }
+        try {
+        int stepIdx = 0;
+        int totalSteps = intent.flow.size();
+        for (IntentEngine.FlowStep step : intent.flow) {
+            stepIdx++;
+            String label = TOOL_LABELS.getOrDefault(step.tool, step.tool);
+            if (progressCid != null) {
+                uiInteractor.updateProgress(progressCid,
+                        (int) ((stepIdx - 1) * 100L / totalSteps),
+                        "第 " + stepIdx + "/" + totalSteps + " 步：" + label);
+            }
+            JSONObject args = new JSONObject();
+            try {
+                if (step.action != null) args.put("action", step.action);
+                if (step.params != null) {
+                    for (java.util.Map.Entry<String, String> e : step.params.entrySet()) {
+                        String v = e.getValue();
+                        if (v != null && v.startsWith("$")) {
+                            v = rt.get(v.substring(1)); // 槽位/上步输出引用
+                        }
+                        if (v != null && !v.isEmpty()) args.put(e.getKey(), v);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            AILogger.i(TAG, "Flow step: " + step.tool + " action=" + step.action + " args=" + args);
+            AIToolResult r = executeToolSafely(step.tool, args);
+            if (r != null && r.isSuccess() && r.getResult() != null) {
+                results.append(formatToolBlock(step.tool, r.getResult(), true));
+                anySuccess = true;
+                extractFlowOutput(step, r.getResult(), rt);
+            } else {
+                String err = (r != null && r.getErrorMessage() != null)
+                        ? r.getErrorMessage() : "执行失败";
+                results.append(formatToolBlock(step.tool, err, false));
+                anyFailed = true;
+                AILogger.w(TAG, "Flow step failed: " + step.tool + " err=" + err);
+                if (!step.optional) {
+                    if (progressCid != null) uiInteractor.closeProgress(progressCid);
+                    return new ProgResult(false, buildProgReply(results.toString()));
+                }
+            }
+        }
+        if (progressCid != null) {
+            uiInteractor.updateProgress(progressCid, 100, "完成");
+            uiInteractor.closeProgress(progressCid);
+        }
+        } finally {
+            // 异常/提前退出兜底关闭，防止进度条残留
+            if (progressCid != null && (anyFailed || !anySuccess)) {
+                uiInteractor.closeProgress(progressCid);
+            }
+        }
+        if (!anySuccess && anyFailed) {
+            return new ProgResult(false, buildProgReply(results.toString()));
+        }
+        return new ProgResult(true, buildProgReply(results.toString()));
+    }
+
+    /** 从流程步骤输出提取字段到运行时变量（供后续步骤引用） */
+    private void extractFlowOutput(IntentEngine.FlowStep step, Object result,
+                                   java.util.Map<String, String> rt) {
+        try {
+            if ("network_search".equals(step.tool) && rt.get("__first_url") == null) {
+                // 优先取结构化 results[0].url，其次正则兜底（排除图片链接/尾随字符）
+                String url = null;
+                if (result instanceof Map) {
+                    Object results = ((Map<?, ?>) result).get("results");
+                    if (results instanceof java.util.List && !((java.util.List<?>) results).isEmpty()) {
+                        Object first = ((java.util.List<?>) results).get(0);
+                        if (first instanceof Map) {
+                            Object u = ((Map<?, ?>) first).get("url");
+                            if (u != null) url = u.toString();
+                        }
+                    }
+                }
+                if (url == null) {
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("https?://[^\\s\"'，。、)\\]>]+")
+                            .matcher(String.valueOf(result));
+                    if (m.find()) url = m.group();
+                }
+                if (url != null && !url.isEmpty()) {
+                    // http:// 明文链接被 Android 网络安全策略拦截（CLEARTEXT），自动升级 https
+                    if (url.startsWith("http://")) {
+                        url = "https://" + url.substring("http://".length());
+                    }
+                    rt.put("__first_url", url);
+                    AILogger.i(TAG, "Flow extracted first_url=" + url);
+                }
+            } else if ("location".equals(step.tool) && rt.get("city") == null) {
+                org.json.JSONObject j = new org.json.JSONObject(String.valueOf(result));
+                if (j.has("city")) rt.put("city", j.optString("city"));
+            } else if ("smart_research".equals(step.tool) && rt.get("__report") == null) {
+                rt.put("__report", String.valueOf(result)); // 调研结果作为后续生成报告的素材
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 单工具意图：按工具链顺序执行，程序化输出（不调模型总结） */
+    private ProgResult executeToolChain(IntentEngine.Intent intent,
+                                        java.util.Map<String, String> slots) {
+        if (intent.toolChain == null || intent.toolChain.isEmpty()) return null;
+        StringBuilder results = new StringBuilder();
+        boolean anySuccess = false;
+        for (String tool : intent.toolChain) {
+            JSONObject args = new JSONObject();
+            try {
+                // 按工具名映射槽位 → 工具参数（覆盖全部常用工具）
+                if ("ai_weather".equals(tool)) {
+                    putStr(args, "city", slots.get("city"));
+                } else if ("network_search".equals(tool)) {
+                    putStr(args, "query", slots.get("query"));
+                } else if ("webpage_reader".equals(tool)) {
+                    putStr(args, "url", slots.get("url"));
+                } else if ("smart_research".equals(tool)) {
+                    putStr(args, "topic", slots.get("topic"));
+                } else if ("database".equals(tool)) {
+                    putStr(args, "query", slots.get("query"));
+                } else if ("dynamic_clock".equals(tool)) {
+                    // 时间答案已在环境上下文注入：程序直接拼回答，不调工具（工具慢且易超时）
+                    results.append(formatToolBlock("dynamic_clock",
+                            "当前时间：" + formatCurrentTime(slots.get("format")), true));
+                    anySuccess = true;
+                    continue; // 跳过下方工具执行
+                } else if ("calculator".equals(tool)) {
+                    putStr(args, "expression", slots.get("expression"));
+                } else if ("python_analyze_data".equals(tool)) {
+                    putStr(args, "data", slots.get("data"));
+                } else if ("file_reader".equals(tool)) {
+                    putStr(args, "action", "read");
+                    putStr(args, "file_path", slots.get("path"));
+                } else if ("file_analyzer".equals(tool)) {
+                    putStr(args, "action", "analyze");
+                    putStr(args, "file_path", slots.get("path"));
+                } else if ("file_generator".equals(tool)) {
+                    putStr(args, "action", "generate");
+                    putStr(args, "content", slots.get("content"));
+                    putStr(args, "file_name", slots.get("filename"));
+                } else if ("excel_tool".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "read"));
+                    putStr(args, "file_path", slots.get("path"));
+                } else if ("workspace".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "list"));
+                } else if ("image_gen".equals(tool)) {
+                    putStr(args, "prompt", slots.get("prompt"));
+                } else if ("python_execute".equals(tool)) {
+                    putStr(args, "code", slots.get("code"));
+                } else if ("app_operation".equals(tool)) {
+                    putStr(args, "action", "open");
+                    putStr(args, "text", slots.get("app"));
+                } else if ("system_ui_control".equals(tool)) {
+                    putStr(args, "action", slots.get("action"));
+                    putStr(args, "message", slots.get("message"));
+                    putStr(args, "title", slots.get("title"));
+                } else if ("memory".equals(tool)) {
+                    putStr(args, "action", slots.get("action"));
+                    putStr(args, "key", slots.get("key"));
+                    putStr(args, "value", slots.get("value"));
+                } else if ("clean_import_files".equals(tool)) {
+                    String action = slots.getOrDefault("action", "list");
+                    if ("clean".equals(action)) {
+                        // 清理是破坏性操作：程序用 confirm 对话框让用户确认（不依赖模型）
+                        Boolean ok = uiInteractor.confirm("清理模型文件",
+                                "确定要清理导入的模型文件吗？此操作不可恢复。", UI_WAIT_MS);
+                        if (ok != null && ok) {
+                            putStr(args, "action", "clean");
+                            putStr(args, "confirm", "true");
+                        } else {
+                            putStr(args, "action", "list"); // 取消 → 只列出文件
+                        }
+                    } else {
+                        putStr(args, "action", action);
+                        putStr(args, "confirm", slots.getOrDefault("confirm", "false"));
+                    }
+                } else if ("speech_synthesis".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "speak"));
+                    putStr(args, "text", slots.get("text"));
+                } else if ("voice_input".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "record"));
+                } else if ("tool_registry".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "list"));
+                } else if ("get_models_profile".equals(tool)) {
+                    // 无参查询
+                } else if ("permission_manager".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "list_permissions"));
+                    putStr(args, "permission", slots.get("permission"));
+                } else {
+                    // 通用：槽位直接作为参数（location/system_resource/deepseek 等无参工具忽略）
+                    for (java.util.Map.Entry<String, String> e : slots.entrySet()) {
+                        if (e.getValue() != null) args.put(e.getKey(), e.getValue());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            AILogger.i(TAG, "Intent chain: executing " + tool + " args=" + args);
+            AIToolResult r = executeToolSafely(tool, args);
+            if (r != null) {
+                results.append(formatToolBlock(tool,
+                        r.isSuccess() ? r.getResult() : r.getErrorMessage(), r.isSuccess()));
+                if (r.isSuccess()) anySuccess = true;
+            }
+        }
+        if (!anySuccess) return new ProgResult(false, buildProgReply(results.toString()));
+        return new ProgResult(true, buildProgReply(results.toString()));
+    }
+
+    /** 单个工具结果 → 程序化格式化块（中文标签 + 内容；失败带 ⚠️） */
+    private String formatToolBlock(String tool, Object result, boolean success) {
+        String label = TOOL_LABELS.getOrDefault(tool, tool);
+        String t = truncate(toolResultText(tool, result), 800).trim();
+        if (t.isEmpty()) t = "(无返回内容)";
+        return (success ? "【" : "⚠️【") + label + "】" + t + "\n";
+    }
+
+    /** 工具结果对象 → 友好文本：Map 优先取 formatted_result，结构化搜索/列表转可读文本 */
+    private String toolResultText(String tool, Object result) {
+        if (result == null) return "";
+        if (result instanceof Map) {
+            try {
+                Map<?, ?> m = (Map<?, ?>) result;
+                // 网络搜索：results 数组 → "1. 标题 链接 摘要" 列表
+                if ("network_search".equals(tool) && m.get("results") instanceof java.util.List) {
+                    return formatSearchResults((java.util.List<?>) m.get("results"));
+                }
+                // 工具列表：tools JSON 数组 → "• 名称：描述" 列表
+                if ("tool_registry".equals(tool) && m.get("tools") instanceof String) {
+                    try {
+                        org.json.JSONArray arr = new org.json.JSONArray((String) m.get("tools"));
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < Math.min(arr.length(), 30); i++) {
+                            org.json.JSONObject t = arr.getJSONObject(i);
+                            String name = t.optString("name", "");
+                            String desc = truncate(t.optString("description", ""), 70);
+                            if (!name.isEmpty()) sb.append("• ").append(name)
+                                    .append(desc.isEmpty() ? "" : "：" + desc).append("\n");
+                        }
+                        String list = sb.toString().trim();
+                        if (!list.isEmpty()) return list;
+                    } catch (Exception ignored) {
+                    }
+                }
+                Object fr = m.get("formatted_result");
+                if (fr != null && !fr.toString().trim().isEmpty()) return fr.toString();
+                return new com.google.gson.Gson().toJson(m);
+            } catch (Throwable t) {
+                return result.toString();
+            }
+        }
+        return String.valueOf(result);
+    }
+
+    /** 搜索结果 → 可读文本列表（标题/链接/摘要） */
+    private String formatSearchResults(java.util.List<?> results) {
+        StringBuilder sb = new StringBuilder();
+        int n = Math.min(results.size(), 5);
+        for (int i = 0; i < n; i++) {
+            Object item = results.get(i);
+            if (!(item instanceof Map)) continue;
+            Map<?, ?> it = (Map<?, ?>) item;
+            String title = it.get("title") != null ? String.valueOf(it.get("title")) : "";
+            String url = it.get("url") != null ? String.valueOf(it.get("url")) : "";
+            String snippet = it.get("snippet") != null ? String.valueOf(it.get("snippet")) : "";
+            sb.append(i + 1).append(". ").append(title);
+            if (!url.isEmpty()) sb.append("\n   链接: ").append(url);
+            if (!snippet.isEmpty()) sb.append("\n   ").append(truncate(snippet, 150));
+            sb.append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    /** 程序化总结：工具结果块 → 最终回复文本（截断防超长） */
+    private String buildProgReply(String blocks) {
+        if (blocks == null || blocks.trim().isEmpty()) return null;
+        return truncate(blocks.trim(), MAX_TOOL_RESULT_LENGTH * 2);
+    }
+
+    /** 槽位值写入 JSON 参数（null 跳过） */
+    private void putStr(JSONObject args, String key, String value) {
+        if (value != null && !value.isEmpty()) {
+            try { args.put(key, value); } catch (Exception ignored) {}
+        }
+    }
+
+    /** strftime 格式（%Y/%m/%d/%A 等）→ Java SimpleDateFormat 格式 */
+    private static String convertStrftime(String fmt) {
+        if (fmt == null || fmt.isEmpty()) return null;
+        return fmt.replace("%Y", "yyyy").replace("%m", "MM").replace("%d", "dd")
+                .replace("%H", "HH").replace("%M", "mm").replace("%S", "ss")
+                .replace("%A", "EEEE").replace("%a", "EEE")
+                .replace("%B", "MMMM").replace("%b", "MMM");
+    }
+
+    /** 程序拼当前时间文本（format 支持 strftime 或 Java 格式，null 用默认） */
+    private String formatCurrentTime(String format) {
+        try {
+            String javaFmt = convertStrftime(format);
+            if (javaFmt == null || javaFmt.isEmpty()) {
+                javaFmt = "yyyy年M月d日 EEEE HH:mm";
+            }
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(javaFmt, java.util.Locale.CHINA);
+            return sdf.format(new java.util.Date());
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Format time failed: " + t.getMessage());
+            try {
+                return new java.text.SimpleDateFormat("yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA)
+                        .format(new java.util.Date());
+            } catch (Throwable ignored) {
+                return String.valueOf(System.currentTimeMillis());
+            }
+        }
+    }
 
     private AIToolResult executeToolSafely(String toolName, JSONObject args) {
         Map<String, Object> params = jsonToMap(args);
         if (params == null) return AIToolResult.fail("参数解析失败");
+
+        // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前城市
+        // （环境缓存的位置，10 分钟 TTL；不依赖模型猜城市名）
+        if ("ai_weather".equals(toolName)
+                && !params.containsKey("city") && !params.containsKey("lat") && !params.containsKey("lon")) {
+            String city = getCachedLocation();
+            if (city != null && !city.isEmpty() && !"当前位置".equals(city)) {
+                params.put("city", city);
+                AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
+            }
+        }
 
         AIToolResult result = executeWithTimeout(toolName, params);
         if (result.isSuccess()) return result;

@@ -9,6 +9,7 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.agent.software.AgentSoftwareLayer;
+import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.util.AILogger;
@@ -302,14 +303,24 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     }
 
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking) {
+        startAgentLoop(message, maxTokens, enableThinking, null);
+    }
+
+    /**
+     * 启动 Agent 循环。
+     * @param history 多轮上下文（user/assistant，本地 Agent 用）；在线引擎自带会话历史，忽略该参数
+     */
+    public void startAgentLoop(String message, int maxTokens, boolean enableThinking,
+                               java.util.List<AgentLoopEngine.HistoryEntry> history) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
 
         // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎
         boolean useLocalAgent = aiConfig != null && aiConfig.isLocalAgentEnabled()
                 && !engine.isOnlineModelActive();
         if (useLocalAgent) {
-            AILogger.i(TAG, "Local model + localAgentEnabled → AgentSoftwareLayer (JSON 协议)");
-            softwareLayer.processMessage(message, enableThinking);
+            AILogger.i(TAG, "Local model + localAgentEnabled → AgentSoftwareLayer (JSON 协议)"
+                    + ", history: " + (history != null ? history.size() : 0));
+            softwareLayer.processMessage(message, enableThinking, history);
         } else {
             // 在线模型 → OnlineAgentEngine
             engine.execute(message, maxTokens, enableThinking);

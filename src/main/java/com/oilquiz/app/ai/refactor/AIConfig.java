@@ -9,16 +9,19 @@ public class AIConfig {
 
     /**
      * 优化模式枚举
+     * 上下文取值兼顾稳定性：Qwen3-4B 每 token KV≈90KB，CPU 推理时
+     * 16384 上下文峰值内存 ~4.8GB 会被系统杀进程（实测），故回落安全档位。
+     * 内存池仅作预算上限，实际按 n_ctx 分配，无需随上下文缩减。
      */
     public enum OptimizationMode {
         /** 极速模式：最小资源占用，最快响应，适合低端设备 */
-        TURBO(0, "极速模式", 4096, 64, 256, 2, false),
+        TURBO(0, "极速模式", 4096, 64, 1024, 2, false),
         /** 均衡模式：资源与质量平衡，默认模式 */
-        BALANCED(1, "均衡模式", 8192, 128, 512, 3, true),
+        BALANCED(1, "均衡模式", 8192, 128, 2048, 3, true),
         /** 性能模式：更大上下文，更好回复质量 */
-        PERFORMANCE(2, "性能模式", 12288, 256, 1024, 4, true),
+        PERFORMANCE(2, "性能模式", 12288, 256, 2560, 4, true),
         /** 极限模式：最大资源利用，适合高端设备 */
-        ULTIMATE(3, "极限模式", 16384, 512, 2048, 4, true);
+        ULTIMATE(3, "极限模式", 16384, 512, 3072, 4, true);
 
         public final int id;
         public final String displayName;

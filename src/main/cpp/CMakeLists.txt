@@ -42,7 +42,11 @@ set(GGML_OPENCL_TARGET_VERSION "300" CACHE STRING "OpenCL API version" FORCE)
 # 使用 NDK 自带的 Vulkan headers + libvulkan.so + glslc
 # 需要 SPIRV-Headers (已下载到 spirv-headers/ 目录)
 if(GGML_VULKAN)
-    # 查找 glslc (优先 NDK shader-tools，其次系统 PATH)
+    # 查找 glslc（D6 回退：优先 NDK shader-tools。
+    # 曾改用 MSYS2 mingw64 新版 shaderc（2026.1）——其生成的 bfloat16/e4m3/dot 变体
+    # 在 Adreno 驱动上不兼容（真机输出乱码），且这些扩展无运行时禁用变量，
+    # 故回退 NDK glslc（2022.3，不支持这些扩展 → 无加速变体 → 走基础路径，正确但较慢）。
+    # 后续如要提速：逐扩展开启 + 真机验证正确性后再放开。
     find_program(GLSLC_EXECUTABLE glslc
         PATHS
             ${ANDROID_NDK}/shader-tools/windows-x86_64

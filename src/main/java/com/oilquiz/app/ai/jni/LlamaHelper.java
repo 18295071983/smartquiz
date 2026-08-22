@@ -1536,15 +1536,10 @@ public class LlamaHelper {
             return 0;
         }
 
-        if (ctxSize <= 0) {
-            AILogger.e(TAG, "chatCreate: invalid ctxSize=" + ctxSize);
-            return 0;
-        }
-
-        if (ctxSize > 16384) {
-            AILogger.w(TAG, "chatCreate: ctxSize " + ctxSize + " may be too large for mobile devices");
-        }
-
+        // ctxSize<=0：0 表示使用模型加载时的完整上下文（native 支持），
+        // 不再拒绝——此前拒绝导致 tryCreateChatContextWithFallback 的 ctxSize=0 首试
+        // 永远失败、回退 8192，Java 记账与实际 native 上下文不符（状态页显示 8192，
+        // 实际 12288）。AIConfig 预设可能小于真实窗口，传 0 用模型 n_ctx 更准。
         if (nThreads <= 0) {
             nThreads = 4;
         }
@@ -1561,9 +1556,13 @@ public class LlamaHelper {
         try {
             chatContextHandle = nativeChatCreate(modelPath, ctxSize, nThreads, gPrompt, sPrompt, nPrompt);
             if (chatContextHandle != 0) {
-                contextTotalSize = ctxSize;
+                // 记账用 native 实际值（ctxSize=0 时实际为模型 n_ctx，含 memoryPool 钳制）
+                int actual = 0;
+                try { actual = nativeGetContextSize(chatContextHandle); } catch (Throwable ignored) {}
+                contextTotalSize = actual > 0 ? actual : ctxSize;
                 contextUsedTokens = 0;
-                AILogger.i(TAG, "chatCreate: success, handle=" + chatContextHandle);
+                AILogger.i(TAG, "chatCreate: success, handle=" + chatContextHandle
+                        + ", ctxSize=" + ctxSize + ", actual=" + contextTotalSize);
             } else {
                 AILogger.e(TAG, "chatCreate: nativeChatCreate returned 0");
             }
@@ -2096,8 +2095,10 @@ public class LlamaHelper {
             return ValidationResult.error("模型路径不能为空");
         }
         
-        if (nCtx <= 0 || nCtx > 16384) {
-            return ValidationResult.error("nCtx必须在1-16384之间: " + nCtx);
+        // 上限放宽到 65536：32k 上下文（Qwen3-4B 窗口）+ 预留余量；
+        // native 层仍按模型 n_ctx_train 与内存池预算钳制，不会真正越界
+        if (nCtx <= 0 || nCtx > 65536) {
+            return ValidationResult.error("nCtx必须在1-65536之间: " + nCtx);
         }
         
         if (nThreads <= 0 || nThreads > 32) {

@@ -36,6 +36,15 @@ public class PythonToolManager {
                 ((android.app.Application) this.context)
                         .registerActivityLifecycleCallbacks(activityCallbacks);
             }
+            // 兜底：若注册回调晚于 Activity resumed（生命周期回调不补发历史），
+            // 从 SmartQuizApplication 同步一次当前 Activity，否则 UI 组件全部降级 Toast
+            try {
+                android.app.Activity a = com.oilquiz.app.SmartQuizApplication.getCurrentActivity();
+                if (a != null && !a.isFinishing() && !a.isDestroyed()) {
+                    currentActivity = a;
+                }
+            } catch (Throwable ignored) {
+            }
         } catch (Throwable t) {
             Log.w(TAG, "注册 Activity 生命周期回调失败: " + t.getMessage());
         }

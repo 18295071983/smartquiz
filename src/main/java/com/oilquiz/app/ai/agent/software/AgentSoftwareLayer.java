@@ -71,7 +71,15 @@ public class AgentSoftwareLayer {
             @Override
             public void onIterationEnd(int iteration, String response) {
                 if (callback != null && response != null) {
-                    callback.onThinkingUpdate("第 " + iteration + " 轮: " + truncate(response, 80));
+                    // 清理模板前缀/思考标签后再显示（模型偶尔输出 <|im_start|>assistant 等）
+                    String clean = response
+                            .replaceAll("<\\|im_start\\|>\\s*assistant", "")
+                            .replaceAll("<\\|im_start\\|>", "")
+                            .replaceAll("<\\|im_end\\|>", "")
+                            .replaceAll("(?s)<think>.*?</think>", "")
+                            .replaceAll("(?s)<thought>.*?</thought>", "")
+                            .trim();
+                    callback.onThinkingUpdate("第 " + iteration + " 轮: " + truncate(clean, 80));
                 }
             }
 
@@ -134,10 +142,19 @@ public class AgentSoftwareLayer {
     }
     
     /**
-     * 处理用户消息 - 主入口
+     * 处理用户消息 - 主入口（无历史，单轮）
      * @param enableThinking 是否启用思考（R8-1：贯穿传递，Agent 模式默认 false）
      */
     public void processMessage(String userMessage, boolean enableThinking) {
+        processMessage(userMessage, enableThinking, null);
+    }
+
+    /**
+     * 处理用户消息 - 主入口（带多轮上下文）
+     * @param history 最近几轮对话历史（user/assistant），可为 null
+     */
+    public void processMessage(String userMessage, boolean enableThinking,
+                               java.util.List<AgentLoopEngine.HistoryEntry> history) {
         if (isProcessing.getAndSet(true)) {
             AILogger.w(TAG, "Already processing a message");
             return;
@@ -145,7 +162,7 @@ public class AgentSoftwareLayer {
         
         executor.execute(() -> {
             try {
-                AgentResponse response = processMessageInternal(userMessage, enableThinking);
+                AgentResponse response = processMessageInternal(userMessage, enableThinking, history);
                 if (callback != null) {
                     callback.onComplete(response);
                 }
@@ -164,14 +181,16 @@ public class AgentSoftwareLayer {
     /**
      * 内部处理流程 - MiMo 单循环架构
      */
-    private AgentResponse processMessageInternal(String userMessage, boolean enableThinking) {
+    private AgentResponse processMessageInternal(String userMessage, boolean enableThinking,
+                                                 java.util.List<AgentLoopEngine.HistoryEntry> history) {
         long startTime = System.currentTimeMillis();
 
         notifyStep("Agent 启动", "开始处理用户消息...");
-        AILogger.i(TAG, "Processing message via AgentLoopEngine: " + truncate(userMessage, 50));
+        AILogger.i(TAG, "Processing message via AgentLoopEngine: " + truncate(userMessage, 50)
+                + ", history: " + (history != null ? history.size() : 0));
 
         // 单循环执行：推理 → 工具调用 → 结果整合 → 最终回复
-        AgentResponse response = loopEngine.run(userMessage, enableThinking);
+        AgentResponse response = loopEngine.run(userMessage, enableThinking, history);
 
         long totalTime = System.currentTimeMillis() - startTime;
         AILogger.i(TAG, "Agent processing completed in " + totalTime + "ms");
