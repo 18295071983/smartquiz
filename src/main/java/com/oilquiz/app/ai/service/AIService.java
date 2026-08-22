@@ -1058,7 +1058,7 @@ public class AIService implements ComponentCallbacks2 {
                         "model_state_cache", android.content.Context.MODE_PRIVATE);
                 if (modelPrefs.contains("gpu_layers_manual")) {
                     int manual = modelPrefs.getInt("gpu_layers_manual", -1);
-                    if (manual >= 0 && manual <= 30) {
+                    if (manual >= 0 && manual <= 36) {
                         effectiveGpuLayers = manual;
                         AILogger.i(TAG, "User manual GPU layers override: auto=" + gpuLayers + " -> manual=" + manual);
                     }

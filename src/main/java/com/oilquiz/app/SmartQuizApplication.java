@@ -111,6 +111,11 @@ public class SmartQuizApplication extends Application {
                         // 记录本次启动，如果崩溃则计数+1
                         incrementCrashCount();
                         preloadAIServiceInternal();
+                        // 调试钩子：prefs debug_fc_test.run=true 时自动跑一次原生 FC 生成测试
+                        runFcDebugTestIfRequested();
+                        // 调试钩子：prefs debug_agent_test.run=true + message=xx 时自动跑一次
+                        // 本地 Agent 意图编排测试（程序化输出验证，不调模型总结）
+                        runAgentDebugTestIfRequested();
                     }
 
                     // 启动AI处理服务作为前台服务，确保应用运行时持续运行
@@ -259,19 +264,15 @@ public class SmartQuizApplication extends Application {
         try {
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
 
-            // 用户配置了在线模型（激活或已启用）→ 主用在线模型，跳过本地 GGUF 模型预加载。
-            // 本地模型改为按需加载（用户切换到本地模型时才初始化），避免白白占用数百 MB 内存。
+            // 仅当"激活"的在线模型时才跳过本地 GGUF 预加载（激活=当前主用在线，加载本地只会白占内存）。
+            // 已配置但未激活的在线模型不再跳过：用户可能随时切回本地模型
+            // （本地 Agent / 离线场景），启动即预加载本地模型实现热启动。
             try {
                 com.oilquiz.app.ai.model.OnlineModelManager onlineManager =
                         com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
                 if (onlineManager.hasActiveOnlineModel()) {
                     com.oilquiz.app.util.AILogger.i(TAG,
                             "检测到激活的在线模型，跳过本地模型预加载（本地模型按需加载）");
-                    return;
-                }
-                if (onlineManager.hasModels()) {
-                    com.oilquiz.app.util.AILogger.i(TAG,
-                            "检测到已配置的在线模型（未激活），跳过本地模型预加载（本地模型按需加载）");
                     return;
                 }
             } catch (Throwable t) {
@@ -301,7 +302,204 @@ public class SmartQuizApplication extends Application {
             com.oilquiz.app.util.AILogger.e(TAG, "AI服务预加载失败: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * FC 测试钩子（调试用）：prefs debug_fc_test.run=true 时启动后自动跑一次
+     * 原生 function calling 生成（chatJson + tools + tool_choice=required），
+     * 结果打到 logcat 的 FcTest 标签。跑完自动清除开关，不影响正常使用。
+     */
+    private void runFcDebugTestIfRequested() {
+        try {
+            final android.content.SharedPreferences prefs = getSharedPreferences("debug_fc_test", MODE_PRIVATE);
+            if (!prefs.getBoolean("run", false)) return;
+            prefs.edit().remove("run").apply();
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.util.AILogger.i("FcTest", "=== FC test starting ===");
+                    com.oilquiz.app.ai.service.AIService aiService =
+                            com.oilquiz.app.ai.service.AIService.getInstance(this);
+                    for (int i = 0; i < 90 && !aiService.isInitialized(); i++) {
+                        Thread.sleep(1000);
+                    }
+                    if (!aiService.isInitialized()) {
+                        com.oilquiz.app.util.AILogger.e("FcTest", "Model NOT initialized after 90s");
+                        return;
+                    }
+                    com.oilquiz.app.util.AILogger.i("FcTest", "Model initialized, chatCtxActive="
+                            + com.oilquiz.app.ai.jni.LlamaHelper.isChatContextActive());
+                    if (!com.oilquiz.app.ai.jni.LlamaHelper.isChatContextActive()) {
+                        aiService.initChatContext("", "", "");
+                    }
+
+                    org.json.JSONObject req = new org.json.JSONObject();
+                    req.put("action", "chat");
+                    org.json.JSONArray msgs = new org.json.JSONArray();
+                    org.json.JSONObject sys = new org.json.JSONObject();
+                    sys.put("role", "system");
+                    sys.put("content", "你是答题宝AI助手，可以调用工具帮助用户完成任务。");
+                    msgs.put(sys);
+                    org.json.JSONObject user = new org.json.JSONObject();
+                    user.put("role", "user");
+                    user.put("content", "今天北京的天气怎么样？");
+                    msgs.put(user);
+                    req.put("messages", msgs);
+
+                    org.json.JSONArray tools = new org.json.JSONArray();
+                    org.json.JSONObject t = new org.json.JSONObject();
+                    t.put("type", "function");
+                    org.json.JSONObject fn = new org.json.JSONObject();
+                    fn.put("name", "ai_weather");
+                    fn.put("description", "查询指定城市的当前天气与预报");
+                    org.json.JSONObject params = new org.json.JSONObject();
+                    params.put("type", "object");
+                    org.json.JSONObject props = new org.json.JSONObject();
+                    org.json.JSONObject city = new org.json.JSONObject();
+                    city.put("type", "string");
+                    city.put("description", "城市名，如 北京/上海");
+                    props.put("city", city);
+                    params.put("properties", props);
+                    params.put("required", new org.json.JSONArray().put("city"));
+                    fn.put("parameters", params);
+                    t.put("function", fn);
+                    tools.put(t);
+                    req.put("tools", tools);
+                    req.put("tool_choice", "auto");
+                    req.put("max_tokens", 100);
+                    req.put("enable_thinking", false);
+                    req.put("temperature", 0.7);
+
+                    final java.util.List<String> toolCalls = new java.util.ArrayList<>();
+                    final StringBuilder content = new StringBuilder();
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    com.oilquiz.app.util.AILogger.i("FcTest", "Sending chatJson with tools, reqLen=" + req.length());
+                    com.oilquiz.app.ai.jni.LlamaHelper.chatJson(req.toString(), new com.oilquiz.app.ai.jni.LlamaHelper.JsonCallback() {
+                        @Override
+                        public void onJson(String json) {
+                            try {
+                                org.json.JSONObject ev = new org.json.JSONObject(json);
+                                String type = ev.optString("type", "");
+                                if ("tool_call".equals(type)) {
+                                    String name = ev.optString("name", "");
+                                    String args = ev.optString("arguments", "");
+                                    toolCalls.add(name + " args=" + args);
+                                    com.oilquiz.app.util.AILogger.i("FcTest", "TOOL_CALL: " + name + " args=" + args);
+                                } else if ("token".equals(type)) {
+                                    content.append(ev.optString("content", ""));
+                                } else if ("reasoning".equals(type)) {
+                                    com.oilquiz.app.util.AILogger.i("FcTest", "REASONING: " + ev.optString("content", ""));
+                                } else if ("complete".equals(type)) {
+                                    String c = ev.optString("content", "");
+                                    com.oilquiz.app.util.AILogger.i("FcTest", "COMPLETE content=" + c);
+                                    // 模拟 Agent 引擎的 Java 标签兜底解析：
+                                    // 模板指示 <tool_call> 标签格式，C++ parse 不识别，Java 从文本提取
+                                    java.util.regex.Matcher m = java.util.regex.Pattern
+                                            .compile("<tool_call>(.*?)</tool_call>", java.util.regex.Pattern.DOTALL)
+                                            .matcher(c);
+                                    while (m.find()) {
+                                        try {
+                                            org.json.JSONObject j = new org.json.JSONObject(m.group(1).trim());
+                                            toolCalls.add(j.optString("name", "") + " args=" + j.optString("arguments", ""));
+                                        } catch (Exception ignored) {
+                                        }
+                                    }
+                                    latch.countDown();
+                                } else if ("error".equals(type)) {
+                                    com.oilquiz.app.util.AILogger.e("FcTest", "ERROR: " + ev.optString("message", ""));
+                                    latch.countDown();
+                                }
+                            } catch (Exception e) {
+                                com.oilquiz.app.util.AILogger.e("FcTest", "onJson parse failed: " + e.getMessage());
+                            }
+                        }
+                    });
+                    boolean done = latch.await(180, java.util.concurrent.TimeUnit.SECONDS);
+                    com.oilquiz.app.util.AILogger.i("FcTest",
+                            "=== FC TEST RESULT === done=" + done
+                                    + " toolCalls=" + toolCalls
+                                    + " content=" + content.length() + "chars"
+                                    + (done ? "" : " TIMEOUT"));
+                } catch (Throwable t) {
+                    com.oilquiz.app.util.AILogger.e("FcTest", "FC test failed: " + t.getMessage(), t);
+                }
+            }, "fc-test").start();
+        } catch (Throwable ignored) {
+        }
+    }
     
+    /**
+     * 本地 Agent 意图编排测试钩子（调试用）：prefs debug_agent_test.run=true +
+     * message=消息文本 时启动后自动跑一次 AgentSoftwareLayer.processMessage，
+     * 结果打到 logcat 的 AgentTest 标签。跑完自动清除开关，不影响正常使用。
+     */
+    private void runAgentDebugTestIfRequested() {
+        try {
+            final android.content.SharedPreferences prefs = getSharedPreferences("debug_agent_test", MODE_PRIVATE);
+            if (!prefs.getBoolean("run", false)) return;
+            final String message = prefs.getString("message", "查一下北京天气");
+            prefs.edit().clear().apply();
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.util.AILogger.i("AgentTest", "=== Agent test starting, msg=" + message);
+                    com.oilquiz.app.ai.service.AIService aiService =
+                            com.oilquiz.app.ai.service.AIService.getInstance(this);
+                    for (int i = 0; i < 90 && !aiService.isInitialized(); i++) {
+                        Thread.sleep(1000);
+                    }
+                    if (!aiService.isInitialized()) {
+                        com.oilquiz.app.util.AILogger.e("AgentTest", "Model NOT initialized after 90s");
+                        return;
+                    }
+                    if (!com.oilquiz.app.ai.jni.LlamaHelper.isChatContextActive()) {
+                        aiService.initChatContext("", "", "");
+                    }
+                    final StringBuilder tokens = new StringBuilder();
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    com.oilquiz.app.ai.agent.software.AgentSoftwareLayer layer =
+                            new com.oilquiz.app.ai.agent.software.AgentSoftwareLayer(this, aiService);
+                    layer.setCallback(new com.oilquiz.app.ai.agent.software.AgentSoftwareLayer.AgentCallback() {
+                        @Override public void onStepUpdate(String step, String detail) {
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "STEP: " + step + " | " + detail);
+                        }
+                        @Override public void onThinkingUpdate(String thought) {
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "THINK: " + thought);
+                        }
+                        @Override public void onToolCallStart(String toolName, String args) {
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "TOOL: " + toolName + " " + args);
+                        }
+                        @Override public void onToolCallComplete(String toolName, boolean success, String result) {
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "TOOL-RESULT: " + toolName
+                                    + " ok=" + success + " " + (result != null ? result.length() : 0) + "chars");
+                        }
+                        @Override public void onToken(String token) {
+                            if (token != null) tokens.append(token);
+                        }
+                        @Override public void onComplete(com.oilquiz.app.ai.agent.software.model.AgentResponse response) {
+                            String ans = response != null && response.finalAnswer != null
+                                    ? response.finalAnswer : "";
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "=== AGENT TEST RESULT ===");
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "FINAL_ANSWER: " + ans);
+                            com.oilquiz.app.util.AILogger.i("AgentTest", "TOKENS_COLLECTED: " + tokens.length());
+                            latch.countDown();
+                        }
+                        @Override public void onError(String error) {
+                            com.oilquiz.app.util.AILogger.e("AgentTest", "ERROR: " + error);
+                            latch.countDown();
+                        }
+                        @Override public void onInferenceProgress(int tokenCount, float tokensPerSecond) {
+                        }
+                    });
+                    layer.processMessage(message, false);
+                    boolean done = latch.await(150, java.util.concurrent.TimeUnit.SECONDS);
+                    com.oilquiz.app.util.AILogger.i("AgentTest",
+                            "=== DONE=" + done + " (token output " + tokens.length() + " chars) ===");
+                } catch (Throwable t) {
+                    com.oilquiz.app.util.AILogger.e("AgentTest", "Agent test failed: " + t.getMessage(), t);
+                }
+            }, "agent-test").start();
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     public void onTerminate() {
         // 应用终止时刷新日志

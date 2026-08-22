@@ -329,14 +329,12 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         }
 
         // 本地 Agent 复活开关（spec §3.1.1，实验功能；默认 false）
+        // 已停用：UI 直接禁止打开（置灰不可交互），本地模型固定走普通对话路径
         if (localAgentSwitch != null) {
-            localAgentSwitch.setChecked(aiConfig.isLocalAgentEnabled());
-            localAgentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                aiConfig.setLocalAgentEnabled(isChecked);
-                Toast.makeText(this, isChecked
-                        ? "已启用本地Agent（实验），需本地模型"
-                        : "已禁用本地Agent", Toast.LENGTH_SHORT).show();
-            });
+            localAgentSwitch.setChecked(false);
+            localAgentSwitch.setEnabled(false);
+            localAgentSwitch.setAlpha(0.4f);
+            localAgentSwitch.setOnCheckedChangeListener(null);
         }
 
         if (btnTestAi != null) {

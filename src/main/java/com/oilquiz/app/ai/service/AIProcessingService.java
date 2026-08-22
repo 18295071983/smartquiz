@@ -303,6 +303,9 @@ public class AIProcessingService extends Service {
     }
 
     private void processAITask(int taskType, String prompt, int maxTokens, ArrayList<String> historyUser, ArrayList<String> historyAssistant, String systemPrompt, String thinkingInstruction, String modeId) {
+        // 完成广播幂等：无论 native 回调 onComplete/onError 重复触发，还是异常路径，
+        // ACTION_AI_TASK_COMPLETED 每轮任务只向 UI 发一次（防 UI 重复渲染/状态错乱）
+        final java.util.concurrent.atomic.AtomicBoolean completionSent = new java.util.concurrent.atomic.AtomicBoolean(false);
         String msg = "========== [processAITask] START ==========";
         Log.i(TAG, msg);
         AILogger.i(TAG, msg);
@@ -418,6 +421,11 @@ public class AIProcessingService extends Service {
                 
                 @Override
                 public void onComplete(String fullText) {
+                    // 幂等：只发一次完成广播（native 重复回调/多线程竞态兜底）
+                    if (!completionSent.compareAndSet(false, true)) {
+                        Log.w(TAG, "onComplete duplicate suppressed (completion already sent)");
+                        return;
+                    }
                     String result = fullText != null ? fullText : fullResult.toString();
                     long elapsed = System.currentTimeMillis() - startTime;
 
@@ -436,6 +444,11 @@ public class AIProcessingService extends Service {
                 
                 @Override
                 public void onError(String error) {
+                    // 幂等：只发一次完成广播（onComplete 已发则忽略）
+                    if (!completionSent.compareAndSet(false, true)) {
+                        Log.w(TAG, "onError duplicate suppressed (completion already sent)");
+                        return;
+                    }
                     long elapsed = System.currentTimeMillis() - startTime;
                     String localMsg = "onError called! Error after " + elapsed + "ms: " + error;
                     Log.e(TAG, localMsg);
@@ -456,14 +469,18 @@ public class AIProcessingService extends Service {
             Log.e(TAG, msg);
             AILogger.e(TAG, msg);
             sendLogBroadcast(LOG_LEVEL_ERROR, msg);
-            sendTaskCompletedBroadcast(taskType, null, "处理AI任务时出错: " + e.getMessage());
+            if (completionSent.compareAndSet(false, true)) {
+                sendTaskCompletedBroadcast(taskType, null, "处理AI任务时出错: " + e.getMessage());
+            }
 
         } catch (Throwable t) {
             msg = "Throwable caught in processAITask - possible native crash: " + t.getMessage();
             Log.e(TAG, msg);
             AILogger.e(TAG, msg, t);
             sendLogBroadcast(LOG_LEVEL_ERROR, msg);
-            sendTaskCompletedBroadcast(taskType, null, "处理AI任务时发生严重错误，可能是模型或内存问题");
+            if (completionSent.compareAndSet(false, true)) {
+                sendTaskCompletedBroadcast(taskType, null, "处理AI任务时发生严重错误，可能是模型或内存问题");
+            }
         }
 
         msg = "========== [processAITask] END ==========";

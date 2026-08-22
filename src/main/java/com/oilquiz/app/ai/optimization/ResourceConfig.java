@@ -30,8 +30,8 @@ public class ResourceConfig {
     private static final float THREAD_CORE_RATIO = 0.5f;
 
     // ========== GPU 层数限制 ==========
-    /** GPU 层数上限（Android 设备建议） */
-    private static final int MAX_GPU_LAYERS = 30;
+    /** GPU 层数上限（Qwen3-4B 共 36 层，全量上 GPU 避免混合推理的 CPU 瓶颈） */
+    private static final int MAX_GPU_LAYERS = 36;
     /** GPU 层数下限 */
     private static final int MIN_GPU_LAYERS = 0;
     /** 单层模型权重估算大小（MB）- 7B模型约 400MB/层 */
@@ -40,20 +40,20 @@ public class ResourceConfig {
     // ========== 上下文大小 ==========
     /** 上下文大小下限（保证单次推理） */
     private static final int MIN_CONTEXT_SIZE = 2048;
-    /** 上下文大小上限（内存充足时允许大上下文，长对话更久才触发裁剪/超限） */
-    private static final int MAX_CONTEXT_SIZE = 16384;
+    /** 上下文大小上限（内存充足时允许大上下文，长对话更久才触发裁剪/超限；匹配 Qwen3-4B 的 32k 窗口） */
+    private static final int MAX_CONTEXT_SIZE = 32768;
     /** 默认上下文大小 */
     private static final int DEFAULT_CONTEXT_SIZE = 4096;
     /** 推理预留 token 数（输入 + 输出） */
     private static final int INFERENCE_RESERVE_TOKENS = 512;
 
     // ========== 内存限制 ==========
-    /** 内存池大小上限（MB） */
-    private static final int MAX_MEMORY_POOL_MB = 2048;
+    /** 内存池大小上限（MB）（放宽到 4GB，供 32k 上下文的 KV 缓存使用） */
+    private static final int MAX_MEMORY_POOL_MB = 4096;
     /** 内存池大小下限（MB） */
     private static final int MIN_MEMORY_POOL_MB = 256;
-    /** 系统内存保留比例（30%） */
-    private static final float SYSTEM_MEM_RESERVE_RATIO = 0.3f;
+    /** 系统内存保留比例（45%：内存池最多占可用内存 45%，仍留 55% 给系统；用户明确要求大上下文时放宽） */
+    private static final float SYSTEM_MEM_RESERVE_RATIO = 0.45f;
 
     // ========== 批处理大小 ==========
     /** 批处理大小上限 */
@@ -147,7 +147,7 @@ public class ResourceConfig {
         // 1B: ~22层, 3B: ~26层, 7B: ~32层, 13B: ~40层, 30B: ~60层, 70B: ~80层
         if (modelSizeMB < 500) return 22;       // <500MB: ~1B
         if (modelSizeMB < 1500) return 26;      // 500MB-1.5GB: ~3B
-        if (modelSizeMB < 4000) return 32;      // 1.5GB-4GB: ~7B
+        if (modelSizeMB < 4000) return 40;      // 1.5GB-4GB: 3B-7B（Qwen3-4B 实为 36 层，估算放宽）
         if (modelSizeMB < 8000) return 40;      // 4GB-8GB: ~13B
         if (modelSizeMB < 18000) return 60;     // 8GB-18GB: ~30B
         return 80;                              // >18GB: ~70B
@@ -221,8 +221,20 @@ public class ResourceConfig {
             return 0;
         }
 
-        // 估算模型参数
-        int totalLayers = estimateTotalLayers(modelSizeMB);
+        // 估算模型参数：优先用实际加载模型的层数（Qwen3-4B=36），未加载时按大小估算
+        int totalLayers = 0;
+        try {
+            com.oilquiz.app.ai.jni.LlamaHelper.ModelMeta meta =
+                    com.oilquiz.app.ai.jni.LlamaHelper.getModelMeta();
+            if (meta != null && meta.nLayer > 0) {
+                totalLayers = meta.nLayer;
+                AILogger.i(TAG, "Using real model layers: " + totalLayers);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (totalLayers <= 0) {
+            totalLayers = estimateTotalLayers(modelSizeMB);
+        }
         double quantFactor = getQuantizationFactor(modelPath);
         long layerSizeMB = estimateLayerSizeMB(modelSizeMB, totalLayers);
 
@@ -335,20 +347,22 @@ public class ResourceConfig {
         int minRequired = MIN_CONTEXT_SIZE;
         int maxAllowed = MAX_CONTEXT_SIZE;
 
-        // 根据可用内存调整上限
+        // 根据可用内存调整上限（档位按用户"内存够用、上下文要大"的要求整体上调，
+        // 上限仍受 MAX_CONTEXT_SIZE=32768 约束）
         if (availableMemoryMB < 1024) {
-            // 内存极低：2048-4096
-            maxAllowed = 4096;
-            AILogger.i(TAG, "Very low available memory (<1GB), max context=4096");
-        } else if (availableMemoryMB < 2048) {
-            // 内存较低：2048-6144
-            maxAllowed = 6144;
-            AILogger.i(TAG, "Low available memory (<2GB), max context=6144");
-        } else if (availableMemoryMB < 4096) {
-            // 内存一般：2048-8192
+            // 内存极低：4096-8192
             maxAllowed = 8192;
+            AILogger.i(TAG, "Very low available memory (<1GB), max context=8192");
+        } else if (availableMemoryMB < 2048) {
+            // 内存较低：8192-12288
+            maxAllowed = 12288;
+            AILogger.i(TAG, "Low available memory (<2GB), max context=12288");
+        } else if (availableMemoryMB < 4096) {
+            // 内存一般：12288-16384
+            maxAllowed = 16384;
+            AILogger.i(TAG, "Moderate available memory (<4GB), max context=16384");
         } else {
-            // 内存充足：使用默认上限（16384），"越过"小上下文限制
+            // 内存充足：使用上限（32768），"越过"小上下文限制
             maxAllowed = MAX_CONTEXT_SIZE;
         }
 

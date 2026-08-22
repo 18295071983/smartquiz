@@ -234,6 +234,58 @@ static std::string sanitizeUtf8(const std::string& input) {
 }
 
 /**
+ * 剥离 think/thought 标签（及其内容）：模型未闭合或误输出思考标签时，
+ * 把 <think>...</think> / <thought>...</thought> 整段剥掉，剩余内容作为正文。
+ * 支持未闭合（无结束标记）的 think 块：剥离 <think> 到结尾的全部内容。
+ */
+static std::string stripThinkTags(const std::string& input) {
+    if (input.empty()) return input;
+    std::string out;
+    out.reserve(input.size());
+    size_t pos = 0;
+    const size_t len = input.size();
+    while (pos < len) {
+        // 查找 think/thought 开始标记
+        size_t start = input.find("<think>", pos);
+        size_t startAlt = input.find("<thought>", pos);
+        size_t useStart = std::string::npos;
+        std::string openTag;
+        if (start != std::string::npos && (startAlt == std::string::npos || start < startAlt)) {
+            useStart = start; openTag = "<think>";
+        } else if (startAlt != std::string::npos) {
+            useStart = startAlt; openTag = "<thought>";
+        }
+        if (useStart == std::string::npos) {
+            out.append(input, pos, len - pos);
+            break;
+        }
+        // 开始标记之前的内容保留
+        out.append(input, pos, useStart - pos);
+        // 找对应结束标记
+        std::string closeTag = (openTag == "<think>") ? "</think>" : "</thought>";
+        size_t close = input.find(closeTag, useStart + openTag.size());
+        if (close == std::string::npos) {
+            // 未闭合：剥掉开始标记到结尾的全部内容（视为思考残留）
+            break;
+        }
+        pos = close + closeTag.size();
+    }
+    // 清理可能残留的 <|im_start|>assistant 等模板标记
+    std::string cleaned = out;
+    auto replaceAll = [&cleaned](const std::string& from, const std::string& to) {
+        size_t p = 0;
+        while ((p = cleaned.find(from, p)) != std::string::npos) {
+            cleaned.replace(p, from.size(), to);
+            p += to.size();
+        }
+    };
+    replaceAll("<|im_start|>", "");
+    replaceAll("<|im_end|>", "");
+    replaceAll("<|im_start|>assistant", "");
+    return cleaned;
+}
+
+/**
  * 分离 UTF-8 字符串为完整部分和不完整尾部
  * 用于流式传输时缓存不完整的多字节字符
  */
@@ -670,11 +722,12 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
         }
         
         if (isAdreno) {
-            // Adreno GPU: 多个 Vulkan 特性驱动实现有 bug，全部禁用以保证计算正确性
+            // Adreno GPU: 多个 Vulkan 特性驱动实现有 bug，全部禁用以保证计算正确性（乱码预防）
             // coopmat: 矩阵乘法计算结果错误
             // fusion: shader 融合导致计算异常
             // graph_optimize: 图形优化导致输出乱码
-            // bfloat16/dot/integer_dot: Adreno 驱动可能不支持或实现有 bug
+            // bfloat16/dot/integer_dot/e2m1/e4m3: Adreno 驱动宣称支持但实现不兼容，实测输出乱码
+            //   （D6：曾对 Adreno 840 豁免 bfloat16/dot 启用，真机输出乱码，回退全禁用）
             setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);
             setenv("GGML_VK_DISABLE_COOPMAT2", "1", 1);
             setenv("GGML_VK_DISABLE_COOPMAT2_DECODE_VECTOR", "1", 1);
@@ -683,8 +736,10 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
             setenv("GGML_VK_DISABLE_BFLOAT16", "1", 1);
             setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 1);
             setenv("GGML_VK_DISABLE_DOT2", "1", 1);
-            __android_log_print(ANDROID_LOG_INFO, "LlamaJNI", 
-                "Vulkan: Adreno GPU detected (platform=%s, egl=%s), disabled coopmat+fusion+graph_opt+bfloat16+dot, API capped to 1.2", 
+            // 新 glslc 生成 e2m1/e4m3 变体，Adreno 驱动不兼容（乱码），一并禁用
+            // 注：GGML_VK_DISABLE_F16 不设置——F16 是基础路径，保留
+            __android_log_print(ANDROID_LOG_INFO, "LlamaJNI",
+                "Vulkan: Adreno GPU detected (platform=%s, egl=%s), disabled coopmat+fusion+graph_opt+bfloat16+dot+e4m3+e2m1 (compat safe)",
                 platform, egl_renderer);
         } else {
             // 非 Adreno GPU (Mali/其他): 不禁用任何特性
@@ -832,6 +887,53 @@ using namespace std;
 
 namespace llama_jni {
 
+// 禁止模型输出 control/suppress token（防止把模板前缀 <|im_start|> 等当内容生成）。
+// 优先用 GGUF 的 tokenizer.ggml.suppress_tokens，未定义则遍历 vocab 的 control token；
+// EOG（正常结束标记）必须保留，否则生成永不结束。文件级函数，供多个推理类共用。
+static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab * vocab) {
+    if (smpl == nullptr || vocab == nullptr) return;
+    std::vector<llama_logit_bias> biases;
+    const llama_token * suppress = nullptr;
+    int32_t n_suppress = 0;
+    suppress = llama_vocab_get_suppress_tokens(vocab, &n_suppress);
+    int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    if (suppress != nullptr && n_suppress > 0) {
+        for (int32_t i = 0; i < n_suppress; i++) {
+            if (!llama_vocab_is_eog(vocab, suppress[i])) {
+                biases.push_back({ suppress[i], -INFINITY });
+            }
+        }
+    } else {
+        for (int32_t t = 0; t < n_vocab; t++) {
+            if (llama_vocab_is_control(vocab, t) && !llama_vocab_is_eog(vocab, t)) {
+                biases.push_back({ t, -INFINITY });
+            }
+        }
+    }
+    // 额外兜底：按文本匹配常见 ChatML 控制标记（部分 GGUF 未把 im_start 标为 control）
+    static const char* chatml_markers[] = {"<|im_start|>", "<|im_end|>", "<|endoftext|>", "<|tool_call|>", "<|/tool_call|>"};
+    for (int32_t t = 0; t < n_vocab; t++) {
+        const char* txt = llama_vocab_get_text(vocab, t);
+        if (txt == nullptr) continue;
+        bool is_marker = false;
+        for (const char* m : chatml_markers) {
+            if (strcmp(txt, m) == 0) { is_marker = true; break; }
+        }
+        if (is_marker && !llama_vocab_is_eog(vocab, t)) {
+            // 去重（suppress/control 已禁的跳过）
+            bool dup = false;
+            for (auto& b : biases) if (b.token == t) { dup = true; break; }
+            if (!dup) biases.push_back({ t, -INFINITY });
+        }
+    }
+    LOGI("Control suppression: %d tokens banned (suppress_table=%d, vocab=%d)",
+         (int)biases.size(), suppress != nullptr ? n_suppress : -1, n_vocab);
+    if (!biases.empty()) {
+        llama_sampler_chain_add(smpl, llama_sampler_init_logit_bias(
+                n_vocab, (int32_t)biases.size(), biases.data()));
+    }
+}
+
 static int s_defaultGpuLayers = -1;
 static int s_defaultThreadCount = 4;
 
@@ -949,15 +1051,18 @@ public:
             this->threadCount = MIN_THREADS;
         }
         
-        // 限制 GPU 层数：Android 设备建议不超过 30 层
-        const int MAX_GPU_LAYERS = 30;
+        // 限制 GPU 层数：Qwen3-4B 共 36 层，全量上 GPU（30 层+6 层 CPU 混合推理
+        // 每 token 需跨 GPU/CPU 同步，CPU 层成为生成瓶颈，实测 1.6 t/s 过慢）
+        const int MAX_GPU_LAYERS = 36;
         if (this->gpuLayers > MAX_GPU_LAYERS) {
             LOGW("GPU layers %d exceeds max %d, clamping", this->gpuLayers, MAX_GPU_LAYERS);
             this->gpuLayers = MAX_GPU_LAYERS;
         }
         
-        // 限制上下文大小：确保不超过安全上限，预留推理空间
-        const int MAX_CONTEXT_SIZE = 8192;
+        // 限制上下文大小：确保不超过安全上限，预留推理空间。
+        // 上限放宽到 65536（Qwen3-4B nCtxTrain=40960 可容纳），
+        // 实际仍受内存池预算（KV 缓存）与模型 n_ctx_train 钳制，不会真正越界。
+        const int MAX_CONTEXT_SIZE = 65536;
         const int MIN_CONTEXT_SIZE = 2048;
         const int INFERENCE_RESERVE = 512;
         if (contextSize > MAX_CONTEXT_SIZE) {
@@ -1092,9 +1197,12 @@ public:
         // ggml-vulkan 会自动检测 Vulkan 设备
         // 支持 GPU+CPU 混合推理：部分层在 GPU 计算，剩余层在 CPU 计算
         bool gpuAvailable = hasGPU;
-        if (gpuAvailable && this->gpuLayers <= 0) {
-            // Java 端未指定 GPU 层数时，自动使用安全上限（而非全部卸载）
-            // 保留部分层给 CPU，避免 GPU 显存不足和带宽瓶颈
+        if (gpuAvailable && this->gpuLayers < 0) {
+            // 仅当 Java 端传入负数（"未指定/自动"哨兵）时才自动使用安全上限。
+            // 注意：Java 端总是传入计算后的具体值（≥0），其中 0 = 明确要求 CPU
+            // （如 gpu_layers_manual=0 手动覆盖），此前 <=0 的判断会把显式 CPU
+            // 强改成 GPU，在 Vulkan shader 与驱动不兼容的设备（如 Adreno 750）
+            // 上直接崩溃（createComputePipeline: ErrorUnknown）。
             this->gpuLayers = MAX_GPU_LAYERS;
             LOGI("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
         }
@@ -1323,6 +1431,48 @@ public:
         }
         endTime = std::chrono::steady_clock::now();
         elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
+
+        // GPU 预热：Vulkan shader pipeline 在首次计算图执行时才惰性编译。
+        // 驱动不兼容（如 Adreno 750 上 createComputePipeline: ErrorUnknown）会在
+        // 首次推理时抛未捕获 vk::SystemError 直接 SIGABRT 崩进程。
+        // 这里用 1 个 token 解码预热，强制编译 shader；异常被接住后置 ctx=nullptr，
+        // 走下方已有的 GPU->CPU 回退链路自动降级。
+        if (ctx != nullptr && this->gpuLayers > 0) {
+            try {
+                const char warmText[] = " ";
+                int nt = -llama_tokenize(vocab, warmText, 1, nullptr, 0, false, false);
+                if (nt > 0) {
+                    std::vector<llama_token> warmTokens(nt);
+                    int got = llama_tokenize(vocab, warmText, 1, warmTokens.data(), (int)warmTokens.size(), false, false);
+                    if (got == nt && !warmTokens.empty()) {
+                        llama_batch wb = llama_batch_init(1, 0, 1);
+                        wb.n_tokens = 1;
+                        wb.token[0] = warmTokens[0];
+                        wb.pos[0] = 0;
+                        wb.n_seq_id[0] = 1;
+                        wb.seq_id[0][0] = 0;
+                        int drc = llama_decode(ctx, wb);
+                        llama_batch_free(wb);
+                        llama_memory_clear(llama_get_memory(ctx), true);
+                        if (drc != 0) {
+                            LOGW("GPU warmup decode failed (rc=%d), falling back to CPU", drc);
+                            llama_free(ctx);
+                            ctx = nullptr;
+                        } else {
+                            LOGI("GPU warmup decode OK (shader pipelines compiled)");
+                        }
+                    }
+                }
+            } catch (const std::exception& e) {
+                LOGE("GPU warmup threw: %s, falling back to CPU", e.what());
+                llama_free(ctx);
+                ctx = nullptr;
+            } catch (...) {
+                LOGE("GPU warmup threw unknown exception, falling back to CPU");
+                llama_free(ctx);
+                ctx = nullptr;
+            }
+        }
         
         if (ctx == nullptr) {
             if (gpuModeRequested && s_gpuWorking) {
@@ -1485,8 +1635,10 @@ public:
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
+            addControlTokenSuppression(smpl, vocab);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
@@ -1926,8 +2078,10 @@ public:
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
+            addControlTokenSuppression(smpl, vocab);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
@@ -2215,6 +2369,7 @@ public:
      * 2. 前缀未命中 / 首次调用 / KV 被外部路径改动（seq_pos_max 校验失败，R3-4）→ 全量重 eval。
      * 由 chatJson 调用（enableThinking 恒传 false，思考交给模板）。
      */
+
     bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
         if (isGenerating.exchange(true)) {
             LOGE("generateStreamIncremental: already generating, rejecting concurrent call");
@@ -2249,8 +2404,10 @@ public:
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
+            addControlTokenSuppression(smpl, vocab);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
@@ -2707,22 +2864,21 @@ public:
      *       common_chat_parse 解析 → 统一 JSON 回调
      */
     bool chatJson(const std::string& requestJson, JsonCallback jsonCallback) {
-        // step 0（R3-3）：并发守卫，与 generateStream 互斥
-        if (isGenerating.exchange(true)) {
-            LOGE("chatJson: already generating, rejecting concurrent call");
-            if (jsonCallback) jsonCallback("{\"type\":\"error\",\"message\":\"Generation already in progress\"}");
-            return false;
-        }
-        struct GeneratingGuard {
-            std::atomic<bool>& flag;
-            GeneratingGuard(std::atomic<bool>& f) : flag(f) {}
-            ~GeneratingGuard() { flag = false; }
-        } guard(isGenerating);
-
-        // step 0'（R4-3）：shouldStop 复位，防上一次取消导致本次立即终止
+        // step 0（R3-3 修正，D5）：并发守卫由 generateStreamIncremental 内部持有——
+        // 若此处先 exchange(isGenerating) 再调用 generateStreamIncremental（同一标志），会自锁
+        // （"Generation already in progress"）。并发安全实际由：
+        //   1) Java 侧 LlamaHelper.inferenceLock 写锁串行化所有推理调用（chatJson/generateStream/chatSend 同锁）
+        //   2) generateStreamIncremental 自身 isGenerating guard 兜底
+        // 此处仅复位 shouldStop（R4-3），防上一次取消导致本次立即终止。
         shouldStop = false;
 
-        auto sendError = [&jsonCallback](const std::string& msg) {
+        // 完成事件单发守卫：error 与 complete 互斥且每轮只向 Java 发一次（R5-2/A5 加固）
+        std::atomic<bool> eventSent{false};
+        auto sendError = [&jsonCallback, &eventSent](const std::string& msg) {
+            if (eventSent.exchange(true)) {
+                LOGW("chatJson: duplicate error event suppressed: %s", msg.c_str());
+                return;
+            }
             nlohmann::ordered_json j = {{"type", "error"}, {"message", msg}};
             if (jsonCallback) jsonCallback(j.dump());
         };
@@ -2805,6 +2961,12 @@ public:
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGI("chatJson: template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+            // 调试：打印模板 prompt 开头与末尾，排查"模型输出模板前缀/双前缀"问题
+            std::string p0 = chat_params.prompt.substr(0, 250);
+            std::string p1 = chat_params.prompt.size() > 250
+                    ? chat_params.prompt.substr(chat_params.prompt.size() - 300) : "";
+            LOGI("chatJson: PROMPT_HEAD>>%s<<", p0.c_str());
+            if (!p1.empty()) LOGI("chatJson: PROMPT_TAIL>>%s<<", p1.c_str());
         } catch (const std::exception& e) {
             // R3-5：fallback 后失效 KV 增量缓存（generateStreamFromMessages 内部会清 KV）
             LOGW("chatJson: template apply failed (%s), falling back to flat messages", e.what());
@@ -2831,18 +2993,26 @@ public:
                 flat.push_back({m.role, content});
             }
             bool fbOk = generateStreamFromMessages(flat, maxTokens, temperature, topP, topK, false,
-                [&jsonCallback](const std::string& text, bool isDone, const std::string& error) {
+                [&jsonCallback, &eventSent](const std::string& text, bool isDone, const std::string& error) {
                     if (!isDone) {
                         if (error.empty() && !text.empty()) {
                             nlohmann::ordered_json j = {{"type", "token"}, {"content", text}, {"is_tool_call", false}};
                             jsonCallback(j.dump());
                         }
                     } else if (!error.empty()) {
-                        nlohmann::ordered_json j = {{"type", "error"}, {"message", error}};
-                        jsonCallback(j.dump());
+                        if (!eventSent.exchange(true)) {
+                            nlohmann::ordered_json j = {{"type", "error"}, {"message", error}};
+                            jsonCallback(j.dump());
+                        } else {
+                            LOGW("chatJson: fallback duplicate error suppressed");
+                        }
                     } else {
-                        nlohmann::ordered_json j = {{"type", "complete"}, {"content", text}};
-                        jsonCallback(j.dump());
+                        if (!eventSent.exchange(true)) {
+                            nlohmann::ordered_json j = {{"type", "complete"}, {"content", text}};
+                            jsonCallback(j.dump());
+                        } else {
+                            LOGW("chatJson: fallback duplicate complete suppressed");
+                        }
                     }
                 });
             if (!fbOk && !shouldStop) {
@@ -2904,7 +3074,19 @@ public:
             }
         };
 
-        bool genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback);
+        bool genOk = false;
+        try {
+            genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback);
+        } catch (const std::exception& e) {
+            // GPU shader 编译失败等异常：转错误事件而非崩进程（libc++abi terminate）
+            LOGE("chatJson generation threw: %s", e.what());
+            sendError(std::string("Generation failed: ") + e.what());
+            return false;
+        } catch (...) {
+            LOGE("chatJson generation threw unknown exception");
+            sendError("Generation failed: unknown error");
+            return false;
+        }
 
         // step 9（R3-2）：取消——shouldStop 置位时发 cancelled，不再 parse
         if (shouldStop) {
@@ -2948,18 +3130,43 @@ public:
                 LOGI("chatJson: tool_call id=%s name=%s", tc.id.c_str(), tc.name.c_str());
             }
             if (!parsed.reasoning_content.empty()) {
-                nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", parsed.reasoning_content}};
-                jsonCallback(j.dump());
-                LOGI("chatJson: reasoning (%zu chars)", parsed.reasoning_content.size());
+                // 无 think 标签保护：仅当模型实际输出并闭合了 think 标记时才广播 reasoning。
+                // 否则（模型未输出 think 标签 / 未闭合，内容被 common_chat_parse 划入 reasoning）
+                // 不广播 reasoning，避免"无思考时把相同信息重新广播"；内容走下方 complete 兜底。
+                bool hasThinkEnd = collectedText.find("</think>") != std::string::npos
+                                || collectedText.find("</thought>") != std::string::npos;
+                if (hasThinkEnd) {
+                    nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", parsed.reasoning_content}};
+                    jsonCallback(j.dump());
+                    LOGI("chatJson: reasoning (%zu chars)", parsed.reasoning_content.size());
+                } else {
+                    LOGW("chatJson: reasoning suppressed (no think end marker), content merged to body");
+                }
             }
-            nlohmann::ordered_json j = {{"type", "complete"}, {"content", parsed.content}};
-            jsonCallback(j.dump());
-            LOGI("chatJson: complete, content=%zu chars, tool_calls=%zu", parsed.content.size(), parsed.tool_calls.size());
+            // 完成事件单发：error 已发则不再发 complete
+            if (!eventSent.exchange(true)) {
+                // 正文兜底：模型未输出 think 标签时 common_chat_parse 可能把内容划入 reasoning
+                // 导致 parsed.content 为空——此时用 collectedText 剥掉 think 标签作为正文，
+                // 保证内容只作为正文广播一次（不丢失、不重复）
+                std::string finalContent = parsed.content;
+                if (finalContent.empty() && !collectedText.empty()) {
+                    finalContent = stripThinkTags(collectedText);
+                }
+                nlohmann::ordered_json j = {{"type", "complete"}, {"content", finalContent}};
+                jsonCallback(j.dump());
+                LOGI("chatJson: complete, content=%zu chars, tool_calls=%zu", finalContent.size(), parsed.tool_calls.size());
+            } else {
+                LOGW("chatJson: complete suppressed (error already sent)");
+            }
         } else {
             // R5-2：parse 失败 → complete(collectedText)；空输出 → complete("")（A5 由构造保证只发一次）
-            nlohmann::ordered_json j = {{"type", "complete"}, {"content", collectedText}};
-            jsonCallback(j.dump());
-            LOGI("chatJson: complete (degraded), content=%zu chars", collectedText.size());
+            if (!eventSent.exchange(true)) {
+                nlohmann::ordered_json j = {{"type", "complete"}, {"content", collectedText}};
+                jsonCallback(j.dump());
+                LOGI("chatJson: complete (degraded), content=%zu chars", collectedText.size());
+            } else {
+                LOGW("chatJson: degraded complete suppressed (error already sent)");
+            }
         }
 
         return true;
@@ -3416,8 +3623,10 @@ public:
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
+            addControlTokenSuppression(smpl, vocab);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
@@ -4081,8 +4290,10 @@ public:
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
+            llama_jni::addControlTokenSuppression(smpl, vocab);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
@@ -4707,7 +4918,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     env->DeleteLocalRef(cbClass);
 
     // UTF-8 流式缓冲：缓存不完整的多字节字符，与下一个 token 拼接
-    auto streamCallback = [javaVM, globalCallback, globalCbClass, onToken, onComplete, onError,
+    // doneSent：完成事件（onComplete/onError）每轮只向 Java 发一次，防重复回调
+    auto doneSent = std::make_shared<std::atomic<bool>>(false);
+    auto streamCallback = [javaVM, globalCallback, globalCbClass, onToken, onComplete, onError, doneSent,
                            utf8Buffer = std::make_shared<std::string>()](const std::string& token, bool isDone, const std::string& error) mutable {
         if (javaVM == nullptr) {
             LOGE("streamCallback: JVM is null");
@@ -4735,6 +4948,12 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
         try {
             if (globalCallback == nullptr) return;
             if (isDone) {
+                // 完成事件单发守卫：重复的 onComplete/onError 直接忽略
+                if (doneSent->exchange(true)) {
+                    LOGW("streamCallback: duplicate completion suppressed");
+                    if (didAttach) javaVM->DetachCurrentThread();
+                    return;
+                }
                 if (!error.empty()) {
                     if (onError != nullptr) {
                         jstring jErr = cbEnv->NewStringUTF(error.c_str());
