@@ -53,9 +53,19 @@ public class TimeDateTool implements AITool {
                     ? String.valueOf(parameters.get("action")) : "now";
             switch (action) {
                 case "timestamp_to_date": {
-                    long ts = parameters.get("timestamp") != null
-                            ? Long.parseLong(String.valueOf(parameters.get("timestamp")))
-                            : System.currentTimeMillis() / 1000;
+                    if (parameters.get("timestamp") == null) {
+                        return AIToolResult.fail("缺少参数: timestamp（秒级时间戳）");
+                    }
+                    long ts;
+                    try {
+                        ts = Long.parseLong(String.valueOf(parameters.get("timestamp")).trim());
+                    } catch (NumberFormatException e) {
+                        return AIToolResult.fail("timestamp 格式错误: " + parameters.get("timestamp"));
+                    }
+                    // 合理范围校验（1970-01-01 ~ 9999-12-31）
+                    if (ts < 0 || ts > 253402300799L) {
+                        return AIToolResult.fail("timestamp 超出合理范围（0 ~ 253402300799）");
+                    }
                     String dateStr = formatDate(new Date(ts * 1000));
                     Map<String, Object> info = new HashMap<>();
                     info.put("timestamp", ts);
@@ -64,9 +74,17 @@ public class TimeDateTool implements AITool {
                     return AIToolResult.success(dateStr + "（周" + weekday(new Date(ts * 1000)) + "）", info);
                 }
                 case "date_to_timestamp": {
+                    if (parameters.get("date") == null) {
+                        return AIToolResult.fail("缺少参数: date（格式 yyyy-MM-dd HH:mm:ss）");
+                    }
                     String date = String.valueOf(parameters.get("date"));
                     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-                    Date d = sdf.parse(date);
+                    Date d;
+                    try {
+                        d = sdf.parse(date);
+                    } catch (java.text.ParseException e) {
+                        return AIToolResult.fail("日期格式错误: " + date + "，应为 yyyy-MM-dd HH:mm:ss");
+                    }
                     if (d == null) return AIToolResult.fail("日期格式错误，应为 yyyy-MM-dd HH:mm:ss");
                     long ts = d.getTime() / 1000;
                     Map<String, Object> info = new HashMap<>();
@@ -76,11 +94,20 @@ public class TimeDateTool implements AITool {
                 }
                 case "timezone": {
                     TimeZone tz = TimeZone.getDefault();
+                    int offsetMillis = tz.getOffset(System.currentTimeMillis());
+                    // 输出 ±HH:mm（正确处理半小时/45分钟时区）
+                    int absOffset = Math.abs(offsetMillis);
+                    int hours = absOffset / 3600000;
+                    int minutes = (absOffset % 3600000) / 60000;
+                    String offsetStr = (offsetMillis >= 0 ? "+" : "-")
+                            + String.format(Locale.US, "%02d:%02d", hours, minutes);
                     Map<String, Object> info = new HashMap<>();
                     info.put("id", tz.getID());
-                    info.put("offsetHours", tz.getOffset(System.currentTimeMillis()) / 3600000);
+                    info.put("offset", offsetStr);
+                    info.put("offsetMillis", offsetMillis);
                     info.put("dst", tz.inDaylightTime(new Date()));
-                    return AIToolResult.success("时区: " + tz.getID() + "，UTC偏移: " + (tz.getOffset(System.currentTimeMillis()) / 3600000) + "小时", info);
+                    return AIToolResult.success("时区: " + tz.getID() + "，UTC偏移: " + offsetStr
+                            + (tz.inDaylightTime(new Date()) ? "（夏令时生效）" : ""), info);
                 }
                 case "now":
                 default: {

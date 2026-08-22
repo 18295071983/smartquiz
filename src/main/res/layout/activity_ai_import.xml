@@ -218,7 +218,7 @@
                         android:maxLines="5"
                         android:gravity="top"
                         android:inputType="textMultiLine"
-                        android:background="@drawable/status_bar_background"
+                        android:background="@drawable/ai_import_input_bg"
                         android:padding="10dp"
                         android:textSize="13sp"
                         android:textColor="@color/on_surface"
@@ -260,6 +260,43 @@
                             android:layout_height="wrap_content"
                             android:checked="true" />
                     </LinearLayout>
+
+                    <!-- 推理后端开关：默认 CPU（KV 走系统内存，上下文放大到 8192，避开 GPU 崩溃坑），
+                         关闭可改回 GPU；切换下次导入生效 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="CPU 推理（上下文 8192）"
+                                android:textSize="13sp"
+                                android:textColor="@color/on_surface" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="默认开启：切换立即生效（应用内热切换，无需重启）"
+                                android:textSize="11sp"
+                                android:textColor="@color/on_surface_variant" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/swCpuInference"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -284,14 +321,14 @@
                         android:layout_height="wrap_content"
                         android:text="📄"
                         android:textSize="20sp"
-                        android:alpha="0.3" />
+                        android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="检测"
                         android:textSize="10sp"
                         android:textColor="@color/on_surface_variant"
-                        android:alpha="0.6" />
+                        android:alpha="0.9" />
                 </LinearLayout>
 
                 <TextView
@@ -314,14 +351,14 @@
                         android:layout_height="wrap_content"
                         android:text="🔍"
                         android:textSize="20sp"
-                        android:alpha="0.3" />
+                        android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="映射"
                         android:textSize="10sp"
                         android:textColor="@color/on_surface_variant"
-                        android:alpha="0.6" />
+                        android:alpha="0.9" />
                 </LinearLayout>
 
                 <TextView
@@ -344,14 +381,14 @@
                         android:layout_height="wrap_content"
                         android:text="⚙️"
                         android:textSize="20sp"
-                        android:alpha="0.3" />
+                        android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="解析"
                         android:textSize="10sp"
                         android:textColor="@color/on_surface_variant"
-                        android:alpha="0.6" />
+                        android:alpha="0.9" />
                 </LinearLayout>
 
                 <TextView
@@ -374,14 +411,14 @@
                         android:layout_height="wrap_content"
                         android:text="✅"
                         android:textSize="20sp"
-                        android:alpha="0.3" />
+                        android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="入库"
                         android:textSize="10sp"
                         android:textColor="@color/on_surface_variant"
-                        android:alpha="0.6" />
+                        android:alpha="0.9" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -391,9 +428,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:background="@drawable/status_bar_background"
+                android:background="@drawable/ai_import_input_bg"
                 android:paddingHorizontal="12dp"
-                android:paddingVertical="8dp"
+                android:paddingVertical="10dp"
                 android:layout_marginBottom="12dp">
 
                 <LinearLayout

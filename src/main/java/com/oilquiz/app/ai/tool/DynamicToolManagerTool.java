@@ -122,6 +122,9 @@ public class DynamicToolManagerTool implements AITool {
         
         String description = getStringParam(parameters, "description", "用户自定义工具");
         Map<String, String> toolParams = parseParameters(parameters);
+        if (toolParams == null) {
+            return createErrorResult("parameters 参数不是合法 JSON，已取消创建");
+        }
         String logic = getStringParam(parameters, "logic", null);
         
         Log.i(TAG, "Creating dynamic tool: " + toolName);
@@ -183,9 +186,34 @@ public class DynamicToolManagerTool implements AITool {
             return createErrorResult("工具 " + toolName + " 不是动态工具，无法更新");
         }
         
-        String description = getStringParam(parameters, "description", "用户自定义工具");
+        // update 只更新传入的字段：未提供的 description/logic/parameters 沿用旧值，
+        // 避免"只改描述"时把执行逻辑/参数全抹掉
+        AITool existing = toolManager.getTool(toolName);
+        String description = parameters.containsKey("description")
+                ? getStringParam(parameters, "description", null) : null;
         Map<String, String> toolParams = parseParameters(parameters);
-        String logic = getStringParam(parameters, "logic", null);
+        if (toolParams == null) {
+            return createErrorResult("parameters 参数不是合法 JSON，已取消更新");
+        }
+        String logic = parameters.containsKey("logic")
+                ? getStringParam(parameters, "logic", null) : null;
+
+        if (existing != null) {
+            if (description == null || description.isEmpty()) {
+                description = existing.getDescription();
+            }
+            if (toolParams.isEmpty() && existing.getParameterDescriptions() != null) {
+                toolParams = existing.getParameterDescriptions();
+            }
+            if (logic == null) {
+                if (existing instanceof DynamicAITool) {
+                    logic = ((DynamicAITool) existing).getExecutionLogic();
+                }
+            }
+        }
+        if (description == null || description.isEmpty()) {
+            description = "用户自定义工具";
+        }
 
         // createAndRegisterDynamicTool 用同名注册会覆盖旧工具（即替换），
         // 创建失败时旧工具仍保留，不会丢失
@@ -297,15 +325,19 @@ public class DynamicToolManagerTool implements AITool {
             }
         } else if (paramsObj instanceof String) {
             String paramsStr = (String) paramsObj;
-            try {
-                org.json.JSONObject json = new org.json.JSONObject(paramsStr);
-                java.util.Iterator<String> keys = json.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    result.put(key, json.getString(key));
+            if (!paramsStr.trim().isEmpty()) {
+                try {
+                    org.json.JSONObject json = new org.json.JSONObject(paramsStr);
+                    java.util.Iterator<String> keys = json.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        result.put(key, json.getString(key));
+                    }
+                } catch (Exception e) {
+                    // 解析失败：返回 null 由调用方报错（避免静默创建参数全丢的工具）
+                    Log.w(TAG, "Failed to parse parameters JSON: " + e.getMessage());
+                    return null;
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to parse parameters JSON: " + e.getMessage());
             }
         }
         

@@ -712,9 +712,19 @@ public class LlamaHelper {
     private static native void nativeClearHistory();
 
     // 释放资源
+    /**
+     * 释放模型资源（应用内热切换后端时调用）。持推理写锁执行：
+     * 推理进行中释放会破坏正在解码的状态（竞态），先等锁再释放。
+     */
     public static void release() {
         if (!libraryLoaded) {
             AILogger.e(TAG, "Library not loaded, cannot release resources");
+            return;
+        }
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            AILogger.w(TAG, "release 获取推理锁超时("
+                    + (System.currentTimeMillis() - lockStart) + "ms)，放弃释放");
             return;
         }
         try {
@@ -723,6 +733,8 @@ public class LlamaHelper {
             lastModelInitCheckTime = System.currentTimeMillis();
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error releasing resources: " + e.getMessage(), e);
+        } finally {
+            releaseInferenceWriteLock();
         }
     }
 
@@ -1748,14 +1760,26 @@ public class LlamaHelper {
      * 清理 KV cache 以释放上下文空间
      * 用于在上下文接近满时清理以继续推理
      */
+    /**
+     * 清空推理上下文（KV 缓存）。必须持写锁执行：推理进行中（generate/chatSend 持写锁）
+     * 清上下文会污染正在解码的状态（竞态/逻辑锁问题），因此先等锁再清，超时则放弃本次清理。
+     */
     public static void clearContextForInference() {
         if (!libraryLoaded) return;
+        long lockStart = System.currentTimeMillis();
+        if (!acquireInferenceWriteLock()) {
+            AILogger.w(TAG, "clearContextForInference 获取推理锁超时("
+                    + (System.currentTimeMillis() - lockStart) + "ms)，放弃本次清理");
+            return;
+        }
         try {
             long handle = chatContextHandle;
             if (handle == 0) return;
             nativeClearContextForInference(handle);
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error clearing context: " + e.getMessage(), e);
+        } finally {
+            releaseInferenceWriteLock();
         }
     }
 

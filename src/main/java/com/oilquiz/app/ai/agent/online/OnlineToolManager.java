@@ -40,9 +40,21 @@ public class OnlineToolManager {
     /** 权限请求类工具需要用户交互，超时时间设为 120 秒 */
     private static final int PERMISSION_TOOL_TIMEOUT_MS = 120_000;
     private static final int MAX_RETRY = 2;
-    // 不再截断工具返回结果，保证数据完整性
-    private static final int RESULT_MAX_LENGTH = Integer.MAX_VALUE;
+    /** 工具结果截断上限：防止超大结果撑爆上下文/请求体（截断后带标记，提示模型分片读取） */
+    private static final int RESULT_MAX_LENGTH = 16 * 1024;
     private static final Gson resultGson = new GsonBuilder().disableHtmlEscaping().create();
+
+    /**
+     * 只读/幂等工具白名单：结果可安全缓存复用。
+     * 写/交互/播放/有副作用工具（app_operation、speech_synthesis、voice_input、file_generator、
+     * database 写操作、memory、workspace、image_gen、python_*、excel_tool 写等）一律不缓存，
+     * 避免"同参数二次调用被静默跳过"或返回过期数据。
+     */
+    private static final java.util.Set<String> READONLY_CACHE_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ai_weather", "network_search", "webpage_reader", "smart_research",
+            "location", "time_date", "calculator", "python_calculate",
+            "file_reader", "file_analyzer", "tool_registry", "get_models_profile"
+    ));
 
     private final AIToolManager aiToolManager;
     private final OnlineToolRegistry registry;
@@ -136,9 +148,9 @@ public class OnlineToolManager {
                 entry.put("t", e.getValue().timestamp);
                 root.put(e.getKey(), entry);
             }
-            java.io.FileWriter writer = new java.io.FileWriter(cacheFile);
-            writer.write(root.toString());
-            writer.close();
+            try (java.io.FileWriter writer = new java.io.FileWriter(cacheFile)) {
+                writer.write(root.toString());
+            }
             AILogger.d(TAG, "Tool cache persisted: " + resultCache.size() + " entries");
         } catch (Exception e) {
             AILogger.w(TAG, "Persist tool cache failed: " + e.getMessage());
@@ -211,7 +223,6 @@ public class OnlineToolManager {
         java.util.Map<String, java.util.List<String>> map = new java.util.LinkedHashMap<>();
         map.put("weather", java.util.Arrays.asList("ai_weather"));
         map.put("search", java.util.Arrays.asList("smart_research", "webpage_reader"));
-        map.put("translation", java.util.Arrays.asList("translation"));
         map.put("file_read", java.util.Arrays.asList("file_reader", "file_analyzer"));
         map.put("file_write", java.util.Arrays.asList("file_generator"));
         map.put("image_gen", java.util.Arrays.asList("image_gen"));
@@ -260,9 +271,6 @@ public class OnlineToolManager {
                 if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news",
                         "find", "读网页", "网页", "调研", "research", "资料", "资讯", "百科")) {
                     include.add("smart_research"); include.add("webpage_reader");
-                }
-                if (containsAny(msg, "翻译", "translate", "译成", "英文怎么说", "日语", "韩语", "翻译成", "中文意思")) {
-                    include.add("translation");
                 }
                 if (containsAny(msg, "读取文件", "打开文件", "解析文件", "文件内容", "读取", "file_reader", "读文件")) {
                     include.add("file_reader"); include.add("file_analyzer");
@@ -344,7 +352,6 @@ public class OnlineToolManager {
         java.util.Set<String> matchedCategories = new java.util.LinkedHashSet<>();
         if (containsAny(msg, "天气", "气温", "温度", "预报", "weather")) matchedCategories.add("weather");
         if (containsAny(msg, "搜索", "查一下", "查找", "最新", "新闻", "油价", "汇率", "search", "news", "find", "查询", "读网页", "网页")) matchedCategories.add("search");
-        if (containsAny(msg, "翻译", "translate", "译成", "英文", "日语", "韩语")) matchedCategories.add("translation");
         if (containsAny(msg, "计算", "算一下", "calculator", "calculate", "math")) matchedCategories.add("calculator");
         if (containsAny(msg, "文件", "目录", "读取", "file", "list", "打开文件", "解析")) matchedCategories.add("file");
         if (containsAny(msg, "时间", "日期", "现在几点", "time", "date", "今天")) matchedCategories.add("time");
@@ -383,13 +390,12 @@ public class OnlineToolManager {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         long startTime = System.currentTimeMillis();
 
-        // 权限工具的状态是动态的，不应缓存（避免缓存到过期结果）
-        boolean isPermissionTool = "permission_manager".equals(toolName);
-        // ui_component 也不应缓存：create 必须重新执行（注册新组件/返回新 id），
-        // get_result 超时后的 "pending" 若被缓存，二次调用会瞬间返回 pending（Bug2/3）
-        boolean noCacheTool = isPermissionTool || "ui_component".equals(toolName);
+        // 只读/幂等工具才允许缓存复用；写/交互/播放类工具（app_operation、speech_synthesis、
+        // voice_input、file_generator、database 写、memory、workspace、image_gen、python_* 等）
+        // 一律不缓存——避免"同参数二次调用被静默跳过"或返回过期数据
+        boolean noCacheTool = !READONLY_CACHE_TOOLS.contains(toolName);
 
-        // 检查缓存（权限/ui_component 工具跳过缓存，带 TTL 过期）
+        // 检查缓存（只读工具跳过权限/ui_component 等，带 TTL 过期）
         String cacheKey = toolName + ":" + arguments;
         String cached = noCacheTool ? null : getCached(cacheKey);
         if (cached != null) {
@@ -413,6 +419,7 @@ public class OnlineToolManager {
         // - permission_manager 权限请求（用户授权弹窗）
         // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
         //   30s 默认超时会中断等待导致 Agent"越过交互"直接继续）
+        boolean isPermissionTool = "permission_manager".equals(toolName);
         boolean isPermissionRequest = isPermissionTool && arguments != null
                 && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
         boolean isUserInteractionWait = "ui_component".equals(toolName)
@@ -468,9 +475,10 @@ public class OnlineToolManager {
             } catch (TimeoutException e) {
                 AILogger.w(TAG, "Tool " + toolName + " timeout (attempt " + attempt + ")");
                 lastException = e;
-                // 权限请求工具超时后不重试（避免重复弹出权限对话框）
-                if (isPermissionRequest) {
-                    AILogger.w(TAG, "Permission tool timeout, skip retry");
+                // 超时不代表未执行：非只读（有副作用）工具超时后不重试，
+                // 避免数据库写入/文件生成/应用操作等被重复执行（只读工具超时重试是安全的）
+                if (isPermissionRequest || noCacheTool) {
+                    AILogger.w(TAG, "Non-idempotent tool timeout, skip retry: " + toolName);
                     break;
                 }
             } catch (Exception e) {

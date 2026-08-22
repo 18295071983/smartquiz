@@ -3,6 +3,9 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.agent.online.AgentWorkspace;
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
@@ -24,6 +27,24 @@ import java.util.Map;
  * 工具（如 image_gen/file_generator）生成的文件可存放到工作区，
  * 后续通过本工具查看/清理，实现文件生命周期管理。
  */
+@Tool(
+    value = "workspace",
+    description = "Agent 工作区：管理 Agent 产生的文件（图片/导出/临时数据）。生成文件后用 list 查看、read 读取、delete 清理",
+    category = "file",
+    aliases = {"工作区", "agent_workspace", "workspace_files"},
+    actions = {
+        @Action(name = "list", description = "列出工作区文件"),
+        @Action(name = "path", description = "获取工作区根目录路径"),
+        @Action(name = "read", description = "读取工作区文本文件内容"),
+        @Action(name = "delete", description = "删除工作区文件"),
+        @Action(name = "clear", description = "清空工作区")
+    },
+    params = {
+        @Param(name = "action", type = "string", description = "操作：list(默认)/path/read/delete/clear", required = false),
+        @Param(name = "fileName", type = "string", description = "文件名（工作区内相对名），read/delete 用", required = false),
+        @Param(name = "confirm", type = "boolean", description = "删除/清空确认（delete/clear 必须传 true）", required = false)
+    }
+)
 public class WorkspaceTool implements AITool {
 
     private static final String TAG = "WorkspaceTool";
@@ -52,6 +73,7 @@ public class WorkspaceTool implements AITool {
         Map<String, String> params = new HashMap<>();
         params.put("action", "操作：list(列出)|path(工作区路径)|read(读文本文件)|delete(删除)|clear(清空)");
         params.put("fileName", "文件名（工作区内相对名），read/delete 用");
+        params.put("confirm", "删除/清空确认（delete/clear 必须传 true，防误删）");
         return params;
     }
 
@@ -116,6 +138,13 @@ public class WorkspaceTool implements AITool {
                     if (fileName.trim().isEmpty()) {
                         return AIToolResult.fail("delete 需要 fileName 参数");
                     }
+                    // 删除不可恢复：需 confirm=true（防 prompt 注入误删）
+                    boolean confirm = boolParam(parameters, "confirm", false);
+                    if (!confirm) {
+                        Map<String, Object> info = new HashMap<>();
+                        info.put("requiresConfirm", true);
+                        return AIToolResult.fail("删除文件不可恢复，如需删除请传 confirm=true 再次调用", info);
+                    }
                     boolean ok = ws.deleteFile(fileName.trim());
                     Map<String, Object> result = new HashMap<>();
                     result.put("status", ok ? "deleted" : "failed");
@@ -124,6 +153,13 @@ public class WorkspaceTool implements AITool {
                     return AIToolResult.success(result);
                 }
                 case "clear": {
+                    // 清空不可恢复：需 confirm=true（防 prompt 注入误清）
+                    boolean confirm = boolParam(parameters, "confirm", false);
+                    if (!confirm) {
+                        Map<String, Object> info = new HashMap<>();
+                        info.put("requiresConfirm", true);
+                        return AIToolResult.fail("清空工作区所有文件不可恢复，如需清空请传 confirm=true 再次调用", info);
+                    }
                     int removed = 0;
                     for (AgentWorkspace.WorkspaceFile wf : ws.listFiles()) {
                         if (ws.deleteFile(wf.name)) removed++;
@@ -169,5 +205,16 @@ public class WorkspaceTool implements AITool {
         if (size < 1024) return size + "B";
         if (size < 1024 * 1024) return String.format(java.util.Locale.US, "%.1fKB", size / 1024.0);
         return String.format(java.util.Locale.US, "%.1fMB", size / 1024.0 / 1024.0);
+    }
+
+    private static boolean boolParam(Map<String, Object> parameters, String key, boolean defaultValue) {
+        Object value = parameters.get(key);
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value != null) {
+            String s = String.valueOf(value).trim();
+            if (s.equalsIgnoreCase("true") || s.equals("1")) return true;
+            if (s.equalsIgnoreCase("false") || s.equals("0")) return false;
+        }
+        return defaultValue;
     }
 }

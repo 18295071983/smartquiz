@@ -72,8 +72,10 @@ public class OnlineToolRegistry {
 
         List<Map<String, Object>> descriptions = aiToolManager.getToolDescriptions();
         for (Map<String, Object> desc : descriptions) {
-            String name = String.valueOf(desc.get("name"));
-            if (name == null || name.isEmpty()) continue;
+            Object nameObj = desc.get("name");
+            if (nameObj == null) continue; // 防御：避免 String.valueOf(null) 注册 "null" 幻影工具
+            String name = String.valueOf(nameObj);
+            if (name.isEmpty()) continue;
 
             ToolDefinition def = aiToolManager.getToolDefinition(name);
             String description = def != null ? def.getDescription() : String.valueOf(desc.get("description"));
@@ -108,7 +110,6 @@ public class OnlineToolRegistry {
         if (name.contains("search") || name.contains("research") || name.contains("webpage") || name.contains("web_page")) return "search";
         if (name.startsWith("file") || name.contains("file_")) return "file";
         if (name.startsWith("python")) return "code";
-        if (name.contains("translat")) return "translation";
         if (name.contains("location")) return "location";
         if (name.contains("database")) return "database";
         if (name.contains("permission")) return "system";
@@ -130,10 +131,17 @@ public class OnlineToolRegistry {
             return false;
         }
         String cat = (category == null || category.isEmpty()) ? inferCategory(def, name) : category;
+        // 重复注册（工具更新流程）：先移除旧类别条目，避免 categoryIndex 残留重复/旧类别
+        ToolMeta oldMeta = onlineOnlyTools.get(name);
+        if (oldMeta != null) {
+            removeCategoryEntry(name, oldMeta.category);
+        }
         ToolMeta meta = new ToolMeta(name, description, cat, def, true);
         onlineOnlyTools.put(name, meta);
         toolMetaIndex.put(name, meta);
-        categoryIndex.computeIfAbsent(cat, k -> Collections.synchronizedList(new ArrayList<>())).add(name);
+        if (!categoryIndex.computeIfAbsent(cat, k -> Collections.synchronizedList(new ArrayList<>())).contains(name)) {
+            categoryIndex.get(cat).add(name);
+        }
         disabledTools.remove(name);
         markCacheDirty();
         AILogger.i(TAG, "Registered online-only tool: " + name);
@@ -198,12 +206,18 @@ public class OnlineToolRegistry {
     /** 获取所有启用工具的名称（按类别分组） */
     public Map<String, List<String>> getCategoryIndex() {
         Map<String, List<String>> result = new LinkedHashMap<>();
-        for (Map.Entry<String, List<String>> e : categoryIndex.entrySet()) {
-            List<String> enabled = new ArrayList<>();
-            for (String name : e.getValue()) {
-                if (isToolEnabled(name)) enabled.add(name);
+        // synchronizedList 迭代需外部加锁（防 syncFromAIToolManager 并发重建导致 CME）
+        synchronized (categoryIndex) {
+            for (Map.Entry<String, List<String>> e : categoryIndex.entrySet()) {
+                List<String> names = e.getValue();
+                List<String> enabled = new ArrayList<>();
+                synchronized (names) {
+                    for (String name : names) {
+                        if (isToolEnabled(name)) enabled.add(name);
+                    }
+                }
+                if (!enabled.isEmpty()) result.put(e.getKey(), enabled);
             }
-            if (!enabled.isEmpty()) result.put(e.getKey(), enabled);
         }
         return result;
     }
@@ -247,12 +261,17 @@ public class OnlineToolRegistry {
     public List<ToolMeta> searchByCategory(String category) {
         List<ToolMeta> result = new ArrayList<>();
         if (category == null) return result;
-        List<String> names = categoryIndex.get(category);
-        if (names == null) return result;
-        for (String name : names) {
-            if (isToolEnabled(name)) {
-                ToolMeta meta = toolMetaIndex.get(name);
-                if (meta != null) result.add(meta);
+        // synchronizedList 迭代需外部加锁（防并发重建导致 CME）
+        synchronized (categoryIndex) {
+            List<String> names = categoryIndex.get(category);
+            if (names == null) return result;
+            synchronized (names) {
+                for (String name : names) {
+                    if (isToolEnabled(name)) {
+                        ToolMeta meta = toolMetaIndex.get(name);
+                        if (meta != null) result.add(meta);
+                    }
+                }
             }
         }
         return result;

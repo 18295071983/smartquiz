@@ -218,21 +218,26 @@ public class OnlineToolGuide {
 
     // ==================== 内部工具 ====================
 
-    /** 类别英文键 → 中文显示名 */
+    /** 类别英文键 → 中文显示名（与 AIToolManager 实际注册类别保持一致） */
     private String categoryDisplayName(String category) {
         if (category == null) return "其他";
         switch (category) {
             case "weather": return "天气";
             case "search": return "搜索";
+            case "research": return "研究";
+            case "web": return "网页";
             case "file": return "文件";
-            case "code": return "代码/计算";
-            case "translation": return "翻译";
+            case "data": return "数据";
             case "location": return "定位";
-            case "database": return "数据库";
             case "system": return "系统";
-            case "toolkit": return "聚合工具";
-            case "meta": return "元工具";
+            case "app": return "应用";
+            case "python": return "Python";
+            case "code": return "代码";
             case "calculator": return "计算";
+            case "speech": return "语音";
+            case "tool": return "工具管理";
+            case "meta": return "元工具";
+            case "general": return "通用";
             default: return category;
         }
     }

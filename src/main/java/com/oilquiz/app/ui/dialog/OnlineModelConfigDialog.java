@@ -473,6 +473,10 @@ public class OnlineModelConfigDialog {
                     org.json.JSONObject obj = new org.json.JSONObject();
                     obj.put("id", model.id);
                     obj.put("name", model.getName());
+                    if (model.contextLength > 0) {
+                        obj.put("contextLength", model.contextLength); // 保留配置时检测到的真实窗口
+                        obj.put("contextLengthFromApi", model.contextLengthFromApi);
+                    }
                     arr.put(obj);
                 }
                 cachedModelsJson = arr.toString();
@@ -506,6 +510,9 @@ public class OnlineModelConfigDialog {
             config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();
         }
+        // 配置时直接请求上下文大小：优先用本次「获取模型列表」解析出的真实窗口（context_length 等字段），
+        // 列表接口未带字段时异步补查一次 /models/{name} 详情并持久化（命中全局缓存，Agent 执行时零额外请求）
+        applyDetectedContextWindow(config, selectedModel);
         // 持久化扩展字段
         modelManager.updateModelConfig(config);
 
@@ -515,6 +522,53 @@ public class OnlineModelConfigDialog {
 
         Toast.makeText(context, isEditing ? "配置已更新" : "配置已保存", Toast.LENGTH_SHORT).show();
         dialog.dismiss();
+    }
+
+    /**
+     * 配置时直接请求上下文大小并写入配置：
+     * 1) 若本次「获取模型列表」解析出选中模型的**真实 API 字段**（context_length 等，
+     *    contextLengthFromApi=true）→ 直接写入；
+     * 2) 否则（列表接口未带字段，或仅名称推断值）异步补查一次 /models/{name} 详情
+     *    （queryContextWindowFromAPI 带持久化缓存，Agent 执行时命中缓存零额外请求），
+     *    成功后回写 config 并持久化。
+     */
+    private void applyDetectedContextWindow(final OnlineModelManager.OnlineModelConfig config, final String selectedModel) {
+        if (config == null || selectedModel == null || selectedModel.isEmpty()) {
+            return;
+        }
+        // 1) 仅当列表值为服务商 API 返回的真实字段时才直接采用（避免名称推断死值短路真实查询）
+        ApiModel picked = modelsAdapter.findModelById(selectedModel);
+        if (picked != null && picked.contextLength > 0 && picked.contextLengthFromApi) {
+            config.contextWindow = picked.contextLength;
+            config.contextWindowFromApi = true;
+            return;
+        }
+        // 2) 列表接口未带上下文字段：异步补查一次并回写
+        try {
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    return com.oilquiz.app.ai.service.OnlineInferenceService
+                            .getInstance(context).queryContextWindowFromAPI(config);
+                } catch (Throwable t) {
+                    return null;
+                }
+            }).thenAccept(window -> {
+                if (window != null && window > 0) {
+                    config.contextWindow = window;
+                    config.contextWindowFromApi = true;
+                } else {
+                    // API 未返回真实值：回退配置表推断，避免残留旧死值（如名称推断的 4096）
+                    int inferred = OnlineModelManager.getContextWindowForModel(config.apiUrl, config.modelName);
+                    if (inferred > 0 && inferred != config.contextWindow) {
+                        config.contextWindow = inferred;
+                    }
+                    config.contextWindowFromApi = false;
+                }
+                modelManager.updateModelConfig(config);
+            });
+        } catch (Throwable t) {
+            // 查询失败静默，保留配置表推断值
+        }
     }
 
     private void loadCachedModels(String cachedJson) {
@@ -538,6 +592,11 @@ public class OnlineModelConfigDialog {
                         ApiModel m = new ApiModel(id);
                         if (name != null) {
                             m.displayName = name;
+                        }
+                        int ctx = obj.optInt("contextLength", 0); // 还原配置时检测到的真实窗口
+                        if (ctx > 0) {
+                            m.contextLength = ctx;
+                            m.contextLengthFromApi = obj.optBoolean("contextLengthFromApi", false);
                         }
                         models.add(m);
                     }

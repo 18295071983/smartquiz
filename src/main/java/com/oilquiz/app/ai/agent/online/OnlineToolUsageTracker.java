@@ -64,7 +64,7 @@ public class OnlineToolUsageTracker {
         loadStats();
     }
 
-    /** 持久化统计：共现计数（长期经验）落盘 */
+    /** 持久化统计：共现计数（长期经验）落盘（原子写：tmp + rename，防写一半崩溃损坏） */
     public synchronized void persistStats() {
         if (statsFile == null) return;
         try {
@@ -77,9 +77,16 @@ public class OnlineToolUsageTracker {
             root.put("totalCalls", totalCalls.get());
             root.put("totalSuccess", totalSuccess.get());
             root.put("totalFailures", totalFailures.get());
-            java.io.FileWriter writer = new java.io.FileWriter(statsFile);
-            writer.write(root.toString());
-            writer.close();
+            java.io.File tmp = new java.io.File(statsFile.getAbsolutePath() + ".tmp");
+            try (java.io.FileWriter writer = new java.io.FileWriter(tmp)) {
+                writer.write(root.toString());
+            }
+            if (!tmp.renameTo(statsFile)) {
+                try (java.io.FileWriter writer = new java.io.FileWriter(statsFile)) {
+                    writer.write(root.toString());
+                }
+                tmp.delete();
+            }
             AILogger.d(TAG, "Usage stats persisted: " + cooccurrenceCount.size() + " patterns");
         } catch (Exception e) {
             AILogger.w(TAG, "Persist usage stats failed: " + e.getMessage());
@@ -90,10 +97,8 @@ public class OnlineToolUsageTracker {
     private synchronized void loadStats() {
         if (statsFile == null || !statsFile.exists()) return;
         try {
-            java.io.FileReader reader = new java.io.FileReader(statsFile);
             org.json.JSONObject root = new org.json.JSONObject(new String(
                     readAllBytes(statsFile), "UTF-8"));
-            reader.close();
             org.json.JSONObject co = root.optJSONObject("cooccurrence");
             if (co != null) {
                 java.util.Iterator<String> keys = co.keys();
@@ -112,16 +117,16 @@ public class OnlineToolUsageTracker {
     }
 
     private static byte[] readAllBytes(java.io.File file) throws java.io.IOException {
-        java.io.FileInputStream fis = new java.io.FileInputStream(file);
-        byte[] bytes = new byte[(int) file.length()];
-        int read = 0;
-        while (read < bytes.length) {
-            int r = fis.read(bytes, read, bytes.length - read);
-            if (r < 0) break;
-            read += r;
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+            byte[] bytes = new byte[(int) file.length()];
+            int read = 0;
+            while (read < bytes.length) {
+                int r = fis.read(bytes, read, bytes.length - read);
+                if (r < 0) break;
+                read += r;
+            }
+            return bytes;
         }
-        fis.close();
-        return bytes;
     }
 
     // ==================== 记录 ====================
@@ -165,8 +170,8 @@ public class OnlineToolUsageTracker {
         // 共现分析
         updateCooccurrence(toolName);
 
-        // 全局记录数控制
-        if (totalCalls.get() > MAX_TOTAL_RECORDS) {
+        // 全局记录数控制（按实际保留记录数判断，避免每次调用都做无效裁剪）
+        if (getRecordCount() > MAX_TOTAL_RECORDS) {
             trimRecords();
         }
 
@@ -219,6 +224,15 @@ public class OnlineToolUsageTracker {
                 sessionSequence.subList(0, sessionSequence.size() - 10).clear();
             }
         }
+    }
+
+    /** 当前实际保留的记录总数（跨工具） */
+    private int getRecordCount() {
+        int count = 0;
+        for (LinkedList<ToolCallRecord> list : recordsByTool.values()) {
+            count += list.size();
+        }
+        return count;
     }
 
     // ==================== 统计 ====================
@@ -329,6 +343,8 @@ public class OnlineToolUsageTracker {
         totalSuccess.set(0);
         totalFailures.set(0);
         totalExecutionTime.set(0);
+        // 同步落盘：否则重启后旧共现统计全部复活，"新会话清零"语义失效
+        persistStats();
         AILogger.i(TAG, "Usage stats reset");
     }
 

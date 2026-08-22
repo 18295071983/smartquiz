@@ -95,14 +95,6 @@ public class ToolParameterValidator {
             Arrays.asList("可以说：'今天下午2点到4点开会'、'明天上午10点看医生'")
         ));
         
-        // ========== 翻译工具 ==========
-        TOOL_SPECS.put("translate", new ToolSpec(
-            Arrays.asList("text"),
-            Arrays.asList("target_language", "source_language"),
-            "请提供要翻译的文本？",
-            Arrays.asList("可以说：'翻译 Hello World'、'把这段话翻译成日语'")
-        ));
-        
         // ========== 文档工具 ==========
         TOOL_SPECS.put("document_create", new ToolSpec(
             Arrays.asList("content", "type"),

@@ -62,7 +62,8 @@ public class AgentRouter {
     // ==================== 执行入口 ====================
 
     public void execute(String message, int maxTokens) {
-        execute(message, maxTokens, true);
+        // 默认不开深度思考：由调用方显式传入（模型是否支持由引擎层按模型名门控）
+        execute(message, maxTokens, false);
     }
 
     /**

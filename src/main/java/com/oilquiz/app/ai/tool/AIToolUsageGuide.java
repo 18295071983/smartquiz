@@ -127,11 +127,12 @@ public class AIToolUsageGuide {
         sb.append("  示例1 查询天气：使用 ai_weather，参数 action=current、city=北京\n");
         sb.append("  示例2 网络搜索并阅读：使用 network_search，参数 action=search_and_read、query=量子计算最新进展、limit=5\n");
         sb.append("  示例3 数学计算：使用 python_calculate，参数 expression=3.14*5*5\n");
-        sb.append("  示例4 翻译：使用 translation，参数 text=Hello world、target_lang=zh\n");
-        sb.append("  示例5 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
-        sb.append("  示例6 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
-        sb.append("  示例7 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n");
-        sb.append("  示例8 生成图片：使用 image_gen，参数 prompt=一只在雪地里打滚的橘猫（描述越具体越好，可含风格）、width=1024、height=1024、model=flux（可选 flux-realism写实/flux-anime动漫/turbo快速）、style=photorealistic（可选）\n\n");
+        sb.append("  示例4 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
+        sb.append("  示例5 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
+        sb.append("  示例6 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n");
+        sb.append("  示例7 生成图片：使用 image_gen，参数 prompt=一只在雪地里打滚的橘猫（描述越具体越好，可含风格）、width=1024、height=1024、model=flux（可选 flux-realism写实/flux-anime动漫/turbo快速）、style=photorealistic（可选）\n");
+        sb.append("  示例8 语音输入：使用 voice_input，参数 action=record_and_recognize、duration_seconds=15（先确保已授权录音权限）\n");
+        sb.append("  示例9 语音合成：使用 speech_synthesis，参数 text=你好，欢迎使用智能答题助手\n\n");
 
         // 5. 错误处理
         sb.append("【五、错误处理】\n");
@@ -175,34 +176,34 @@ public class AIToolUsageGuide {
         guide.append("│ network_search   │ 网络搜索、获取网页、提取信息、智能摘要     │\n");
         guide.append("│ smart_research   │ 智能研究：搜索→阅读→摘要全自动流程        │\n");
         guide.append("│ webpage_reader   │ 网页阅读、信息提取、摘要、多页抓取         │\n");
-        guide.append("│ translation      │ 多语言翻译（中英日韩法德西俄等）          │\n");
         guide.append("│ python_calculate │ 数学表达式计算                        │\n");
         guide.append("│ python_execute   │ 执行Python代码                        │\n");
         guide.append("│ python_analyze_data│ 使用Python分析数据                    │\n");
+        guide.append("│ python_web_reader │ Python抓网页/API(requests+bs4)        │\n");
+        guide.append("│ python_file_ops   │ Python文件读/改/解析(标准库+openpyxl)   │\n");
+        guide.append("│ python_chart      │ Python绘图(Pillow):柱/线/饼/散点→PNG   │\n");
         guide.append("│ location         │ 获取当前位置/城市/经纬度                │\n");
-        guide.append("│ file             │ 文件信息/读取/目录列表                 │\n");
-        guide.append("│ file_reader      │ 文本文件读取/按行读/搜索/实体提取/预览   │\n");
+        guide.append("│ file_reader      │ 读取/按行/搜索/解析Excel-CSV-JSON-XML/列目录 │\n");
         guide.append("│ file_analyzer    │ 文件内容分析                          │\n");
         guide.append("│ file_generator   │ 生成文本/JSON/配置/Markdown文件        │\n");
         guide.append("│ database         │ 题库查询/用户/分数等数据库操作          │\n");
+        guide.append("│ excel_tool       │ Excel查询(sheets/query/cell)/修改(write/add) │\n");
         guide.append("│ system_resource  │ 打开应用/URL、发短信、拨打电话等系统操作 │\n");
         guide.append("│ app_operation    │ 应用内页面跳转（用户/题库/答题/计划等）  │\n");
         guide.append("│ permission_manager│ 权限检查/请求/状态管理                 │\n");
-        guide.append("│ app_toolkit      │ 聚合工具：OCR/图像/文件解析/网页解析/天气 │\n");
+        guide.append("│ app_toolkit      │ 聚合工具：OCR/图像/网页解析/天气/计算    │\n");
         guide.append("│ create_dynamic_tool│ 动态创建/管理/删除AI工具              │\n");
         guide.append("│ ai_create_tool   │ 用AI自动生成新工具                    │\n");
         guide.append("└──────────────────┴──────────────────────────────────────┘\n\n");
 
         guide.append("【使用要点】\n");
-        guide.append("  1. 明确动词：识别、读取、搜索、翻译、计算、查询。\n");
+        guide.append("  1. 明确动词：识别、读取、搜索、计算、查询。\n");
         guide.append("  2. 文件用绝对路径：/storage/emulated/0/xxx.jpg。\n");
-        guide.append("  3. 翻译指定目标语言：翻译成英文/日文。\n");
-        guide.append("  4. 搜索提供关键词：搜索 量子计算 最新进展。\n\n");
+        guide.append("  3. 搜索提供关键词：搜索 量子计算 最新进展。\n\n");
 
         guide.append("【示例】\n");
         guide.append("  • 查询北京今天的天气\n");
         guide.append("  • 搜索 人工智能 最新新闻\n");
-        guide.append("  • 把这段话翻译成英文：...\n");
         guide.append("  • 计算 (10+5)*3\n");
         guide.append("  • 读取文件 /storage/emulated/0/note.txt\n");
         guide.append("  • 识别图片 /storage/emulated/0/test.jpg 中的文字\n");
@@ -274,8 +275,8 @@ public class AIToolUsageGuide {
         keywords.put("文件处理", List.of("文件", "读取", "解析", "CSV", "JSON", "TXT"));
         keywords.put("网页解析", List.of("网页", "网站", "HTML", "链接", "网址"));
         keywords.put("搜索", List.of("搜索", "查找", "查询"));
-        keywords.put("翻译", List.of("翻译", "英文", "中文", "日语", "韩语"));
         keywords.put("计算器", List.of("计算", "加", "减", "乘", "除"));
+        keywords.put("语音", List.of("语音", "朗读", "说话", "播报", "听写", "识别录音"));
         keywords.put("天气", List.of("天气", "气温", "温度", "预报"));
         keywords.put("聊天", List.of("你好", "嗨", "hello", "hi"));
 
@@ -366,10 +367,6 @@ public class AIToolUsageGuide {
                 return "│ • 搜索最新新闻\n" +
                        "│ • 查找天气信息\n" +
                        "│ • 帮我搜索人工智能\n";
-            case TRANSLATE:
-                return "│ • 翻译这段英文\n" +
-                       "│ • 中文翻译成英文\n" +
-                       "│ • 日语翻译\n";
             case CALCULATOR:
                 return "│ • 计算 100 + 200\n" +
                        "│ • 3.14 * 5\n" +

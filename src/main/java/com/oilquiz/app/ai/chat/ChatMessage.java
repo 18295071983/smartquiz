@@ -408,8 +408,6 @@ public class ChatMessage {
                 case "get_weather": return "天气查询";
                 case "network_search": return "网络搜索";
                 case "database": return "数据库查询";
-                case "file": return "文件操作";
-                case "translation": return "翻译";
                 case "app_operation": return "应用操作";
                 case "generate_questions": return "生成题目";
                 case "analyze_question": return "分析题目";

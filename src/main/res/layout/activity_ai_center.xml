@@ -152,22 +152,49 @@
                 </com.google.android.material.card.MaterialCardView>
 
                 <!-- 配置列表 -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="API配置列表"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:layout_marginTop="12dp"/>
-
                 <LinearLayout
-                    android:id="@+id/layout_online_configs"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp">
-                    <!-- 动态添加配置项 -->
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="API配置列表"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_refresh_models"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="🔄 刷新模型"
+                        android:textSize="11sp"
+                        app:cornerRadius="8dp"/>
                 </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/online_models_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:nestedScrollingEnabled="false"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+
+                <TextView
+                    android:id="@+id/online_models_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:padding="16dp"
+                    android:gravity="center"
+                    android:text="暂无在线模型，点击下方按钮添加配置"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_tertiary"
+                    android:background="@drawable/empty_bg_dashed"
+                    android:visibility="gone"/>
 
                 <!-- 添加配置按钮 -->
                 <com.google.android.material.button.MaterialButton
@@ -264,22 +291,49 @@
                 </com.google.android.material.card.MaterialCardView>
 
                 <!-- 模型选择列表 -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="本地模型列表"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:layout_marginTop="12dp"/>
-
                 <LinearLayout
-                    android:id="@+id/layout_local_models"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp">
-                    <!-- 动态添加模型项 -->
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="本地模型列表"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_refresh_local_models"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="🔄 刷新"
+                        android:textSize="11sp"
+                        app:cornerRadius="8dp"/>
                 </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/models_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:nestedScrollingEnabled="false"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+
+                <TextView
+                    android:id="@+id/local_models_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:padding="16dp"
+                    android:gravity="center"
+                    android:text="暂无本地模型，请先导入或下载模型"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_tertiary"
+                    android:background="@drawable/empty_bg_dashed"
+                    android:visibility="gone"/>
 
                 <!-- 操作按钮 -->
                 <LinearLayout

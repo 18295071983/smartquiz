@@ -35,11 +35,16 @@ import java.util.regex.Pattern;
         @Param(name = "package", type = "string", description = "包名(用于pip_install)", required = false),
         @Param(name = "file_path", type = "string", description = "Python文件路径(用于run_file)", required = false),
         @Param(name = "file_name", type = "string", description = "Python文件名(用于run_file创建文件)", required = false),
-        @Param(name = "args", type = "string", description = "运行参数(用于run_file)", required = false)
+        @Param(name = "args", type = "string", description = "运行参数(用于run_file)", required = false),
+        @Param(name = "timeout", type = "integer", description = "执行超时秒数(默认30，范围5~120)", required = false)
     }
 )
 public class PythonExecuteTool extends BaseAITool {
     private static final String TAG = "PythonExecuteTool";
+    /** 代码长度上限（字符），防止超大代码拖垮执行 */
+    private static final int MAX_CODE_LENGTH = 200 * 1024;
+    /** 默认执行超时（秒） */
+    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private final Context context;
     private final PythonToolManager toolManager;
     private final FileReaderTool fileReaderTool;
@@ -96,7 +101,8 @@ public class PythonExecuteTool extends BaseAITool {
             }
             
             // 尝试 Python 执行
-            AIToolResult pythonResult = tryPythonExecute(code, task, contextData);
+            int timeout = parseTimeout(parameters.get("timeout"));
+            AIToolResult pythonResult = tryPythonExecute(code, task, contextData, timeout);
             
             // 如果 Python 成功，直接返回
             if (pythonResult != null && pythonResult.isSuccess()) {
@@ -208,7 +214,7 @@ public class PythonExecuteTool extends BaseAITool {
             "    else:\n" +
             "        print(f'安装失败: {msg2}')\n";
         
-        AIToolResult result = tryPythonExecute(pipCode, null, null);
+        AIToolResult result = tryPythonExecute(pipCode, null, null, DEFAULT_TIMEOUT_SECONDS);
         if (result != null && result.isSuccess()) {
             return result;
         }
@@ -245,7 +251,7 @@ public class PythonExecuteTool extends BaseAITool {
             "  print(f'  [{cat}] {name}')\n" +
             "print(f'\\n总计: {len(modules)} 个模块')\n";
         
-        AIToolResult result = tryPythonExecute(listCode, null, null);
+        AIToolResult result = tryPythonExecute(listCode, null, null, DEFAULT_TIMEOUT_SECONDS);
         if (result != null && result.isSuccess()) {
             return result;
         }
@@ -315,14 +321,14 @@ public class PythonExecuteTool extends BaseAITool {
             return AIToolResult.fail("需要提供 code(代码) 或 file_path(文件路径)");
         }
         
-        AIToolResult result = tryPythonExecute(pyCode, null, null);
+        AIToolResult result = tryPythonExecute(pyCode, null, null, DEFAULT_TIMEOUT_SECONDS);
         if (result != null && result.isSuccess()) {
             return result;
         }
         return AIToolResult.fail("Python 文件执行失败");
     }
     
-    private AIToolResult tryPythonExecute(String code, String task, Map<String, Object> contextData) {
+    private AIToolResult tryPythonExecute(String code, String task, Map<String, Object> contextData, int timeout) {
         try {
             if (!toolManager.isInitialized()) {
                 if (!toolManager.initialize()) {
@@ -333,8 +339,13 @@ public class PythonExecuteTool extends BaseAITool {
             
             PythonToolManager.ExecutionResult result;
             if (code != null && !code.isEmpty()) {
+                // 代码长度上限：防止超大代码拖垮执行（预导入 + exec 均耗时）
+                if (code.length() > MAX_CODE_LENGTH) {
+                    return AIToolResult.fail("代码过长（" + code.length() + " > " + MAX_CODE_LENGTH
+                            + "字符），请拆分执行或改用文件");
+                }
                 String safeCode = buildSafeCode(code);
-                result = toolManager.executeCode(safeCode, contextData);
+                result = toolManager.executeCode(safeCode, contextData, timeout);
             } else if (task != null && !task.isEmpty()) {
                 result = toolManager.processTask(task, contextData);
             } else {
@@ -353,6 +364,20 @@ public class PythonExecuteTool extends BaseAITool {
                 false
             );
         }
+    }
+
+    /** 解析超时参数（秒）：默认 30，范围 5~120 */
+    private int parseTimeout(Object v) {
+        int timeout = DEFAULT_TIMEOUT_SECONDS;
+        if (v instanceof Number) {
+            timeout = ((Number) v).intValue();
+        } else if (v != null) {
+            try {
+                timeout = Integer.parseInt(String.valueOf(v).trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return Math.max(5, Math.min(120, timeout));
     }
     
     /**
@@ -504,9 +529,10 @@ public class PythonExecuteTool extends BaseAITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("code", "string, 要执行的 Python 代码（可选）");
+        params.put("code", "string, 要执行的 Python 代码（可选，上限200KB）");
         params.put("task", "string, 任务描述，如 '计算 3+5*2'、'分析数据 [1,2,3,4,5]'（可选）");
         params.put("context", "object, 上下文数据（可选）");
+        params.put("timeout", "int, 执行超时秒数（默认30，范围5~120）");
         return params;
     }
     

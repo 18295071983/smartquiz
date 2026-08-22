@@ -247,7 +247,7 @@ public class IntelligentIntentRecognizer {
             case IMAGE:
                 return "app_toolkit";
             case FILE:
-                return "app_toolkit";
+                return "file_reader";
             case WEB:
                 return "app_toolkit";
             case WEATHER:
@@ -255,7 +255,8 @@ public class IntelligentIntentRecognizer {
             case SEARCH:
                 return "network_search";
             case TRANSLATE:
-                return "translation";
+                // 翻译工具已移除，翻译请求由 LLM 直接完成
+                return null;
             case CALCULATOR:
                 return "calculator";
             case DATABASE:
@@ -287,7 +288,7 @@ public class IntelligentIntentRecognizer {
                 break;
                 
             case FILE:
-                params.put("action", detectFileAction(message));
+                params.put("action", "read");
                 params.put("file_path", extractFilePath(message));
                 break;
                 
@@ -327,18 +328,6 @@ public class IntelligentIntentRecognizer {
             return "image_generate_color";
         }
         return "image_save";
-    }
-    
-    /**
-     * 检测文件操作类型
-     */
-    private static String detectFileAction(String message) {
-        String lower = message.toLowerCase();
-        if (lower.contains("csv")) return "file_parse_csv";
-        if (lower.contains("json")) return "file_parse_json";
-        if (lower.contains("读取")) return "file_read_lines";
-        if (lower.contains("类型")) return "file_get_type";
-        return "file_parse_text";
     }
     
     /**

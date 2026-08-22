@@ -200,6 +200,8 @@ public class AIChatActivity extends BaseActivity {
     private AIEntertainmentManager aiEntertainmentManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
+    /** 当前 Agent 回调实例（随 AgentChatHandler 复用，每轮执行前需重置 completed 标志） */
+    private AgentCallbackImpl agentCallback;
     /** 独立 Agent 执行面板已移除：Agent 过程改为组件插入式显示在 AI 消息内 */
     private ModelExecutionBridge modelBridge;
     private AIConfig aiConfig;
@@ -328,7 +330,6 @@ public class AIChatActivity extends BaseActivity {
     private static final String[][] COMMAND_PATTERNS = {
         {"生成题目", "app_toolkit"},
         {"分析题目", "app_toolkit"},
-        {"翻译", "translation"},
         {"学习计划", "app_toolkit"},
         {"统计", "app_toolkit"},
         {"搜索题目", "app_toolkit"},
@@ -1291,7 +1292,6 @@ public class AIChatActivity extends BaseActivity {
 
         // 工具快捷输入引导：点击chip弹出参数引导表单
         Chip chipSearch = findViewById(R.id.chip_search);
-        Chip chipTranslate = findViewById(R.id.chip_translate);
         Chip chipDatabase = findViewById(R.id.chip_database);
         Chip chipFile = findViewById(R.id.chip_file);
         Chip chipLocation = findViewById(R.id.chip_location);
@@ -1299,9 +1299,8 @@ public class AIChatActivity extends BaseActivity {
         Chip chipCalc = findViewById(R.id.chip_calc);
 
         if (chipSearch != null) chipSearch.setOnClickListener(v -> showToolGuideDialog("network_search"));
-        if (chipTranslate != null) chipTranslate.setOnClickListener(v -> showToolGuideDialog("translation"));
         if (chipDatabase != null) chipDatabase.setOnClickListener(v -> showToolGuideDialog("database"));
-        if (chipFile != null) chipFile.setOnClickListener(v -> showToolGuideDialog("file"));
+        if (chipFile != null) chipFile.setOnClickListener(v -> showToolGuideDialog("file_reader"));
         if (chipLocation != null) chipLocation.setOnClickListener(v -> showToolGuideDialog("location"));
         if (chipApp != null) chipApp.setOnClickListener(v -> showToolGuideDialog("app_operation"));
         if (chipCalc != null) chipCalc.setOnClickListener(v -> showToolGuideDialog("app_toolkit"));
@@ -4237,8 +4236,7 @@ public class AIChatActivity extends BaseActivity {
 
     private void executeToolByPrefix(String prefix, String params) {
         String toolName = null;
-        if ("翻译".equals(prefix)) toolName = "translation";
-        else if ("生成题目".equals(prefix)) toolName = "database";
+        if ("生成题目".equals(prefix)) toolName = "database";
         else if ("分析题目".equals(prefix)) toolName = "python_calculate";
         else if ("学习计划".equals(prefix)) toolName = "python_execute";
         else if ("统计".equals(prefix)) toolName = "python_calculate";
@@ -4423,7 +4421,7 @@ public class AIChatActivity extends BaseActivity {
             matched = true;
         }
         if (containsKeyword(lower, "翻译", "translate", "英文", "日文", "韩文")) {
-            guide.append("🌐 需要翻译，我可能会调用翻译工具\n");
+            guide.append("🌐 需要翻译，我会直接帮你翻译\n");
             matched = true;
         }
         if (containsKeyword(lower, "题", "题库", "题目", "quiz", "question", "考试")) {
@@ -4555,6 +4553,11 @@ public class AIChatActivity extends BaseActivity {
                 outputRouter.setThinkingEnabled(enableThinking);
             }
             isInThinking = enableThinking;
+            // 每轮新执行前重置回调完成标志（AgentChatHandler 复用，防止上一轮的 completed=true
+            // 导致本轮 onComplete 被幂等保护跳过 → 回复不处理、UI 卡"处理中"）
+            if (agentCallback != null) {
+                agentCallback.resetForNewTurn();
+            }
             // 生成状态监控：Agent 生成可能较慢（本地模型），启动即显示处理中状态，
             // 避免用户"一直等待"无反馈（onThinkingToken/onToolCallStart/onComplete 会覆盖更新）
             updateAgentStatusBar("⏳ 模型处理中...", true);
@@ -5381,6 +5384,20 @@ public class AIChatActivity extends BaseActivity {
                         sum.append("⚡ 缓存命中 ").append(cacheHitTokens).append(" tokens（本轮省去重复计费）");
                     }
                 }
+                // 上下文窗口用量：窗口（配置时 API 检测/配置表推断）+ 已用（最近请求输入）
+                if (agentChatHandler != null) {
+                    try {
+                        int[] ctx = agentChatHandler.getContextWindowInfo();
+                        if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
+                            if (sum.length() > 0) sum.append("\n");
+                            sum.append("🧠 上下文 ").append(formatCtxWindow(ctx[0])).append(" 用 ")
+                                .append(String.format(java.util.Locale.ROOT, "%.0f%%",
+                                        Math.min(100.0, ctx[1] * 100.0 / ctx[0])))
+                                .append("（剩 ").append(formatCtxWindow(ctx[2])).append("）");
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
                 if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
                     chatHistory.get(messageIndex).agentSummary = sum.toString();
                     AppLogger.i(TAG, "Agent summary written: " + sum.toString()
@@ -5551,6 +5568,13 @@ public class AIChatActivity extends BaseActivity {
     private class AgentCallbackImpl implements AgentChatHandler.AgentChatCallback {
         /** 本轮 Agent 是否已结束（onComplete 置位）：防引擎补发 onError 重复走错误路径触发崩溃 */
         private final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        /** 每轮新 Agent 执行前调用：重置本轮完成标志。
+         *  根因：AgentCallbackImpl 随 AgentChatHandler 复用（多轮对话共享同一实例），
+         *  completed 若跨轮保持 true，第二轮 onComplete 的 CAS 会失败 → 回复不处理、UI 卡"处理中"。 */
+        void resetForNewTurn() {
+            completed.set(false);
+        }
 
         @Override
         public void onToolCallStart(String toolCallId, String toolName, String args) {
@@ -6170,9 +6194,11 @@ public class AIChatActivity extends BaseActivity {
             agentChatHandler = null;
         }
         if (useOnlineModel) {
-            agentChatHandler = new AgentChatHandler(this, aiService, inferenceRouter, agentService, new AgentCallbackImpl(), true);
+            agentCallback = new AgentCallbackImpl();
+            agentChatHandler = new AgentChatHandler(this, aiService, inferenceRouter, agentService, agentCallback, true);
         } else {
-            agentChatHandler = new AgentChatHandler(this, aiService, agentService, new AgentCallbackImpl());
+            agentCallback = new AgentCallbackImpl();
+            agentChatHandler = new AgentChatHandler(this, aiService, agentService, agentCallback);
         }
         // 同步引擎会话：跟随当前 UI 会话（启动恢复/切换会话后保持一致）
         if (useOnlineModel && agentChatHandler != null && currentSessionId != null) {
@@ -6577,8 +6603,8 @@ public class AIChatActivity extends BaseActivity {
                     try {
                         int[] ctx = agentChatHandler.getContextWindowInfo();
                         if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
-                            text += String.format(" · 🧠上下文 %dK 用 %.0f%%",
-                                    ctx[0] / 1000,
+                            text += String.format(" · 🧠上下文 %s 用 %.0f%%",
+                                    formatCtxWindow(ctx[0]),
                                     Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
                         }
                     } catch (Throwable ignored) {
@@ -6592,6 +6618,19 @@ public class AIChatActivity extends BaseActivity {
                 tvTokenStats.setVisibility(View.GONE);
             }
         }
+    }
+
+    /**
+     * 上下文窗口格式化：>=1M 显示 "1M"（如 deepseek-v4 的 1048576），>=1K 显示 "64K"，否则原值。
+     */
+    private String formatCtxWindow(int window) {
+        if (window >= 1000000) {
+            return (window / 1000000) + "M";
+        }
+        if (window >= 1000) {
+            return (window / 1000) + "K";
+        }
+        return String.valueOf(window);
     }
 
     /**
@@ -7814,8 +7853,16 @@ public class AIChatActivity extends BaseActivity {
     /** 开始语音输入录音 */
     private void startSpeechRecording() {
         try {
+            // 麦克风互斥：Agent 语音输入组件正在录音时，应用层录音让位并提示
+            com.oilquiz.app.ai.speech.SpeechManager speechMgr =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+            if (!speechMgr.tryAcquireRecording("app")) {
+                showToast("Agent 正在使用麦克风录音，请先等待其完成");
+                return;
+            }
             File audioFile = createAudioFile();
             if (audioFile == null) {
+                speechMgr.releaseRecording("app");
                 showToast("无法创建录音文件");
                 return;
             }
@@ -7837,6 +7884,7 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             AppLogger.aiE(TAG, "语音输入录音启动失败: " + e.getMessage());
             showToast("录音启动失败: " + e.getMessage());
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
             releaseSpeechRecorder();
             updateVoiceRecordingUI(false);
         }
@@ -7889,6 +7937,8 @@ public class AIChatActivity extends BaseActivity {
             isSpeechRecording = false;
             updateVoiceRecordingUI(false);
             releaseSpeechRecorder();
+            // 释放麦克风占用（Agent 语音输入组件可继续录音）
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
 
             File audioFile = new File(speechRecordingFilePath);
             if (!audioFile.exists() || audioFile.length() == 0) {
@@ -7923,6 +7973,7 @@ public class AIChatActivity extends BaseActivity {
             isSpeechRecording = false;
             updateVoiceRecordingUI(false);
             releaseSpeechRecorder();
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
             showToast("录音处理失败: " + e.getMessage());
         }
     }

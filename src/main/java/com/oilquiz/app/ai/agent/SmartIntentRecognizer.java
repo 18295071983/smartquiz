@@ -458,8 +458,6 @@ public class SmartIntentRecognizer {
         toolNameToIntent.put("calculator", Intent.CALCULATOR);
         toolNameToIntent.put("database", Intent.DATABASE);
         toolNameToIntent.put("database_query", Intent.DATABASE);
-        toolNameToIntent.put("translation", Intent.TRANSLATE);
-        toolNameToIntent.put("translate", Intent.TRANSLATE);
         toolNameToIntent.put("generate_questions", Intent.QUIZ);
         toolNameToIntent.put("file_analysis", Intent.FILE);
         toolNameToIntent.put("web_page_reader", Intent.WEB);
@@ -477,7 +475,6 @@ public class SmartIntentRecognizer {
         toolDescToIntent.put("搜索", Intent.SEARCH);
         toolDescToIntent.put("计算", Intent.CALCULATOR);
         toolDescToIntent.put("数据库", Intent.DATABASE);
-        toolDescToIntent.put("翻译", Intent.TRANSLATE);
         toolDescToIntent.put("题目", Intent.QUIZ);
         toolDescToIntent.put("文件", Intent.FILE);
         toolDescToIntent.put("网页", Intent.WEB);

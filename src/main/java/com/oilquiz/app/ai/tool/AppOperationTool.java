@@ -160,11 +160,9 @@ public class AppOperationTool implements AITool {
         }
 
         if (targetClass == null) {
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "error");
-            result.put("message", "未知页面: " + page);
-            result.put("available_pages", getAvailablePages());
-            return new AIToolResult(result, parameters);
+            Map<String, Object> info = new HashMap<>();
+            info.put("available_pages", getAvailablePages());
+            return AIToolResult.fail("未知页面: " + page + "，可用页面: " + getAvailablePages(), info);
         }
 
         try {
@@ -283,22 +281,12 @@ public class AppOperationTool implements AITool {
     }
     
     private AIToolResult handleGoBack() {
-        try {
-            android.app.ActivityManager activityManager = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-            if (activityManager != null) {
-                android.app.ActivityManager.AppTask task = activityManager.getAppTasks().get(0);
-                if (task != null) {
-                    task.moveToFront();
-                }
-            }
-            
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "success");
-            result.put("message", "已返回上一页");
-            return new AIToolResult(result, new HashMap<>());
-        } catch (Exception e) {
-            return new AIToolResult("返回上一页失败: " + e.getMessage(), new HashMap<>());
-        }
+        // 说明：AppTask.moveToFront 不能触发返回（前台时是 no-op），
+        // 应用无法可靠地"返回上一页"（Activity 栈不在自己进程内），如实返回不支持
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "unsupported");
+        result.put("message", "应用无法执行系统返回操作（返回键由系统/当前页面控制）。如需退出当前页面请提示用户手动返回，或用 app_operation navigate 跳转到目标页面");
+        return new AIToolResult(result, new HashMap<>());
     }
     
     private AIToolResult handleGetInfo() {

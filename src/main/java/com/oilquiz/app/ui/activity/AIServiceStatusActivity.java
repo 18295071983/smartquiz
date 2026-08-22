@@ -87,6 +87,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView onlineApiStatus;
     private View onlineApiLight;
     private TextView onlineModelInfo;
+    private TextView onlineContextWindow;
     private TextView onlineTokenTotal;
     private TextView onlineTokenCompletion;
     private TextView onlineLatency;
@@ -202,6 +203,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         onlineApiStatus = findViewById(R.id.online_api_status);
         onlineApiLight = findViewById(R.id.online_api_light);
         onlineModelInfo = findViewById(R.id.online_model_info);
+        onlineContextWindow = findViewById(R.id.online_context_window);
         onlineTokenTotal = findViewById(R.id.online_token_total);
         onlineTokenCompletion = findViewById(R.id.online_token_completion);
         onlineLatency = findViewById(R.id.online_latency);
@@ -406,7 +408,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     private void initTokenSpinner() {
         if (tokenSpinner != null) {
-            final List<String> tokenOptions = Arrays.asList("1024", "2048", "4096", "8192");
+            // 最大Token数选项：在线模型通常支持大输出，默认 16384；
+            // 小档位保留给本地小模型/低端设备使用
+            final List<String> tokenOptions = Arrays.asList("2048", "4096", "8192", "16384", "32768");
             android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(this,
                     android.R.layout.simple_spinner_item, tokenOptions);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -415,7 +419,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             AIConfig aiConfig = new AIConfig(this);
             int savedValue = aiConfig.getMaxTokens();
             int position = tokenOptions.indexOf(String.valueOf(savedValue));
-            tokenSpinner.setSelection(position >= 0 ? position : 2);
+            tokenSpinner.setSelection(position >= 0 ? position : 3); // 默认 16384
 
             tokenSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int pos, long id) {
@@ -490,6 +494,15 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 onlineModelInfo.setText(modelName != null ? modelName : activeConfig.name);
                 onlineModelInfo.setTextColor(getResources().getColor(R.color.text_primary));
             }
+            // 上下文窗口：配置时 API 检测到的真实值或配置表推断值（实际驱动历史压缩阈值）
+            if (onlineContextWindow != null) {
+                int window = activeConfig.contextWindow;
+                if (window <= 0) {
+                    window = OnlineModelManager.getContextWindowForModel(activeConfig.apiUrl,
+                            modelName != null ? modelName : activeConfig.modelName);
+                }
+                onlineContextWindow.setText(formatWindow(window));
+            }
             // Token 统计
             TokenStatsManager.TokenStats stats = TokenStatsManager.getInstance().getCurrentSnapshot();
             if (onlineTokenTotal != null) {
@@ -516,12 +529,26 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 onlineModelInfo.setText("请在 AI 中心配置");
                 onlineModelInfo.setTextColor(getResources().getColor(R.color.text_tertiary));
             }
+            if (onlineContextWindow != null) {
+                onlineContextWindow.setText("-");
+            }
             if (onlineTokenTotal != null) onlineTokenTotal.setText("-");
             if (onlineTokenCompletion != null) onlineTokenCompletion.setText("-");
             if (onlineLatency != null) onlineLatency.setText("-");
         }
     }
     
+    /** 上下文窗口格式化：>=1M 显示 "1M"，>=1K 显示 "64K"，否则原值 */
+    private String formatWindow(int window) {
+        if (window >= 1000000) {
+            return (window / 1000000) + "M";
+        }
+        if (window >= 1000) {
+            return (window / 1000) + "K";
+        }
+        return String.valueOf(window);
+    }
+
     /** 更新在线模型预览（离线模式下简要显示） */
     private void updateOnlineModelPreview() {
         OnlineModelManager onlineManager = OnlineModelManager.getInstance(this);

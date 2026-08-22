@@ -155,7 +155,9 @@ public class SmartResearchTool implements AITool {
             return AIToolResult.fail("缺少必需参数: query（研究主题）", parameters);
         }
 
+        // 上限夹取 1~10：防止模型传超大值放大搜索/阅读请求量
         if (maxResults <= 0) maxResults = 5;
+        maxResults = Math.min(10, maxResults);
 
         AILogger.i(TAG, "Starting smart research for: " + query);
 
@@ -189,10 +191,13 @@ public class SmartResearchTool implements AITool {
             if (includeDetails && searchData.containsKey("detailedContents")) {
                 Object dcObj = searchData.get("detailedContents");
                 if (dcObj instanceof List) {
-                    List<Map<String, Object>> detailedContents = (List<Map<String, Object>>) dcObj;
                     List<Map<String, Object>> processedContents = new ArrayList<>();
 
-                    for (Map<String, Object> detail : detailedContents) {
+                    // 逐元素 instanceof 过滤：搜索端返回异常元素时跳过而不是整体崩溃
+                    for (Object detailObj : (List<?>) dcObj) {
+                        if (!(detailObj instanceof Map)) continue;
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> detail = (Map<String, Object>) detailObj;
                         boolean success = getBoolValue(detail, "success", false);
                         if (success) {
                             Object contentObj = detail.get("content");

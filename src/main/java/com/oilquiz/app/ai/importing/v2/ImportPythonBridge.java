@@ -92,12 +92,13 @@ public class ImportPythonBridge {
      */
     public JSONObject parseFile(String filePath, String mappingJson, String outDir,
                                 long resumeRow, int chunkRows, String breakpointPath,
-                                String specJson, int sheetIndex, Integer headerRow) {
+                                String specJson, int sheetIndex, Integer headerRow,
+                                String defaultQuestionType, String optionDelimiter) {
         return callWithRetry("parse_file", "全量解析",
                 py -> py.callAttr("parse_file", filePath, mappingJson, outDir,
                         resumeRow, chunkRows, breakpointPath, specJson,
                         sheetIndex >= 0 ? Integer.valueOf(sheetIndex) : null,
-                        headerRow));
+                        headerRow, defaultQuestionType, optionDelimiter));
     }
 
     /**

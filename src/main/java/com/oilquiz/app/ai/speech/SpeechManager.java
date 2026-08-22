@@ -33,6 +33,35 @@ public class SpeechManager {
     private final TTSService ttsService;
     private volatile SystemSpeechRecognizer offlineRecognizer; // 离线/系统语音识别兜底
 
+    /** 录音占用者："app"=应用层录音按钮 / "agent"=Agent语音输入组件，同一时间只允许一方录音 */
+    private volatile String recordingOwner = null;
+
+    /**
+     * 尝试获取麦克风录音权（应用层与 Agent 互斥）。
+     * @param owner "app" 或 "agent"
+     * @return true 获取成功（或已持有同一方）
+     */
+    public synchronized boolean tryAcquireRecording(String owner) {
+        if (owner == null) return false;
+        if (recordingOwner == null || recordingOwner.equals(owner)) {
+            recordingOwner = owner;
+            return true;
+        }
+        return false;
+    }
+
+    /** 释放录音权（仅同一占用者可释放） */
+    public synchronized void releaseRecording(String owner) {
+        if (owner != null && owner.equals(recordingOwner)) {
+            recordingOwner = null;
+        }
+    }
+
+    /** 当前录音占用者（null=空闲；"app"/"agent"） */
+    public String getRecordingOwner() {
+        return recordingOwner;
+    }
+
     private static volatile SpeechManager INSTANCE;
 
     private SpeechManager(Context context) {

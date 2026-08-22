@@ -48,6 +48,8 @@
         android:layout_height="wrap_content"
         android:background="@drawable/agent_execution_background"
         android:padding="12dp">
+        <!-- 日志区背景 agent_execution_background 使用 surface（浅色=白/夜间=深灰），
+             与文字 text_primary/text_secondary 均有足够对比度 -->
 
         <LinearLayout
             android:id="@+id/logs_container"
@@ -93,13 +95,15 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
 
+            <!-- 推理速度 / Token 统计：AI 导入流程不更新（页面上方有 monitorBar），默认隐藏 -->
             <TextView
                 android:id="@+id/tv_inference_speed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0.0 t/s"
                 android:textSize="11sp"
-                android:textColor="@color/text_secondary" />
+                android:textColor="@color/text_secondary"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tv_token_count"
@@ -108,7 +112,8 @@
                 android:text="0 token"
                 android:textSize="11sp"
                 android:textColor="@color/text_secondary"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:visibility="gone" />
 
         </LinearLayout>
 
@@ -204,14 +209,15 @@
 
     </LinearLayout>
 
-    <!-- 底部统计栏 -->
+    <!-- 底部统计栏：AI 导入流程不更新（页面上方有 monitorBar），默认隐藏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingTop="8dp"
-        android:paddingBottom="4dp">
+        android:paddingBottom="4dp"
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/tv_total_time"

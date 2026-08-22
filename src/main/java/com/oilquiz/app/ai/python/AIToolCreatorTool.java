@@ -293,10 +293,29 @@ public class AIToolCreatorTool implements AITool {
             return createErrorResult("必须提供 tool_name 参数");
         }
         
-        @SuppressWarnings("unchecked")
-        Map<String, Object> toolParams = (Map<String, Object>) parameters.get("tool_params");
-        if (toolParams == null) {
-            toolParams = new HashMap<>();
+        // tool_params 兼容 Map 与 JSON 字符串（@Param 文档标注为 JSON 格式）
+        Map<String, Object> toolParams = new HashMap<>();
+        Object rawParams = parameters.get("tool_params");
+        if (rawParams instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> m = (Map<String, Object>) rawParams;
+            toolParams.putAll(m);
+        } else if (rawParams instanceof String) {
+            String s = ((String) rawParams).trim();
+            if (!s.isEmpty()) {
+                try {
+                    org.json.JSONObject jo = new org.json.JSONObject(s);
+                    java.util.Iterator<String> keys = jo.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        toolParams.put(key, jo.opt(key));
+                    }
+                } catch (Exception e) {
+                    return createErrorResult("tool_params 不是合法 JSON: " + e.getMessage());
+                }
+            }
+        } else if (rawParams != null) {
+            return createErrorResult("tool_params 参数类型不支持（应为对象或JSON字符串）");
         }
         
         Log.i(TAG, "Executing AI tool: " + toolName);

@@ -104,7 +104,8 @@ public class FileGeneratorTool implements AITool {
     /**
      * 规范化参数：工具Schema声明的参数名为 file_name，但内部实现读取 file_path。
      * 这里将 file_name 映射到 file_path，保证LLM按Schema传参时工具能正常工作。
-     * 所有文件统一保存到应用外部下载目录（无需额外权限，用户可通过文件管理器访问）。
+     * 未指定绝对路径时文件统一保存到 Agent 工作区长期文件区（filesDir/agent_workspace/files/，
+     * 无需额外权限，可用 workspace 工具查看/读取）。
      */
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;

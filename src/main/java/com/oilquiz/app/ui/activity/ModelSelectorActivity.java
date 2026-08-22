@@ -214,13 +214,22 @@ public class ModelSelectorActivity extends AppCompatActivity
                 currentModelNameTextView.setText(activeDisplayName != null ? activeDisplayName : "未选择模型");
             }
 
+            // 本地模型列表的"当前使用"高亮：仅当实际使用本地模型时才标记，
+            // 避免在线模型激活时本地列表也显示"当前使用"（两个都高亮的歧义）。
+            // aiService.getCurrentModelName() 可能残留上次加载的本地模型名，
+            // 即使路由已切到在线——必须用路由实际类型判断。
+            String localCurrentModel = null;
+            if (inferenceRouter != null && !inferenceRouter.isUsingOnlineModel()) {
+                localCurrentModel = currentModel;
+            }
+
             // 更新本地模型列表
             if (modelsRecycler != null) {
                 if (modelAdapter == null) {
-                    modelAdapter = new ModelAdapter(this, modelList, currentModel, this);
+                    modelAdapter = new ModelAdapter(this, modelList, localCurrentModel, this);
                     modelsRecycler.setAdapter(modelAdapter);
                 } else {
-                    updateLocalModelAdapterSafe(modelList, currentModel);
+                    updateLocalModelAdapterSafe(modelList, localCurrentModel);
                 }
                 modelsRecycler.setVisibility(modelList.isEmpty() ? View.GONE : View.VISIBLE);
             }
@@ -552,6 +561,10 @@ public class ModelSelectorActivity extends AppCompatActivity
                             JSONObject obj = new JSONObject();
                             obj.put("id", model.id);
                             obj.put("name", model.getName());
+                            if (model.contextLength > 0) {
+                                obj.put("contextLength", model.contextLength); // 保留配置时检测到的真实窗口
+                                obj.put("contextLengthFromApi", model.contextLengthFromApi);
+                            }
                             modelsJson.put(obj);
                         }
                         onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
@@ -605,6 +618,27 @@ public class ModelSelectorActivity extends AppCompatActivity
         }
 
         onlineModelManager.saveSelectedModel(config.id, selectedModel);
+        // 切换模型后异步补查一次该模型的真实上下文窗口（带持久化缓存，命中则零请求），
+        // 回写配置供 Agent 压缩阈值与 UI 展示使用
+        final OnlineModelManager.OnlineModelConfig cfg = config;
+        try {
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return com.oilquiz.app.ai.service.OnlineInferenceService
+                            .getInstance(this).queryContextWindowFromAPI(cfg);
+                } catch (Throwable t) {
+                    return null;
+                }
+            }).thenAccept(window -> {
+                if (window != null && window > 0) {
+                    cfg.contextWindow = window;
+                    cfg.contextWindowFromApi = true;
+                    onlineModelManager.updateModelConfig(cfg);
+                }
+            });
+        } catch (Throwable ignored) {
+            // 查询失败静默，保留配置表推断值
+        }
         // 自动切换到该在线模型
         inferenceRouter.switchModel(config.id);
         Toast.makeText(this, "已切换到模型: " + selectedModel, Toast.LENGTH_SHORT).show();
@@ -626,6 +660,39 @@ public class ModelSelectorActivity extends AppCompatActivity
         refreshModels();
         updateServiceStatus();
         updateFeatureModelsDisplay();
+        // 进入页面自动检测各 API 配置连通性：不依赖用户手动"测试"，
+        // 检测结果写回 APIConfig 状态并刷新状态栏（解决"实际与显示不同步"）
+        autoDetectApiStatuses();
+    }
+
+    /**
+     * 自动检测所有 API 配置的连通性并刷新状态显示。
+     * 使用 APIKeyManager.testAPIConnection（内部自动写回 config.setStatus 并持久化），
+     * 逐个异步检测，全部完成后刷新状态栏；避免与用户手动测试重复。
+     */
+    private void autoDetectApiStatuses() {
+        try {
+            final APIKeyManager manager = APIKeyManager.getInstance(this);
+            final List<APIConfig> configs = manager.getAllAPIConfigs();
+            if (configs == null || configs.isEmpty()) {
+                updateServiceStatus();
+                return;
+            }
+            // 进入页面时对每个配置重新检测一次，保证状态与实际同步；
+            // testAPIConnection 内部会写回 config.setStatus 并持久化
+            final java.util.concurrent.atomic.AtomicInteger pending =
+                    new java.util.concurrent.atomic.AtomicInteger(configs.size());
+            for (APIConfig config : configs) {
+                if (config == null) continue;
+                manager.testAPIConnection(config).thenAccept(result -> {
+                    if (pending.decrementAndGet() <= 0) {
+                        runOnUiThread(this::updateServiceStatus);
+                    }
+                });
+            }
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "自动检测API状态失败: " + e.getMessage());
+        }
     }
 
     /** 弹出语音模型选择器（ASR/TTS） */

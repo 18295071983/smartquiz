@@ -77,8 +77,7 @@ public class AgentLoopEngine {
             {"location", "位置,定位,我在哪,附近,周边,坐标"},
             {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新"},
             {"smart_research", "调研,研究,深度搜索,资料,报告"},
-            {"translation", "翻译,英文,translate,日文,韩文"},
-            {"file_reader", "读文件,读取文件,打开文件,文件内容"},
+            {"file_reader", "读文件,读取文件,打开文件,文件内容,目录,路径"},
             {"file_analyzer", "分析文件,文件分析,解析文件"},
             {"file_generator", "生成文件,创建文件,生成网页,导出,保存为,html,写一个页面"},
             {"database", "题库,题目,数据库,sqlite,sql查询,数据表"},
@@ -89,7 +88,6 @@ public class AgentLoopEngine {
             {"python_analyze_data", "数据分析,数据处理,分析数据,表格分析"},
             {"python_execute", "python,脚本,执行代码"},
             {"webpage_reader", "网页,链接,url,http"},
-            {"file", "文件,目录,路径"},
     };
     /** 无关键词命中时的默认核心工具集 */
     private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search", "file_generator"};

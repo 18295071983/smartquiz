@@ -525,9 +525,9 @@ public class PermissionManagerTool implements AITool {
                     openLatch.countDown();
                 });
                 openLatch.await(5, TimeUnit.SECONDS);
-                // 轮询等待用户操作（最多 60 秒）
-                for (int i = 0; i < 12; i++) {
-                    Thread.sleep(5000);
+                // 轮询等待用户操作（1s 间隔，最多 60 秒；授权后 ~1s 内即返回）
+                for (int i = 0; i < 60; i++) {
+                    Thread.sleep(1000);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
                         // 授权成功：工作区重建(切公共目录)+迁移旧文件
                         try {
@@ -571,9 +571,9 @@ public class PermissionManagerTool implements AITool {
                     openLatch.countDown();
                 });
                 openLatch.await(5, TimeUnit.SECONDS);
-                // 轮询等待用户操作（最多 60 秒）
-                for (int i = 0; i < 12; i++) {
-                    Thread.sleep(5000);
+                // 轮询等待用户操作（1s 间隔，最多 60 秒）
+                for (int i = 0; i < 60; i++) {
+                    Thread.sleep(1000);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         boolean installOk;
                         try {
