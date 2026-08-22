@@ -4355,6 +4355,11 @@ public class AIChatActivity extends BaseActivity {
      * 可重复调用：每次点击都会把原始问题重新发送到本地 Agent 引擎执行。
      */
     private void forceRunLocalAgent(String message) {
+        // R8-2：复活分支——localAgentEnabled 时真正路由到本地 Agent（startAgentLoop 内分流）
+        if (aiConfig != null && aiConfig.isLocalAgentEnabled()) {
+            processChatMessageWithAgent(message);
+            return;
+        }
         addSystemMessage("🚫 本地 Agent 已禁用\n\n请使用在线模型体验完整的 Agent 功能。\n\n切换方式：菜单 → 模型设置 → 选择在线模型", ChatMessage.SystemMessageType.WARNING);
     }
 

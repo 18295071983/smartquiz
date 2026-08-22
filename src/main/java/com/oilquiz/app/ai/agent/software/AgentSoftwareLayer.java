@@ -135,8 +135,9 @@ public class AgentSoftwareLayer {
     
     /**
      * 处理用户消息 - 主入口
+     * @param enableThinking 是否启用思考（R8-1：贯穿传递，Agent 模式默认 false）
      */
-    public void processMessage(String userMessage) {
+    public void processMessage(String userMessage, boolean enableThinking) {
         if (isProcessing.getAndSet(true)) {
             AILogger.w(TAG, "Already processing a message");
             return;
@@ -144,7 +145,7 @@ public class AgentSoftwareLayer {
         
         executor.execute(() -> {
             try {
-                AgentResponse response = processMessageInternal(userMessage);
+                AgentResponse response = processMessageInternal(userMessage, enableThinking);
                 if (callback != null) {
                     callback.onComplete(response);
                 }
@@ -163,14 +164,14 @@ public class AgentSoftwareLayer {
     /**
      * 内部处理流程 - MiMo 单循环架构
      */
-    private AgentResponse processMessageInternal(String userMessage) {
+    private AgentResponse processMessageInternal(String userMessage, boolean enableThinking) {
         long startTime = System.currentTimeMillis();
 
         notifyStep("Agent 启动", "开始处理用户消息...");
         AILogger.i(TAG, "Processing message via AgentLoopEngine: " + truncate(userMessage, 50));
 
         // 单循环执行：推理 → 工具调用 → 结果整合 → 最终回复
-        AgentResponse response = loopEngine.run(userMessage);
+        AgentResponse response = loopEngine.run(userMessage, enableThinking);
 
         long totalTime = System.currentTimeMillis() - startTime;
         AILogger.i(TAG, "Agent processing completed in " + totalTime + "ms");
@@ -219,9 +220,14 @@ public class AgentSoftwareLayer {
     }
     
     /**
-     * 取消当前处理
+     * 取消当前处理（R3-2：先打断 native 生成，再置状态）
      */
     public void cancel() {
+        try {
+            LlamaHelper.stopGeneration();   // native shouldStop 置位，打断阻塞中的 chatJson/generateStream
+        } catch (Throwable t) {
+            AILogger.w(TAG, "stopGeneration failed: " + t.getMessage());
+        }
         isProcessing.set(false);
     }
     

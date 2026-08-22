@@ -863,6 +863,12 @@ private:
     std::string modelType;
     std::string chatTemplate;
     
+    // ===== KV cache 增量解码状态（P0-2 / §5.6）=====
+    // generateStreamIncremental 专用：上一轮已 eval 的完整 token 与 KV 记账
+    std::vector<llama_token> cachedTokens;   // 上一轮已 eval 的完整 token
+    int cachedNPast = 0;                     // 已 eval 位置
+    bool kvCacheValid = false;               // KV cache 是否有效（未被清除/外部改动）
+    
 public:
     // 函数前向声明
     std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart);
@@ -872,7 +878,8 @@ public:
                          memoryPoolSize(0), batchSize(32), kvCacheType(1), shouldStop(false),
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
-                         modelType("unknown"), chatTemplate("") {
+                         modelType("unknown"), chatTemplate(""),
+                         cachedNPast(0), kvCacheValid(false) {
         LOGI("InferenceContext created");
         
         setupGGMLBackendPath();
@@ -1701,6 +1708,11 @@ public:
         
         LOGI("Releasing resources");
         
+        // R3-4：释放前失效增量缓存记账
+        cachedTokens.clear();
+        cachedNPast = 0;
+        kvCacheValid = false;
+        
         releaseContext();
         
         if (model) {
@@ -1759,6 +1771,10 @@ public:
                 LOGI("History cleared (KV cache reset)");
             }
         }
+        // R3-4：清 KV 后失效增量缓存记账（seq_pos_max 校验为兜底，此处显式失效）
+        cachedTokens.clear();
+        cachedNPast = 0;
+        kvCacheValid = false;
     }
     
     std::string getModelInfo() {
@@ -1834,6 +1850,8 @@ public:
     
     // 流式生成回调接口
     using TokenCallback = std::function<void(const std::string& token, bool isDone, const std::string& error)>;
+    // 统一 JSON 回调接口（spec §5.1）
+    using JsonCallback = std::function<void(const std::string& json)>;
 
     /**
      * 在累积的思考缓冲中查找思考结束标记（跨 token 安全）。
@@ -2188,6 +2206,312 @@ public:
         }
     }
 
+    /**
+     * KV cache 增量生成（P0-2 / spec §5.6）
+     * 与 generateStream 签名一致，区别：
+     * 1. 若新 prompt 是上一轮 prompt 的严格超集（token 级前缀匹配命中）且 KV 位置一致，
+     *    只 eval 增量 token，不调用 llama_memory_clear，位置由 llama_decode 自动续接
+     *    （llama_batch_get_one pos=nullptr → seq_pos_max+1，llama-batch.cpp:90-118）；
+     * 2. 前缀未命中 / 首次调用 / KV 被外部路径改动（seq_pos_max 校验失败，R3-4）→ 全量重 eval。
+     * 由 chatJson 调用（enableThinking 恒传 false，思考交给模板）。
+     */
+    bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
+        if (isGenerating.exchange(true)) {
+            LOGE("generateStreamIncremental: already generating, rejecting concurrent call");
+            callback("", true, "Generation already in progress");
+            return false;
+        }
+        struct GeneratingGuard {
+            std::atomic<bool>& flag;
+            GeneratingGuard(std::atomic<bool>& f) : flag(f) {}
+            ~GeneratingGuard() { flag = false; }
+        } guard(isGenerating);
+
+        inferenceStartTime = std::chrono::steady_clock::now();
+        currentTokenCount = 0;
+
+        LOGI("=== STREAM GENERATE INCREMENTAL START ===");
+        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
+        LOG_MEM("generateStreamIncremental_start");
+
+        if (!isValid()) {
+            std::string error = "Model not initialized";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        shouldStop = false;   // R4-3：每次进入复位，防上一次取消导致本次立即终止
+
+        // 创建 sampler chain（与 generateStream 一致）
+        auto sparams = llama_sampler_chain_default_params();
+        struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
+        if (temperature <= 0) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+        } else {
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        }
+
+        try {
+        std::string promptToUse = prompt;
+        if (enableThinking) {
+            promptToUse += "<think>\n";
+            LOGI("generateStreamIncremental: enableThinking=true, appended <think>\\n");
+        }
+
+        // Tokenize
+        std::vector<llama_token> tokens_list;
+        int n_tokens = -llama_tokenize(vocab, promptToUse.c_str(), promptToUse.size(), NULL, 0, true, true);
+        if (n_tokens < 0) {
+            std::string error = "Failed to tokenize prompt";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+        tokens_list.resize(n_tokens);
+        if (llama_tokenize(vocab, promptToUse.c_str(), promptToUse.size(), tokens_list.data(), tokens_list.size(), true, true) < 0) {
+            std::string error = "Failed to tokenize prompt";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+        if (tokens_list.empty()) {
+            std::string error = "Failed to tokenize prompt";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        llama_memory_t mem = llama_get_memory(ctx);
+
+        // ===== KV 增量判定（§5.6）=====
+        int matchedLen = 0;
+        if (kvCacheValid && mem != nullptr && !cachedTokens.empty()) {
+            size_t minLen = std::min(tokens_list.size(), cachedTokens.size());
+            size_t m = 0;
+            while (m < minLen && tokens_list[m] == cachedTokens[m]) m++;
+            matchedLen = (int)m;
+        }
+        bool incremental = false;
+        if (kvCacheValid && matchedLen == cachedNPast && matchedLen > 0 && mem != nullptr) {
+            // 严格超集 + KV 实际位置与记账一致（R3-4：未被任何并行路径清除/移动）
+            llama_pos seqMax = llama_memory_seq_pos_max(mem, 0);
+            if (seqMax == cachedNPast - 1) {
+                incremental = true;
+            } else {
+                LOGW("KV seq_pos_max mismatch: expected %d, got %lld; invalidating cache", cachedNPast - 1, (long long)seqMax);
+            }
+        }
+        if (!incremental && mem != nullptr) {
+            // 首次调用 / 前缀失配 / KV 外部改动 → 全量重 eval（软清除）
+            llama_memory_clear(mem, false);
+        }
+
+        std::vector<llama_token> evalTokens;
+        if (incremental) {
+            evalTokens.assign(tokens_list.begin() + matchedLen, tokens_list.end());
+            LOGI("KV incremental HIT: matched %d tokens, delta eval %zu tokens", matchedLen, evalTokens.size());
+        } else {
+            evalTokens = tokens_list;
+            LOGI("KV incremental MISS (cached=%zu, matched=%d, valid=%d): full eval %zu tokens",
+                 cachedTokens.size(), matchedLen, (int)kvCacheValid, evalTokens.size());
+        }
+
+        int n_ctx = llama_n_ctx(ctx);
+        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
+        if ((int)tokens_list.size() + maxTokens > n_ctx) {
+            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens + maxTokens "
+                + std::to_string(maxTokens) + " > n_ctx " + std::to_string(n_ctx);
+            LOGE("%s", error.c_str());
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        // 分块解码 evalTokens（batch ≤ n_batch，pos 自动续接）
+        const int n_batch = llama_n_batch(ctx);
+        const int batchSize = n_batch > 0 ? n_batch : 256;
+        LOGI("Processing eval batch, size=%zu, n_batch=%d", evalTokens.size(), batchSize);
+        LOG_MEM("before_prompt_decode");
+
+        int ret = 0;
+        for (size_t offset = 0; offset < evalTokens.size(); offset += batchSize) {
+            size_t nTokens = std::min((size_t)batchSize, evalTokens.size() - offset);
+            llama_batch prompt_batch = llama_batch_get_one(evalTokens.data() + offset, (int)nTokens);
+            ret = llama_decode(ctx, prompt_batch);
+            if (ret != 0) {
+                LOGE("llama_decode failed for eval batch (offset=%zu, n=%zu) code: %d", offset, nTokens, ret);
+                break;
+            }
+        }
+        if (ret != 0) {
+            LOGE("llama_decode failed for eval with code: %d", ret);
+            std::string error = "llama_decode failed for prompt";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+
+        // 更新缓存记账
+        cachedTokens = tokens_list;
+        cachedNPast = (int)tokens_list.size();
+        kvCacheValid = true;
+
+        // ===== 生成循环（与 generateStream 一致）=====
+        int n_remain = maxTokens;
+        int n_decode = 0;
+        int n_past = (int)tokens_list.size();
+        const int TIMEOUT_SECONDS = 120;
+        const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
+        std::string fullText;
+        std::string thinkingText;
+        std::string thinkingPending;
+        bool inThinking = enableThinking;
+        bool thinkingEnded = !enableThinking;
+        int thinkingTokens = 0;
+        std::string stopReason = "normal";
+
+        auto start = std::chrono::steady_clock::now();
+
+        while (n_remain > 0 && !shouldStop) {
+            if (n_past >= n_ctx - 4) {
+                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                stopReason = "ctx_full";
+                break;
+            }
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
+            if (elapsed > TIMEOUT_SECONDS) {
+                LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                stopReason = "timeout";
+                break;
+            }
+
+            llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
+            llama_sampler_accept(smpl, new_token_id);
+
+            if (llama_vocab_is_eog(vocab, new_token_id)) {
+                LOGI("EOS token detected, stopping generation");
+                stopReason = "eos";
+                break;
+            }
+            if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
+                new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
+                LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                stopReason = "eos";
+                break;
+            }
+
+            char token_str[256] = {0};
+            int n = llama_token_to_piece(vocab, new_token_id, token_str, sizeof(token_str), 0, true);
+            if (n < 0) break;
+            std::string token(token_str, n);
+
+            if (token.find("<|im_end|>") != std::string::npos ||
+                token.find("</s>") != std::string::npos ||
+                token.find("<|im_sep|>") != std::string::npos) {
+                LOGI("Stop word detected in token, stopping generation");
+                stopReason = "stop_word";
+                break;
+            }
+
+            if (inThinking && !thinkingEnded) {
+                thinkingTokens++;
+                thinkingPending += token;
+                int markerLen = 0;
+                int markerPos = findThinkingEndMarker(thinkingPending, markerLen);
+                if (markerPos >= 0) {
+                    if (markerPos > 0) {
+                        callback(thinkingPending.substr(0, markerPos), false, "");
+                    }
+                    thinkingEnded = true;
+                    callback("[THINK_END]", false, "");
+                    std::string rest = thinkingPending.substr(markerPos + markerLen);
+                    thinkingPending.clear();
+                    if (!rest.empty()) {
+                        fullText += rest;
+                        callback(rest, false, "");
+                    }
+                } else if (thinkingTokens >= THINKING_TOKEN_LIMIT) {
+                    if (!thinkingPending.empty()) {
+                        thinkingText += thinkingPending;
+                        callback(thinkingPending, false, "");
+                        thinkingPending.clear();
+                    }
+                    thinkingEnded = true;
+                    LOGI("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
+                    callback("[THINK_END]", false, "");
+                } else {
+                    size_t hold = partialMarkerTailLen(thinkingPending);
+                    size_t flushLen = thinkingPending.size() - hold;
+                    if (flushLen > 0) {
+                        std::string chunk = thinkingPending.substr(0, flushLen);
+                        thinkingText += chunk;
+                        callback(chunk, false, "");
+                        thinkingPending.erase(0, flushLen);
+                    }
+                }
+            } else {
+                fullText += token;
+                callback(token, false, "");
+            }
+
+            llama_batch batch = llama_batch_get_one(&new_token_id, 1);
+            ret = llama_decode(ctx, batch);
+            n_past++;
+
+            if (ret != 0) {
+                LOGE("llama_decode failed with code: %d", ret);
+                break;
+            }
+            n_remain--;
+            n_decode++;
+            currentTokenCount++;
+        }
+
+        llama_sampler_free(smpl);
+
+        if (!thinkingEnded) {
+            if (n_remain <= 0) stopReason = "max_tokens";
+            if (shouldStop) stopReason = "user_stop";
+            LOGW("Thinking NOT ended by model (reason=%s, thinkingTokens=%d, mainTokens=%d), "
+                 "sending fallback [THINK_END]", stopReason.c_str(), thinkingTokens, n_decode - thinkingTokens);
+            if (!thinkingPending.empty()) {
+                callback(thinkingPending, false, "");
+                thinkingPending.clear();
+            }
+            callback("[THINK_END]", false, "");
+            thinkingEnded = true;
+        }
+
+        callback(fullText, true, "");
+
+        auto end = std::chrono::steady_clock::now();
+        auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+        LOGI("=== STREAM GENERATE INCREMENTAL END ===");
+        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d)", n_decode, elapsedTotal, stopReason.c_str(), (int)incremental);
+
+        return true;
+        } catch (const std::exception& e) {
+            LOGE("Exception in generateStreamIncremental: %s", e.what());
+            llama_sampler_free(smpl);
+            std::string error = std::string("Generation exception: ") + e.what();
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        } catch (...) {
+            LOGE("Unknown exception in generateStreamIncremental");
+            llama_sampler_free(smpl);
+            std::string error = "Unknown generation error";
+            setLastError(error);
+            callback("", true, error);
+            return false;
+        }
+    }
+
     // 单次生成路径：接收消息列表，用 llama_chat_apply_template 自动适配模型格式
     // 不污染多轮对话状态（chatMessages / prev_formatted_len）
     bool generateStreamFromMessages(const std::vector<std::pair<std::string, std::string>>& messages,
@@ -2372,6 +2696,252 @@ public:
         callback(collectedText, true, "");
 
         return genOk;
+    }
+
+    /**
+     * 统一 JSON 协议入口（spec §4/§5.1）
+     * 请求：{"action":"chat","messages":[...],"tools":[...],"tool_choice":"auto|required|none",
+     *        "enable_thinking":bool,"max_tokens":int,"temperature":float,"top_p":float,"top_k":int}
+     * 回调事件：token / tool_call / reasoning / complete / error（§4.2）
+     * 内部：common_chat_templates_apply 格式化 → generateStreamIncremental（KV 增量）→
+     *       common_chat_parse 解析 → 统一 JSON 回调
+     */
+    bool chatJson(const std::string& requestJson, JsonCallback jsonCallback) {
+        // step 0（R3-3）：并发守卫，与 generateStream 互斥
+        if (isGenerating.exchange(true)) {
+            LOGE("chatJson: already generating, rejecting concurrent call");
+            if (jsonCallback) jsonCallback("{\"type\":\"error\",\"message\":\"Generation already in progress\"}");
+            return false;
+        }
+        struct GeneratingGuard {
+            std::atomic<bool>& flag;
+            GeneratingGuard(std::atomic<bool>& f) : flag(f) {}
+            ~GeneratingGuard() { flag = false; }
+        } guard(isGenerating);
+
+        // step 0'（R4-3）：shouldStop 复位，防上一次取消导致本次立即终止
+        shouldStop = false;
+
+        auto sendError = [&jsonCallback](const std::string& msg) {
+            nlohmann::ordered_json j = {{"type", "error"}, {"message", msg}};
+            if (jsonCallback) jsonCallback(j.dump());
+        };
+
+        // step 1（R8-3）：ordered_json 解析（与 common_chat_*_parse_oaicompat 参数类型一致）
+        nlohmann::ordered_json req;
+        try {
+            req = nlohmann::ordered_json::parse(requestJson);
+        } catch (const std::exception& e) {
+            LOGE("chatJson: JSON parse failed: %s", e.what());
+            sendError("JSON parse failed");
+            return false;
+        }
+
+        // step 2：messages
+        std::vector<common_chat_msg> messages;
+        try {
+            if (!req.contains("messages") || !req["messages"].is_array() || req["messages"].empty()) {
+                sendError("messages is empty or missing");
+                return false;
+            }
+            messages = common_chat_msgs_parse_oaicompat(req["messages"]);
+        } catch (const std::exception& e) {
+            LOGW("chatJson: messages parse failed: %s", e.what());
+            sendError(std::string("messages parse failed: ") + e.what());
+            return false;
+        }
+        LOGI("chatJson: parsed %zu messages", messages.size());
+
+        // step 3：tools（可选）
+        std::vector<common_chat_tool> tools;
+        if (req.contains("tools") && req["tools"].is_array()) {
+            try {
+                tools = common_chat_tools_parse_oaicompat(req["tools"]);
+                LOGI("chatJson: parsed %zu tools", tools.size());
+            } catch (const std::exception& e) {
+                LOGW("chatJson: tools parse failed: %s, continuing without tools", e.what());
+            }
+        }
+
+        // step 4：参数
+        std::string toolChoiceStr = req.value("tool_choice", std::string("auto"));
+        common_chat_tool_choice toolChoice = COMMON_CHAT_TOOL_CHOICE_AUTO;
+        try {
+            toolChoice = common_chat_tool_choice_parse_oaicompat(toolChoiceStr);
+        } catch (const std::exception& e) {
+            LOGW("chatJson: invalid tool_choice '%s', using auto", toolChoiceStr.c_str());
+        }
+        // R10-1：enable_thinking 缺失时默认 false（R8-1 后与产品决策一致，Agent 模式不思考）
+        bool enableThinking = req.value("enable_thinking", false);
+        int maxTokens = req.value("max_tokens", 500);
+        float temperature = req.value("temperature", 0.6f);
+        float topP = req.value("top_p", 0.9f);
+        int topK = req.value("top_k", 40);
+        LOGI("chatJson: tool_choice=%s, enable_thinking=%d, max_tokens=%d, temp=%f, topP=%f, topK=%d",
+             toolChoiceStr.c_str(), (int)enableThinking, maxTokens, temperature, topP, topK);
+
+        // step 5：构建模板输入
+        auto chat_templates = common_chat_templates_init(model, "");
+        if (!chat_templates) {
+            LOGW("chatJson: Failed to init chat templates");
+            sendError("Failed to init chat templates");
+            return false;
+        }
+        common_chat_templates_inputs inputs;
+        inputs.messages = messages;
+        inputs.tools = tools;
+        inputs.tool_choice = toolChoice;
+        inputs.parallel_tool_calls = true;
+        inputs.add_generation_prompt = true;
+        inputs.use_jinja = true;
+        bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
+        inputs.enable_thinking = enableThinking && supports_thinking;
+        LOGI("chatJson: enable_thinking=%d, template supports=%d, final=%d",
+             (int)enableThinking, (int)supports_thinking, (int)inputs.enable_thinking);
+
+        // step 6：应用模板
+        common_chat_params chat_params;
+        try {
+            chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
+            LOGI("chatJson: template applied, prompt length: %zu, format: %s",
+                 chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+        } catch (const std::exception& e) {
+            // R3-5：fallback 后失效 KV 增量缓存（generateStreamFromMessages 内部会清 KV）
+            LOGW("chatJson: template apply failed (%s), falling back to flat messages", e.what());
+            kvCacheValid = false;
+            cachedTokens.clear();
+            cachedNPast = 0;
+
+            // 扁平化降级：结构化消息 → pair<role,content>（tool_calls/tool_call_id 拼进 content）
+            std::vector<std::pair<std::string, std::string>> flat;
+            for (auto& m : messages) {
+                std::string content = m.content;
+                if (!m.tool_calls.empty()) {
+                    nlohmann::ordered_json arr = nlohmann::ordered_json::array();
+                    for (auto& tc : m.tool_calls) {
+                        arr.push_back({{"id", tc.id}, {"name", tc.name}, {"arguments", tc.arguments}});
+                    }
+                    if (!content.empty()) content += "\n";
+                    content += "<tool_calls>" + arr.dump() + "</tool_calls>";
+                }
+                if (!m.tool_call_id.empty()) {
+                    if (!content.empty()) content += "\n";
+                    content += "[tool_call_id: " + m.tool_call_id + "]";
+                }
+                flat.push_back({m.role, content});
+            }
+            bool fbOk = generateStreamFromMessages(flat, maxTokens, temperature, topP, topK, false,
+                [&jsonCallback](const std::string& text, bool isDone, const std::string& error) {
+                    if (!isDone) {
+                        if (error.empty() && !text.empty()) {
+                            nlohmann::ordered_json j = {{"type", "token"}, {"content", text}, {"is_tool_call", false}};
+                            jsonCallback(j.dump());
+                        }
+                    } else if (!error.empty()) {
+                        nlohmann::ordered_json j = {{"type", "error"}, {"message", error}};
+                        jsonCallback(j.dump());
+                    } else {
+                        nlohmann::ordered_json j = {{"type", "complete"}, {"content", text}};
+                        jsonCallback(j.dump());
+                    }
+                });
+            if (!fbOk && !shouldStop) {
+                sendError(getLastError().empty() ? "Generation failed (fallback)" : getLastError());
+            }
+            return fbOk;
+        }
+
+        if (chat_params.prompt.empty()) {
+            sendError("Chat template produced empty prompt");
+            return false;
+        }
+
+        // ===== step 7：生成阶段（generateStreamIncremental，enableThinking 恒传 false 交给模板）=====
+        std::string collectedText;          // 完整输出（原始字节，供 parse）
+        std::string utf8Buffer;             // R9-1：token 级 UTF-8 完整性缓冲
+        std::string genError;               // 生成失败信息（R7-1）
+        // §5.2 第一阶段：required → 所有 token 标记 is_tool_call=true；auto/none → false
+        bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
+
+        auto tokenCallback = [&](const std::string& text, bool isComplete, const std::string& error) {
+            if (!isComplete) {
+                if (!error.empty()) {
+                    genError = error;   // R7-1：生成中错误
+                    return;
+                }
+                collectedText += text;
+                // R9-1：UTF-8 完整性——只发完整前缀，不完整尾部留在 buffer
+                std::string combined = utf8Buffer + text;
+                std::string completePart;
+                utf8Buffer = splitUtf8Complete(combined, completePart);
+                if (!completePart.empty()) {
+                    nlohmann::ordered_json j = {{"type", "token"}, {"content", completePart}, {"is_tool_call", isInToolCall}};
+                    jsonCallback(j.dump());
+                }
+            } else {
+                if (!error.empty()) genError = error;   // R7-1：生成失败（isComplete+error）
+            }
+        };
+
+        bool genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback);
+
+        // step 9（R3-2）：取消——shouldStop 置位时发 cancelled，不再 parse
+        if (shouldStop) {
+            LOGI("chatJson: generation cancelled by stop request");
+            nlohmann::ordered_json j = {{"type", "error"}, {"message", "cancelled"}};
+            jsonCallback(j.dump());
+            return false;
+        }
+
+        // R7-1：生成失败 → error 事件（修复现状 wrappedCallback 吞 error 缺陷）
+        if (!genOk || !genError.empty()) {
+            std::string msg = !genError.empty() ? genError
+                             : (getLastError().empty() ? "Generation failed" : getLastError());
+            LOGW("chatJson: generation failed: %s", msg.c_str());
+            sendError(msg);
+            return false;
+        }
+
+        // ===== step 8：解析阶段（R5-2：parse 失败降级为 complete(collectedText)，不发 error）=====
+        common_chat_msg parsed;
+        bool parseOk = false;
+        try {
+            common_chat_parser_params parser_params(chat_params);
+            parser_params.parse_tool_calls = true;
+            parsed = common_chat_parse(collectedText, false, parser_params);
+            parseOk = true;
+        } catch (const std::exception& e) {
+            LOGW("chatJson: common_chat_parse failed (%s), degrading to complete(collectedText)", e.what());
+        }
+
+        // step 8/10 互斥：complete 事件全轮只发一次（R5-2/A5）
+        if (parseOk) {
+            for (auto& tc : parsed.tool_calls) {
+                nlohmann::ordered_json j = {
+                    {"type", "tool_call"},
+                    {"id", tc.id},
+                    {"name", tc.name},
+                    {"arguments", tc.arguments}
+                };
+                jsonCallback(j.dump());
+                LOGI("chatJson: tool_call id=%s name=%s", tc.id.c_str(), tc.name.c_str());
+            }
+            if (!parsed.reasoning_content.empty()) {
+                nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", parsed.reasoning_content}};
+                jsonCallback(j.dump());
+                LOGI("chatJson: reasoning (%zu chars)", parsed.reasoning_content.size());
+            }
+            nlohmann::ordered_json j = {{"type", "complete"}, {"content", parsed.content}};
+            jsonCallback(j.dump());
+            LOGI("chatJson: complete, content=%zu chars, tool_calls=%zu", parsed.content.size(), parsed.tool_calls.size());
+        } else {
+            // R5-2：parse 失败 → complete(collectedText)；空输出 → complete("")（A5 由构造保证只发一次）
+            nlohmann::ordered_json j = {{"type", "complete"}, {"content", collectedText}};
+            jsonCallback(j.dump());
+            LOGI("chatJson: complete (degraded), content=%zu chars", collectedText.size());
+        }
+
+        return true;
     }
     
     // 并行批处理生成
@@ -6005,6 +6575,81 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
     // 清理局部引用
     if (toolCallInfoClass != nullptr) env->DeleteLocalRef(toolCallInfoClass);
     if (listClass != nullptr) env->DeleteLocalRef(listClass);
+}
+
+// ===== 统一 JSON 协议 JNI（spec §6.1）=====
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatJson(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jbyteArray requestJsonBytes,
+    jobject callback) {
+    LOGI("LlamaHelper: nativeChatJson called");
+
+    if (s_helperContext == nullptr || !s_helperContext->isValid()) {
+        LOGE("LlamaHelper: s_helperContext is null or invalid");
+        jclass cbClass = env->GetObjectClass(callback);
+        jmethodID onJsonMethod = env->GetMethodID(cbClass, "onJson", "(Ljava/lang/String;)V");
+        if (onJsonMethod != nullptr) {
+            jstring err = env->NewStringUTF("{\"type\":\"error\",\"message\":\"Helper context not initialized\"}");
+            env->CallVoidMethod(callback, onJsonMethod, err);
+            env->DeleteLocalRef(err);
+        }
+        return;
+    }
+
+    if (!s_helperContext->ensureContext()) {
+        LOGE("LlamaHelper: Failed to create context for nativeChatJson");
+        jclass cbClass = env->GetObjectClass(callback);
+        jmethodID onJsonMethod = env->GetMethodID(cbClass, "onJson", "(Ljava/lang/String;)V");
+        if (onJsonMethod != nullptr) {
+            jstring err = env->NewStringUTF("{\"type\":\"error\",\"message\":\"Failed to create inference context\"}");
+            env->CallVoidMethod(callback, onJsonMethod, err);
+            env->DeleteLocalRef(err);
+        }
+        return;
+    }
+
+    std::string requestJson = bytesToUtf8String(env, requestJsonBytes);
+    LOGI("LlamaHelper: nativeChatJson request len: %zu", requestJson.size());
+
+    // 全局引用
+    jobject globalCallback = env->NewGlobalRef(callback);
+    jclass callbackClass = env->GetObjectClass(globalCallback);
+    // onJson / onError 用接口类查找（default 方法需接口类，与 onToolCalls/onReasoning 同模式）
+    jclass jsonCallbackClass = env->FindClass("com/oilquiz/app/ai/jni/LlamaHelper$JsonCallback");
+    jclass effectiveClass = jsonCallbackClass != nullptr ? jsonCallbackClass : callbackClass;
+    jmethodID onJsonMethod = env->GetMethodID(effectiveClass, "onJson", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(effectiveClass, "onError", "(Ljava/lang/String;)V");
+    if (jsonCallbackClass != nullptr) env->DeleteLocalRef(jsonCallbackClass);
+    env->DeleteLocalRef(callbackClass);
+
+    // 包装 JsonCallback：推理线程 → Java onJson 回调（AttachCurrentThread 若需要）
+    JavaVM* jvm = getJavaVM();
+    auto jsonCallback = [jvm, globalCallback, onJsonMethod](const std::string& json) {
+        JNIEnv* cbEnv = nullptr;
+        bool didAttach = false;
+        if (jvm->GetEnv(reinterpret_cast<void**>(&cbEnv), JNI_VERSION_1_6) != JNI_OK) {
+            if (jvm->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
+            didAttach = true;
+        }
+        try {
+            jstring js = utf8StringToJstring(cbEnv, json);
+            cbEnv->CallVoidMethod(globalCallback, onJsonMethod, js);
+            cbEnv->DeleteLocalRef(js);
+        } catch (...) {
+            LOGE("Exception in nativeChatJson onJson callback");
+        }
+        if (didAttach) jvm->DetachCurrentThread();
+    };
+
+    // SAFE_RUN_INFERENCE：崩溃恢复 + isGenerating 复位 + EnsureLocalCapacity
+    // 崩溃路径走 JsonCallback.onError 默认方法（Java 侧转成 error JSON 事件）
+    SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
+        s_helperContext->chatJson(requestJson, jsonCallback)
+    );
+
+    env->DeleteGlobalRef(globalCallback);
 }
 
 JNIEXPORT jobjectArray JNICALL

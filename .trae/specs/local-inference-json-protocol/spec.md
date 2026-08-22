@@ -1,8 +1,8 @@
 # 本地推理引擎统一 JSON 协议改造方案
 
-> 版本：v1.11（收敛终稿）  
+> 版本：v1.12（实施决策版）  
 > 日期：2026-08-22  
-> 状态：**完全体方案**（十轮审查 + 终检收敛，连续两轮无实质性问题；v1.0 审查结论见 `review.md`，修订记录见 §12.2）
+> 状态：完全体方案（十轮审查 + 收敛终检 + 实施拍板；v1.0 审查结论见 `review.md`，修订与决策记录见 §12.2）
 
 ---
 
@@ -492,7 +492,9 @@ bool kvCacheValid = false;              // KV cache 是否有效（未被清除�
 
 Agent 循环中历史只追加不修改，**每轮都命中增量模式**（前提：模板渲染逐 token 一致，见下）。
 
-> **命中率风险（重要）**：增量命中要求新 prompt 是旧 prompt 的**逐 token 前缀超集**，这依赖 chat 模板确定性渲染。新协议把 assistant.tool_calls 以**结构化字段**传入后，模板按自身规则渲染 tool_call（如 Qwen 的 `<tool_call>...</tool_call>`），**未必逐字节等于上一轮模型原始生成的文本**；不一致时前缀匹配失败、回退全量 eval（正确性不受影响，性能收益在工具轮次消失）。缓解：回灌消息时保留原始生成文本（content 用 raw 输出，tool_calls 结构仅辅助）；阶段 3 实测命中率。
+> **命中率风险（重要）**：增量命中要求新 prompt 是旧 prompt 的**逐 token 前缀超集**，这依赖 chat 模板确定性渲染。新协议把 assistant.tool_calls 以**结构化字段**传入后，模板按自身规则渲染 tool_call（如 Qwen 的 `<tool_call>...</tool_call>`），**未必逐字节等于上一轮模型原始生成的文本**；不一致时前缀匹配失败、回退全量 eval（正确性不受影响，性能收益在工具轮次消失）。
+>
+> **决策（已拍板，2026-08-22，实施 v1.12）**：第一阶段按 §7.2.1/A2 执行——assistant 消息 content 用纯净 `complete.content`（**禁用 raw 输出**，防思考/JSON 双份渲染与泄漏）；阶段 3 实测 KV 命中率。若命中率确实低（第二轮即回退全量 eval），再评估折中方案：a) assistant content 填 raw 但 Java 侧不渲染（只渲染 tool_call 气泡）；b) `llama_memory_seq_rm`（llama.h:735）删尾部 + 手动设 pos 做部分前缀复用。**该决策不阻塞开工。**
 >
 > **F7 正面确认**：`tool_choice` 不参与 prompt 文本渲染（`common/chat.cpp:3229` 只写入 `params.tool_choice`，进入 grammar/parser 规则），因此首轮 required → 二轮 auto 的切换**不会**因 tool_choice 本身破坏前缀命中；前缀失配只取决于消息历史与模板渲染。
 
@@ -865,7 +867,7 @@ private static class ChatMessage {
   - [ ] 首轮 required 无 tool_call 输出 → generateFallbackPrompt 重试（F4）
   - [ ] **tool_call_id 补齐与匹配（R4-1）**：执行工具前为每个 ToolCall 补齐 id（null → 自增 "call_N"），assistant 消息与 tool 消息共用同一 id
   - [ ] 最终回答：auto 模式 token 流式输出，complete.content 用于统计
-  - [ ] MAX_TOOL_ROUNDS 从 4 改为 2（**产品取舍**：多步任务更易被循环保护截断，确认后实施）
+  - [ ] MAX_TOOL_ROUNDS **维持 4**（D3：待阶段 3 实测后决定是否降 2；多步任务可用性与循环保护权衡）
 - [ ] **复活入口（R3-1/R8-1）**：`AgentChatHandler.startAgentLoop` 在本地模型且 `localAgentEnabled=true` 时调 `softwareLayer.processMessage(message, enableThinking)`（路径 a，推荐；enableThinking 贯穿传递）
 - [ ] **forceRunLocalAgent 复活分支（R8-2）**：`localAgentEnabled=true` 时路由到本地 Agent，否则保持禁用提示
 - [ ] `AgentSoftwareLayer` 验证回调桥接 + **cancel 桥接 `LlamaHelper.stopGeneration()`**（R3-2）
@@ -899,7 +901,7 @@ private static class ChatMessage {
 |---|---|---|---|
 | `common_chat_msgs_parse_oaicompat` 不支持 tool 消息的 tool_call_id | 低（已静态确认支持，`chat.cpp:372-471`） | 工具结果回灌格式错误 | 实施时冒烟验证；不支持则手动构建 common_chat_msg |
 | `common_chat_parse` 返回的 content 含 tool_call JSON 残留 | 中（**唯一阻塞性运行时验证项**） | 最终回答带垃圾文本 | 阶段 0 用目标模型实测；必要时手动清理 content |
-| 4B 模型 auto 模式下仍反复调工具不收尾 | 中 | 循环靠保护机制强制结束 | 循环保护已就绪；MAX_TOOL_ROUNDS=2；必要时 system prompt 加强约束 |
+| 4B 模型 auto 模式下仍反复调工具不收尾 | 中 | 循环靠保护机制强制结束 | 循环保护已就绪；MAX_TOOL_ROUNDS=4（D3，待阶段 3 实测决定是否降 2）；必要时 system prompt 加强约束 |
 | KV cache 增量解码前缀匹配失败 | 中 | 回退全量 eval，性能下降 | 历史裁剪时主动失效 KV cache；日志记录命中/失效；**补充：结构化 tool_calls 经模板渲染可能 ≠ 模型原始生成流（§5.6 命中率风险），阶段 3 实测，必要时回灌 raw 文本** |
 | `llama_batch.pos` 手动设置导致 KV 位置错乱 | 低（已消除：采用 pos=nullptr 自动续接，无需手动设置） | 生成乱码或崩溃 | 严格测试增量 eval；保留全量 eval 回退路径 |
 | **并行路径清 KV 导致增量位置错乱（R3-4）** | 中 | 增量模式在错误 KV 位置续写，生成乱码 | 增量命中前置 `llama_memory_seq_pos_max(mem,0)==cachedNPast-1` 一致性校验，不一致全量重 eval |
@@ -1080,6 +1082,14 @@ private static class ChatMessage {
 | # | 修正 | 落点 |
 |---|---|---|
 | R11-1 | §12.2 标题更新为"审查修订记录（v1.0 → v1.11）"；全文收敛扫描无实质性问题（围栏 52 成对、无残留矛盾/待办标记），声明**完全体方案** | §12.2、头部 |
+
+**v1.12 实施决策（2026-08-22）**
+
+| # | 决策 | 落点 |
+|---|---|---|
+| D1 | §5.6 命中率风险与 §7.2.1/A2 纯净 content 的冲突拍板：**第一阶段按 A2 执行**（纯净 content，禁用 raw）；阶段 3 实测命中率，低则评估折中方案（raw content + Java 侧不渲染 / `llama_memory_seq_rm` + 手动 pos）。不阻塞开工 | §5.6、§7.2.1 |
+| D2 | 实施完成（阶段 1-2）：C++ `generateStreamIncremental`/`chatJson`/`nativeChatJson` + Java 层全部落地；Java 编译 BUILD SUCCESSFUL；C++ 待 NDK 构建机验证；阶段 3 待真机 | — |
+| D3 | `MAX_TOOL_ROUNDS` **维持 4**：多步任务可用性（三工具串行需 3 轮）+ 去重/迭代上限/总时长预算已构成多重防线 + KV 增量后多轮成本下降，降 2 的必要性降低；**待阶段 3 实测**（auto 反复调工具观察项）后决定是否降 2 | §9 阶段2、§10.1 |
 
 ### 12.3 旧接口保留清单
 
