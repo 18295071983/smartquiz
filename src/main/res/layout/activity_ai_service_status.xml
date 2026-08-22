@@ -1297,6 +1297,42 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:text="本地推理JSON协议"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_secondary"/>
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/use_json_protocol_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="本地Agent（实验）"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_secondary"/>
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/local_agent_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
                         android:text="最大Token数"
                         android:textSize="14sp"
                         android:textColor="@color/text_secondary"/>

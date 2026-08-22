@@ -887,7 +887,7 @@ private static class ChatMessage {
 - [ ] 性能基准：首轮 eval 耗时 / 增量 eval 耗时 / 单工具总耗时（校准 11 tokens/s 假设）
 
 ### 阶段 4：优化（可选，0.5 天）
-- [ ] 增量解析 tool_call（`common_chat_parse` is_partial=true，减少 auto 模式闪烁）
+- [x] 增量解析 tool_call（`common_chat_parse` is_partial=true，减少 auto 模式闪烁）— **已实施（D4）**：chatJson step 7 每收 16 个 token 做一次 partial parse，检测到 tool_call 后锁定 is_tool_call=true（仅 auto/none 模式启用）
 - [ ] 旧 `generateWithTools` 接口下线评估
 - [ ] `llama-bridge.cpp` 旧路径清理评估
 
@@ -1090,6 +1090,7 @@ private static class ChatMessage {
 | D1 | §5.6 命中率风险与 §7.2.1/A2 纯净 content 的冲突拍板：**第一阶段按 A2 执行**（纯净 content，禁用 raw）；阶段 3 实测命中率，低则评估折中方案（raw content + Java 侧不渲染 / `llama_memory_seq_rm` + 手动 pos）。不阻塞开工 | §5.6、§7.2.1 |
 | D2 | 实施完成（阶段 1-2）：C++ `generateStreamIncremental`/`chatJson`/`nativeChatJson` + Java 层全部落地；Java 编译 BUILD SUCCESSFUL；C++ 待 NDK 构建机验证；阶段 3 待真机 | — |
 | D3 | `MAX_TOOL_ROUNDS` **维持 4**：多步任务可用性（三工具串行需 3 轮）+ 去重/迭代上限/总时长预算已构成多重防线 + KV 增量后多轮成本下降，降 2 的必要性降低；**待阶段 3 实测**（auto 反复调工具观察项）后决定是否降 2 | §9 阶段2、§10.1 |
+| D4 | 阶段 4 优化实施：is_partial 增量解析（`common_chat_parse(collectedText, true, pp)` 每 16 token 一次，检测到 tool_call 后锁定 is_tool_call=true，仅 auto/none 模式启用，required 恒定 true 无需检测）；+ AI 设置页新增 `useJsonProtocol`/`localAgentEnabled` 两个开关（AIServiceStatusActivity） | §5.2、§9 阶段4 |
 
 ### 12.3 旧接口保留清单
 
