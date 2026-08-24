@@ -98,6 +98,8 @@ public class AgentWorkspace {
         this.tmpDir = new File(workspaceDir, TMP_DIR);
         this.filesDir = new File(workspaceDir, FILES_DIR);
         ensureDirs();
+        // 工作区长期文件区生成"创建工具指南"与"使用速查表"（纯静态内容，无外部依赖，幂等）
+        ensureGuideFiles();
     }
 
     private void ensureDirs() {
@@ -294,6 +296,169 @@ public class AgentWorkspace {
             }
         }
         return removed;
+    }
+
+    // ==================== 工作区指南文件（创建工具指南 + 使用速查表） ====================
+
+    /** 在工作区长期文件区（files/）生成指南文件（幂等；纯静态内容，无外部依赖，可安全在构造期调用） */
+    public void ensureGuideFiles() {
+        try {
+            writeGuideFile("工具创建指南.md", buildToolCreationGuide());
+            writeGuideFile("使用速查表.md", buildUsageCheatsheet());
+            AILogger.i(TAG, "工作区指南文件已生成: files/工具创建指南.md, files/使用速查表.md");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "生成工作区指南文件失败: " + t.getMessage());
+        }
+    }
+
+    /** 原子写入：先写 .tmp 再 rename，避免写一半崩溃留下半截文件 */
+    private void writeGuideFile(String name, String content) {
+        File f = new File(getFilesDir(), name);
+        File tmp = new File(getFilesDir(), name + ".tmp");
+        try (java.io.FileWriter w = new java.io.FileWriter(tmp)) {
+            w.write(content);
+        } catch (Exception e) {
+            tmp.delete();
+            AILogger.w(TAG, "写指南临时文件失败: " + name + " - " + e.getMessage());
+            return;
+        }
+        if (tmp.renameTo(f)) return;
+        tmp.delete();
+        try (java.io.FileWriter w = new java.io.FileWriter(f)) {
+            w.write(content);
+        } catch (Exception e) {
+            AILogger.w(TAG, "写指南文件失败: " + name + " - " + e.getMessage());
+        }
+    }
+
+    /** 创建工具功能指南（Agent 可用 workspace 工具读取；用户也可打开查看） */
+    private String buildToolCreationGuide() {
+        return "工具创建功能指南（答题宝 AI Agent 工作区）\n"
+                + "================================================================\n"
+                + "本文件位于工作区长期文件区（files/），说明如何创建自定义工具/组件。\n"
+                + "Agent 可用 workspace 工具读取本文件；用户可在文件管理器查看。\n\n"
+                + "一、创建工具的四种方式\n"
+                + "----------------------------------------------------------------\n"
+                + "1) create_dynamic_tool（Java 动态工具，推荐）：\n"
+                + "   action: create / update / delete / list / show / test（默认 list）\n"
+                + "   create 参数:\n"
+                + "     - tool_name: 工具名（字母数字下划线）\n"
+                + "     - description: 工具用途说明\n"
+                + "     - parameters: 参数定义 JSON，三种格式：\n"
+                + "       ① 简单: {\"参数名\":\"描述\"}\n"
+                + "       ② 属性级: {\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true}}\n"
+                + "       ③ 完整 JSON Schema: {\"type\":\"object\",\"properties\":{...},\"required\":[...]}\n"
+                + "       type 支持: string/number/integer/boolean/array/object\n"
+                + "     - logic: 执行逻辑（Python 脚本自动识别，脚本内用 script_args['参数名'] 读取参数，\n"
+                + "       支持顶层 return 返回结果；或 DSL 命令 echo/set/if/call_tool 等）\n"
+                + "     - test_params: 试运行参数 JSON（action=test 时使用）\n"
+                + "   list 查看全部动态工具；show 查看单个完整定义；delete 删除。持久化保存，重启可用。\n\n"
+                + "2) ai_create_tool（AI 自动生成工具）：\n"
+                + "   提供 tool_name + description + parameters + logic，由 AI 生成后注册为动态工具。\n\n"
+                + "3) ui_component_plugin（原生 UI 组件插件）：\n"
+                + "   把自定义 UI 封装为可复用组件类型（type 安全 + 参数校验 + 生命周期）：\n"
+                + "   action: create / template / validate / get / list / remove / clear_temporary\n"
+                + "   create 参数:\n"
+                + "     - name: 插件名（= 新的 component_type，仅字母数字下划线）\n"
+                + "     - description: 用途说明\n"
+                + "     - params: 参数 schema {字段名:{type,required,default,description,enum}}，\n"
+                + "       type 限 string/number/boolean/array/object\n"
+                + "     - render: {card: 内置卡片类型 或 layout: 原生控件框架树, title, props}\n"
+                + "     - monitor: 可选任务监控 {tool,action,poll_seconds,param_map,success_field,error_field}\n"
+                + "     - persist: true=长久落盘可复用(默认) / false=临时仅内存\n"
+                + "   创建组件时自动按 params schema 校验：缺必填明确报错、类型自动转换(number/boolean/\n"
+                + "   array/object)、有 default 自动填充；render 必须含 card 或 layout。\n\n"
+                + "4) ui_component register_type（轻量类型注册）：\n"
+                + "   name + description + render（layout 或 card）→ 之后 ui_component(action=create,\n"
+                + "   component_type=类型名) 直接创建复用；list_types 查看、remove_type 删除。\n\n"
+                + "二、layout 原生控件框架（JSON 声明真实原生 UI）\n"
+                + "----------------------------------------------------------------\n"
+                + "   布局: column(纵向)/row(横向)/scroll(滚动)\n"
+                + "   展示: text(text,bold,size,color)/image(url,width,height)/marquee(text,speed 0~3)\n"
+                + "   输入: input(hint,key)/number(key,min,max)/password/multiline/otp(length)\n"
+                + "   选择: select(options,key)/switch(checked,key)/checkbox(checked)/radio(options,value)/\n"
+                + "         date(value)/time(value)/color(value)/rating(value 1~5)\n"
+                + "   交互: button(text,action 回传 或 tool+tool_params 调后端)/slider(key,min,max)/\n"
+                + "         progress(progress,max)\n"
+                + "   装饰: divider\n"
+                + "   文本支持 {key} 从 props 替换；尺寸 width/height 支持 match/fill/wrap/数字 dp\n"
+                + "   传法三种等效: 顶层 layout / props={layout:...} / render={layout:...}\n\n"
+                + "三、工作区目录\n"
+                + "----------------------------------------------------------------\n"
+                + "   files/ 长期文件区（用户保留产物，不自动清理；指南文件在此）\n"
+                + "   tmp/   临时缓存（执行中间文件，任务结束自动清理）\n"
+                + "   生成文件默认保存到 files/，用 workspace 工具查看/读取。\n"
+                + "================================================================\n";
+    }
+
+    /** 使用速查表（工具/组件/插件/参数传法） */
+    private String buildUsageCheatsheet() {
+        return "使用速查表（答题宝 AI Agent 工作区）\n"
+                + "================================================================\n"
+                + "一、参数传法\n"
+                + "   组件/工具参数可放顶层参数或 props 内（等效，系统自动合并，props 已有值优先）。\n"
+                + "   如 marquee: text/speed 顶层 或 props={text,speed} 均可。\n\n"
+                + "二、原生交互组件（ui_component action=create → get_result 取结果）\n"
+                + "----------------------------------------------------------------\n"
+                + "   dialog(confirm/warning) / input(input_hint) / choice(options) / multi_choice(options) /\n"
+                + "   date / time / rating / color / otp(length) / number(min/max) /\n"
+                + "   file_picker / image_picker / contact_picker / custom(fields 定义任意字段) /\n"
+                + "   voice_recorder(录音) / speech_player(朗读) / snackbar / notification / toast /\n"
+                + "   progress(max 或 max_value, update 传 progress) / marquee(text,speed 0~3) /\n"
+                + "   media_task(task_id,type=image|video,自动轮询)\n\n"
+                + "三、内置卡片（ui_component action=create component_type=卡片类型 props={字段} 直接展示）\n"
+                + "----------------------------------------------------------------\n"
+                + "   chart(bar/line/pie) / table_card / list_card / grid_card / metric_card / info_card /\n"
+                + "   alert_card / steps_card / todo_card / note_card / json_viewer / code_card / link_card /\n"
+                + "   image_grid / file_card / file_list / contact_card / quiz_card / weather_card /\n"
+                + "   progress_card / html / markdown_card；web=网页卡片, image=图片卡片\n"
+                + "   卡片可加 actions=[{\"label\":\"文字\",\"value\":\"回传值\",\"action\":\"callback\"}] 收集点击\n\n"
+                + "四、动态插件（ui_component_plugin）\n"
+                + "----------------------------------------------------------------\n"
+                + "   create/template/validate/get/list/remove/clear_temporary\n"
+                + "   persist=true 长久落盘可复用(默认) / false 临时仅内存\n"
+                + "   创建时自动按 params schema 校验（缺必填报错/类型转换/默认值填充）\n"
+                + "   render 必须含 card(内置卡片) 或 layout(控件树)；monitor 可自动轮询任务\n\n"
+                + "五、核心工具速查\n"
+                + "----------------------------------------------------------------\n"
+                + "   ai_weather       天气(当前/预报/空气质量/预警/生活指数)\n"
+                + "   network_search   网络搜索/读网页/信息提取/智能摘要\n"
+                + "   smart_research   智能研究(搜索→阅读→摘要全流程)\n"
+                + "   webpage_reader   网页阅读/提取/多页抓取\n"
+                + "   python_calculate 数学表达式计算\n"
+                + "   python_execute   执行Python代码(内置android_ui组件能力)\n"
+                + "   python_analyze_data 数据分析(统计/清洗/转换)\n"
+                + "   python_web_reader 抓网页/API(requests+bs4)\n"
+                + "   python_file_ops  Python文件读写/解析\n"
+                + "   python_chart     Python绘图(Pillow)生成PNG\n"
+                + "   location         定位/当前位置/城市\n"
+                + "   file_reader      读取/解析Excel-CSV-JSON-XML/列目录\n"
+                + "   file_analyzer    文件内容分析\n"
+                + "   file_generator   生成文本/JSON/配置/Markdown文件(默认存工作区files/)\n"
+                + "   database         题库/用户/分数数据库操作\n"
+                + "   excel_tool       Excel查询/修改\n"
+                + "   system_resource  打开URL/应用/短信/电话/系统操作\n"
+                + "   app_operation    应用内页面跳转\n"
+                + "   image_gen        AI生成图片\n"
+                + "   dashscope_media  百炼文生图/文生视频(通义万相)\n"
+                + "   speech_synthesis 语音合成(TTS,可带朗读组件)\n"
+                + "   voice_input      语音识别(录音→文字)\n"
+                + "   ocr_recognize    图片文字识别\n"
+                + "   memory           长期记忆(保存/回忆/删除用户偏好)\n"
+                + "   workspace        工作区文件(列目录/读取/生成/删除)\n"
+                + "   ui_component     创建UI组件(原生交互/内置卡片/自定义layout)\n"
+                + "   ui_component_plugin 动态插件(注册可复用组件类型)\n"
+                + "   create_dynamic_tool 动态创建/管理AI工具\n"
+                + "   ai_create_tool   AI自动生成新工具\n"
+                + "   tool_registry    工具注册表(列出/搜索/取schema)\n"
+                + "   permission_manager 权限检查/请求\n"
+                + "   app_toolkit      聚合工具(OCR/图像/解析/天气/计算)\n\n"
+                + "六、Python android_ui 模块（python_execute 脚本内）\n"
+                + "----------------------------------------------------------------\n"
+                + "   from android_ui import show_toast, show_dialog, create_component, update_component,\n"
+                + "       get_component_result, close_component\n"
+                + "   便捷函数: ask_input / ask_choice / show_progress\n"
+                + "================================================================\n";
     }
 
     /**
