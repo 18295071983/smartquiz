@@ -127,9 +127,11 @@ public class ComponentRegistry {
             Log.e(TAG, "component render failed: " + data.type, e);
         }
         if (view == null) return null;
-        // 统一附加 actions 按钮行（由 DynamicCardView 渲染的组件其内部已渲染 actions，跳过避免重复）
-        boolean renderedByDynamic = renderedBy == dynamicFallback;
-        if (!renderedByDynamic
+        // 统一附加 actions 按钮行；以下情况跳过避免重复：
+        // 1. 由 DynamicCardView 渲染（其内部已渲染 actions）
+        // 2. 组件自带 actions 渲染（alert_card/contact_card 内部已渲染）
+        boolean actionsAlreadyRendered = renderedBy == dynamicFallback || selfRendersActions(data.type);
+        if (!actionsAlreadyRendered
                 && data.props != null && data.props.optJSONArray("actions") != null
                 && data.props.optJSONArray("actions").length() > 0) {
             try {

@@ -63,7 +63,7 @@ public class PythonDynamicTool implements AITool {
             String fullCode = buildFullCode(code, parameters);
             Log.d(TAG, "Code: " + fullCode.substring(0, Math.min(200, fullCode.length())));
             
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(fullCode, parameters);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(fullCode, null);
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", name);
@@ -203,6 +203,26 @@ public class PythonDynamicTool implements AITool {
         }
         if (value instanceof java.util.Map) {
             return mapToPythonDict((java.util.Map<String, Object>) value);
+        }
+        // org.json 类型（AgentService 解析的嵌套参数）：先转标准容器再序列化，
+        // 避免把 JSONObject.toString() 当字符串拼进 script_args 导致参数注入损坏
+        if (value instanceof org.json.JSONObject) {
+            org.json.JSONObject jo = (org.json.JSONObject) value;
+            Map<String, Object> m = new HashMap<>();
+            java.util.Iterator<String> keys = jo.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                m.put(k, jo.opt(k));
+            }
+            return mapToPythonDict(m);
+        }
+        if (value instanceof org.json.JSONArray) {
+            org.json.JSONArray ja = (org.json.JSONArray) value;
+            java.util.List<Object> list = new java.util.ArrayList<>();
+            for (int i = 0; i < ja.length(); i++) {
+                list.add(ja.opt(i));
+            }
+            return pythonList(list);
         }
         return "'" + value.toString().replace("'", "\\'") + "'";
     }

@@ -133,7 +133,7 @@ public class PythonChartTool extends BaseAITool {
             "W, H = %d, %d\n" +
             "out_path = %s\n" +
             "colors = %s\n" +
-            "show_values = %r\n" +
+            "show_values = %s\n" +
             "\n" +
             "if not colors:\n" +
             "    colors = ['#4E79A7', '#F28E2B', '#59A14F', '#E15759', '#B07AA1', '#76B7B2', '#EDC948', '#FF9DA7']\n" +
@@ -239,7 +239,7 @@ public class PythonChartTool extends BaseAITool {
             "        for i, lb in enumerate(p_labels):\n" +
             "            c = colors[i %% len(colors)]\n" +
             "            draw.rectangle([lx2, ly2, lx2 + 12, ly2 + 12], fill=c)\n" +
-            "            draw.text((lx2 + 16, ly2 - 2), lb + ('  %.1f%%%%' %% (values[i] * 100.0 / total)), fill='#333333', font=f_label)\n" +
+            "            draw.text((lx2 + 16, ly2 - 2), lb + ('  %%.1f%%%%' %% (values[i] * 100.0 / total)), fill='#333333', font=f_label)\n" +
             "            w = draw.textlength(lb + '  100.0%%', font=f_label)\n" +
             "            lx2 += 16 + w + 18\n" +
             "\n" +
@@ -321,7 +321,7 @@ public class PythonChartTool extends BaseAITool {
             "    except Exception as e:\n" +
             "        print('保存失败: ' + str(e))\n",
             quoteString(action), quoteString(data), quoteString(title),
-            width, height, quoteString(outputPath), colors, showValues
+            width, height, quoteString(outputPath), colors, showValues ? "True" : "False"
         );
     }
 

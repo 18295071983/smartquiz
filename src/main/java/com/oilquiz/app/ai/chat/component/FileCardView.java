@@ -299,7 +299,8 @@ public class FileCardView implements ChatComponent {
         }
     }
 
-    /** 规范化文件路径：剥离 file:// 前缀；相对路径（工作区文件）解析为绝对路径 */
+    /** 规范化文件路径：剥离 file:// 前缀；相对路径（工作区文件）解析为绝对路径；
+     *  路径不存在时按文件名在工作区 files/、tmp/、根目录兜底搜索（模型常传相对名/缩写/幻觉路径）。 */
     private static String normalizePath(Context context, String path) {
         if (TextUtils.isEmpty(path)) return path;
         String p = path.trim();
@@ -307,17 +308,13 @@ public class FileCardView implements ChatComponent {
             p = android.net.Uri.parse(p).getPath();
         }
         if (p == null || p.isEmpty()) return path;
-        // 相对路径（非 / 开头、非 content://）→ 工作区解析
-        if (!p.startsWith("/") && !p.startsWith("content://")) {
-            try {
-                com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
-                        com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
-                java.io.File f = ws.resolveFileToFiles(p);
-                if (f == null || !f.exists()) f = ws.resolveFileToTmp(p);
-                if (f != null && f.exists()) return f.getAbsolutePath();
-            } catch (Throwable t) {
-                android.util.Log.w("FileCardView", "workspace resolve failed: " + t.getMessage());
-            }
+        try {
+            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+            java.io.File resolved = ws.resolveExistingFile(p);
+            if (resolved != null) return resolved.getAbsolutePath();
+        } catch (Throwable t) {
+            android.util.Log.w("FileCardView", "workspace resolve failed: " + t.getMessage());
         }
         return p;
     }
@@ -393,7 +390,7 @@ public class FileCardView implements ChatComponent {
 
     private static android.graphics.drawable.Drawable buttonBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0x1A4C8DFF);
+        gd.setColor(ComponentColors.accentOverlay(context));
         gd.setCornerRadius(dp(context, 6));
         return gd;
     }

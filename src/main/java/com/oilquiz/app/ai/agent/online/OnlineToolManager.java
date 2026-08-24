@@ -419,12 +419,17 @@ public class OnlineToolManager {
         // - permission_manager 权限请求（用户授权弹窗）
         // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
         //   30s 默认超时会中断等待导致 Agent"越过交互"直接继续）
+        // - dashscope_media 文生视频（费用确认弹窗阻塞 20s + 提交短轮询，总耗时可超 30s）
         boolean isPermissionTool = "permission_manager".equals(toolName);
         boolean isPermissionRequest = isPermissionTool && arguments != null
                 && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
         boolean isUserInteractionWait = "ui_component".equals(toolName)
                 && arguments != null && arguments.contains("\"get_result\"");
-        int effectiveTimeout = (isPermissionRequest || isUserInteractionWait)
+        boolean isMediaSubmit = "dashscope_media".equals(toolName)
+                && arguments != null
+                && (arguments.contains("\"video\"") || arguments.contains("\"action\":\"video\"")
+                        || arguments.contains("\"action\": \"video\""));
+        int effectiveTimeout = (isPermissionRequest || isUserInteractionWait || isMediaSubmit)
                 ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS;
 
         // 带重试的执行

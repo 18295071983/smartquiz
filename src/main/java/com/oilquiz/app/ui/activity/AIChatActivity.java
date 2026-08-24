@@ -263,6 +263,54 @@ public class AIChatActivity extends BaseActivity {
     private boolean isUpdateScheduled = false;
     private android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    // ===== 思考内容定时渲染（节流）：防止每 token notifyItemChanged 导致思考区画面抽搐 =====
+    /** 思考区最小刷新间隔（ms）：思考 token 累积后批量刷新一次 */
+    private static final long THINKING_REFRESH_INTERVAL_MS = 120;
+    private final Object thinkingRefreshLock = new Object();
+    private int pendingThinkingIndex = -1;
+    private boolean thinkingRefreshScheduled = false;
+    private final Runnable thinkingRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            int idx;
+            synchronized (thinkingRefreshLock) {
+                thinkingRefreshScheduled = false;
+                idx = pendingThinkingIndex;
+                pendingThinkingIndex = -1;
+            }
+            if (idx < 0 || idx >= chatHistory.size() || chatAdapter == null) return;
+            try {
+                ChatMessage msg = chatHistory.get(idx);
+                chatAdapter.updateMessageThinkingContent(idx, msg.thinkingContent);
+            } catch (IndexOutOfBoundsException e) {
+                currentStreamingMessageIndex = -1;
+            }
+        }
+    };
+
+    /** 思考内容更新（数据已同步到 msg.thinkingContent）：节流刷新 UI（120ms 批量一次） */
+    private void scheduleThinkingRefresh(int idx) {
+        if (idx < 0) return;
+        synchronized (thinkingRefreshLock) {
+            pendingThinkingIndex = idx;
+            if (!thinkingRefreshScheduled) {
+                thinkingRefreshScheduled = true;
+                uiHandler.postDelayed(thinkingRefreshRunnable, THINKING_REFRESH_INTERVAL_MS);
+            }
+        }
+    }
+
+    /** 思考结束/生成结束：取消待执行的思考节流刷新（调用方随后会全量 notify，无需重复） */
+    private void cancelThinkingRefresh() {
+        synchronized (thinkingRefreshLock) {
+            if (thinkingRefreshScheduled) {
+                thinkingRefreshScheduled = false;
+                uiHandler.removeCallbacks(thinkingRefreshRunnable);
+            }
+            pendingThinkingIndex = -1;
+        }
+    }
+
     private StreamingUpdateManager streamingUpdateManager = null;
     private long totalTokensGenerated = 0;
     private long generationStartTime = 0;
@@ -890,10 +938,15 @@ public class AIChatActivity extends BaseActivity {
                     if (!isComplete) {
                         feedStreamingTts(text);
                     }
-                    ChatMessage msg = chatHistory.get(idx);
-                    msg.content = contentSnapshot;
-                    if (chatAdapter != null) {
-                        chatAdapter.updateAIMessageContent(idx, contentSnapshot);
+                    // 定时渲染：正文 UI 统一交给 StreamingUpdateManager（50~200ms 批量 + 去抖），
+                    // 流式期间不再每 token 同步 msg.content/notifyItemChanged（否则变化检测失效且画面抽搐）。
+                    // 完成事件（全文重发）或节流器不可用（异常/未初始化）时立即刷新兜底。
+                    if (isComplete || streamingUpdateManager == null) {
+                        ChatMessage msg = chatHistory.get(idx);
+                        msg.content = contentSnapshot;
+                        if (chatAdapter != null) {
+                            chatAdapter.updateAIMessageContent(idx, contentSnapshot);
+                        }
                     }
                 });
             }
@@ -943,9 +996,8 @@ public class AIChatActivity extends BaseActivity {
                     }
                     ChatMessage msg = chatHistory.get(idx);
                     msg.thinkingContent = snapshot;
-                    if (chatAdapter != null) {
-                        chatAdapter.updateMessageThinkingContent(idx, snapshot);
-                    }
+                    // 定时渲染（120ms 批量），防每 token notify 导致思考区抽搐
+                    scheduleThinkingRefresh(idx);
                 });
             }
 
@@ -963,6 +1015,8 @@ public class AIChatActivity extends BaseActivity {
                     msg.thinkingContent = snapshot;
                     // 思考结束自动折叠，用户可点击重新展开
                     msg.thinkingExpanded = false;
+                    // 取消待执行的思考节流刷新（此处全量 notify 已带最新 thinkingContent）
+                    cancelThinkingRefresh();
                     if (chatAdapter != null) {
                         chatAdapter.notifyItemChanged(idx);
                     }
@@ -1691,7 +1745,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView loadingView = new TextView(this);
                 loadingView.setText("⏳ 正在获取可选列表...");
                 loadingView.setTextSize(12);
-                loadingView.setTextColor(0xFF888888);
+                loadingView.setTextColor(getColor(R.color.text_secondary));
                 optionsBox.addView(loadingView);
 
                 final ToolGuideFlow.GuideStep.DynamicOptionsSpec spec = step.dynamicOptions;
@@ -1704,14 +1758,14 @@ public class AIChatActivity extends BaseActivity {
                             TextView failView = new TextView(this);
                             failView.setText("ℹ️ 未能获取列表，请直接输入");
                             failView.setTextSize(12);
-                            failView.setTextColor(0xFF888888);
+                            failView.setTextColor(getColor(R.color.text_secondary));
                             optionsBox.addView(failView);
                             return;
                         }
                         TextView tipView = new TextView(this);
                         tipView.setText("👇 点击选择（或在上方直接输入）");
                         tipView.setTextSize(12);
-                        tipView.setTextColor(0xFF666666);
+                        tipView.setTextColor(getColor(R.color.text_secondary));
                         LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                         tipLp.bottomMargin = dp(6);
@@ -5070,10 +5124,10 @@ public class AIChatActivity extends BaseActivity {
         isInThinking = true;
         ChatMessage msg = chatHistory.get(idx);
         msg.thinkingContent = snapshot;
-        msg.thinkingExpanded = true; // 思考中默认展开显示
-        if (chatAdapter != null) {
-            chatAdapter.updateMessageThinkingContent(idx, snapshot);
-        }
+        // 注意：不在此处设置 thinkingExpanded=false（保持用户手动展开状态），
+        // 折叠动作只在「新一轮思考开始」时执行一次（见 onThinkingToken）
+        // 定时渲染（120ms 批量），防每 token notify 导致思考区抽搐
+        scheduleThinkingRefresh(idx);
     }
 
     /**
@@ -5094,6 +5148,7 @@ public class AIChatActivity extends BaseActivity {
             msg.addThinkingRound(snapshot);
         }
         msg.thinkingExpanded = false; // 思考完毕自动折叠，用户可点击重新展开
+        cancelThinkingRefresh(); // 取消待执行的思考节流刷新（下面全量 notify 已带最新 thinkingContent）
         if (chatAdapter != null) {
             chatAdapter.notifyItemChanged(idx);
         }
@@ -5274,6 +5329,7 @@ public class AIChatActivity extends BaseActivity {
                 }
                 ChatMessage msg = chatHistory.get(idx);
                 msg.thinkingContent = thinkingSnapshot;
+                cancelThinkingRefresh(); // 全量 notify 已带最新 thinkingContent，取消待执行的节流刷新
                 if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
             }
             return;
@@ -5303,7 +5359,8 @@ public class AIChatActivity extends BaseActivity {
             if (idx >= 0) {
                 ChatMessage msg = chatHistory.get(idx);
                 msg.thinkingContent = thinkingSnapshot;
-                if (chatAdapter != null) chatAdapter.updateMessageThinkingContent(idx, thinkingSnapshot);
+                // 定时渲染（120ms 批量），防每 token notify 导致思考区抽搐
+                scheduleThinkingRefresh(idx);
             }
             return;
         }
@@ -5708,6 +5765,11 @@ public class AIChatActivity extends BaseActivity {
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
                 setAgentStepStatus("🔍 思考中...（第" + thinkingRoundCount + "轮）");
+                // 新一轮思考开始：默认折叠思考区（不打扰正文阅读），用户可点击展开实时查看
+                final int newRoundIdx = resolveStreamingIndex();
+                if (newRoundIdx >= 0 && newRoundIdx < chatHistory.size()) {
+                    chatHistory.get(newRoundIdx).thinkingExpanded = false;
+                }
                 if (onUi) {
                     updateAgentStatusBar("🧠 思考中...", true);
                 } else {
@@ -5971,6 +6033,9 @@ public class AIChatActivity extends BaseActivity {
             streamingUpdateManager.flush();
             streamingUpdateManager = null;
         }
+
+        // 清理待执行的思考节流刷新（生成结束，避免残留定时任务刷新过期索引）
+        cancelThinkingRefresh();
 
         hideLoadingUI();
 
@@ -7117,7 +7182,8 @@ public class AIChatActivity extends BaseActivity {
             synchronized (streamingLock) {
                 isStreaming = isInThinking || (currentStreamingContent != null && currentStreamingContent.length() > 0);
             }
-            if (isStreaming) {
+            if (force || isStreaming) {
+                // force（重进页面/加载完成定位）与流式中：直接定位（立即生效，不依赖平滑滚动动画）
                 messageList.scrollToPosition(lastPosition);
             } else {
                 messageList.smoothScrollToPosition(lastPosition);
@@ -8691,8 +8757,9 @@ public class AIChatActivity extends BaseActivity {
         }
         lastUseOnlineModel = nowOnline;
 
-        // 再次进入页面时滚动到最新消息
-        scrollToBottom(true);
+        // 再次进入页面时定位到最新消息。
+        // 延迟执行：确保列表完成 layout（历史可能刚异步加载完成），直接 scrollToPosition 定位到底部
+        messageList.postDelayed(() -> scrollToBottom(true), 80);
     }
 
     private String getFileNameFromUri(Uri uri) {
@@ -8840,6 +8907,13 @@ public class AIChatActivity extends BaseActivity {
                 attachmentManager.clearAllAttachments();
             }
 
+            // 会话关闭：清理残留的动态 UI 组件 + 临时组件插件（防 dialog 卡界面/临时插件残留）
+            try {
+                com.oilquiz.app.ai.python.PythonToolManager.getInstance(this)
+                        .closeAllUiComponents();
+            } catch (Throwable ignored) {
+            }
+
             unregisterAIStatusObserver();
             // 注销在线模型变更监听
             unregisterModelChangeListener();
@@ -8954,6 +9028,18 @@ public class AIChatActivity extends BaseActivity {
         // ✅ 所有权限请求结果统一由 PermissionResourceProvider 处理
         com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this)
             .onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        // Agent 发起的系统选择器（file_picker/image_picker/contact_picker）结果转发给组件系统
+        try {
+            com.oilquiz.app.ai.python.PythonToolManager.getInstance(this)
+                    .onAgentPickerResult(requestCode, resultCode, data);
+        } catch (Throwable t) {
+            android.util.Log.w("AIChatActivity", "Agent picker result dispatch failed: " + t.getMessage());
+        }
     }
 
     /**

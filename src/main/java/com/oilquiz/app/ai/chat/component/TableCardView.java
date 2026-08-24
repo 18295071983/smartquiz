@@ -85,7 +85,7 @@ public class TableCardView implements ChatComponent {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         if (header) {
-            row.setBackgroundColor(0x1A4C8DFF);
+            row.setBackgroundColor(ComponentColors.accentOverlay(context));
         } else {
             row.setBackgroundColor(ComponentColors.background(context));
         }
@@ -96,7 +96,7 @@ public class TableCardView implements ChatComponent {
             TextView cell = new TextView(context);
             cell.setText(text);
             cell.setTextSize(header ? 12 : 12);
-            cell.setTextColor(header ? 0xFF1F2937 : ComponentColors.textPrimary(context));
+            cell.setTextColor(ComponentColors.textPrimary(context));
             if (header) cell.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             cell.setGravity(gravity | Gravity.CENTER_VERTICAL);
             cell.setPadding(dp(context, 6), dp(context, 5), dp(context, 6), dp(context, 5));

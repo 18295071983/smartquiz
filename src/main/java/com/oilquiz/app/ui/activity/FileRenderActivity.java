@@ -58,6 +58,7 @@ public class FileRenderActivity extends AppCompatActivity {
     private PreviewRenderBridge previewRenderBridge;
     private ScaleGestureDetector scaleGestureDetector;
     private float scale = 1.0f;
+    private android.widget.VideoView videoView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -256,6 +257,7 @@ public class FileRenderActivity extends AppCompatActivity {
         ivImage.setVisibility(View.GONE);
         tvText.setVisibility(View.GONE);
         wvHtml.setVisibility(View.GONE);
+        hideVideoView();
 
         if (content instanceof Bitmap) {
             ivImage.setImageBitmap((Bitmap) content);
@@ -272,7 +274,9 @@ public class FileRenderActivity extends AppCompatActivity {
             }
         } else if (content instanceof Map) {
             Map<?, ?> contentMap = (Map<?, ?>) content;
-            if (contentMap.containsKey("bitmap")) {
+            if (contentMap.containsKey("videoPath")) {
+                showVideo(String.valueOf(contentMap.get("videoPath")));
+            } else if (contentMap.containsKey("bitmap")) {
                 ivImage.setImageBitmap((Bitmap) contentMap.get("bitmap"));
                 ivImage.setVisibility(View.VISIBLE);
             } else if (contentMap.containsKey("htmlContent")) {
@@ -288,6 +292,68 @@ public class FileRenderActivity extends AppCompatActivity {
                 tvText.setVisibility(View.VISIBLE);
             }
         }
+    }
+
+    /** 隐藏/释放已展示的视频（切换渲染内容或退出时调用） */
+    private void hideVideoView() {
+        if (videoView != null) {
+            try {
+                videoView.stopPlayback();
+            } catch (Throwable ignored) {
+            }
+            contentLayout.removeView(videoView);
+            videoView = null;
+        }
+    }
+
+    /** 应用内视频播放（VideoView，不依赖系统播放器）；加载失败提示可用"用其他应用打开" */
+    private void showVideo(String videoPath) {
+        final java.io.File vf = new java.io.File(videoPath);
+        if (!vf.exists()) {
+            showError("视频不存在", "找不到视频文件: " + videoPath);
+            return;
+        }
+        final android.widget.VideoView vv = new android.widget.VideoView(this);
+        videoView = vv;
+        // 插入到文件名下方的正文区（weight=1 撑满剩余空间，与图片/文本一致）
+        contentLayout.addView(vv, 1, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        vv.setOnPreparedListener(mp -> {
+            try {
+                mp.setLooping(false);
+                mp.setOnVideoSizeChangedListener((m, w, h) -> {
+                    if (w > 0 && h > 0) {
+                        vv.post(() -> {
+                            int width = vv.getWidth();
+                            if (width > 0) {
+                                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                                        LinearLayout.LayoutParams.MATCH_PARENT,
+                                        (int) (width * h / (float) w));
+                                vv.setLayoutParams(lp);
+                            }
+                        });
+                    }
+                });
+                vv.start();
+            } catch (Throwable ignored) {
+            }
+        });
+        vv.setOnErrorListener((mp, what, extra) -> {
+            Toast.makeText(this, "视频播放失败，可点「用其他应用打开」", Toast.LENGTH_LONG).show();
+            return true;
+        });
+        try {
+            vv.setVideoURI(Uri.fromFile(vf));
+            vv.requestFocus();
+        } catch (Throwable t) {
+            Toast.makeText(this, "视频打开失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        hideVideoView();
+        super.onDestroy();
     }
 
     private void showError(String title, String message) {

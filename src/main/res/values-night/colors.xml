@@ -273,4 +273,27 @@
     <color name="agent_summary_label">#9CA3AF</color>
     <color name="agent_summary_divider">#374151</color>
 
+    <!-- ========== 对话组件色板 - 暗色模式（覆盖 values/colors.xml 同名色，否则组件卡片在深色界面显示浅色底） ========== -->
+    <color name="component_text_primary">#F9FAFB</color>
+    <color name="component_text_secondary">#D1D5DB</color>
+    <color name="component_text_tertiary">#9CA3AF</color>
+    <color name="component_accent">#A78BFA</color>
+    <color name="component_bg">#1F2937</color>
+    <color name="component_border">#374151</color>
+    <color name="component_success">#6EE7B7</color>
+    <color name="component_warning">#FBBF24</color>
+    <color name="component_error">#F87171</color>
+    <color name="component_field_bg">#374151</color>
+    <color name="component_rating_empty">#4B5563</color>
+    <color name="component_image_placeholder">#374151</color>
+    <color name="component_image_error">#7F1D1D</color>
+    <color name="chart_1">#A78BFA</color>
+    <color name="chart_2">#22D3EE</color>
+    <color name="chart_3">#6EE7B7</color>
+    <color name="chart_4">#FBBF24</color>
+    <color name="chart_5">#F87171</color>
+    <color name="chart_6">#60A5FA</color>
+    <color name="chart_7">#F472B6</color>
+    <color name="chart_8">#94A3B8</color>
+
 </resources>

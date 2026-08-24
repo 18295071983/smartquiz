@@ -182,6 +182,63 @@ public class AgentWorkspace {
         return new File(base, fileName);
     }
 
+    /**
+     * 解析路径为真实存在的文件（供 file_card/file_list 的打开/分享兜底）。
+     * 模型传给 UI 组件的路径常不精确（相对名 "report.md"、缩写 "files/报告.pdf"、
+     * 或幻觉的公共路径 "/storage/emulated/0/OilQuiz/xxx"），逐一兜底：
+     * 1. content:// → 无法转 File，返回 null（调用方保留 URI 处理）
+     * 2. file:// 前缀剥离
+     * 3. 绝对路径存在 → 直接返回
+     * 4. 相对路径 → 依次尝试 files/ → tmp/ → 工作区根
+     * 5. 仍找不到 → 按文件名（basename）在 files/、tmp/、工作区根搜索
+     */
+    public File resolveExistingFile(String pathOrName) {
+        if (pathOrName == null || pathOrName.trim().isEmpty()) return null;
+        String p = pathOrName.trim();
+        if (p.startsWith("content://")) return null;
+        if (p.startsWith("file://")) {
+            android.net.Uri u = android.net.Uri.parse(p);
+            p = u != null ? u.getPath() : null;
+            if (p == null || p.isEmpty()) return null;
+        }
+        ensureDirs();
+        File direct = new File(p);
+        if (direct.isAbsolute()) {
+            if (direct.isFile()) return direct;
+            // 绝对路径不存在（如幻觉的公共路径）→ 按文件名兜底搜索
+            return searchByName(direct.getName());
+        }
+        // 相对路径：长期文件区 → 临时区 → 工作区根
+        File inFiles = new File(filesDir, p);
+        if (inFiles.isFile()) return inFiles;
+        File inTmp = new File(tmpDir, p);
+        if (inTmp.isFile()) return inTmp;
+        File inRoot = new File(workspaceDir, p);
+        if (inRoot.isFile()) return inRoot;
+        // 纯文件名兜底搜索（模型常只传文件名/去掉目录前缀）
+        String name = p;
+        int lastSlash = p.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < p.length() - 1) {
+            name = p.substring(lastSlash + 1);
+        }
+        return searchByName(name);
+    }
+
+    /** 按文件名在工作区 files/、tmp/、根目录搜索（返回第一个匹配的文件） */
+    private File searchByName(String name) {
+        if (name == null || name.isEmpty()) return null;
+        ensureDirs();
+        for (File dir : new File[]{filesDir, tmpDir, workspaceDir}) {
+            File[] list = dir.listFiles();
+            if (list != null) {
+                for (File f : list) {
+                    if (f.isFile() && f.getName().equals(name)) return f;
+                }
+            }
+        }
+        return null;
+    }
+
     /** 列出工作区文件（按修改时间倒序；含 tmp/files 标记） */
     public List<WorkspaceFile> listFiles() {
         List<WorkspaceFile> result = new ArrayList<>();

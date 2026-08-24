@@ -134,7 +134,7 @@ public class DynamicToolExecutor {
             fullCode.append(logic);
 
             com.oilquiz.app.ai.python.PythonToolManager.ExecutionResult r =
-                    ptm.executeCode(fullCode.toString(), parameters);
+                    ptm.executeCode(fullCode.toString(), null);
             if (r != null && r.success) {
                 StringBuilder out = new StringBuilder();
                 if (r.stdout != null && !r.stdout.trim().isEmpty()) {
@@ -194,6 +194,27 @@ public class DynamicToolExecutor {
             @SuppressWarnings("unchecked")
             Map<String, Object> m = (Map<String, Object>) v;
             return toPythonDict(m);
+        }
+        // AgentService/OnlineToolManager 解析出的嵌套参数是 org.json 类型，
+        // 直接 toString 会产出带引号的 JSON 文本，损坏 script_args（参数注入失败）。
+        // 统一转换为标准容器再序列化。
+        if (v instanceof org.json.JSONObject) {
+            org.json.JSONObject jo = (org.json.JSONObject) v;
+            Map<String, Object> m = new HashMap<>();
+            java.util.Iterator<String> keys = jo.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                m.put(k, jo.opt(k));
+            }
+            return toPythonDict(m);
+        }
+        if (v instanceof org.json.JSONArray) {
+            org.json.JSONArray ja = (org.json.JSONArray) v;
+            java.util.List<Object> list = new ArrayList<>();
+            for (int i = 0; i < ja.length(); i++) {
+                list.add(ja.opt(i));
+            }
+            return toPythonValue(list);
         }
         return "'" + v.toString().replace("'", "\\'") + "'";
     }

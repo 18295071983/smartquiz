@@ -328,6 +328,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.MediaGenActivity"
+            android:exported="false"
+            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
+
+        <activity
             android:name=".ui.activity.ModelSelectorActivity"
             android:exported="false" />
 

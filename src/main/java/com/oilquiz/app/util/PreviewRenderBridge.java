@@ -154,6 +154,8 @@ public class PreviewRenderBridge {
             engines.add(new com.oilquiz.app.util.render.WordRenderEngine());
             engines.add(new com.oilquiz.app.util.render.ExcelRenderEngine());
             engines.add(new com.oilquiz.app.util.render.PowerPointRenderEngine());
+            // 视频：应用内 VideoView 播放（不依赖系统播放器）
+            engines.add(new com.oilquiz.app.util.render.VideoRenderEngine());
             // 最后注册通用的文本引擎
             engines.add(new com.oilquiz.app.util.render.TextRenderEngine());
         }

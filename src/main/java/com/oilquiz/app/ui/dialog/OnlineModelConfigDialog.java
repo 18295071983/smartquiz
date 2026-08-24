@@ -233,6 +233,8 @@ public class OnlineModelConfigDialog {
         final String[][] mappings = {
             {"OpenAI 兼容", "https://api.openai.com/v1"},
             {"百炼 DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+            {"百炼 DashScope 多模态", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+            {"百炼专属空间(MaaS)", "https://ws-{workspace-id}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"},
             {"智谱 GLM", "https://open.bigmodel.cn/api/paas/v4"},
             {"腾讯混元", "https://api.hunyuan.cloud.tencent.com/v1"},
             {"讯飞", "https://api.xfyun.cn"},

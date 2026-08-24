@@ -162,6 +162,16 @@ public final class ComponentActions {
                     notifyResult(context, componentId, value.isEmpty() ? label : value);
                     return;
                 }
+                // P3：refresh 动作（带 component_id 时）：通知组件注册表用户点了刷新，
+                // Agent get_result 可取回 "refresh" 后重新 update 组件内容
+                if ("refresh".equals(action) && !componentId.isEmpty()) {
+                    try {
+                        Toast.makeText(context, "已请求刷新: " + label, Toast.LENGTH_SHORT).show();
+                    } catch (Throwable ignored) {
+                    }
+                    notifyResult(context, componentId, "refresh");
+                    return;
+                }
                 execute(context, link, copy, action);
             });
             row.addView(btn);
@@ -189,8 +199,9 @@ public final class ComponentActions {
                         Toast.makeText(context, "无可用动作", Toast.LENGTH_SHORT).show();
                         return;
                     case "refresh":
-                        // 预留：动态组件刷新（当前无数据源，提示即可）
-                        Toast.makeText(context, "无可用动作", Toast.LENGTH_SHORT).show();
+                        // 兜底：直接调用 execute（未带 component_id）时无刷新数据源；
+                        // 交互组件请在 renderActions 链路点击（带 component_id 时转发为 refresh 回调）
+                        Toast.makeText(context, "刷新需在组件内触发", Toast.LENGTH_SHORT).show();
                         return;
                     default:
                         Toast.makeText(context, "未知动作: " + action, Toast.LENGTH_SHORT).show();
@@ -228,9 +239,38 @@ public final class ComponentActions {
             }
             java.io.File f = new java.io.File(path);
             if (!f.exists() || !f.isFile()) {
+                // 兜底：路径不存在时按文件名在工作区搜索（模型传 file_list 常给相对/缩写路径）
+                try {
+                    java.io.File resolved = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                            .getInstance(context).resolveExistingFile(path);
+                    if (resolved != null && resolved.isFile()) f = resolved;
+                } catch (Throwable ignored) {
+                }
+            }
+            if (!f.exists() || !f.isFile()) {
+                // 目录暂不支持打开（之前同样提示）
+                if (f.exists() && f.isDirectory()) {
+                    Toast.makeText(context, "暂不支持打开文件夹: " + f.getName(), Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 Toast.makeText(context, "文件不存在: " + path, Toast.LENGTH_SHORT).show();
                 return;
             }
+            // ✅ 优先应用内渲染（FileRenderActivity：TBS/Pdfium/OnlyOffice/文本/图片/视频引擎，
+            // 不支持的格式有错误页 + "用其他应用打开"兜底），与 FileCardView 打开行为对齐
+            try {
+                Intent preview = new Intent(context, com.oilquiz.app.ui.activity.FileRenderActivity.class);
+                preview.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH,
+                        f.getAbsolutePath());
+                if (!(context instanceof android.app.Activity)) {
+                    preview.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                }
+                context.startActivity(preview);
+                return;
+            } catch (Throwable t) {
+                android.util.Log.w("ComponentActions", "应用内预览失败，退回系统打开: " + t.getMessage());
+            }
+            // 退回：FileProvider + 系统 Intent（与 SimpleWebViewActivity 打开文件一致）
             android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
                     context, "com.oilquiz.app.fileprovider", f);
             String ext = "";
