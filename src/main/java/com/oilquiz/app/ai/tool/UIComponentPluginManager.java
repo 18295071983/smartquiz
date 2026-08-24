@@ -131,6 +131,11 @@ public class UIComponentPluginManager {
         }
         // render.card 必须已注册（防渲染空指针）；render.layout = 项目原生控件框架树（无需注册）
         JSONObject render = plugin.optJSONObject("render");
+        // render 既无 card 也无 layout → 插件创建后无内容可渲染，注册无意义
+        if (render != null && render.optString("card", "").trim().isEmpty()
+                && !render.has("layout")) {
+            problems.add("render 不能为空（需提供 render.card 内置卡片类型 或 render.layout 原生控件树）");
+        }
         if (render != null && !render.optString("card", "").isEmpty()) {
             String card = render.optString("card", "").trim();
             if (!com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance().hasType(card)) {

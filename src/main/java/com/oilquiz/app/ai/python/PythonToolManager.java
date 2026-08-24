@@ -888,7 +888,7 @@ public class PythonToolManager {
             try {
                 String type = "", message = "", title = "", duration = "short", eventType = "";
                 String dialogType = "info", componentType = "", componentId = "";
-                int current = 0, total = 0, max = 100, progress = 0, waitSeconds = 0;
+                int current = 0, total = 0, max = 100, progress = -1, waitSeconds = 0;
                 String options = "", defaultValue = "", inputHint = "", props = "", actionLabel = "";
                 String items = "", url = "", clickAction = "", html = "";
                 int autoClose = 0;
@@ -2099,7 +2099,10 @@ public class PythonToolManager {
                 color = pj.optString("color", "");
             } catch (Exception ignored) {
             }
-            if (text.isEmpty()) text = " ";
+            if (text.isEmpty()) {
+                // 兜底：text 为空时用 title 顶替，避免空白跑马灯
+                text = (title != null && !title.trim().isEmpty()) ? title : " ";
+            }
             final String fText = text;
             android.widget.TextView tv = new android.widget.TextView(act);
             tv.setText(fText);
@@ -2418,6 +2421,71 @@ public class PythonToolManager {
                     props.put(k, src.get(k));
                 }
             } catch (Exception ignored) {
+            }
+            // 按插件 params schema 校验/转换创建参数：
+            // 缺必填 → 明确报错；类型不符 → 按 type 转换（number/boolean/array/object）；
+            // 转换失败 → 返回类型错误（不崩溃）；有 default 且未传 → 填充默认值。
+            try {
+                org.json.JSONObject paramSchema = plugin.optJSONObject("params");
+                if (paramSchema != null && paramSchema.length() > 0) {
+                    java.util.Iterator<String> pki = paramSchema.keys();
+                    while (pki.hasNext()) {
+                        String pn = pki.next();
+                        org.json.JSONObject def = paramSchema.optJSONObject(pn);
+                        if (def == null) continue;
+                        String type = def.optString("type", "string");
+                        boolean required = def.optBoolean("required", false);
+                        Object val = props.has(pn) ? props.opt(pn) : null;
+                        boolean missing = val == null
+                                || (val instanceof String && ((String) val).trim().isEmpty());
+                        if (missing) {
+                            if (required) {
+                                rt.result.set("failed:缺少必填参数: " + pn
+                                        + "（插件 " + pluginName + " 的 params schema 要求必填）");
+                                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                return;
+                            }
+                            if (def.has("default")) {
+                                props.put(pn, def.opt(pn)); // 默认值填充
+                            }
+                            continue;
+                        }
+                        // 类型转换（值类型与 schema 不符时转换；转换失败返回明确错误而非崩溃）
+                        try {
+                            switch (type) {
+                                case "number":
+                                    if (!(val instanceof Number)) {
+                                        props.put(pn, Double.parseDouble(String.valueOf(val).trim()));
+                                    }
+                                    break;
+                                case "boolean":
+                                    if (!(val instanceof Boolean)) {
+                                        props.put(pn, Boolean.parseBoolean(String.valueOf(val).trim()));
+                                    }
+                                    break;
+                                case "array":
+                                    if (!(val instanceof org.json.JSONArray)) {
+                                        props.put(pn, new org.json.JSONArray(String.valueOf(val)));
+                                    }
+                                    break;
+                                case "object":
+                                    if (!(val instanceof org.json.JSONObject)) {
+                                        props.put(pn, new org.json.JSONObject(String.valueOf(val)));
+                                    }
+                                    break;
+                                default:
+                                    break; // string 原样
+                            }
+                        } catch (Exception ex) {
+                            rt.result.set("failed:参数 " + pn + " 类型应为 " + type
+                                    + "，无法转换: " + val);
+                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "插件参数校验异常(继续执行): " + t.getMessage());
             }
             String pluginTitle = plugin.optJSONObject("render") != null
                     ? plugin.optJSONObject("render").optString("title", "") : "";
@@ -3380,6 +3448,31 @@ public class PythonToolManager {
                     && !"progress".equals(rt.createType)) {
                 return rebuildComponent(componentId, rt, propsJson.trim());
             }
+            // progress 组件兼容：模型常把 progress/message/title/max 放 props 内（而非顶层参数）。
+            // 顶层已传的值优先，props 内缺失的字段从 props 兜底，否则进度条 update 不更新。
+            if (propsJson != null && !propsJson.trim().isEmpty()) {
+                try {
+                    org.json.JSONObject pj = new org.json.JSONObject(propsJson.trim());
+                    if (progress < 0 && pj.has("progress")) {
+                        progress = Math.max(0, pj.optInt("progress", 0));
+                    }
+                    if (pj.has("max")) {
+                        max = pj.optInt("max", max);
+                    }
+                    if ((title == null || title.isEmpty()) && pj.has("title")) {
+                        title = pj.optString("title", "");
+                    }
+                    if ((message == null || message.isEmpty()) && pj.has("message")) {
+                        message = pj.optString("message", "");
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            // final 副本：下方 lambda（主线程更新）引用
+            final String fTitle = title;
+            final String fMessage = message;
+            final int fProgress = progress;
+            final int fMax = max;
             // 通知组件：rt.dialog 为 null，重发通知更新内容/进度
             if (rt.dialog == null) {
                 android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -3406,15 +3499,15 @@ public class PythonToolManager {
                                 ? new android.app.Notification.Builder(context, channelId)
                                 : new android.app.Notification.Builder(context);
                         builder.setSmallIcon(android.R.drawable.ic_dialog_info)
-                                .setContentTitle(title != null && !title.isEmpty() ? title : "AI 通知")
-                                .setContentText(message != null ? message : "")
+                                .setContentTitle(fTitle != null && !fTitle.isEmpty() ? fTitle : "AI 通知")
+                                .setContentText(fMessage != null ? fMessage : "")
                                 .setContentIntent(pi)
                                 .setAutoCancel(true);
-                        if (max > 0 && progress >= 0) {
-                            builder.setProgress(max, progress, false);
+                        if (fMax > 0 && fProgress >= 0) {
+                            builder.setProgress(fMax, fProgress, false);
                         }
                         nm.notify(componentId.hashCode(), builder.build());
-                        if (progress >= 100 && max > 0) {
+                        if (fProgress >= 100 && fMax > 0) {
                             nm.cancel(componentId.hashCode());
                             rt.result.compareAndSet("pending", "completed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -3436,13 +3529,13 @@ public class PythonToolManager {
                     android.app.Dialog d = rt.dialog;
                     if (d instanceof android.app.ProgressDialog) {
                         android.app.ProgressDialog pd = (android.app.ProgressDialog) d;
-                        if (max > 0) pd.setMax(max);
-                        if (progress >= 0) pd.setProgress(progress);
-                        if (title != null && !title.isEmpty()) pd.setTitle(title);
-                        if (message != null && !message.isEmpty()) pd.setMessage(message);
+                        if (fMax > 0) pd.setMax(fMax);
+                        if (fProgress >= 0) pd.setProgress(fProgress);
+                        if (fTitle != null && !fTitle.isEmpty()) pd.setTitle(fTitle);
+                        if (fMessage != null && !fMessage.isEmpty()) pd.setMessage(fMessage);
                         // 到 max（默认100）自动关闭（保留注册表条目供 get_result 查询 completed）
                         int target = pd.getMax() > 0 ? pd.getMax() : 100;
-                        if (progress >= target) {
+                        if (fProgress >= target) {
                             cancelAutoClose(rt);
                             pd.dismiss();
                             rt.dialog = null;
@@ -3452,8 +3545,8 @@ public class PythonToolManager {
                         }
                     } else if (d instanceof android.app.AlertDialog) {
                         android.app.AlertDialog ad = (android.app.AlertDialog) d;
-                        if (title != null && !title.isEmpty()) ad.setTitle(title);
-                        if (message != null && !message.isEmpty()) ad.setMessage(message);
+                        if (fTitle != null && !fTitle.isEmpty()) ad.setTitle(fTitle);
+                        if (fMessage != null && !fMessage.isEmpty()) ad.setMessage(fMessage);
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "更新组件失败: " + t.getMessage());

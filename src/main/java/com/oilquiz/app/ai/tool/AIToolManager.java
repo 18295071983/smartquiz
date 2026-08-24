@@ -1090,15 +1090,15 @@ public class AIToolManager {
                     .category("media")
                     .build();
             case "ui_component":
-                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)，创建时 props 内直接带 layout 树也可现场自定义UI。握手:create→component_id→update/close/get_result。")
+                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)，创建时可直接传 layout/render/props(三种等效) 带 layout 树现场自定义UI。组件参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result。")
                     .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)/register_type(外部注入自定义类型,persist可选)/list_types(列出注册类型)/remove_type(删除类型)/clear_temporary_types(清除临时类型)", true)
-                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,props.length设位数,默认6)/number(数字输入,props.min/max范围校验)/marquee(跑马灯滚动文字:props.text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:props传task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)", false)
+                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字:text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或images)。各组件参数可放顶层或 props 内(等效,自动合并)", false)
                     .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)
                     .addParameter("title", "string", "标题", false)
                     .addParameter("message", "string", "内容/提示文本", false)
                     .addParameter("dialog_type", "string", "对话框类型: info/confirm/warning", false)
-                    .addParameter("max_value", "integer", "进度最大值(progress/notification用)", false)
-                    .addParameter("progress", "integer", "进度值(update用)", false)
+                    .addParameter("max_value", "integer", "进度最大值(progress/notification用;也可传max或props.max)", false)
+                    .addParameter("progress", "integer", "进度值(update用;也可放props内props.progress)", false)
                     .addParameter("options", "array", "选项列表(choice/multi_choice用)", false)
                     .addParameter("default_value", "string", "默认值(input/date/time/image用)", false)
                     .addParameter("input_hint", "string", "输入框提示(input用)", false)
@@ -1115,7 +1115,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "ui_component_plugin":
-                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）。动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、monitor.tool限已注册工具。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。")
+                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）。动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、render不能为空、monitor.tool限已注册工具。创建组件时自动按params schema校验: 缺必填报错/类型转换/默认值填充。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。")
                     .addParameter("action", "string", "操作: create/template/validate/get/list/remove/clear_temporary", true)
                     .addParameter("name", "string", "插件名（create/get/remove 用），即新的 component_type，仅字母数字下划线", false)
                     .addParameter("description", "string", "插件用途说明（create 用，给模型看）", false)
