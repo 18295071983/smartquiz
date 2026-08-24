@@ -17,6 +17,24 @@ import java.util.function.Function;
 public class PythonToolManager {
     private static final String TAG = "PythonToolManager";
 
+    /**
+     * Agent 发起的系统选择器（文件/图片/联系人）回调表：requestCode → 结果回调。
+     * 由宿主 Activity（AIChatActivity 等）的 onActivityResult 转发到
+     * {@link #onAgentPickerResult(int, int, android.content.Intent)}。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<Integer, java.util.function.Consumer<android.content.Intent>>
+            AGENT_PICKERS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 转发系统选择器结果（宿主 Activity.onActivityResult 调用） */
+    public void onAgentPickerResult(int requestCode, int resultCode, android.content.Intent data) {
+        java.util.function.Consumer<android.content.Intent> cb = AGENT_PICKERS.remove(requestCode);
+        if (cb == null) return;
+        cb.accept((resultCode == android.app.Activity.RESULT_OK && data != null) ? data : null);
+    }
+
+    /** 预留内部 requestCode 起点（避免与宿主 Activity 业务码冲突） */
+    private static final int AGENT_PICKER_REQUEST_BASE = 30000;
+
     /** 代码执行默认超时（秒）：Python 端 join 超时后返回 TimeoutError */
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static volatile PythonToolManager instance;
@@ -153,12 +171,22 @@ public class PythonToolManager {
         }
     }
 
-    /** 关闭全部动态组件（Agent 任务结束兜底，防止组件残留卡界面）。线程安全，可任意线程调用。 */
+    /** 关闭全部动态组件 + 清理临时组件插件/临时类型（Agent 任务/会话结束兜底，防止组件残留卡界面）。线程安全，可任意线程调用。 */
     public void closeAllUiComponents() {
         try {
             AndroidUiActionHandler h = uiActionHandler;
             if (h != null) {
                 h.closeAllComponents();
+            }
+            try {
+                com.oilquiz.app.ai.tool.UIComponentPluginManager.getInstance(context)
+                        .clearTemporaryPlugins();
+            } catch (Throwable ignored) {
+            }
+            try {
+                com.oilquiz.app.ai.tool.UIComponentTypeRegistry.getInstance(context)
+                        .clearTemporaryTypes();
+            } catch (Throwable ignored) {
             }
         } catch (Throwable t) {
             Log.e(TAG, "关闭全部UI组件失败: " + t.getMessage(), t);
@@ -831,6 +859,10 @@ public class PythonToolManager {
             /** 自动关闭（auto_close 秒后 dismiss）：主线程 handler + 任务，close 时移除 */
             volatile android.os.Handler autoCloseHandler;
             volatile Runnable autoCloseTask;
+            /** 组件创建类型（createComponent 时记录；聊天流卡片标记 chat_card，notification 标记 notification） */
+            volatile String createType;
+            /** 创建参数快照（update 传 props 真重建时：按原参数 + 新 props 重新 createComponent，保留 component_id） */
+            final java.util.Map<String, Object> createArgs = new java.util.concurrent.ConcurrentHashMap<>();
         }
 
         /** Python 入口：把 PyObject 转为 Map 后统一走纯 Java 处理 */
@@ -913,7 +945,7 @@ public class PythonToolManager {
                                 items, url, clickAction, autoClose, html));
                         break;
                     case "update_component":
-                        reply.putAll(updateComponent(componentId, title, message, progress, max));
+                        reply.putAll(updateComponent(componentId, title, message, progress, max, props));
                         break;
                     case "close_component":
                         reply.putAll(closeComponent(componentId));
@@ -960,6 +992,24 @@ public class PythonToolManager {
             }
             final ComponentRuntime rt = new ComponentRuntime();
             dynamicComponents.put(id, rt);
+            // 记录创建类型与参数快照（update 传 props 真重建时使用，保留 component_id）
+            rt.createType = type;
+            java.util.Map<String, Object> createArgs = new java.util.HashMap<>();
+            createArgs.put("title", title == null ? "" : title);
+            createArgs.put("message", message == null ? "" : message);
+            createArgs.put("dialog_type", dialogType == null ? "info" : dialogType);
+            createArgs.put("max", max);
+            createArgs.put("options", options == null ? "" : options);
+            createArgs.put("default_value", defaultValue == null ? "" : defaultValue);
+            createArgs.put("input_hint", inputHint == null ? "" : inputHint);
+            createArgs.put("action_label", actionLabel == null ? "" : actionLabel);
+            createArgs.put("items", items == null ? "" : items);
+            createArgs.put("url", url == null ? "" : url);
+            createArgs.put("click_action", clickAction == null ? "" : clickAction);
+            createArgs.put("auto_close", autoCloseSeconds);
+            createArgs.put("html", html == null ? "" : html);
+            createArgs.put("props", props == null ? "" : props);
+            rt.createArgs.putAll(createArgs);
 
             // 系统通知栏组件：不依赖前台 Activity（后台任务也能用），create 即发通知，
             // update 更新内容/进度，close 移除通知；get_result 返回 clicked/closed
@@ -1050,6 +1100,34 @@ public class PythonToolManager {
                         rt.result.set("cancelled");
                         synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         return;
+                    }
+                    // 组件插件：Agent 动态注册的自定义组件类型（ui_component_plugin create）
+                    if (com.oilquiz.app.ai.tool.UIComponentPluginManager
+                            .getInstance(context).hasPlugin(fType)) {
+                        showPluginComponentDialog(fAct, rt, id, title, message, fProps, fType, autoCloseSeconds);
+                        return;
+                    }
+                    // 自定义注册类型（ui_component action=register_type）：render/monitor 定义在 props 内
+                    if (fProps.contains("__type_render")) {
+                        try {
+                            org.json.JSONObject pj = new org.json.JSONObject(fProps);
+                            if (pj.has("__type_render")) {
+                                org.json.JSONObject tmpPlugin = new org.json.JSONObject();
+                                tmpPlugin.put("name", fType);
+                                tmpPlugin.put("description", "自定义注册类型");
+                                tmpPlugin.put("render", new org.json.JSONObject(pj.optString("__type_render", "{}")));
+                                if (pj.has("__type_monitor")) {
+                                    tmpPlugin.put("monitor", new org.json.JSONObject(pj.optString("__type_monitor", "{}")));
+                                }
+                                pj.remove("__type_render");
+                                pj.remove("__type_monitor");
+                                showPluginComponentDialog(fAct, rt, id, title, message,
+                                        pj.toString(), fType, autoCloseSeconds, tmpPlugin);
+                                return;
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "自定义注册类型解析失败: " + e.getMessage());
+                        }
                     }
                     // 语音识别专用组件：原生录音对话框（提示用户说话 → 录音 → 完成后返回音频文件路径）
                     if ("voice_recorder".equals(fType)) {
@@ -1568,6 +1646,29 @@ public class PythonToolManager {
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] list created: " + id);
+                    } else if ("custom".equals(fType)) {
+                        // 动态自定义原生表单：fields JSON 定义任意字段
+                        showCustomFormDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds);
+                    } else if ("file_picker".equals(fType) || "image_picker".equals(fType)
+                            || "contact_picker".equals(fType)) {
+                        // 系统级选择器：文件/图片/联系人
+                        if ("contact_picker".equals(fType)) {
+                            launchAgentPicker(fAct, rt, id, title, "contacts");
+                        } else {
+                            launchAgentPicker(fAct, rt, id, title,
+                                    "image_picker".equals(fType) ? "image/*" : "*/*");
+                        }
+                    } else if ("rating".equals(fType)) {
+                        showRatingDialog(fAct, rt, id, title, message, fDefault);
+                    } else if ("color".equals(fType)) {
+                        showColorDialog(fAct, rt, id, title, message);
+                    } else if ("otp".equals(fType) || "number".equals(fType)) {
+                        showOtpOrNumberDialog(fAct, rt, id, title, message, fProps, fDefault,
+                                "otp".equals(fType));
+                    } else if ("marquee".equals(fType)) {
+                        showMarqueeDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds);
+                    } else if ("media_task".equals(fType)) {
+                        showMediaTaskDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds);
                     } else if ("web".equals(fType)) {
                         // 系统 WebView 富页面弹窗：url=http(s) 地址，或 html 内容（fUrl 为 HTML 字符串）
                         android.webkit.WebView wv = new android.webkit.WebView(fAct);
@@ -1671,6 +1772,1264 @@ public class PythonToolManager {
             reply.put("result", resultWrap);
             reply.put("message", "组件已创建: " + type + " (" + id + ")");
             return reply;
+        }
+
+        /** 启动系统选择器（文件/图片/联系人）：结果经宿主 Activity.onActivityResult 转发回填 rt.result */
+        private void launchAgentPicker(final android.app.Activity act, final ComponentRuntime rt,
+                                       final String componentId, final String title, final String kind) {
+            if (act == null || act.isFinishing()) {
+                rt.result.set("cancelled:无前台Activity");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            final int requestCode = PythonToolManager.AGENT_PICKER_REQUEST_BASE
+                    + (int) (Math.random() * 10000);
+            PythonToolManager.AGENT_PICKERS.put(requestCode, data -> {
+                if (data == null) {
+                    rt.result.set("cancelled");
+                } else {
+                    android.net.Uri uri = data.getData();
+                    if (uri == null) {
+                        rt.result.set("cancelled");
+                    } else if ("contacts".equals(kind)) {
+                        rt.result.set(queryContact(act, uri));
+                    } else {
+                        try {
+                            act.getContentResolver().takePersistableUriPermission(uri,
+                                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        } catch (Exception ignored) {
+                        }
+                        rt.result.set(uri.toString());
+                    }
+                }
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            android.content.Intent intent;
+            if ("contacts".equals(kind)) {
+                intent = new android.content.Intent(android.content.Intent.ACTION_PICK,
+                        android.provider.ContactsContract.Contacts.CONTENT_URI);
+            } else {
+                intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+                intent.setType(kind);
+                intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+                intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            }
+            try {
+                act.startActivityForResult(intent, requestCode);
+            } catch (Throwable t) {
+                PythonToolManager.AGENT_PICKERS.remove(requestCode);
+                rt.result.set("cancelled:无法打开选择器");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            }
+            Log.i(TAG, "[Python component] picker launched: " + kind + " (" + componentId + ")");
+        }
+
+        /** 查询联系人姓名+电话，返回 JSON 字符串 */
+        private String queryContact(android.app.Activity act, android.net.Uri uri) {
+            String name = "", phone = "", id = "";
+            try (android.database.Cursor c = act.getContentResolver().query(uri, null, null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    int ni = c.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME);
+                    if (ni >= 0) name = c.getString(ni);
+                    int ii = c.getColumnIndex(android.provider.ContactsContract.Contacts._ID);
+                    if (ii >= 0) id = c.getString(ii);
+                }
+            } catch (Exception ignored) {
+            }
+            if (!id.isEmpty()) {
+                try (android.database.Cursor pc = act.getContentResolver().query(
+                        android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID + "=?",
+                        new String[]{id}, null)) {
+                    if (pc != null && pc.moveToFirst()) {
+                        int pi = pc.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER);
+                        if (pi >= 0) phone = pc.getString(pi);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            org.json.JSONObject jo = new org.json.JSONObject();
+            try {
+                jo.put("name", name);
+                jo.put("phone", phone);
+                jo.put("uri", uri.toString());
+            } catch (Exception ignored) {
+            }
+            return jo.toString();
+        }
+
+        /** 星级评分：1-5 星，确定返回分数（数字字符串），取消 → cancelled */
+        private void showRatingDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                      final String componentId, final String title,
+                                      final String message, final String defValue) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            final int[] score = {-1};
+            android.widget.LinearLayout starRow = new android.widget.LinearLayout(act);
+            starRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            starRow.setGravity(android.view.Gravity.CENTER);
+            final android.widget.TextView[] stars = new android.widget.TextView[5];
+            final int emptyStar = com.oilquiz.app.ai.chat.component.ComponentColors.ratingEmpty(act);
+            final int filledStar = com.oilquiz.app.ai.chat.component.ComponentColors.warning(act);
+            for (int si = 0; si < 5; si++) {
+                final int idx = si;
+                android.widget.TextView star = new android.widget.TextView(act);
+                star.setText("★");
+                star.setTextSize(34);
+                star.setTextColor(emptyStar);
+                star.setPadding((int) (6 * density), (int) (6 * density), (int) (6 * density), (int) (6 * density));
+                star.setOnClickListener(v -> {
+                    score[0] = idx + 1;
+                    for (int k = 0; k < 5; k++) {
+                        stars[k].setTextColor(k <= idx ? filledStar : emptyStar);
+                    }
+                });
+                stars[si] = star;
+                starRow.addView(star);
+            }
+            int defScore = -1;
+            try {
+                defScore = Integer.parseInt(defValue.trim());
+            } catch (Exception ignored) {
+            }
+            if (defScore >= 1 && defScore <= 5) {
+                score[0] = defScore;
+                for (int k = 0; k < defScore; k++) stars[k].setTextColor(filledStar);
+            }
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            if (title != null && !title.isEmpty()) b.setTitle(title);
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            b.setView(starRow);
+            b.setPositiveButton("确定", (d, w) -> {
+                rt.result.set(score[0] > 0 ? String.valueOf(score[0]) : "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setNegativeButton("取消", (d, w) -> {
+                rt.result.set("cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setCancelable(true);
+            b.setOnCancelListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            android.app.AlertDialog dialog = b.create();
+            dialog.setOnDismissListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.show();
+            rt.dialog = dialog;
+            Log.i(TAG, "[Python component] rating created: " + componentId);
+        }
+
+        /** 取色器：预设色板，确定返回 #RRGGBB，取消 → cancelled */
+        private void showColorDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                     final String componentId, final String title,
+                                     final String message) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            final String[] palette = {"#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16",
+                    "#10B981", "#14B8A6", "#06B6D4", "#3B82F6", "#6366F1",
+                    "#8B5CF6", "#A855F7", "#D946EF", "#EC4899", "#F43F5E"};
+            final String[] picked = {null};
+            android.widget.LinearLayout grid = new android.widget.LinearLayout(act);
+            grid.setOrientation(android.widget.LinearLayout.VERTICAL);
+            for (int row = 0; row < 3; row++) {
+                android.widget.LinearLayout rowL = new android.widget.LinearLayout(act);
+                rowL.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                for (int col = 0; col < 5; col++) {
+                    int idx = row * 5 + col;
+                    if (idx >= palette.length) break;
+                    final String color = palette[idx];
+                    android.view.View sw = new android.view.View(act);
+                    android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                            (int) (44 * density), (int) (44 * density));
+                    lp.setMargins((int) (4 * density), (int) (4 * density), (int) (4 * density), (int) (4 * density));
+                    sw.setLayoutParams(lp);
+                    sw.setBackgroundColor(parseColorSafe(color, 0xFF374151));
+                    sw.setOnClickListener(v -> {
+                        picked[0] = color;
+                        for (int i = 0; i < grid.getChildCount(); i++) {
+                            android.view.ViewGroup g = (android.view.ViewGroup) grid.getChildAt(i);
+                            for (int j = 0; j < g.getChildCount(); j++) {
+                                g.getChildAt(j).setPadding(0, 0, 0, 0);
+                            }
+                        }
+                        sw.setPadding((int) (3 * density), (int) (3 * density), (int) (3 * density), (int) (3 * density));
+                    });
+                    rowL.addView(sw);
+                }
+                grid.addView(rowL);
+            }
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            if (title != null && !title.isEmpty()) b.setTitle(title);
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            b.setView(grid);
+            b.setPositiveButton("确定", (d, w) -> {
+                rt.result.set(picked[0] != null ? picked[0] : "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setNegativeButton("取消", (d, w) -> {
+                rt.result.set("cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setCancelable(true);
+            b.setOnCancelListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            android.app.AlertDialog dialog = b.create();
+            dialog.setOnDismissListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.show();
+            rt.dialog = dialog;
+            Log.i(TAG, "[Python component] color created: " + componentId);
+        }
+
+        private int parseColorSafe(String hex, int def) {
+            try {
+                if (hex != null && hex.startsWith("#") && hex.length() >= 7) {
+                    return android.graphics.Color.parseColor(hex);
+                }
+            } catch (Exception ignored) {
+            }
+            return def;
+        }
+
+        /** 验证码输入（otp：数字串，可选长度校验）/ 数字输入（number：范围校验 min/max） */
+        private void showOtpOrNumberDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                           final String componentId, final String title,
+                                           final String message, final String propsJson,
+                                           final String defValue, final boolean isOtp) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            final android.widget.EditText input = new android.widget.EditText(act);
+            input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                    | (isOtp ? 0 : android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED));
+            int len = 6;
+            double rangeMin = 0, rangeMax = 0;
+            boolean hasRange = false;
+            try {
+                org.json.JSONObject pj = new org.json.JSONObject(propsJson != null ? propsJson : "");
+                len = pj.optInt("length", 6);
+                if (pj.has("min") && pj.has("max")) {
+                    rangeMin = pj.optDouble("min");
+                    rangeMax = pj.optDouble("max");
+                    hasRange = true;
+                }
+            } catch (Exception ignored) {
+            }
+            input.setHint(isOtp ? ("请输入" + len + "位验证码") : "请输入数值");
+            if (defValue != null && !defValue.isEmpty()) input.setText(defValue);
+            final int fLen = Math.max(1, Math.min(12, len));
+            final double fMin = rangeMin, fMax = rangeMax;
+            final boolean fRange = hasRange;
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            if (title != null && !title.isEmpty()) b.setTitle(title);
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            b.setView(input);
+            b.setPositiveButton("确定", null);
+            b.setNegativeButton("取消", (d, w) -> {
+                rt.result.set("cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setCancelable(true);
+            b.setOnCancelListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            android.app.AlertDialog dialog = b.create();
+            dialog.setOnDismissListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> {
+                        String val = input.getText() != null ? input.getText().toString().trim() : "";
+                        if (isOtp) {
+                            if (val.length() != fLen || !val.matches("\\d+")) {
+                                showToast("请输入" + fLen + "位数字验证码", false);
+                                return;
+                            }
+                        } else {
+                            try {
+                                double num = Double.parseDouble(val);
+                                if (fRange && (num < fMin || num > fMax)) {
+                                    showToast("数值需在 " + fMin + " ~ " + fMax + " 之间", false);
+                                    return;
+                                }
+                            } catch (NumberFormatException ex) {
+                                showToast("请输入有效数字", false);
+                                return;
+                            }
+                        }
+                        rt.result.set(val);
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        dialog.dismiss();
+                    }));
+            dialog.show();
+            rt.dialog = dialog;
+            Log.i(TAG, "[Python component] " + (isOtp ? "otp" : "number") + " created: " + componentId);
+        }
+
+        /** 跑马灯组件（type=marquee）：单行文字自动水平滚动。props: text/speed/bold/size/color/repeat */
+        private void showMarqueeDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                       final String componentId, final String title,
+                                       final String message, final String propsJson,
+                                       final int autoCloseSeconds) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            String text = message != null ? message : "";
+            int speed = 1, size = 16;
+            boolean bold = false;
+            String color = "";
+            try {
+                org.json.JSONObject pj = new org.json.JSONObject(propsJson != null && !propsJson.isEmpty()
+                        ? propsJson : "{}");
+                text = pj.optString("text", text);
+                speed = Math.max(0, Math.min(3, pj.optInt("speed", 1)));
+                size = Math.max(10, Math.min(30, pj.optInt("size", 16)));
+                bold = pj.optBoolean("bold", false);
+                color = pj.optString("color", "");
+            } catch (Exception ignored) {
+            }
+            if (text.isEmpty()) text = " ";
+            final String fText = text;
+            android.widget.TextView tv = new android.widget.TextView(act);
+            tv.setText(fText);
+            tv.setTextSize(size);
+            tv.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD
+                    : android.graphics.Typeface.DEFAULT);
+            tv.setTextColor(parseColorSafe(color, 0xFFDC2626));
+            tv.setPadding((int) (6 * density), (int) (8 * density), (int) (6 * density), (int) (8 * density));
+            // 跑马灯滚动：位移动画实现（不依赖系统 marquee 焦点机制，Dialog 内也能滚动）；
+            // speed 0=不滚动 1=慢 2=中 3=快，无限循环
+            com.oilquiz.app.ai.python.NativeLayoutRenderer.startMarquee(tv, fText, speed, -1);
+            android.widget.LinearLayout box = new android.widget.LinearLayout(act);
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            box.setPadding((int) (12 * density), (int) (6 * density), (int) (12 * density), (int) (6 * density));
+            box.addView(tv);
+            android.widget.TextView sub = new android.widget.TextView(act);
+            sub.setText(fText);
+            sub.setTextSize(12);
+            sub.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(act));
+            sub.setPadding(0, (int) (6 * density), 0, 0);
+            box.addView(sub);
+            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(title != null && !title.isEmpty() ? title : "📢 滚动公告")
+                    .setView(box)
+                    .setPositiveButton("关闭", (d, w) -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        d.dismiss();
+                    })
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    })
+                    .create();
+            rt.dialog = dialog;
+            dialog.setOnDismissListener(d -> {
+                rt.result.compareAndSet("pending", "closed");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.show();
+            if (autoCloseSeconds > 0) {
+                final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+                h.postDelayed(() -> {
+                    if (rt.dialog != null && rt.dialog.isShowing()) {
+                        rt.dialog.dismiss();
+                    }
+                }, autoCloseSeconds * 1000L);
+            }
+            Log.i(TAG, "[Python component] marquee created: " + componentId);
+        }
+
+        /** 文生图/文生视频任务监控组件：自动轮询查询任务状态，完成后展示图片/视频 */
+        private void showMediaTaskDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                         final String componentId, final String title,
+                                         final String message, final String propsJson,
+                                         final int autoCloseSeconds) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            final String[] taskIdRef = {""};
+            final String[] typeRef = {"video"};
+            final String[] apiUrlRef = {""};
+            final String[] apiKeyRef = {""};
+            final int[] pollSeconds = {5};
+            try {
+                org.json.JSONObject pj = new org.json.JSONObject(propsJson != null ? propsJson : "{}");
+                taskIdRef[0] = pj.optString("task_id", "");
+                typeRef[0] = pj.optString("type", "video");
+                apiUrlRef[0] = pj.optString("api_url", "");
+                apiKeyRef[0] = pj.optString("api_key", "");
+                pollSeconds[0] = Math.max(2, Math.min(30, pj.optInt("poll_seconds", 5)));
+            } catch (Exception ignored) {
+            }
+            if (taskIdRef[0].isEmpty()) {
+                rt.result.set("failed:缺少 task_id（需先提交任务拿到 task_id）");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            final String fType = typeRef[0];
+            android.widget.TextView statusView = new android.widget.TextView(act);
+            statusView.setTextSize(14);
+            statusView.setPadding(0, (int) (6 * density), 0, (int) (6 * density));
+            statusView.setText("⏳ 任务处理中…");
+            android.widget.ImageView imgView = new android.widget.ImageView(act);
+            imgView.setVisibility(android.view.View.GONE);
+            imgView.setAdjustViewBounds(true);
+            imgView.setMaxHeight((int) (320 * density));
+            android.widget.TextView videoInfo = new android.widget.TextView(act);
+            videoInfo.setVisibility(android.view.View.GONE);
+            videoInfo.setTextSize(13);
+            videoInfo.setPadding(0, (int) (4 * density), 0, (int) (4 * density));
+            android.widget.Button btnPlay = new android.widget.Button(act);
+            btnPlay.setText("▶ 播放 / 查看");
+            btnPlay.setVisibility(android.view.View.GONE);
+            android.widget.Button btnShare = new android.widget.Button(act);
+            btnShare.setText("📤 分享");
+            btnShare.setVisibility(android.view.View.GONE);
+            android.widget.LinearLayout layout = new android.widget.LinearLayout(act);
+            layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+            layout.setPadding((int) (16 * density), (int) (8 * density), (int) (16 * density), (int) (8 * density));
+            layout.addView(statusView);
+            layout.addView(imgView);
+            layout.addView(videoInfo);
+            android.widget.LinearLayout btnRow = new android.widget.LinearLayout(act);
+            btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            btnRow.addView(btnPlay, new android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            btnRow.addView(btnShare, new android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            layout.addView(btnRow);
+
+            final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            final boolean[] done = {false};
+            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(title != null && !title.isEmpty() ? title
+                            : ("image".equals(fType) ? "🖼️ 文生图任务" : "🎬 文生视频任务"))
+                    .setMessage(message != null && !message.isEmpty() ? message : "任务ID: " + taskIdRef[0])
+                    .setView(layout)
+                    .setPositiveButton("关闭", (d, w) -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        d.dismiss();
+                    })
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    })
+                    .create();
+            rt.dialog = dialog;
+            dialog.setOnDismissListener(d -> {
+                done[0] = true;
+                rt.result.compareAndSet("pending", "closed");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.show();
+            final String[] resultFilePath = {null};
+            final Runnable[] poller = new Runnable[1];
+
+            final java.util.function.Consumer<String> finisher = new java.util.function.Consumer<String>() {
+                @Override
+                public void accept(String resultJson) {
+                    if (done[0]) return;
+                    done[0] = true;
+                    rt.result.set(resultJson);
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                }
+            };
+
+            final Runnable[] queryOnce = new Runnable[1];
+            queryOnce[0] = () -> {
+                if (done[0]) return;
+                java.util.Map<String, Object> p = new HashMap<>();
+                p.put("action", "query");
+                p.put("task_id", taskIdRef[0]);
+                p.put("type", fType);
+                if (apiUrlRef[0] != null && !apiUrlRef[0].isEmpty()) p.put("api_url", apiUrlRef[0]);
+                if (apiKeyRef[0] != null && !apiKeyRef[0].isEmpty()) p.put("api_key", apiKeyRef[0]);
+                new Thread(() -> {
+                    try {
+                        com.oilquiz.app.ai.tool.DashscopeMediaTool tool =
+                                new com.oilquiz.app.ai.tool.DashscopeMediaTool(context);
+                        com.oilquiz.app.ai.tool.AIToolResult r = tool.execute(p);
+                        handler.post(() -> {
+                            if (done[0]) return;
+                            if (r != null && r.isSuccess() && r.getResult() instanceof Map) {
+                                @SuppressWarnings("unchecked")
+                                java.util.Map<String, Object> res =
+                                        (java.util.Map<String, Object>) r.getResult();
+                                Object filePath = res.get("filePath");
+                                if (filePath != null) {
+                                    resultFilePath[0] = String.valueOf(filePath);
+                                    String ext = resultFilePath[0].toLowerCase();
+                                    if (ext.endsWith(".png") || ext.endsWith(".jpg") || ext.endsWith(".jpeg")
+                                            || ext.endsWith(".webp") || ext.endsWith(".gif")) {
+                                        imgView.setVisibility(android.view.View.VISIBLE);
+                                        com.bumptech.glide.Glide.with(act)
+                                                .load(new java.io.File(resultFilePath[0])).into(imgView);
+                                    } else {
+                                        videoInfo.setVisibility(android.view.View.VISIBLE);
+                                        java.io.File f = new java.io.File(resultFilePath[0]);
+                                        videoInfo.setText("🎬 " + f.getName() + "\n"
+                                                + formatFileSize(f.length()) + "\n" + resultFilePath[0]);
+                                    }
+                                    btnPlay.setVisibility(android.view.View.VISIBLE);
+                                    btnShare.setVisibility(android.view.View.VISIBLE);
+                                    statusView.setText("✅ " + ("image".equals(fType) ? "图片" : "视频") + "已生成");
+                                    org.json.JSONObject ok = new org.json.JSONObject();
+                                    try {
+                                        ok.put("status", "success");
+                                        ok.put("task_id", taskIdRef[0]);
+                                        ok.put("type", fType);
+                                        ok.put("filePath", resultFilePath[0]);
+                                    } catch (Exception ignored) {
+                                    }
+                                    finisher.accept(ok.toString());
+                                    return;
+                                }
+                                Object st = res.get("status");
+                                statusView.setText("⏳ 任务处理中…\n"
+                                        + (st != null ? "状态: " + st : "")
+                                        + "\n任务ID: " + taskIdRef[0]);
+                                handler.postDelayed(poller[0], pollSeconds[0] * 1000L);
+                            } else {
+                                String err = (r != null && r.getErrorMessage() != null)
+                                        ? r.getErrorMessage() : "任务失败";
+                                statusView.setText("❌ " + err);
+                                org.json.JSONObject fail = new org.json.JSONObject();
+                                try {
+                                    fail.put("status", "failed");
+                                    fail.put("task_id", taskIdRef[0]);
+                                    fail.put("error", err);
+                                } catch (Exception ignored) {
+                                }
+                                finisher.accept(fail.toString());
+                            }
+                        });
+                    } catch (Throwable t) {
+                        handler.post(() -> {
+                            if (done[0]) return;
+                            statusView.setText("❌ 查询异常: " + t.getMessage());
+                            org.json.JSONObject fail = new org.json.JSONObject();
+                            try {
+                                fail.put("status", "failed");
+                                fail.put("task_id", taskIdRef[0]);
+                                fail.put("error", String.valueOf(t.getMessage()));
+                            } catch (Exception ignored) {
+                            }
+                            finisher.accept(fail.toString());
+                        });
+                    }
+                }).start();
+            };
+            poller[0] = queryOnce[0];
+
+            btnPlay.setOnClickListener(v -> {
+                if (resultFilePath[0] == null) return;
+                try {
+                    // 应用内渲染/播放：视频走 VideoRenderEngine（VideoView 不依赖系统播放器），
+                    // 图片走 ImageRenderEngine；FileRenderActivity 内有失败兜底（用其他应用打开）
+                    android.content.Intent intent = new android.content.Intent(act,
+                            com.oilquiz.app.ui.activity.FileRenderActivity.class);
+                    intent.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH,
+                            resultFilePath[0]);
+                    act.startActivity(intent);
+                } catch (Throwable t) {
+                    showToast("打开失败: " + t.getMessage(), true);
+                }
+            });
+            btnShare.setOnClickListener(v -> {
+                if (resultFilePath[0] == null) return;
+                try {
+                    android.net.Uri shareUri = copyToPublicDownloads(act, new java.io.File(resultFilePath[0]));
+                    if (shareUri == null) {
+                        showToast("分享准备失败", true);
+                        return;
+                    }
+                    android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                    share.setType("*/*");
+                    share.putExtra(android.content.Intent.EXTRA_STREAM, shareUri);
+                    share.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    act.startActivity(android.content.Intent.createChooser(share, "分享生成结果"));
+                } catch (Throwable t) {
+                    showToast("分享失败: " + t.getMessage(), true);
+                }
+            });
+
+            if (autoCloseSeconds > 0) {
+                handler.postDelayed(() -> {
+                    if (!done[0]) {
+                        dialog.dismiss();
+                    }
+                }, autoCloseSeconds * 1000L);
+            }
+            handler.post(poller[0]);
+        }
+
+        /** 组件插件渲染（type=插件名）：按插件 render（card/layout）渲染，monitor 自动轮询，支持后端按钮与 update 刷新 */
+        private void showPluginComponentDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                               final String componentId, final String title,
+                                               final String message, final String propsJson,
+                                               final String pluginName, final int autoCloseSeconds) {
+            org.json.JSONObject plugin = com.oilquiz.app.ai.tool.UIComponentPluginManager
+                    .getInstance(context).getPlugin(pluginName);
+            if (plugin == null) {
+                plugin = new org.json.JSONObject();
+                try {
+                    plugin.put("name", pluginName);
+                    plugin.put("description", "自定义注册类型");
+                } catch (Exception ignored) {
+                }
+            }
+            showPluginComponentDialog(act, rt, componentId, title, message, propsJson,
+                    pluginName, autoCloseSeconds, plugin);
+        }
+
+        /** 重载：显式传入插件定义（自定义注册类型 register_type 用） */
+        private void showPluginComponentDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                               final String componentId, final String title,
+                                               final String message, final String propsJson,
+                                               final String pluginName, final int autoCloseSeconds,
+                                               final org.json.JSONObject plugin) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            if (plugin == null) {
+                rt.result.set("failed:插件定义为空: " + pluginName);
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            final org.json.JSONObject props = new org.json.JSONObject();
+            try {
+                org.json.JSONObject src = new org.json.JSONObject(
+                        propsJson != null && !propsJson.isEmpty() ? propsJson : "{}");
+                java.util.Iterator<String> pk = src.keys();
+                while (pk.hasNext()) {
+                    String k = pk.next();
+                    props.put(k, src.get(k));
+                }
+            } catch (Exception ignored) {
+            }
+            String pluginTitle = plugin.optJSONObject("render") != null
+                    ? plugin.optJSONObject("render").optString("title", "") : "";
+            if (pluginTitle.isEmpty() && title != null && !title.isEmpty()) pluginTitle = title;
+            if (pluginTitle.isEmpty()) pluginTitle = plugin.optString("name", pluginName);
+            final String fTitle = pluginTitle;
+
+            android.widget.TextView statusView = new android.widget.TextView(act);
+            statusView.setTextSize(14);
+            statusView.setPadding(0, (int) (6 * density), 0, (int) (6 * density));
+            statusView.setText("⏳ 任务处理中…");
+            android.widget.ImageView imgView = new android.widget.ImageView(act);
+            imgView.setVisibility(android.view.View.GONE);
+            imgView.setAdjustViewBounds(true);
+            imgView.setMaxHeight((int) (320 * density));
+            android.widget.TextView videoInfo = new android.widget.TextView(act);
+            videoInfo.setVisibility(android.view.View.GONE);
+            videoInfo.setTextSize(13);
+            videoInfo.setPadding(0, (int) (4 * density), 0, (int) (4 * density));
+            final android.widget.LinearLayout cardArea = new android.widget.LinearLayout(act);
+            cardArea.setOrientation(android.widget.LinearLayout.VERTICAL);
+            final java.util.Map<String, Object> layoutViewRefs = new java.util.HashMap<>();
+
+            android.widget.LinearLayout layout = new android.widget.LinearLayout(act);
+            layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+            layout.setPadding((int) (16 * density), (int) (8 * density), (int) (16 * density), (int) (8 * density));
+            layout.addView(cardArea);
+            layout.addView(statusView);
+            layout.addView(imgView);
+            layout.addView(videoInfo);
+
+            final boolean[] doneRef = {false};
+            final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(fTitle)
+                    .setMessage(message != null && !message.isEmpty() ? message : null)
+                    .setView(layout)
+                    .setPositiveButton("关闭", (d, w) -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        d.dismiss();
+                    })
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        rt.result.compareAndSet("pending", "closed");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    })
+                    .create();
+            rt.dialog = dialog;
+            dialog.setOnDismissListener(d -> {
+                doneRef[0] = true;
+                rt.result.compareAndSet("pending", "closed");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.show();
+
+            final Runnable[] renderCard = new Runnable[1];
+            renderCard[0] = () -> {
+                try {
+                    cardArea.removeAllViews();
+                    org.json.JSONObject render = plugin.optJSONObject("render");
+                    if (render != null) {
+                        String card = render.optString("card", "");
+                        Object layoutObj = render.opt("layout");
+                        if (!card.isEmpty()) {
+                            org.json.JSONObject cardProps = new org.json.JSONObject();
+                            org.json.JSONObject renderProps = render.optJSONObject("props");
+                            if (renderProps != null) {
+                                java.util.Iterator<String> rk = renderProps.keys();
+                                while (rk.hasNext()) {
+                                    String rk2 = rk.next();
+                                    cardProps.put(rk2, renderProps.get(rk2));
+                                }
+                            }
+                            java.util.Iterator<String> keys = props.keys();
+                            while (keys.hasNext()) {
+                                String k = keys.next();
+                                cardProps.put(k, props.get(k));
+                            }
+                            com.oilquiz.app.ai.chat.component.ComponentRegistry registry =
+                                    com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance();
+                            if (registry.hasType(card)) {
+                                com.oilquiz.app.ai.chat.component.ComponentData data =
+                                        new com.oilquiz.app.ai.chat.component.ComponentData(card, cardProps);
+                                android.view.View v = registry.render(act, data);
+                                if (v != null) cardArea.addView(v);
+                            }
+                        } else if (layoutObj != null) {
+                            layoutViewRefs.clear();
+                            android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
+                                    act, layoutObj, props, layoutViewRefs);
+                            if (v != null) cardArea.addView(v);
+                            for (java.util.Map.Entry<String, Object> le : layoutViewRefs.entrySet()) {
+                                if (le.getValue() instanceof android.widget.Button) {
+                                    android.widget.Button lb = (android.widget.Button) le.getValue();
+                                    final String tag = lb.getTag() != null ? lb.getTag().toString() : "";
+                                    lb.setOnClickListener(btnV -> {
+                                        if (doneRef[0]) return;
+                                        java.util.Map<String, Object> values =
+                                                com.oilquiz.app.ai.python.NativeLayoutRenderer
+                                                        .collectValues(layoutViewRefs);
+                                        if (tag.startsWith("{")) {
+                                            try {
+                                                org.json.JSONObject bind = new org.json.JSONObject(tag);
+                                                String tool = bind.optString("tool", "");
+                                                if (!tool.isEmpty()) {
+                                                    org.json.JSONObject tp = bind.optJSONObject("tool_params");
+                                                    final java.util.Map<String, Object> callParams = new HashMap<>();
+                                                    if (tp != null) {
+                                                        java.util.Iterator<String> tk = tp.keys();
+                                                        while (tk.hasNext()) {
+                                                            String tk2 = tk.next();
+                                                            Object tv = tp.opt(tk2);
+                                                            if (tv instanceof String) {
+                                                                String s = (String) tv;
+                                                                for (java.util.Map.Entry<String, Object> ve : values.entrySet()) {
+                                                                    s = s.replace("{" + ve.getKey() + "}", String.valueOf(ve.getValue()));
+                                                                }
+                                                                callParams.put(tk2, s);
+                                                            } else {
+                                                                callParams.put(tk2, tv);
+                                                            }
+                                                        }
+                                                    }
+                                                    statusView.setText("⏳ 调用后端 " + tool + "…");
+                                                    new Thread(() -> {
+                                                        try {
+                                                            com.oilquiz.app.ai.tool.AIToolManager tm =
+                                                                    com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
+                                                            com.oilquiz.app.ai.tool.AIToolResult br = tm.executeTool(tool, callParams);
+                                                            handler.post(() -> {
+                                                                if (doneRef[0]) return;
+                                                                org.json.JSONObject res = new org.json.JSONObject();
+                                                                try {
+                                                                    res.put("status", "success");
+                                                                    res.put("component_type", pluginName);
+                                                                    res.put("action", bind.optString("action", ""));
+                                                                    res.put("tool", tool);
+                                                                    res.put("values", new org.json.JSONObject(
+                                                                            new com.google.gson.Gson().toJson(values)));
+                                                                    if (br != null) {
+                                                                        if (br.getResult() != null) {
+                                                                            res.put("tool_result",
+                                                                                    br.getResult() instanceof String
+                                                                                            ? (String) br.getResult()
+                                                                                            : new org.json.JSONObject(
+                                                                                                    new com.google.gson.Gson().toJson(br.getResult())).toString());
+                                                                        }
+                                                                        if (br.getErrorMessage() != null) {
+                                                                            res.put("tool_error", br.getErrorMessage());
+                                                                        }
+                                                                        res.put("tool_success", br.isSuccess());
+                                                                    }
+                                                                } catch (Exception ignored) {
+                                                                }
+                                                                doneRef[0] = true;
+                                                                rt.result.set(res.toString());
+                                                                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                                                dialog.dismiss();
+                                                            });
+                                                        } catch (Throwable t) {
+                                                            handler.post(() -> {
+                                                                if (doneRef[0]) return;
+                                                                org.json.JSONObject res = new org.json.JSONObject();
+                                                                try {
+                                                                    res.put("status", "failed");
+                                                                    res.put("tool", tool);
+                                                                    res.put("error", String.valueOf(t.getMessage()));
+                                                                } catch (Exception ignored) {
+                                                                }
+                                                                doneRef[0] = true;
+                                                                rt.result.set(res.toString());
+                                                                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                                                dialog.dismiss();
+                                                            });
+                                                        }
+                                                    }).start();
+                                                    return;
+                                                }
+                                            } catch (Exception ignored) {
+                                            }
+                                        }
+                                        org.json.JSONObject res = new org.json.JSONObject();
+                                        try {
+                                            res.put("status", "success");
+                                            res.put("component_type", pluginName);
+                                            res.put("action", tag);
+                                            res.put("values", new org.json.JSONObject(
+                                                    new com.google.gson.Gson().toJson(values)));
+                                        } catch (Exception ignored) {
+                                        }
+                                        doneRef[0] = true;
+                                        rt.result.set(res.toString());
+                                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                        dialog.dismiss();
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "插件卡片渲染失败: " + t.getMessage());
+                }
+            };
+            renderCard[0].run();
+
+            final boolean[] done = doneRef;
+            final String[] resultFilePath = {null};
+            final Runnable[] poller = new Runnable[1];
+            final java.util.function.Consumer<String> finisher = new java.util.function.Consumer<String>() {
+                @Override
+                public void accept(String resultJson) {
+                    if (done[0]) return;
+                    done[0] = true;
+                    rt.result.set(resultJson);
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                }
+            };
+
+            final boolean hasMonitor = plugin.optJSONObject("monitor") != null;
+            org.json.JSONObject monitor = plugin.optJSONObject("monitor");
+            if (!hasMonitor) {
+                statusView.setText("✅ 组件已创建");
+                try {
+                    org.json.JSONObject ok = new org.json.JSONObject();
+                    ok.put("status", "success");
+                    ok.put("component_type", pluginName);
+                    ok.put("props", props.toString());
+                    finisher.accept(ok.toString());
+                } catch (Exception ignored) {
+                }
+            }
+            final String monitorTool = monitor != null ? monitor.optString("tool", "") : "";
+            final String monitorAction = monitor != null ? monitor.optString("action", "") : "";
+            final int pollSeconds = monitor != null
+                    ? Math.max(2, Math.min(30, monitor.optInt("poll_seconds", 5))) : 5;
+            final String successField = monitor != null ? monitor.optString("success_field", "") : "";
+            final String errorField = monitor != null ? monitor.optString("error_field", "") : "";
+
+            final Runnable[] queryOnce = new Runnable[1];
+            queryOnce[0] = () -> {
+                if (done[0] || monitorTool.isEmpty()) return;
+                final java.util.Map<String, Object> queryParams = new HashMap<>();
+                queryParams.put("action", monitorAction.isEmpty() ? "query" : monitorAction);
+                try {
+                    org.json.JSONObject paramMap = monitor.optJSONObject("param_map");
+                    if (paramMap != null) {
+                        java.util.Iterator<String> keys = paramMap.keys();
+                        while (keys.hasNext()) {
+                            String propsKey = keys.next();
+                            String queryKey = paramMap.optString(propsKey, propsKey);
+                            Object v = props.opt(propsKey);
+                            if (v != null) queryParams.put(queryKey, v);
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+                new Thread(() -> {
+                    try {
+                        com.oilquiz.app.ai.tool.AIToolManager tm =
+                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
+                        com.oilquiz.app.ai.tool.AIToolResult r = tm.executeTool(monitorTool, queryParams);
+                        handler.post(() -> {
+                            if (done[0]) return;
+                            if (r != null && r.isSuccess() && r.getResult() instanceof Map) {
+                                @SuppressWarnings("unchecked")
+                                java.util.Map<String, Object> res =
+                                        (java.util.Map<String, Object>) r.getResult();
+                                Object fp = successField.isEmpty() ? null : res.get(successField);
+                                if (fp != null && !String.valueOf(fp).isEmpty()) {
+                                    resultFilePath[0] = String.valueOf(fp);
+                                    String ext = resultFilePath[0].toLowerCase();
+                                    if (ext.endsWith(".png") || ext.endsWith(".jpg") || ext.endsWith(".jpeg")
+                                            || ext.endsWith(".webp") || ext.endsWith(".gif")) {
+                                        imgView.setVisibility(android.view.View.VISIBLE);
+                                        com.bumptech.glide.Glide.with(act)
+                                                .load(new java.io.File(resultFilePath[0])).into(imgView);
+                                    } else {
+                                        videoInfo.setVisibility(android.view.View.VISIBLE);
+                                        java.io.File f = new java.io.File(resultFilePath[0]);
+                                        videoInfo.setText("📄 " + f.getName() + "\n"
+                                                + formatFileSize(f.length()) + "\n" + resultFilePath[0]);
+                                    }
+                                    statusView.setText("✅ 任务完成");
+                                    org.json.JSONObject ok = new org.json.JSONObject();
+                                    try {
+                                        ok.put("status", "success");
+                                        ok.put("component_type", pluginName);
+                                        ok.put("filePath", resultFilePath[0]);
+                                        java.util.Iterator<String> ks = res.keySet().iterator();
+                                        while (ks.hasNext()) {
+                                            String k = ks.next();
+                                            if (!"status".equals(k) && !"message".equals(k)) {
+                                                ok.put(k, String.valueOf(res.get(k)));
+                                            }
+                                        }
+                                    } catch (Exception ignored) {
+                                    }
+                                    finisher.accept(ok.toString());
+                                    return;
+                                }
+                                String err = null;
+                                if (!errorField.isEmpty() && res.get(errorField) != null) {
+                                    err = String.valueOf(res.get(errorField));
+                                } else if (res.get("error") != null) {
+                                    err = String.valueOf(res.get("error"));
+                                }
+                                if (err != null && !err.isEmpty()) {
+                                    statusView.setText("❌ " + err);
+                                    org.json.JSONObject fail = new org.json.JSONObject();
+                                    try {
+                                        fail.put("status", "failed");
+                                        fail.put("component_type", pluginName);
+                                        fail.put("error", err);
+                                    } catch (Exception ignored) {
+                                    }
+                                    finisher.accept(fail.toString());
+                                    return;
+                                }
+                                Object st = res.get("status");
+                                Object taskId = res.get("task_id");
+                                StringBuilder sb = new StringBuilder("⏳ 任务处理中…");
+                                if (st != null) sb.append("\n状态: ").append(st);
+                                if (taskId != null) sb.append("\n任务ID: ").append(taskId);
+                                if (res.get("message") != null) sb.append("\n").append(res.get("message"));
+                                statusView.setText(sb.toString());
+                                handler.postDelayed(poller[0], pollSeconds * 1000L);
+                            } else {
+                                String err = (r != null && r.getErrorMessage() != null)
+                                        ? r.getErrorMessage() : "任务失败（无返回）";
+                                statusView.setText("❌ " + err);
+                                org.json.JSONObject fail = new org.json.JSONObject();
+                                try {
+                                    fail.put("status", "failed");
+                                    fail.put("component_type", pluginName);
+                                    fail.put("error", err);
+                                } catch (Exception ignored) {
+                                }
+                                finisher.accept(fail.toString());
+                            }
+                        });
+                    } catch (Throwable t) {
+                        handler.post(() -> {
+                            if (done[0]) return;
+                            statusView.setText("❌ 查询异常: " + t.getMessage());
+                            org.json.JSONObject fail = new org.json.JSONObject();
+                            try {
+                                fail.put("status", "failed");
+                                fail.put("component_type", pluginName);
+                                fail.put("error", String.valueOf(t.getMessage()));
+                            } catch (Exception ignored) {
+                            }
+                            finisher.accept(fail.toString());
+                        });
+                    }
+                }).start();
+            };
+            poller[0] = queryOnce[0];
+
+            if (autoCloseSeconds > 0) {
+                handler.postDelayed(() -> {
+                    if (!done[0]) {
+                        dialog.dismiss();
+                    }
+                }, autoCloseSeconds * 1000L);
+            }
+            if (hasMonitor) {
+                handler.post(poller[0]);
+            }
+        }
+
+        /** 复制到公共 Download/OilQuiz（私有工作区分享用），返回 content URI */
+        private android.net.Uri copyToPublicDownloads(android.app.Activity act, java.io.File source) {
+            try {
+                String fileName = source.getName();
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName);
+                values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream");
+                values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH,
+                        android.os.Environment.DIRECTORY_DOWNLOADS + "/OilQuiz");
+                android.net.Uri collection = android.os.Build.VERSION.SDK_INT >= 29
+                        ? android.provider.MediaStore.Downloads
+                                .getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        : android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                android.net.Uri item = act.getContentResolver().insert(collection, values);
+                if (item == null) return null;
+                try (java.io.OutputStream os = act.getContentResolver().openOutputStream(item)) {
+                    if (os == null) return null;
+                    try (java.io.InputStream is = new java.io.FileInputStream(source)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) != -1) os.write(buf, 0, n);
+                    }
+                }
+                return item;
+            } catch (Throwable t) {
+                Log.w(TAG, "复制到公共目录失败: " + t.getMessage());
+                return null;
+            }
+        }
+
+        private String formatFileSize(long bytes) {
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0);
+            if (bytes < 1024 * 1024 * 1024) {
+                return String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0);
+            }
+            return String.format(java.util.Locale.US, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0);
+        }
+
+        /** 动态自定义原生表单组件（type=custom）：fields JSON 定义任意字段，确定返回全部值 JSON */
+        private void showCustomFormDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                          final String componentId, final String title,
+                                          final String message, final String propsJson,
+                                          final int autoCloseSeconds) {
+            final org.json.JSONArray fieldDefs = new org.json.JSONArray();
+            try {
+                org.json.JSONObject pj = new org.json.JSONObject(propsJson != null ? propsJson : "");
+                org.json.JSONArray arr = pj.optJSONArray("fields");
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        fieldDefs.put(arr.get(i));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (fieldDefs.length() == 0) {
+                android.app.AlertDialog.Builder b0 = new android.app.AlertDialog.Builder(act);
+                if (title != null && !title.isEmpty()) b0.setTitle(title);
+                if (message != null && !message.isEmpty()) b0.setMessage(message);
+                b0.setPositiveButton("确定", (d, w) -> {
+                    rt.result.set("{}");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    d.dismiss();
+                });
+                b0.setNegativeButton("取消", (d, w) -> {
+                    rt.result.set("cancelled");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    d.dismiss();
+                });
+                b0.setCancelable(true);
+                b0.setOnCancelListener(d -> {
+                    rt.result.compareAndSet("pending", "cancelled");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                });
+                android.app.AlertDialog d0 = b0.create();
+                d0.setOnDismissListener(d -> {
+                    rt.result.compareAndSet("pending", "cancelled");
+                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                });
+                d0.show();
+                rt.dialog = d0;
+                return;
+            }
+            final java.util.Map<String, Boolean> fieldRequired = new java.util.LinkedHashMap<>();
+            final java.util.Map<String, String> fieldLabels = new java.util.LinkedHashMap<>();
+            // ---- 方案A：字段定义 → NativeLayoutRenderer JSON 布局树（消除硬编码表单构建，统一样式/主题） ----
+            final java.util.Map<String, Object> viewRefs = new java.util.HashMap<>();
+            org.json.JSONArray children = new org.json.JSONArray();
+            for (int i = 0; i < fieldDefs.length(); i++) {
+                try {
+                    org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                    if (fd == null) continue;
+                    String key = fd.optString("key", "");
+                    if (key.isEmpty()) key = "field" + i;
+                    String label = fd.optString("label", key);
+                    String ftype = fd.optString("type", "text").toLowerCase();
+                    String def = fd.optString("default", "");
+                    boolean required = fd.optBoolean("required", false);
+                    fieldRequired.put(key, required);
+                    fieldLabels.put(key, label);
+                    // 字段标签行
+                    org.json.JSONObject labelNode = new org.json.JSONObject();
+                    labelNode.put("type", "text");
+                    labelNode.put("text", (required ? "* " : "") + label);
+                    labelNode.put("size", 14);
+                    children.put(labelNode);
+                    // 控件节点（字段类型 → 布局控件；select/switch/slider/date/time/password/number/multiline 原生支持）
+                    org.json.JSONObject ctrl = new org.json.JSONObject();
+                    String ltype;
+                    switch (ftype) {
+                        case "select": ltype = "select"; break;
+                        case "switch": ltype = "switch"; break;
+                        case "checkbox": ltype = "checkbox"; break;
+                        case "radio": ltype = "radio"; break;
+                        case "slider": ltype = "slider"; break;
+                        case "date": ltype = "date"; break;
+                        case "time": ltype = "time"; break;
+                        case "password": ltype = "password"; break;
+                        case "number": ltype = "number"; break;
+                        case "multiline": ltype = "multiline"; break;
+                        case "otp": ltype = "otp"; break;
+                        default: ltype = "input"; break;
+                    }
+                    ctrl.put("type", ltype);
+                    ctrl.put("key", key);
+                    if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
+                        ctrl.put("checked", "true".equalsIgnoreCase(def));
+                    } else if (!def.isEmpty()) {
+                        ctrl.put("value", def);
+                    }
+                    if ("select".equals(ftype) || "radio".equals(ftype)) {
+                        org.json.JSONArray opts = fd.optJSONArray("options");
+                        if (opts != null && opts.length() > 0) ctrl.put("options", opts);
+                    }
+                    if ("otp".equals(ftype)) {
+                        ctrl.put("length", fd.optInt("length", 6));
+                    }
+                    if ("slider".equals(ftype)) {
+                        ctrl.put("max", fd.optInt("max", 100));
+                        ctrl.put("show_value", true);
+                    }
+                    String hint = fd.optString("hint", "");
+                    if (!hint.isEmpty()) ctrl.put("hint", hint);
+                    children.put(ctrl);
+                } catch (Exception ignored) {
+                }
+            }
+            org.json.JSONObject root = new org.json.JSONObject();
+            org.json.JSONObject layout = new org.json.JSONObject();
+            try {
+                root.put("type", "column");
+                root.put("children", children);
+                layout.put("root", root);
+            } catch (Exception e) {
+                rt.result.set("cancelled:表单构建失败");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            android.view.View formView = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
+                    act, layout, new org.json.JSONObject(), viewRefs);
+            if (formView == null) {
+                rt.result.set("cancelled:表单渲染失败");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                return;
+            }
+            android.widget.ScrollView scrollForm = new android.widget.ScrollView(act);
+            scrollForm.addView(formView);
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            if (title != null && !title.isEmpty()) b.setTitle(title);
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            b.setView(scrollForm);
+            b.setPositiveButton("确定", null);
+            b.setNegativeButton("取消", (d, w) -> {
+                rt.result.set("cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                d.dismiss();
+            });
+            b.setCancelable(true);
+            b.setOnCancelListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            android.app.AlertDialog dialog = b.create();
+            dialog.setOnDismissListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> {
+                        // 统一从布局收集控件值（input/select/switch/slider/date/time 等）
+                        java.util.Map<String, Object> values =
+                                com.oilquiz.app.ai.python.NativeLayoutRenderer.collectValues(viewRefs);
+                        // 必填校验（空字符串视为未填）
+                        for (int i = 0; i < fieldDefs.length(); i++) {
+                            try {
+                                org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                                if (fd == null) continue;
+                                String key = fd.optString("key", "");
+                                if (key.isEmpty()) key = "field" + i;
+                                if (Boolean.TRUE.equals(fieldRequired.get(key))) {
+                                    Object val = values.get(key);
+                                    String s = val == null ? "" : String.valueOf(val);
+                                    if (s.trim().isEmpty()) {
+                                        showToast("请填写必填项：" + fieldLabels.get(key), false);
+                                        return;
+                                    }
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        org.json.JSONObject out = new org.json.JSONObject();
+                        for (int i = 0; i < fieldDefs.length(); i++) {
+                            try {
+                                org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                                if (fd == null) continue;
+                                String key = fd.optString("key", "");
+                                if (key.isEmpty()) key = "field" + i;
+                                String ftype = fd.optString("type", "text").toLowerCase();
+                                Object val = values.get(key);
+                                if ("number".equals(ftype)) {
+                                    String s = val == null ? "" : String.valueOf(val).trim();
+                                    try {
+                                        out.put(key, Double.parseDouble(s.isEmpty() ? "0" : s));
+                                    } catch (NumberFormatException ex) {
+                                        out.put(key, s);
+                                    }
+                                } else if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
+                                    out.put(key, Boolean.TRUE.equals(val));
+                                } else {
+                                    out.put(key, val == null ? "" : String.valueOf(val));
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        rt.result.set(out.toString());
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        dialog.dismiss();
+                    }));
+            dialog.show();
+            rt.dialog = dialog;
+            Log.i(TAG, "[Python component] custom form created: " + componentId);
         }
 
         /** 自动关闭调度：autoCloseSeconds>0 且组件已显示时，N 秒后 dismiss 并置 result=closed。
@@ -1925,13 +3284,101 @@ public class PythonToolManager {
             }
         }
 
-        /** 更新组件：progress 更新进度/消息；dialog 更新标题/内容；notification 更新通知内容/进度。 */        private Map<String, Object> updateComponent(String componentId, String title,
-                                                    String message, int progress, int max) {            Map<String, Object> reply = new HashMap<>();
+        /** 更新组件：progress 更新进度/消息；dialog 更新标题/内容；notification 更新通知内容/进度；插件组件传 props 动态刷新。 */
+        /**
+         * P1：按创建参数快照 + 新 props 真重建组件弹窗（保留 component_id，等效 onRefresh）。
+         * 旧 rt 从注册表移除后复用同一 id 重新 createComponent，弹窗按新 props 渲染，
+         * 插件监控（monitor）也随重建重新启动。
+         */
+        private Map<String, Object> rebuildComponent(String componentId, ComponentRuntime oldRt, String newProps) {
+            Map<String, Object> reply = new HashMap<>();
+            String type = oldRt.createType != null ? oldRt.createType : "dialog";
+            java.util.Map<String, Object> args = oldRt.createArgs;
+            // 先关闭旧弹窗（主线程），避免新旧弹窗叠屏；随后 createComponent 重建
+            if (oldRt.dialog != null) {
+                final android.app.Dialog oldD = oldRt.dialog;
+                oldRt.dialog = null;
+                android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+                main.post(() -> {
+                    try {
+                        if (oldD.isShowing()) oldD.dismiss();
+                    } catch (Throwable ignored) {
+                    }
+                });
+            }
+            // 移除旧 rt：createComponent 对已存在 id 会报"组件ID已存在"
+            dynamicComponents.remove(componentId);
+            String title = strArg(args, "title");
+            String message = strArg(args, "message");
+            String dialogType = strArg(args, "dialog_type");
+            if (dialogType.isEmpty()) dialogType = "info";
+            int max0 = intArg(args, "max");
+            String options = strArg(args, "options");
+            String defaultValue = strArg(args, "default_value");
+            String inputHint = strArg(args, "input_hint");
+            String actionLabel = strArg(args, "action_label");
+            String items = strArg(args, "items");
+            String url = strArg(args, "url");
+            String clickAction = strArg(args, "click_action");
+            int autoClose = intArg(args, "auto_close");
+            String html = strArg(args, "html");
+            java.util.Map<String, Object> rebuilt = createComponent(type, componentId, title, message,
+                    dialogType, max0, options, defaultValue, inputHint, newProps, actionLabel, items, url,
+                    clickAction, autoClose, html);
+            boolean ok = Boolean.TRUE.equals(rebuilt.get("success"))
+                    || "true".equalsIgnoreCase(String.valueOf(rebuilt.get("success")));
+            if (ok) {
+                reply.put("success", true);
+                reply.put("component_id", componentId);
+                reply.put("result", "refreshed");
+                reply.put("message", "组件已按新参数重建刷新: " + componentId);
+            } else {
+                reply.put("success", false);
+                reply.put("result", "refresh_failed");
+                reply.put("component_id", componentId);
+                reply.put("message", "组件刷新失败: " + rebuilt.get("message"));
+            }
+            return reply;
+        }
+
+        private static String strArg(java.util.Map<String, Object> args, String key) {
+            Object v = args.get(key);
+            return v == null ? "" : String.valueOf(v);
+        }
+
+        private static int intArg(java.util.Map<String, Object> args, String key) {
+            Object v = args.get(key);
+            if (v instanceof Number) return ((Number) v).intValue();
+            try {
+                return Integer.parseInt(String.valueOf(v).trim());
+            } catch (Exception e) {
+                return 0;
+            }
+        }
+
+        private Map<String, Object> updateComponent(String componentId, String title,
+                                                    String message, int progress, int max,
+                                                    String propsJson) {
+            Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
             if (rt == null) {
                 reply.put("success", false);
                 reply.put("message", "组件不存在: " + componentId);
                 return reply;
+            }
+            // P2：聊天流卡片（无对话框实例、非通知组件）不支持 update——明确报错，不再误发系统通知
+            if (rt.dialog == null && !"notification".equals(rt.createType)) {
+                reply.put("success", false);
+                reply.put("result", "not_supported");
+                reply.put("message", "该组件是聊天流卡片（无对话框实例），不支持 update 刷新；"
+                        + "如需更新内容请重新 create，或通过组件 actions 按钮交互: " + componentId);
+                return reply;
+            }
+            // P1：插件/注册类型/内置弹窗等组件 update 传 props → 真重建（保留 component_id，等效 onRefresh）。
+            // progress 组件除外：进度应在原实例上增量更新，重建会重置进度。
+            if (propsJson != null && !propsJson.trim().isEmpty() && rt.dialog != null
+                    && !"progress".equals(rt.createType)) {
+                return rebuildComponent(componentId, rt, propsJson.trim());
             }
             // 通知组件：rt.dialog 为 null，重发通知更新内容/进度
             if (rt.dialog == null) {
@@ -2081,8 +3528,14 @@ public class PythonToolManager {
         /** 注册无对话框的待处理组件（聊天流内置组件用），结果由外部回调写入 */
         public boolean registerPendingComponent(String componentId) {
             if (componentId == null || componentId.isEmpty()) return false;
-            if (dynamicComponents.containsKey(componentId)) return true;
-            dynamicComponents.put(componentId, new ComponentRuntime());
+            ComponentRuntime rt = dynamicComponents.get(componentId);
+            if (rt == null) {
+                rt = new ComponentRuntime();
+                rt.createType = "chat_card";
+                dynamicComponents.put(componentId, rt);
+            } else if (rt.createType == null) {
+                rt.createType = "chat_card";
+            }
             return true;
         }
 

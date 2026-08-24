@@ -936,30 +936,40 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return;
             }
 
-            // 设置思考内容：使用与正文一致的 Markdown 渲染，支持列表/代码块等格式
+            // 设置思考内容：思考中增量渲染（只渲染新增，定时批量）；思考结束后全量 Markdown 渲染最终格式
             holder.thinkingContent.post(() -> {
                 int width = holder.itemView.getWidth()
                     - holder.itemView.getPaddingLeft()
                     - holder.itemView.getPaddingRight()
                     - dpToPx(2, holder.itemView.getContext());
-                setRenderedText(holder.thinkingContent, cleanedContent, width);
+                if (isStreaming) {
+                    setRenderedTextIncremental(holder.thinkingContent, cleanedContent, width,
+                            holder.thinkingRenderState);
+                } else {
+                    setRenderedText(holder.thinkingContent, cleanedContent, width);
+                    holder.thinkingRenderState.reset();
+                }
             });
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
-            // 思考中（流式）默认展开显示思考过程，思考完毕后默认折叠
-            if (isStreaming) {
-                holder.thinkingContent.setVisibility(View.VISIBLE);
-                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                updateThinkingLabel(holder, true, true);
-                showDivider = true;
-            } else if (message.thinkingExpanded) {
-                holder.thinkingContent.setVisibility(View.VISIBLE);
-                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                updateThinkingLabel(holder, true, false);
+            // 展开状态完全由 thinkingExpanded 控制：思考中/思考完毕均默认折叠，
+            // 用户点击标签展开（思考中展开可实时看到思考过程，思考后保留展开直到再次点击）。
+            // 状态未变化时不重复 setVisibility/height，避免流式 token 更新打断点击展开/折叠动画
+            boolean wasExpanded = holder.thinkingContent.getVisibility() == View.VISIBLE;
+            if (message.thinkingExpanded) {
+                if (!wasExpanded) {
+                    cancelThinkingAnimator(holder);
+                    holder.thinkingContent.setVisibility(View.VISIBLE);
+                    holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                }
+                updateThinkingLabel(holder, true, isStreaming);
                 showDivider = true;
             } else {
-                holder.thinkingContent.setVisibility(View.GONE);
-                updateThinkingLabel(holder, false, false);
+                if (wasExpanded) {
+                    cancelThinkingAnimator(holder);
+                    holder.thinkingContent.setVisibility(View.GONE);
+                }
+                updateThinkingLabel(holder, false, isStreaming);
             }
 
             // 点击展开/折叠，带动画效果
@@ -1021,9 +1031,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /** 取消思考区进行中的展开/折叠动画（点击切换/流式更新前调用，防止动画竞争 height） */
+    private void cancelThinkingAnimator(AIMessageViewHolder holder) {
+        if (holder.thinkingAnimator != null) {
+            try {
+                holder.thinkingAnimator.cancel();
+            } catch (Throwable ignored) {
+            }
+            holder.thinkingAnimator = null;
+        }
+    }
+
     private void expandThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
         boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+        cancelThinkingAnimator(holder);
         holder.thinkingContent.setVisibility(View.VISIBLE);
         final int targetHeight = holder.thinkingContent.getHeight();
         if (targetHeight == 0) {
@@ -1036,6 +1058,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.thinkingContent.requestLayout();
 
             ValueAnimator animator = ValueAnimator.ofInt(0, measuredHeight);
+            holder.thinkingAnimator = animator;
             animator.addUpdateListener(animation -> {
                 holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
                 holder.thinkingContent.requestLayout();
@@ -1065,6 +1088,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
         final int initialHeight = holder.thinkingContent.getHeight();
         if (initialHeight == 0) {
+            cancelThinkingAnimator(holder);
             holder.thinkingContent.setVisibility(View.GONE);
             message.thinkingExpanded = false;
             updateThinkingLabel(holder, false, isStreaming);
@@ -1074,7 +1098,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             return;
         }
 
+        cancelThinkingAnimator(holder);
         ValueAnimator animator = ValueAnimator.ofInt(initialHeight, 0);
+        holder.thinkingAnimator = animator;
         animator.addUpdateListener(animation -> {
             holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
             holder.thinkingContent.requestLayout();
@@ -1236,6 +1262,135 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 增量渲染状态：记录已渲染到的原始内容偏移与已渲染段，
+     * 流式更新时只渲染新增内容（回溯行首），避免全量 Markdown 重复解析。
+     */
+    static class IncrementalRenderState {
+        List<CharSequence> segs;          // 已渲染段（每段 = 一次增量渲染结果）
+        int renderedLen;                  // 已渲染的原始内容字符偏移（不含未完整块）
+        String snapshot;                  // 上次渲染时的原始内容快照（前缀校验 content 是否回退/替换）
+
+        void reset() {
+            segs = null;
+            renderedLen = 0;
+            snapshot = null;
+        }
+    }
+
+    /** 代码围栏标记（行首 ``` 或 ~~~，至少 3 个，可带语言名） */
+    private static final java.util.regex.Pattern FENCE_PATTERN =
+            java.util.regex.Pattern.compile("(?m)^\\s*(```+|~~~+)[^`]*$");
+
+    /**
+     * 计算"安全渲染长度"（整块渲染）：内容末尾若处于未完整块——未闭合的代码块（fence 未配对）、
+     * 未成型的表格（表头后缺分隔行）——这些不完整块不渲染，等块完成后再渲染；
+     * 避免流式期间显示半截代码块/表格。普通进行中的最后一行可渲染（行级增量）。
+     */
+    private static int safeRenderLength(String content) {
+        int len = content.length();
+        if (len == 0) return 0;
+        int safe = len;
+        // 1) 未闭合 fenced code block：fence 标记数为奇数 → 最后一个 fence 行之后的内容不渲染
+        java.util.regex.Matcher fm = FENCE_PATTERN.matcher(content);
+        int fenceCount = 0;
+        int lastFenceStart = -1;
+        while (fm.find()) {
+            fenceCount++;
+            lastFenceStart = fm.start();
+        }
+        if (fenceCount % 2 == 1) {
+            safe = lastFenceStart;
+        }
+        if (safe <= 0) return 0;
+        // 2) 未成型表格：内容末尾连续的表格行（| ... |）中不含分隔行（|---|）→ 表头未成型，整段不渲染
+        String text = content.substring(0, safe);
+        int idx = text.length();
+        boolean sawSeparator = false;
+        while (idx > 0) {
+            int prevNl = text.lastIndexOf('\n', idx - 1);
+            String line = text.substring(prevNl + 1, idx).trim();
+            boolean isTableLine = line.startsWith("|") && line.endsWith("|");
+            if (!isTableLine) break;
+            if (isTableSeparatorLine(line)) {
+                sawSeparator = true; // 含分隔行 → 表格成型，可渲染
+                break;
+            }
+            idx = prevNl; // 继续往前找表头起点
+        }
+        if (!sawSeparator && idx < text.length()) {
+            safe = idx; // 未成型表头行不渲染
+        }
+        return Math.max(0, safe);
+    }
+
+    /** 表格分隔行（|---|、|:---:| 等，仅由 - : 空格 | 组成且含 -） */
+    private static boolean isTableSeparatorLine(String line) {
+        if (line == null || !line.startsWith("|")) return false;
+        String body = line.substring(1, line.endsWith("|") ? line.length() - 1 : line.length()).trim();
+        if (body.isEmpty()) return false;
+        boolean hasDash = false;
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c == '-') {
+                hasDash = true;
+            } else if (c != ':' && c != ' ' && c != '|') {
+                return false;
+            }
+        }
+        return hasDash;
+    }
+
+    /**
+     * 增量渲染：content 相对上次快照前缀增长时，只渲染新增部分（回溯到行首保证行内 markdown 完整），
+     * 与历史渲染段拼接后 setText。content 回退/替换时全量渲染重置。
+     * 整块渲染：末尾未完整块（未闭合代码块/未成型表格）不渲染，块完成后下次增量渲染。
+     *
+     * @param state 该 TextView 的增量渲染状态（holder 持有）
+     */
+    private void setRenderedTextIncremental(TextView tv, String content, int availableWidth,
+                                            IncrementalRenderState state) {
+        int safeLen = safeRenderLength(content);
+        if (state.segs == null || state.snapshot == null
+                || !content.startsWith(state.snapshot)
+                || state.renderedLen > safeLen) {
+            // 首次 / 内容替换 / 回退：全量渲染（渲染到安全长度，不含未完整块）
+            String renderText = safeLen <= 0 ? "" : content.substring(0, safeLen);
+            Spanned full = formatMessageContent(renderText, availableWidth);
+            SpannableStringBuilder ssb = new SpannableStringBuilder(full);
+            TextViewSpan.applyTo(ssb, tv);
+            tv.setText(ssb);
+            state.segs = new java.util.ArrayList<>();
+            state.segs.add(full);
+            state.renderedLen = safeLen;
+            state.snapshot = content;
+            return;
+        }
+        int start = state.renderedLen;
+        if (start >= safeLen) return; // 无新增完整块（增量都在未完整块内）
+        // 回溯到行首（该行从行首重渲，保证行内 markdown 完整；限制回溯长度防退化）
+        int nl = content.lastIndexOf('\n', start - 1);
+        if (nl >= 0 && start - nl <= 512) {
+            start = nl;
+        }
+        String segment = content.substring(start, safeLen);
+        Spanned rendered = formatMessageContent(segment, availableWidth);
+        // 回溯行首可能覆盖最后一段（该段从上次位置渲染，现需从更早行首重渲）→ 替换最后一段
+        List<CharSequence> segs = state.segs;
+        if (!segs.isEmpty() && start < state.renderedLen) {
+            segs.remove(segs.size() - 1);
+        }
+        segs.add(rendered);
+        state.renderedLen = safeLen;
+        state.snapshot = content;
+        // 拼接历史段（每帧 O(全文) 纯拷贝，无 Markdown 解析；渲染成本仅限增量）
+        CharSequence full = android.text.TextUtils.concat(segs.toArray(new CharSequence[0]));
+        SpannableStringBuilder ssb = full instanceof SpannableStringBuilder
+                ? (SpannableStringBuilder) full : new SpannableStringBuilder(full);
+        TextViewSpan.applyTo(ssb, tv);
+        tv.setText(ssb);
+    }
+
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
         // 用户要求：主回复默认全部展开显示，长内容不自动折叠
         holder.expandButton.setVisibility(View.GONE);
@@ -1324,7 +1479,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView tv = new TextView(ctx);
                 tv.setText("⚠ 组件 " + data.type + " 渲染失败");
                 tv.setTextSize(12);
-                tv.setTextColor(0xFF888888);
+                tv.setTextColor(ctx.getColor(R.color.text_secondary));
                 LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 flp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
@@ -1347,7 +1502,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView foldRow = new TextView(ctx);
                 foldRow.setText("🔧 工具过程 " + toolCalls.size() + " 个  ▶");
                 foldRow.setTextSize(12);
-                foldRow.setTextColor(0xFF888888);
+                foldRow.setTextColor(ctx.getColor(R.color.text_secondary));
                 foldRow.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
                 foldRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1372,7 +1527,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     TextView collapseRow = new TextView(ctx);
                     collapseRow.setText("▲ 收起工具过程");
                     collapseRow.setTextSize(11);
-                    collapseRow.setTextColor(0xFF999999);
+                    collapseRow.setTextColor(ctx.getColor(R.color.text_secondary));
                     collapseRow.setPadding(dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx));
                     collapseRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1425,7 +1580,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.contentHost.removeAllViews();
                 holder.contentHost.addView(holder.messageText);
             }
-            setRenderedText(holder.messageText, message.content, availableWidth);
+            // 增量渲染：流式期间只渲染新增内容（定时批量），完成时全量精确渲染格式
+            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+            if (streaming) {
+                setRenderedTextIncremental(holder.messageText, message.content, availableWidth,
+                        holder.contentRenderState);
+            } else {
+                setRenderedText(holder.messageText, message.content, availableWidth);
+                holder.contentRenderState.reset(); // 完成全量渲染后重置增量状态
+            }
             bindComponents(holder, message);
             return;
         }
@@ -1433,30 +1597,60 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 宿主模式：文本段 / 组件段交替，组件插入在标记所在位置；
         // 消息级组件（Agent 执行中的工具卡片等）统一由 component_container 显示，与纯文本模式一致
         if (holder.contentHost != null) {
+            List<ComponentContentSplitter.Segment> segs = ComponentContentSplitter.split(message.content);
+            // 组件段指纹：type|props 序列（空 props 段不渲染也不计入，保证与缓存索引对齐）。
+            // 流式期间组件 JSON 稳定时复用已渲染 View，避免每次 token 更新都销毁重建
+            // WebView/图表/图片（闪烁 + 性能损耗）
+            StringBuilder fp = new StringBuilder();
+            for (ComponentContentSplitter.Segment seg : segs) {
+                if (seg.isComponent && seg.component != null && seg.component.props != null) {
+                    fp.append(seg.component.type).append('|')
+                            .append(seg.component.props.toString()).append(';');
+                }
+            }
+            String newFp = fp.toString();
+            boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
+                    && holder.componentSegmentViews != null;
+            List<View> oldCache = canReuse ? holder.componentSegmentViews
+                    : java.util.Collections.<View>emptyList();
+            List<View> newCache = new java.util.ArrayList<View>();
+            int compIdx = 0;
             holder.contentHost.removeAllViews();
-            for (ComponentContentSplitter.Segment seg : ComponentContentSplitter.split(message.content)) {
+            for (ComponentContentSplitter.Segment seg : segs) {
                 if (seg.isComponent) {
                     if (seg.component == null || seg.component.props == null) continue;
-                    View view = ComponentRegistry.getInstance().render(ctx, seg.component);
+                    View view = (canReuse && compIdx < oldCache.size())
+                            ? oldCache.get(compIdx) : null;
+                    if (view == null) {
+                        view = ComponentRegistry.getInstance().render(ctx, seg.component);
+                    }
                     if (view == null) {
                         // 渲染失败降级占位（不显示组件源码）
                         TextView tv = createSegmentTextView(ctx, holder.messageText);
                         tv.setText("⚠ 组件 " + seg.component.type + " 渲染失败");
-                        tv.setTextColor(0xFF888888);
+                        tv.setTextColor(ctx.getColor(R.color.text_secondary));
                         holder.contentHost.addView(tv);
+                        newCache.add(tv);
+                        compIdx++;
                         continue;
                     }
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                     lp.topMargin = dpToPx(8, ctx);
                     holder.contentHost.addView(view, lp);
+                    newCache.add(view);
+                    compIdx++;
                 } else {
                     TextView tv = createSegmentTextView(ctx, holder.messageText);
+                    // 宿主模式文本段较短，直接渲染（组件段已增量复用）
                     setRenderedText(tv, seg.text, availableWidth);
                     tv.setMovementMethod(LinkMovementMethod.getInstance());
                     holder.contentHost.addView(tv);
                 }
             }
+            // 更新缓存：本次实际渲染的组件段 View（与指纹一一对应，供下次流式更新复用）
+            holder.componentSegmentsFingerprint = newFp;
+            holder.componentSegmentViews = newCache;
         }
         // 消息级组件（Agent 工具卡片、工具 withComponent 组件）渲染到 component_container，
         // 执行中与完成后的渲染路径保持一致
@@ -2660,6 +2854,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LinearLayout componentContainer;
         /** 已绑定的组件列表引用：同一引用跳过重建（避免流式/重复刷新闪烁） */
         List<ComponentData> boundComponents;
+        /** 宿主模式（插入式组件）组件段 View 缓存：流式更新时复用，避免 WebView/图表/图片反复重建闪烁 */
+        List<View> componentSegmentViews;
+        /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
+        String componentSegmentsFingerprint;
+        /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
+        android.animation.ValueAnimator thinkingAnimator;
+        /** 正文增量渲染状态（流式只渲染新增内容，避免全量 Markdown 重复解析） */
+        IncrementalRenderState contentRenderState = new IncrementalRenderState();
+        /** 思考内容增量渲染状态 */
+        IncrementalRenderState thinkingRenderState = new IncrementalRenderState();
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
@@ -2771,10 +2975,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
                 messageText.setText(displayContent);
 
-                // 展开/折叠控制：思考中（流式）强制展开，思考完毕后默认折叠
+                // 展开/折叠控制：由 thinkingExpanded 决定（思考中/思考后均默认折叠，点击展开）
                 boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
                         || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-                if (processing || message.thinkingExpanded) {
+                if (message.thinkingExpanded) {
                     messageText.setVisibility(View.VISIBLE);
                     if (thinkingLabel != null) {
                         thinkingLabel.setText(label);
@@ -2782,7 +2986,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 } else {
                     messageText.setVisibility(View.GONE);
                     if (thinkingLabel != null) {
-                        thinkingLabel.setText(label + " (已折叠)");
+                        thinkingLabel.setText(label + (processing ? " (思考中，点击展开)" : " (已折叠)"));
                     }
                 }
             }

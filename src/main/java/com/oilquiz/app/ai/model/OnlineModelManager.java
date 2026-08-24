@@ -1609,4 +1609,19 @@ public class OnlineModelManager {
         }
         return null;
     }
+
+    /**
+     * 获取百炼系配置（dashscope.aliyuncs.com 公共端点 或 maas.aliyuncs.com 专属空间，
+     * 二者同属阿里云百炼，API Key 通用）。供 dashscope_media 等工具取百炼 Key——
+     * 用户在线模型可能是 DeepSeek 等非百炼端点，不能用 getActiveModel 的 Key。
+     */
+    public OnlineModelConfig getBailianConfig() {
+        for (OnlineModelConfig config : modelList) {
+            if (config.apiUrl != null && config.enabled
+                    && (config.apiUrl.contains("dashscope") || config.apiUrl.contains("maas.aliyuncs.com"))) {
+                return config;
+            }
+        }
+        return null;
+    }
 }

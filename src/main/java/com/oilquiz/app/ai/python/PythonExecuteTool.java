@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "python_execute",
-    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库22种(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；web=网页卡片、image=图片卡片)：chart/info_card/table_card/alert_card/metric_card/steps_card/list_card/note_card/todo_card/progress_card/json_viewer/code_card/link_card/grid_card/contact_card/file_card/file_list/image_grid/quiz_card/weather_card/html/markdown_card；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回",
+    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回",
     category = "python",
     aliases = {"python", "run_python", "python_code"},
     actions = {
@@ -53,7 +53,7 @@ public class PythonExecuteTool extends BaseAITool {
             "[\"']?([/\\\\]?[\\w./\\\\-]+\\.(xlsx|xls|csv|json|xml|tsv))[\"']?");
     
     public PythonExecuteTool(Context context) {
-        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库22种(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；web=网页卡片、image=图片卡片)：chart/info_card/table_card/alert_card/metric_card/steps_card/list_card/note_card/todo_card/progress_card/json_viewer/code_card/link_card/grid_card/contact_card/file_card/file_list/image_grid/quiz_card/weather_card/html/markdown_card；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回");
+        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
         this.fileReaderTool = new FileReaderTool(context);

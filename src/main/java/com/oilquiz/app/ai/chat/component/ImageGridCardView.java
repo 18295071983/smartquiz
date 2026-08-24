@@ -269,9 +269,9 @@ public class ImageGridCardView implements ChatComponent {
         TextView failed = new TextView(root.getContext());
         failed.setText("⚠ 图片加载失败\n点击重试");
         failed.setTextSize(11);
-        failed.setTextColor(0xFF94A3B8);
+        failed.setTextColor(ComponentColors.textTertiary(root.getContext()));
         failed.setGravity(Gravity.CENTER);
-        failed.setBackgroundColor(0xFFF1F5F9);
+        failed.setBackgroundColor(ComponentColors.imageError(root.getContext()));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 single ? dp(root.getContext(), 120) : FrameLayout.LayoutParams.MATCH_PARENT);

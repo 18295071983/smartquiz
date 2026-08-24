@@ -109,12 +109,21 @@ public class CharsetDetector {
             }
         }
 
-        // 第 2 步：UTF-8 有效性验证
+        // 第 2 步：UTF-8 有效性验证（有效即按 UTF-8，不再要求 asciiRatio < 0.95）
+        // 修复：HTML 等以 ASCII 为主(标签/属性/CSS/JS)+少量中文的 UTF-8 文件，asciiRatio 常 >= 0.95，
+        // 此前会跳过本步掉进 GBK 启发式；而中文的 UTF-8 字节(如 你=E4 BD A0)恰好能拼出"合法 GBK
+        // 双字节对"(E4 BD、BD A0 均在 GBK 范围内)，被误判成 GB18030 解码 → 中文乱码。
+        // 安全性：真实 GBK/GB18030 中文的字节序列无法通过 UTF-8 多字节序列校验(实测无效)，
+        // 不会因本改动被误伤；极少数稀疏 GBK 文件即使通过校验，readFileAutoDetect/
+        // openBufferedReaderAutoDetect 的乱码二次校验仍会回退 GB18030。
         Utf8CheckResult utf8Check = checkUtf8Validity(bytes);
-        if (utf8Check.isValidUtf8 && utf8Check.asciiRatio < 0.95f) {
-            // 有效 UTF-8 且含多字节字符（非纯 ASCII），高置信度
-            return new DetectionResult(UTF_8, 0.95f, false,
-                    "UTF-8 序列全部有效，中文/符号字节占比: " + String.format("%.0f%%", (1 - utf8Check.asciiRatio) * 100));
+        if (utf8Check.isValidUtf8) {
+            if (utf8Check.asciiRatio < 0.95f) {
+                return new DetectionResult(UTF_8, 0.95f, false,
+                        "UTF-8 序列全部有效，中文/符号字节占比: " + String.format("%.0f%%", (1 - utf8Check.asciiRatio) * 100));
+            }
+            return new DetectionResult(UTF_8, 0.90f, false,
+                    "有效 UTF-8（以 ASCII 为主），按 UTF-8 处理");
         }
 
         // 第 3 步：GB18030/GBK 中文编码启发式检测

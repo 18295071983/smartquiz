@@ -222,7 +222,9 @@ public class AIToolManager {
         registerToolFactory("ai_weather", AIWeatherManager.class, AIWeatherManager::new);
         registerToolFactory("app_toolkit", AppToolkitAITool.class, AppToolkitAITool::new);
         registerToolFactory("create_dynamic_tool", DynamicToolManagerTool.class, DynamicToolManagerTool::new);
+        registerToolFactory("dashscope_media", DashscopeMediaTool.class, DashscopeMediaTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
+        registerToolFactory("ui_component_plugin", UIComponentPluginTool.class, UIComponentPluginTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
         registerToolFactory("update_models_profile", UpdateModelsProfileTool.class, UpdateModelsProfileTool::new);
         registerToolFactory("get_models_profile", GetModelsProfileTool.class, GetModelsProfileTool::new);
@@ -260,6 +262,13 @@ public class AIToolManager {
      * @return 工具实例，如果不存在则返回null
      */
     private AITool getOrCreateTool(String name) {
+        // 用户动态工具优先（含与内置别名同名的工具，如用户自建 system_ui_control 不被别名劫持）
+        AITool dyn = dynamicTools.get(name);
+        if (dyn != null) {
+            toolLastUseTime.put(name, System.currentTimeMillis());
+            return dyn;
+        }
+        name = resolveToolAlias(name);
         AITool tool = dynamicTools.get(name);
         if (tool != null) {
             toolLastUseTime.put(name, System.currentTimeMillis());
@@ -477,52 +486,35 @@ public class AIToolManager {
     /**
      * 获取所有工具的 OpenAI function calling 格式定义（JSON字符串）
      * 用于在线模型原生工具调用，格式：[{"type":"function","function":{"name","description","parameters":{...}}}]
+     * 包含：内置工具工厂 + 用户动态工具（修复：此前只遍历工厂，在线模型看不到动态工具）。
      */
     public String getOpenAIToolDefinitions() {
         JSONArray tools = new JSONArray();
+        java.util.Set<String> added = new java.util.HashSet<>();
+        // 内置工具工厂
         for (String toolName : toolFactories.keySet()) {
             ToolDefinition def = getToolDefinition(toolName);
             if (def == null) continue;
             try {
-                JSONObject tool = new JSONObject();
-                tool.put("type", "function");
-
-                JSONObject function = new JSONObject();
-                function.put("name", def.getName());
-                function.put("description", def.getDescription());
-
-                // 构造 JSON Schema 参数定义
-                JSONObject parameters = new JSONObject();
-                parameters.put("type", "object");
-                JSONObject properties = new JSONObject();
-                JSONArray required = new JSONArray();
-
-                if (def.getParameters() != null) {
-                    for (ParamDefinition param : def.getParameters()) {
-                        JSONObject prop = new JSONObject();
-                        // OpenAI 类型映射: java String→string, Integer/Double→number, Boolean→boolean
-                        String pType = param.getType();
-                        if (pType == null || pType.isEmpty()) pType = "string";
-                        prop.put("type", pType);
-                        prop.put("description", param.getDescription());
-                        properties.put(param.getName(), prop);
-                        if (param.isRequired()) {
-                            required.put(param.getName());
-                        }
-                    }
-                }
-                parameters.put("properties", properties);
-                if (required.length() > 0) {
-                    parameters.put("required", required);
-                }
-                function.put("parameters", parameters);
-
-                tool.put("function", function);
-                tools.put(tool);
+                tools.put(def.toOpenAIFormat());
+                added.add(def.getName());
             } catch (JSONException e) {
                 Log.w(TAG, "Failed to build OpenAI tool definition for " + toolName + ": " + e.getMessage());
             }
         }
+        // 动态工具（create_dynamic_tool / ai_create_tool 创建，含 java 与 python 两类）
+        for (AITool tool : dynamicTools.values()) {
+            if (tool == null || added.contains(tool.getName())) continue;
+            ToolDefinition def = createToolDefinitionFromAITool(tool);
+            if (def == null) continue;
+            try {
+                tools.put(def.toOpenAIFormat());
+            } catch (JSONException e) {
+                Log.w(TAG, "Failed to build OpenAI tool definition for dynamic tool "
+                        + tool.getName() + ": " + e.getMessage());
+            }
+        }
+        Log.i(TAG, "Returning " + tools.length() + " OpenAI tool definitions");
         return tools.toString();
     }
     
@@ -532,7 +524,22 @@ public class AIToolManager {
      * @return 是否存在
      */
     public boolean hasTool(String toolName) {
+        // 用户动态工具优先（别名不劫持同名动态工具）
+        if (dynamicTools.containsKey(toolName)) return true;
+        toolName = resolveToolAlias(toolName);
         return toolFactories.containsKey(toolName) || dynamicTools.containsKey(toolName);
+    }
+
+    /**
+     * 工具别名解析：历史/意图层遗留的工具名映射到真实工具。
+     * system_ui_control / ui_control → ui_component（系统UI组件控制由 ui_component 承担）。
+     */
+    private static String resolveToolAlias(String name) {
+        if (name == null) return null;
+        if ("system_ui_control".equals(name) || "ui_control".equals(name)) {
+            return "ui_component";
+        }
+        return name;
     }
     
     /**
@@ -556,6 +563,21 @@ public class AIToolManager {
      */
     public DynamicAITool createAndRegisterDynamicTool(String name, String description,
                                                   Map<String, String> parameters,
+                                                  String executionLogic) {
+        DynamicAITool tool = new DynamicAITool(context, name, description, parameters, executionLogic);
+        registerDynamicTool(tool);
+        return tool;
+    }
+
+    /**
+     * 创建并注册动态工具（结构化参数，create_dynamic_tool 修复后的主路径）
+     * @param name 工具名称
+     * @param description 工具描述
+     * @param parameters 结构化参数定义（标准 function schema），可为空
+     * @param executionLogic 执行逻辑
+     */
+    public DynamicAITool createAndRegisterDynamicTool(String name, String description,
+                                                  DynamicToolParams parameters,
                                                   String executionLogic) {
         DynamicAITool tool = new DynamicAITool(context, name, description, parameters, executionLogic);
         registerDynamicTool(tool);
@@ -610,6 +632,16 @@ public class AIToolManager {
                     }
                 }
                 obj.put("parameters", params);
+                // 结构化参数 schema（修复后主路径）：保存完整定义，重启后恢复真实类型
+                if (tool instanceof DynamicAITool) {
+                    DynamicToolParams dynParams = ((DynamicAITool) tool).getDynamicParams();
+                    if (dynParams != null && !dynParams.isEmpty()) {
+                        String schemaJson = dynParams.toJson();
+                        if (schemaJson != null) {
+                            obj.put("paramSchema", schemaJson);
+                        }
+                    }
+                }
                 arr.put(obj);
             }
             java.io.FileWriter writer = new java.io.FileWriter(getDynamicToolsFile());
@@ -663,7 +695,14 @@ public class AIToolManager {
                         restored++;
                     } else {
                         String logic = obj.optString("logic", "");
-                        DynamicAITool tool = new DynamicAITool(context, name, description, params, logic);
+                        // 优先恢复结构化参数 schema；无则回退 name→desc
+                        DynamicToolParams dynParams = null;
+                        if (obj.has("paramSchema")) {
+                            dynParams = DynamicToolParams.fromJson(obj.optString("paramSchema", ""));
+                        }
+                        DynamicAITool tool = dynParams != null && !dynParams.isEmpty()
+                                ? new DynamicAITool(context, name, description, dynParams, logic)
+                                : new DynamicAITool(context, name, description, params, logic);
                         dynamicTools.put(name, tool);
                         restored++;
                     }
@@ -727,12 +766,13 @@ public class AIToolManager {
      * 修复本地 Agent 无法调用动态工具的问题（getToolDefinition 对动态工具返回 null）。
      */
     public ToolDefinition resolveToolDefinition(String toolName) {
-        ToolDefinition def = getToolDefinition(toolName);
-        if (def != null) return def;
+        // 用户动态工具优先（避免与内置 switch 定义/别名冲突，如用户自建 system_ui_control）
         AITool dyn = dynamicTools.get(toolName);
         if (dyn != null) {
             return createToolDefinitionFromAITool(dyn);
         }
+        ToolDefinition def = getToolDefinition(toolName);
+        if (def != null) return def;
         return null;
     }
     
@@ -969,7 +1009,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库21种(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；web=网页卡片、image=图片卡片)：chart/info_card/table_card/alert_card/metric_card/steps_card/list_card/note_card/todo_card/progress_card/json_viewer/code_card/link_card/grid_card/contact_card/file_card/file_list/image_grid/quiz_card/weather_card/html；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回")
+                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回")
                     .addParameter("code", "string", "Python代码（可选，上限200KB）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
@@ -1022,24 +1062,37 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "app_operation":
-                return ToolDefinition.builder("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面")
-                    .addParameter("action", "string", "操作类型: navigate/list_pages/go_home/go_back", false, "navigate")
-                    .addParameter("page", "string", "页面名称(如user/question/quiz/study_plan/wrong_question/note/ocr/ai等)", false)
+                return ToolDefinition.builder("app_operation", "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面；navigate 用 params 动态注入页面参数（如打开 media_gen AI生图页并预填描述）")
+                    .addParameter("action", "string", "操作类型: navigate/list_pages/go_home/go_back/get_info/open_settings/share", false, "navigate")
+                    .addParameter("page", "string", "页面名称(如user/question/quiz/study_plan/note/ocr/ai等；AI生图/视频用media_gen)", false)
+                    .addParameter("params", "object", "动态注入页面参数(navigate用)，如media_gen: {\"mode\":\"image\",\"prompt\":\"一只橘猫\",\"size\":\"1024*1024\"}，页面打开即预填", false)
                     .category("app")
                     .build();
             case "create_dynamic_tool":
-                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list查看全部动态工具")
-                    .addParameter("action", "string", "操作类型: create/update/delete/list", false, "list")
+                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(参数schema+执行逻辑全文)；test用test_params试运行不落库")
+                    .addParameter("action", "string", "操作类型: create/update/delete/list/show/test", false, "list")
                     .addParameter("tool_name", "string", "工具名称", false)
                     .addParameter("description", "string", "工具描述", false)
-                    .addParameter("parameters", "string", "参数定义JSON", false)
-                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数)或DSL命令(echo/set/if/call_tool等)", false)
+                    .addParameter("parameters", "string", "参数定义，支持三种格式：1.简单{\"参数名\":\"参数描述\"}；2.属性级{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}；3.完整JSON Schema{\"type\":\"object\",\"properties\":{...},\"required\":[...]}。类型支持string/number/integer/boolean/array/object", false)
+                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)或DSL命令(echo/set/if/call_tool等)", false)
+                    .addParameter("test_params", "string", "试运行参数JSON(action=test时使用，格式{\"参数名\":值}，也可直接传参)", false)
                     .category("tool")
                     .build();
+            case "dashscope_media":
+                return ToolDefinition.builder("dashscope_media", "百炼DashScope文生图/文生视频（通义万相）：image=文生图(wan2.2-t2i-flash默认/plus)；video=文生视频(wan2.2-t2v-plus,异步提交返回task_id)；query=按task_id查询进度并下载结果。视频尺寸仅限白名单:1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624(其他报错)。生成结果保存到工作区files/，返回文件卡片/图片卡片")
+                    .addParameter("action", "string", "操作: image(文生图)/video(文生视频)/query(按task_id查询并下载)", false, "image")
+                    .addParameter("prompt", "string", "画面/视频描述（必填）", false)
+                    .addParameter("model", "string", "模型(image: wan2.2-t2i-flash默认/wan2.2-t2i-plus；video: wan2.2-t2v-plus默认)", false)
+                    .addParameter("size", "string", "尺寸(image: 1024*1024默认；video: 白名单 1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624，默认832*480)", false)
+                    .addParameter("duration", "integer", "视频时长秒数(video用，默认5)", false, 5)
+                    .addParameter("task_id", "string", "任务ID(query用)", false)
+                    .addParameter("api_key", "string", "百炼API Key(可选，默认取当前在线模型配置)", false)
+                    .category("media")
+                    .build();
             case "ui_component":
-                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。握手:create→component_id→update/close→get_result取用户操作。")
-                    .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)", true)
-                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/web/notification/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)", false)
+                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)，创建时 props 内直接带 layout 树也可现场自定义UI。握手:create→component_id→update/close/get_result。")
+                    .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)/register_type(外部注入自定义类型,persist可选)/list_types(列出注册类型)/remove_type(删除类型)/clear_temporary_types(清除临时类型)", true)
+                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,props.length设位数,默认6)/number(数字输入,props.min/max范围校验)/marquee(跑马灯滚动文字:props.text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:props传task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)", false)
                     .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)
                     .addParameter("title", "string", "标题", false)
                     .addParameter("message", "string", "内容/提示文本", false)
@@ -1050,13 +1103,32 @@ public class AIToolManager {
                     .addParameter("default_value", "string", "默认值(input/date/time/image用)", false)
                     .addParameter("input_hint", "string", "输入框提示(input用)", false)
                     .addParameter("action_label", "string", "按钮文字(snackbar用)", false)
+                    .addParameter("fields", "array", "custom动态表单字段定义数组，如[{\"key\":\"name\",\"label\":\"姓名\",\"type\":\"text\",\"required\":true},{\"key\":\"age\",\"label\":\"年龄\",\"type\":\"number\"},{\"key\":\"sex\",\"label\":\"性别\",\"type\":\"select\",\"options\":[\"男\",\"女\"]},{\"key\":\"agree\",\"label\":\"同意\",\"type\":\"switch\",\"default\":true},{\"key\":\"score\",\"label\":\"评分\",\"type\":\"slider\",\"min\":0,\"max\":10},{\"key\":\"tags\",\"label\":\"标签\",\"type\":\"checkbox\",\"options\":[\"A\",\"B\"]},{\"key\":\"birth\",\"label\":\"生日\",\"type\":\"date\"}]；字段类型:text/password/number/multiline/select/radio/checkbox/switch/slider/date", false)
                     .addParameter("items", "array", "列表项(list用)", false)
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
                     .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
                     .addParameter("auto_close", "integer", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", false)
+                    .addParameter("name", "string", "register_type/remove_type 用：自定义类型名（字母数字下划线）", false)
+                    .addParameter("render", "object", "register_type 用：渲染定义 {card:内置卡片类型 或 layout:原生控件框架树, props:固定字段}；layout 控件: column/row/scroll/text/marquee/image/input/number/button/select/switch/progress/divider，按钮可加 tool+tool_params 调后端", false)
+                    .addParameter("monitor", "object", "register_type 用（可选）：任务监控 {tool,action,poll_seconds,param_map,success_field}，创建后自动轮询", false)
                     .category("system")
                     .build();
+            case "ui_component_plugin":
+                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）。动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、monitor.tool限已注册工具。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。")
+                    .addParameter("action", "string", "操作: create/template/validate/get/list/remove/clear_temporary", true)
+                    .addParameter("name", "string", "插件名（create/get/remove 用），即新的 component_type，仅字母数字下划线", false)
+                    .addParameter("description", "string", "插件用途说明（create 用，给模型看）", false)
+                    .addParameter("params", "object", "参数 schema JSON（create 用）：{字段名: {type: string|number|boolean|array|object, required: 可选布尔, default: 可选, description: 可选, enum: 可选数组}}", false)
+                    .addParameter("render", "object", "渲染配置 JSON（create 用，可选）：{card: 项目内置卡片类型(如 info_card/progress_card), title: 标题, props: 卡片固定字段, layout: 项目原生控件框架树(JSON 声明原生 UI，见下)}。layout 示例: {root:{type:'column',children:[{type:'text',text:'标题'},{type:'input',hint:'输入',key:'name'},{type:'button',text:'提交',action:'submit'}]}}；控件 type: column/row/scroll/text/marquee(跑马灯,speed 0~3)/input/number/button/image/progress/switch/select/divider；控件属性: text/hint/key/action/url/progress/max/options 等；后端组件: button 可加 tool=后端工具名+tool_params={参数,支持{key}占位符}，点击直接调用后端工具并回传结果", false)
+                    .addParameter("monitor", "object", "任务监控配置 JSON（create 用，可选）：{tool: 已注册工具名, action: 工具action参数, poll_seconds: 轮询间隔秒数(2~30,默认5), param_map: {组件props字段: 查询参数名}, success_field: 查询结果含该字段即完成(展示该文件路径), error_field: 失败原因字段(可选)}", false)
+                    .addParameter("persist", "boolean", "生命周期（create 用）：true=长久插件落盘跨重启保留可复用(默认)；false=临时插件仅内存任务结束即消失", false)
+                    .category("system")
+                    .build();
+            case "system_ui_control":
+            case "ui_control":
+                // 遗留工具名 → ui_component（系统UI组件控制：对话框/提示条/进度条/输入等）
+                return getToolDefinition("ui_component");
             case "tool_registry":
                 return ToolDefinition.builder("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。")
                     .addParameter("action", "string", "操作: list(列出)/search(搜索)/get(取schema)", true)
@@ -1168,6 +1240,8 @@ public class AIToolManager {
     
     /**
      * 从 AITool 实例创建 ToolDefinition
+     * 动态工具（DynamicAITool）优先使用结构化参数（真实类型/必填/默认值/枚举），
+     * 其余工具回退到 name→desc（string 类型）。
      */
     private ToolDefinition createToolDefinitionFromAITool(AITool tool) {
         try {
@@ -1176,10 +1250,32 @@ public class AIToolManager {
                 tool.getDescription()
             );
             
-            Map<String, String> paramDescriptions = tool.getParameterDescriptions();
-            if (paramDescriptions != null) {
-                for (Map.Entry<String, String> entry : paramDescriptions.entrySet()) {
-                    builder.addParameter(entry.getKey(), "string", entry.getValue(), false);
+            List<com.oilquiz.app.ai.tool.openai.ParamDefinition> defs = null;
+            if (tool instanceof DynamicAITool) {
+                defs = ((DynamicAITool) tool).getParameterDefinitions();
+            }
+            if (defs == null || defs.isEmpty()) {
+                Map<String, String> paramDescriptions = tool.getParameterDescriptions();
+                if (paramDescriptions != null) {
+                    defs = new ArrayList<>();
+                    for (Map.Entry<String, String> entry : paramDescriptions.entrySet()) {
+                        defs.add(new com.oilquiz.app.ai.tool.openai.ParamDefinition(
+                                entry.getKey(), "string", entry.getValue(), false));
+                    }
+                }
+            }
+            if (defs != null) {
+                for (com.oilquiz.app.ai.tool.openai.ParamDefinition def : defs) {
+                    String type = def.getType() != null && !def.getType().isEmpty() ? def.getType() : "string";
+                    if (def.getDefaultValue() != null) {
+                        builder.addParameter(def.getName(), type, def.getDescription(),
+                                def.isRequired(), def.getDefaultValue(), def.getEnumValues());
+                    } else if (def.getEnumValues() != null && !def.getEnumValues().isEmpty()) {
+                        builder.addParameter(def.getName(), type, def.getDescription(),
+                                def.isRequired(), null, def.getEnumValues());
+                    } else {
+                        builder.addParameter(def.getName(), type, def.getDescription(), def.isRequired());
+                    }
                 }
             }
             

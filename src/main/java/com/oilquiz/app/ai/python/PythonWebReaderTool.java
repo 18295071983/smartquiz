@@ -112,7 +112,7 @@ public class PythonWebReaderTool extends BaseAITool {
             "data = %s\n" +
             "timeout = %d\n" +
             "max_chars = %d\n" +
-            "json_only = %r\n" +
+            "json_only = %s\n" +
             "\n" +
             "try:\n" +
             "    if method.upper() == 'POST':\n" +
@@ -134,7 +134,7 @@ public class PythonWebReaderTool extends BaseAITool {
             "            obj = resp.json()\n" +
             "            s = json.dumps(obj, ensure_ascii=False, indent=1)\n" +
             "            if len(s) > max_chars:\n" +
-            "                s = s[:max_chars] + '\\n...(截断，原始%d字符)' %% len(s)\n" +
+            "                s = s[:max_chars] + '\\n...(截断，原始%%d字符)' %% len(s)\n" +
             "            print('==JSON==')\n" +
             "            print(s)\n" +
             "        except Exception as e:\n" +
@@ -147,13 +147,13 @@ public class PythonWebReaderTool extends BaseAITool {
             "        text = resp.text\n" +
             "        total = len(text)\n" +
             "        if len(text) > max_chars:\n" +
-            "            text = text[:max_chars] + '\\n...(截断，原始%d字符)' %% total\n" +
+            "            text = text[:max_chars] + '\\n...(截断，原始%%d字符)' %% total\n" +
             "        print('==内容==')\n" +
             "        print(text)\n" +
             "except Exception as e:\n" +
             "    print('抓取失败: ' + str(e))\n",
             quoteString(url), quoteString(method), headers, params, data,
-            timeout, maxChars, jsonOnly
+            timeout, maxChars, jsonOnly ? "True" : "False"
         );
     }
 
@@ -211,10 +211,10 @@ public class PythonWebReaderTool extends BaseAITool {
             "        if len(links) >= 30:\n" +
             "            break\n" +
             "\n" +
-            "    main = soup.find('article') or soup.find('main') or soup.find('[role=main]') or soup.body or soup\n" +
+            "    main = soup.find('article') or soup.find('main') or soup.select_one('[role=main]') or soup.body or soup\n" +
             "    text = main.get_text('\\n', strip=True) if main else ''\n" +
             "    if len(text) > max_chars:\n" +
-            "        text = text[:max_chars] + '...(截断，原始%d字符)' %% len(text)\n" +
+            "        text = text[:max_chars] + '...(截断，原始%%d字符)' %% len(text)\n" +
             "\n" +
             "    tables = []\n" +
             "    for t in soup.find_all('table'):\n" +
@@ -245,11 +245,11 @@ public class PythonWebReaderTool extends BaseAITool {
             "    print('==正文==')\n" +
             "    print(text)\n" +
             "    if links:\n" +
-            "        print('==链接(前%d)==' %% len(links))\n" +
+            "        print('==链接(前%%d)==' %% len(links))\n" +
             "        for l in links:\n" +
             "            print(l['text'] + ' -> ' + l['url'])\n" +
             "    if tables:\n" +
-            "        print('==表格(前%d个)==' %% len(tables))\n" +
+            "        print('==表格(前%%d个)==' %% len(tables))\n" +
             "        for ti, t in enumerate(tables):\n" +
             "            header = ' | '.join(str(c) for c in t[0]) if t else ''\n" +
             "            print('表格' + str(ti) + ': ' + header)\n" +

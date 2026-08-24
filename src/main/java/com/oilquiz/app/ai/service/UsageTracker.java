@@ -95,6 +95,15 @@ public class UsageTracker {
                 String lowerUrl = apiUrl.toLowerCase();
                 if (lowerUrl.contains("anthropic")) {
                     return fetchAnthropicUsage(apiUrl, apiKey, period);
+                } else if (lowerUrl.contains("dashscope") || lowerUrl.contains("aliyun")
+                        || lowerUrl.contains("maas.aliyuncs.com")) {
+                    // 阿里云百炼（公共端点 / 专属空间）：无标准 usage/balance 接口，
+                    // 用量只能在阿里云控制台查看。友好提示而非"使用量 API 不可用"报错
+                    //（连通性已由 models 接口验证，此处不重复失败）。
+                    UsageInfo info = new UsageInfo();
+                    info.supported = false;
+                    info.errorMessage = "百炼用量请在阿里云控制台查看（应用内不查询余额/用量）";
+                    return info;
                 } else if (lowerUrl.contains("openai") || lowerUrl.contains("azure")) {
                     return fetchOpenAIUsage(apiUrl, apiKey, period);
                 } else {

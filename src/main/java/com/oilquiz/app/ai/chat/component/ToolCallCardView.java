@@ -71,15 +71,15 @@ public class ToolCallCardView implements ChatComponent {
         switch (status) {
             case "success":
                 statusText = " ✅ " + summary;
-                statusColor = 0xFF10B981;
+                statusColor = ComponentColors.success(context);
                 break;
             case "failed":
                 statusText = " ❌ " + (TextUtils.isEmpty(summary) ? "失败" : summary);
-                statusColor = 0xFFEF4444;
+                statusColor = ComponentColors.error(context);
                 break;
             default:
                 statusText = " ⏳ 执行中";
-                statusColor = 0xFF4C8DFF;
+                statusColor = ComponentColors.accent(context);
                 break;
         }
         statusTv.setText(statusText);

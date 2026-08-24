@@ -12,7 +12,7 @@ import java.util.Map;
 
 @Tool(
     value = "app_operation",
-    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面",
+    description = "应用内部页面跳转工具，支持跳转到用户、题库、答题、学习计划、错题本等各种页面；navigate 可用 params 参数动态注入页面参数（如打开 AI生图页并预填描述）",
     category = "app",
     aliases = {"navigate", "go_to", "open_page", "跳转", "页面导航", "设置", "分享"},
     actions = {
@@ -26,7 +26,8 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型: navigate/list_pages/go_home/go_back/get_info/open_settings/share", required = true),
-        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等)", required = false),
+        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等;AI生图/文生视频用media_gen)", required = false),
+        @Param(name = "params", type = "object", description = "动态注入页面参数(navigate用)，如media_gen页: {\"mode\":\"image\",\"prompt\":\"一只橘猫\",\"model\":\"wan2.2-t2i-flash\",\"size\":\"1024*1024\",\"duration\":\"5\"}，页面打开即预填", required = false),
         @Param(name = "setting", type = "string", description = "设置项: wifi/bluetooth/location/display/sound/storage/app", required = false),
         @Param(name = "text", type = "string", description = "分享的文本内容", required = false),
         @Param(name = "title", type = "string", description = "分享标题（可选）", required = false)
@@ -97,6 +98,13 @@ public class AppOperationTool implements AITool {
             PAGE_MAP.put("AI服务状态", Class.forName("com.oilquiz.app.ui.activity.AIServiceStatusActivity"));
             PAGE_MAP.put("toolbox", Class.forName("com.oilquiz.app.ui.activity.ToolboxActivity"));
             PAGE_MAP.put("工具箱", Class.forName("com.oilquiz.app.ui.activity.ToolboxActivity"));
+            PAGE_MAP.put("media_gen", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("AI生图", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("AI生视频", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("文生图", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("文生视频", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("生图", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
+            PAGE_MAP.put("生视频", Class.forName("com.oilquiz.app.ui.activity.MediaGenActivity"));
             PAGE_MAP.put("home", Class.forName("com.oilquiz.app.MainActivity"));
             PAGE_MAP.put("主页", Class.forName("com.oilquiz.app.MainActivity"));
             PAGE_MAP.put("首页", Class.forName("com.oilquiz.app.MainActivity"));
@@ -168,6 +176,27 @@ public class AppOperationTool implements AITool {
         try {
             Intent intent = new Intent(context, targetClass);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // 动态参数注入：params（JSON 对象或字符串）→ intent extras，目标页面读取并预填。
+            // 例：app_operation navigate page=media_gen params={"mode":"image","prompt":"一只橘猫","size":"1024*1024"}
+            Object paramsObj = parameters.get("params");
+            if (paramsObj != null) {
+                try {
+                    org.json.JSONObject pj;
+                    if (paramsObj instanceof String) {
+                        pj = new org.json.JSONObject((String) paramsObj);
+                    } else {
+                        pj = new org.json.JSONObject(new com.google.gson.Gson().toJson(paramsObj));
+                    }
+                    java.util.Iterator<String> keys = pj.keys();
+                    while (keys.hasNext()) {
+                        String k = keys.next();
+                        Object v = pj.opt(k);
+                        intent.putExtra(k, v != null ? String.valueOf(v) : "");
+                    }
+                } catch (Exception e) {
+                    AILogger.w(TAG, "params 注入失败: " + e.getMessage());
+                }
+            }
             context.startActivity(intent);
 
             Map<String, Object> result = new HashMap<>();
@@ -312,7 +341,8 @@ public class AppOperationTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
         descriptions.put("action", "操作类型: navigate(导航), list_pages(列出页面), get_info(获取信息), open_settings(打开设置), share(分享)");
-        descriptions.put("page", "目标页面名称，例如: home, ai, quiz, user, theme 等");
+        descriptions.put("page", "目标页面名称，例如: home, ai, quiz, user, theme, media_gen(AI生图/视频) 等");
+        descriptions.put("params", "动态注入页面参数(navigate用)，如 media_gen: {\"mode\":\"image\",\"prompt\":\"一只橘猫\",\"size\":\"1024*1024\"}，页面打开即预填");
         descriptions.put("setting", "设置项: wifi, bluetooth, location, display, sound, storage, app");
         descriptions.put("text", "分享的文本内容");
         descriptions.put("title", "分享标题");

@@ -18,7 +18,7 @@ import java.util.Iterator;
  *
  * Agent/工具动态创建的自定义组件类型（未注册专用渲染器）也必须在对话界面可用：
  * 以通用卡片展示标题 + 数据（键值行/数组/嵌套 JSON），保证任何动态类型都不静默消失。
- * 内置 20 种组件走专用渲染，本组件仅作为 ComponentRegistry 未命中时的兜底。
+ * 内置组件走专用渲染，本组件仅作为 ComponentRegistry 未命中时的兜底。
  */
 public class DynamicCardView implements ChatComponent {
 

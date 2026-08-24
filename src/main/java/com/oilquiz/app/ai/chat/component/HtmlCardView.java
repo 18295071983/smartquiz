@@ -251,7 +251,7 @@ public class HtmlCardView implements ChatComponent {
             }
             webView.loadUrl(url);
         } else {
-            String fullHtml = wrapHtml(html);
+            String fullHtml = wrapHtml(html, isNightMode(context));
             webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
         }
 
@@ -265,23 +265,35 @@ public class HtmlCardView implements ChatComponent {
     /**
      * 包裹完整 HTML：非完整文档时补 viewport（手机竖屏适配）+ 基础样式。
      * 预览与全屏页（临时文件）共用，保证两处渲染一致。
+     * 深色模式使用深色文字/表格/代码配色，避免白底刺眼。
      */
-    private static String wrapHtml(String html) {
+    private static String wrapHtml(String html, boolean dark) {
         if (html == null) return "";
         String lower = html.toLowerCase();
         if (lower.contains("<!doctype") || lower.contains("<html")) {
             return html;
         }
+        String bodyColor = dark ? "#D1D5DB" : "#333333";
+        String borderColor = dark ? "#4B5563" : "#cccccc";
+        String preBg = dark ? "#1F2937" : "#f5f5f5";
+        String codeBg = dark ? "#374151" : "#f0f0f0";
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
                 + "<style>html,body{margin:0;padding:0;background:transparent;}"
                 + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
-                + "color:#333333;word-break:break-word;padding:2px;}"
+                + "color:" + bodyColor + ";word-break:break-word;padding:2px;}"
                 + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
-                + "td,th{border:1px solid #cccccc;padding:4px 6px;font-size:13px;}"
-                + "pre{background:#f5f5f5;padding:8px;border-radius:6px;overflow-x:auto;}"
-                + "code{background:#f0f0f0;padding:1px 4px;border-radius:4px;font-size:13px;}"
+                + "td,th{border:1px solid " + borderColor + ";padding:4px 6px;font-size:13px;}"
+                + "pre{background:" + preBg + ";padding:8px;border-radius:6px;overflow-x:auto;}"
+                + "code{background:" + codeBg + ";padding:1px 4px;border-radius:4px;font-size:13px;}"
                 + "</style></head><body>" + html + "</body></html>";
+    }
+
+    /** 当前是否深色模式（决定 HTML 基础样式的文字/背景配色） */
+    private static boolean isNightMode(Context context) {
+        return (context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
     /**
@@ -356,7 +368,7 @@ public class HtmlCardView implements ChatComponent {
             java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
             try {
                 // 与预览一致的包裹逻辑：补 viewport，全屏页不再"横屏"
-                fos.write(wrapHtml(html).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                fos.write(wrapHtml(html, isNightMode(context)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             } finally {
                 fos.close();
             }

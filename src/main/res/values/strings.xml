@@ -503,6 +503,8 @@
     <!-- 在线模型配置 - 服务类型 -->
     <string name="service_type_openai">OpenAI 兼容</string>
     <string name="service_type_dashscope">百炼 DashScope</string>
+<string name="service_type_dashscope_multimodal">百炼 DashScope 多模态</string>
+<string name="service_type_dashscope_maas">百炼专属空间(MaaS)</string>
     <string name="service_type_glm">智谱 GLM</string>
     <string name="service_type_hunyuan">腾讯混元</string>
     <string name="service_type_xfyun">讯飞</string>
@@ -518,6 +520,8 @@
     <string-array name="service_types_default">
         <item>@string/service_type_openai</item>
         <item>@string/service_type_dashscope</item>
+        <item>@string/service_type_dashscope_multimodal</item>
+        <item>@string/service_type_dashscope_maas</item>
         <item>@string/service_type_glm</item>
         <item>@string/service_type_hunyuan</item>
         <item>@string/service_type_xfyun</item>

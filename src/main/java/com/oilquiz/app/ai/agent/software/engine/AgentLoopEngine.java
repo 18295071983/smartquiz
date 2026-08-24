@@ -92,9 +92,11 @@ public class AgentLoopEngine {
         TOOL_LABELS.put("excel_tool", "Excel");
         TOOL_LABELS.put("workspace", "工作区");
         TOOL_LABELS.put("image_gen", "图片生成");
+        TOOL_LABELS.put("dashscope_media", "百炼文生图/视频");
         TOOL_LABELS.put("python_execute", "代码");
         TOOL_LABELS.put("app_operation", "应用");
-        TOOL_LABELS.put("system_ui_control", "系统UI");
+        TOOL_LABELS.put("ui_component", "系统UI");
+        TOOL_LABELS.put("system_ui_control", "系统UI"); // 遗留名，保留标签兼容
         TOOL_LABELS.put("memory", "记忆");
         TOOL_LABELS.put("deepseek_balance", "余额");
         TOOL_LABELS.put("deepseek_usage_calc", "用量");
@@ -121,6 +123,9 @@ public class AgentLoopEngine {
             {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
             {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
             {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
+            {"ui_component", "对话框,弹窗,toast,提示条,提示框,进度条,进度显示,进度汇报,弹个框,提示一下,弹窗显示"},
+            {"ui_component_plugin", "组件插件,插件系统,创建插件,注册插件,自定义组件,原生ui插件,ui插件,新建组件类型,自定义ui,原生控件,布局框架"},
+            {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
     /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
     private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search"};
@@ -133,7 +138,6 @@ public class AgentLoopEngine {
             {"dynamic_clock", "时间,日期,现在几点,时钟,星期几"},
             {"clean_import_files", "清理模型,删除模型,模型清理,清理文件"},
             {"show_progress", "进度,进度条,汇报进度"},
-            {"system_ui_control", "对话框,弹窗,toast,提示框,进度条显示"},
     };
 
     private final AIService aiService;
@@ -1748,13 +1752,30 @@ public class AgentLoopEngine {
                     putStr(args, "action", slots.getOrDefault("action", "list"));
                 } else if ("image_gen".equals(tool)) {
                     putStr(args, "prompt", slots.get("prompt"));
+                } else if ("dashscope_media".equals(tool)) {
+                    putStr(args, "action", slots.getOrDefault("action", "video"));
+                    putStr(args, "prompt", slots.get("prompt"));
+                    putStr(args, "size", slots.get("size"));
+                    putStr(args, "duration", slots.get("duration"));
                 } else if ("python_execute".equals(tool)) {
                     putStr(args, "code", slots.get("code"));
                 } else if ("app_operation".equals(tool)) {
                     putStr(args, "action", "open");
                     putStr(args, "text", slots.get("app"));
-                } else if ("system_ui_control".equals(tool)) {
-                    putStr(args, "action", slots.get("action"));
+                } else if ("ui_component".equals(tool) || "system_ui_control".equals(tool)) {
+                    // 系统UI组件控制：意图层传 action(对话框/提示条/进度条) + message，
+                    // 映射为 ui_component 的 create + component_type
+                    String action = slots.getOrDefault("action", "show_toast");
+                    putStr(args, "action", "create");
+                    String actionLower = action != null ? action.toLowerCase() : "";
+                    if (actionLower.contains("对话框") || actionLower.contains("dialog")
+                            || actionLower.contains("确认") || actionLower.contains("警告")) {
+                        putStr(args, "component_type", "dialog");
+                    } else if (actionLower.contains("进度") || actionLower.contains("progress")) {
+                        putStr(args, "component_type", "progress");
+                    } else {
+                        putStr(args, "component_type", "snackbar"); // 提示条/toast 默认
+                    }
                     putStr(args, "message", slots.get("message"));
                     putStr(args, "title", slots.get("title"));
                 } else if ("memory".equals(tool)) {

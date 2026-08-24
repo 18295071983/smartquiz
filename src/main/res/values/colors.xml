@@ -305,22 +305,29 @@
     <color name="tempbar_hot">#EF4444</color>
 
     <!-- ========== 对话组件色板（ChartCard / InfoCard / FileCard 等） ========== -->
+    <!-- 强调/语义色与主题品牌色对齐（primary #8B5CF6 / accent #06B6D4 / success #10B981 / warning #F59E0B / error #EF4444） -->
     <color name="component_text_primary">#1F2937</color>
     <color name="component_text_secondary">#64748B</color>
     <color name="component_text_tertiary">#94A3B8</color>
-    <color name="component_accent">#4C8DFF</color>
+    <color name="component_accent">#8B5CF6</color>
     <color name="component_bg">#F8FAFC</color>
     <color name="component_border">#E2E8F0</color>
-    <color name="component_success">#2ECC71</color>
-    <color name="component_warning">#F1C40F</color>
-    <color name="component_error">#E74C3C</color>
-    <color name="chart_1">#4C8DFF</color>
-    <color name="chart_2">#FF8C42</color>
-    <color name="chart_3">#2ECC71</color>
-    <color name="chart_4">#9B59B6</color>
-    <color name="chart_5">#E74C3C</color>
-    <color name="chart_6">#1ABC9C</color>
-    <color name="chart_7">#F1C40F</color>
-    <color name="chart_8">#E67E22</color>
+    <color name="component_success">#10B981</color>
+    <color name="component_warning">#F59E0B</color>
+    <color name="component_error">#EF4444</color>
+    <!-- 组件内部用色（深色模式在 values-night 覆盖） -->
+    <color name="component_field_bg">#F1F5F9</color>
+    <color name="component_rating_empty">#D1D5DB</color>
+    <color name="component_image_placeholder">#EEEEEE</color>
+    <color name="component_image_error">#FDECEC</color>
+    <!-- 图表系列色（与主题色板一致：主紫/青/绿/琥珀/红/蓝/粉/石板灰） -->
+    <color name="chart_1">#8B5CF6</color>
+    <color name="chart_2">#06B6D4</color>
+    <color name="chart_3">#10B981</color>
+    <color name="chart_4">#F59E0B</color>
+    <color name="chart_5">#EF4444</color>
+    <color name="chart_6">#3B82F6</color>
+    <color name="chart_7">#EC4899</color>
+    <color name="chart_8">#64748B</color>
 
 </resources>

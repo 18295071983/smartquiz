@@ -47,6 +47,8 @@ public class AICenterActivity extends AppCompatActivity
     private MaterialButton btnTranslator;
     private MaterialButton btnAIChat;
     private MaterialButton btnIconDemo;
+    private MaterialButton btnAIImage;
+    private MaterialButton btnAIVideo;
 
     // 在线模型组件
     private SwitchMaterial switchOnlineMode;
@@ -215,6 +217,8 @@ public class AICenterActivity extends AppCompatActivity
         btnTranslator = findViewById(R.id.btn_translator);
         btnAIChat = findViewById(R.id.btn_ai_chat);
         btnIconDemo = findViewById(R.id.btn_icon_demo);
+        btnAIImage = findViewById(R.id.btn_ai_image);
+        btnAIVideo = findViewById(R.id.btn_ai_video);
 
         // 在线模型组件初始化
         switchOnlineMode = findViewById(R.id.switch_online_mode);
@@ -258,6 +262,12 @@ public class AICenterActivity extends AppCompatActivity
         updateServiceStatus();
     }
 
+    private void openMediaGen(String mode) {
+        Intent intent = new Intent(AICenterActivity.this, MediaGenActivity.class);
+        intent.putExtra("mode", mode);
+        startActivity(intent);
+    }
+
     private void setupClickListeners() {
         cardServiceStatus.setOnClickListener(v -> {
             startActivity(new Intent(AICenterActivity.this, ApiConfigActivity.class));
@@ -298,6 +308,13 @@ public class AICenterActivity extends AppCompatActivity
             btnIconDemo.setOnClickListener(v -> {
                 startActivity(new Intent(AICenterActivity.this, AIIconDemoActivity.class));
             });
+        }
+
+        if (btnAIImage != null) {
+            btnAIImage.setOnClickListener(v -> openMediaGen("image"));
+        }
+        if (btnAIVideo != null) {
+            btnAIVideo.setOnClickListener(v -> openMediaGen("video"));
         }
 
         // 在线模型按钮点击事件

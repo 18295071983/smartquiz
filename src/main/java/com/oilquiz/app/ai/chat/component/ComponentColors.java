@@ -59,6 +59,32 @@ public final class ComponentColors {
         return ContextCompat.getColor(context, R.color.component_border);
     }
 
+    /** 表单字段背景（日期/时间选择器输入底） */
+    public static int fieldBg(Context context) {
+        return ContextCompat.getColor(context, R.color.component_field_bg);
+    }
+
+    /** 评分未选中星色 */
+    public static int ratingEmpty(Context context) {
+        return ContextCompat.getColor(context, R.color.component_rating_empty);
+    }
+
+    /** 图片加载占位色 */
+    public static int imagePlaceholder(Context context) {
+        return ContextCompat.getColor(context, R.color.component_image_placeholder);
+    }
+
+    /** 图片加载失败底色 */
+    public static int imageError(Context context) {
+        return ContextCompat.getColor(context, R.color.component_image_error);
+    }
+
+    /** 强调色叠加底色（如按钮/表头高亮，10% 透明度） */
+    public static int accentOverlay(Context context) {
+        int accent = accent(context);
+        return (accent & 0x00FFFFFF) | 0x1A000000;
+    }
+
     /** 图表系列色（循环取色） */
     public static int chartColor(Context context, int index) {
         int[] chartColors = {

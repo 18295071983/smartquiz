@@ -17,6 +17,78 @@ import re
 from contextlib import redirect_stdout, redirect_stderr
 
 
+def _is_return_outside_function(err: SyntaxError) -> bool:
+    """判断 SyntaxError 是否为模块级 return（'return' outside function）"""
+    msg = str(getattr(err, "msg", "") or "")
+    return "outside function" in msg and "return" in msg
+
+
+def _normalize_variables(variables):
+    """把传入脚本的变量安全转成 Python dict。
+
+    修复：TypeError: 'HashMap' object is not iterable —— Android 端经 Chaquopy
+    PyObject.fromJava 传入的 java.util.Map 是 Java 对象包装（PyJavaInstance），
+    Java Map 不是 Iterable，execute_code 里 namespace.update(variables) 会直接崩溃，
+    导致动态 Python 工具（video_gen_auto 等）提交/查询/下载全部报 HashMap 错误。
+    """
+    if variables is None:
+        return {}
+    if isinstance(variables, dict):
+        return dict(variables)
+    out = {}
+    # Chaquopy Java Map 包装：keySet() 是 Iterable，可迭代；get(k) 取键值
+    try:
+        if hasattr(variables, "keySet") and hasattr(variables, "get"):
+            for k in variables.keySet():
+                out[str(k)] = variables.get(k)
+            return out
+    except Exception:
+        out = {}
+    # 通用兜底：items() / dict()
+    try:
+        for k, v in variables.items():
+            out[str(k)] = v
+        return out
+    except Exception:
+        pass
+    try:
+        return dict(variables)
+    except Exception:
+        return out
+
+
+def _wrap_top_level_return(code: str) -> str:
+    """
+    把含模块级 return 的脚本包进函数执行（修复：exec 直接执行时顶层 return 是 SyntaxError）。
+
+    变换策略：
+      - 整段脚本按最小缩进去缩进后包进 __oilquiz_dyn_main__()；
+      - 函数结尾补 return locals().get('result', None)：兼容旧约定（脚本内用
+        result 变量传输出）与新的顶层 return 两种写法；
+      - 模块级再执行 result = __oilquiz_dyn_main__()，维持 execute_code 读取
+        namespace['result'] 的既有输出通道。
+
+    仅在原代码编译失败且错误确为顶层 return 时启用，不影响其他脚本。
+    """
+    lines = code.splitlines()
+    body_lines = [l for l in lines if l.strip() and not l.lstrip().startswith("#")]
+    min_indent = min(len(l) - len(l.lstrip()) for l in body_lines) if body_lines else 0
+
+    out = ["def __oilquiz_dyn_main__():", ""]
+    for l in lines:
+        if l.strip():
+            # 行首整体去 min_indent 后统一缩进 4 格，保持相对缩进（含多行字符串内容行）
+            out.append("    " + (l[min_indent:] if len(l) >= min_indent else l))
+        else:
+            out.append("")
+    out.append("    return locals().get('result', None)")
+    out.append("")
+    out.append("__oilquiz_dyn_result__ = __oilquiz_dyn_main__()")
+    out.append("if __oilquiz_dyn_result__ is not None:")
+    out.append("    result = __oilquiz_dyn_result__")
+    return "\n".join(out)
+
+
 class PythonToolEngine:
     """
     Python 工具引擎
@@ -157,7 +229,8 @@ class PythonToolEngine:
         }
         
         if variables:
-            namespace.update(variables)
+            # 兼容 Java（Chaquopy HashMap）传入：Java Map 不是 Iterable，直接 update 会崩
+            namespace.update(_normalize_variables(variables))
         
         # UI 操作记录
         ui_action_log = []
@@ -174,11 +247,21 @@ class PythonToolEngine:
         def run_code():
             nonlocal result
             try:
+                to_exec = code
+                # 顶层 return 支持：模块级 return 在编译期就是 SyntaxError（'return' outside
+                # function），检测到后自动把脚本包进函数执行（返回值/result 变量均兼容）。
+                # 只影响原本必然失败的脚本，不改变其他脚本行为。
+                try:
+                    compile(to_exec, '<dynamic-code>', 'exec')
+                except SyntaxError as _se:
+                    if _is_return_outside_function(_se):
+                        to_exec = _wrap_top_level_return(to_exec)
+
                 if capture_output:
                     with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                        exec(code, namespace, namespace)
+                        exec(to_exec, namespace, namespace)
                 else:
-                    exec(code, namespace, namespace)
+                    exec(to_exec, namespace, namespace)
                 
                 result["success"] = True
                 if "result" in namespace:

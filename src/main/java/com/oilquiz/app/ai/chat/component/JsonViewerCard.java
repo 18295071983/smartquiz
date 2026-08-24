@@ -64,7 +64,7 @@ public class JsonViewerCard implements ChatComponent {
         jsonTv.setTypeface(Typeface.MONOSPACE);
         jsonTv.setLineSpacing(0, 1.2f);
         jsonTv.setTextIsSelectable(true);
-        jsonTv.setBackgroundColor(0x0D000000);
+        jsonTv.setBackgroundColor(ComponentColors.fieldBg(context));
         jsonTv.setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6));
 
         int maxHeight = p.optInt("maxHeight", 200);
