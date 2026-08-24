@@ -32,7 +32,7 @@ import java.util.Map;
  */
 @Tool(
     value = "ui_component",
-    description = "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker文件选择/image_picker选图/contact_picker联系人/rating评分/color取色/otp验证码/number数字/marquee跑马灯滚动文字/media_task文生图文生视频任务监控)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout原生控件树),创建时也可直接传 props 内 layout 现场自定义UI。握手:create→component_id→update/close→get_result取用户操作。",
+    description = "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker文件选择/image_picker选图/contact_picker联系人/rating评分/color取色/otp验证码/number数字/marquee跑马灯滚动文字/media_task文生图文生视频任务监控)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout原生控件树),创建时可直接传 props/render/layout(三种等效) 带 layout 树现场自定义UI。参数可放顶层或 props 内(等效,自动合并,props内已有值优先)。握手:create→component_id→update/close→get_result取用户操作。",
     category = "system",
     actions = {
         @Action(name = "create", description = "创建系统UI组件（component_type=组件类型，返回component_id）"),
@@ -46,7 +46,7 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "操作: create/update/close/get_result", required = true),
-        @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom(动态自定义原生表单,props.fields定义字段)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,props.length设位数,默认6)/number(数字输入,props.min/max范围校验)/marquee(跑马灯滚动文字,props.text=滚动内容,speed=速度0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控,props传task_id+type=image|video+api_url+api_key,自动轮询查询状态,完成后展示图片或视频并可播放/分享)/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card); web=网页卡片, image=图片卡片", required = false),
+        @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom(动态自定义原生表单,fields参数定义字段)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字,text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控,task_id+type=image|video+api_url+api_key,自动轮询查询状态,完成后展示图片或视频并可播放/分享)/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card); web=网页卡片, image=图片卡片。各组件参数可放顶层或 props 内(等效,自动合并)", required = false),
         @Param(name = "component_id", type = "string", description = "组件ID（update/close/get_result用）", required = false),
         @Param(name = "title", type = "string", description = "标题", required = false),
         @Param(name = "message", type = "string", description = "内容/提示文本", required = false),
@@ -92,7 +92,7 @@ public class SystemUIComponentTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker/image_picker/contact_picker/rating/color/otp/number/marquee跑马灯/media_task任务监控)或内置卡片(chart/info_card/table_card等,见component_type参数)。插件组件(ui_component_plugin注册)可用 update 传 props 动态注入参数刷新。有结构信息一律用组件卡片展示,不用Markdown表格。握手:create→component_id→update/close→get_result取用户操作。";
+        return "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker/image_picker/contact_picker/rating/color/otp/number/marquee跑马灯/media_task任务监控)或内置卡片(chart/info_card/table_card等,见component_type参数)。插件组件(ui_component_plugin注册)可用 update 传 props 动态注入参数刷新。有结构信息一律用组件卡片展示,不用Markdown表格。参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result取用户操作。";
     }
 
     @Override
@@ -119,11 +119,13 @@ public class SystemUIComponentTool implements AITool {
                     // props/layout 或 render 参数带 layout 则降级为自定义渲染（layout 树直渲），否则报错
                     if (!isNativeComponentType(componentType) && !isRegisteredCardType(componentType)
                             && !isRegisteredType && !isPlugin) {
-                        // 降级：props 内带 layout 或 render 参数带 layout → 按原生控件框架渲染（现场自定义 UI）
+                        // 降级：props 内带 layout、render 参数带 layout、或顶层直接传 layout 树
+                        // → 按原生控件框架渲染（现场自定义 UI）
                         Object propsRaw = parameters.get("props");
                         Object renderRaw = parameters.get("render");
                         boolean hasLayout = (propsRaw != null && String.valueOf(propsRaw).contains("\"layout\""))
-                                || (renderRaw != null && String.valueOf(renderRaw).contains("\"layout\""));
+                                || (renderRaw != null && String.valueOf(renderRaw).contains("\"layout\""))
+                                || parameters.get("layout") != null;
                         if (hasLayout) {
                             isRegisteredType = true; // 走自定义渲染（createUiComponent 遇 layout 直渲）
                         } else {
@@ -624,6 +626,11 @@ public class SystemUIComponentTool implements AITool {
         putIfNotNull(params, "url", parameters.get("url"));
         putIfNotNull(params, "click_action", parameters.get("click_action"));
         putIfNotNull(params, "auto_close", parameters.get("auto_close"));
+        // max 兼容两种传法：max_value（schema）或 max（直接）
+        putIfNotNull(params, "max", parameters.get("max_value"));
+        if (!params.containsKey("max") && parameters.get("max") != null) {
+            params.put("max", parameters.get("max"));
+        }
         // fields（custom 动态表单字段定义）：Map/List 或 JSON 字符串统一转 JSON 字符串
         Object fieldsObj = parameters.get("fields");
         if (fieldsObj != null) {
@@ -666,6 +673,28 @@ public class SystemUIComponentTool implements AITool {
                     params.put("items", String.valueOf(itemsObj));
                 }
             }
+        }
+        // 通用参数透传：模型常把组件参数放顶层（而非 schema 要求的 props 内），
+        // 未识别的顶层参数（fields/length/min/max/task_id/自定义插件参数/marquee 的
+        // text/speed/bold/size/color/repeat 等）全部并入 props，保证 createComponent
+        // 各分支能读到完整参数。已提取到 params 顶层的固定字段与 props 内已有键优先。
+        try {
+            org.json.JSONObject pj = params.get("props") != null
+                    ? new org.json.JSONObject(String.valueOf(params.get("props"))) : new org.json.JSONObject();
+            java.util.Set<String> extracted = new java.util.HashSet<>(java.util.Arrays.asList(
+                    "title", "message", "html", "dialog_type", "max_value", "options",
+                    "default_value", "input_hint", "action_label", "url", "click_action",
+                    "auto_close", "fields", "items", "props", "max"));
+            for (java.util.Map.Entry<String, Object> e : parameters.entrySet()) {
+                String k = e.getKey();
+                if (k == null || e.getValue() == null) continue;
+                if (extracted.contains(k)) continue;
+                if ("action".equals(k) || "component_type".equals(k) || "component_id".equals(k)) continue;
+                if (pj.has(k)) continue; // props 内已有优先
+                pj.put(k, e.getValue());
+            }
+            params.put("props", pj.toString());
+        } catch (Exception ignored) {
         }
         return params;
     }
@@ -735,7 +764,7 @@ public class SystemUIComponentTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> desc = new HashMap<>();
         desc.put("action", "操作: create/update/close/get_result");
-        desc.put("component_type", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/notification/custom(动态自定义原生表单,用fields定义字段)/marquee(跑马灯滚动文字,props.text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:props传task_id,type=image|video,api_url,api_key;自动轮询状态,完成后展示图片或视频并可播放/分享)/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card); web=网页卡片(传url或html), image=图片卡片(传default_value或props.images)");
+        desc.put("component_type", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/notification/custom(动态自定义原生表单,用fields定义字段)/marquee(跑马灯滚动文字,text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key;自动轮询状态,完成后展示图片或视频并可播放/分享)/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card); web=网页卡片(传url或html), image=图片卡片(传default_value或images)。参数可放顶层或props内(等效,自动合并)");
         desc.put("component_id", "组件ID（update/close/get_result用）");
         desc.put("title", "标题");
         desc.put("message", "内容/提示文本");

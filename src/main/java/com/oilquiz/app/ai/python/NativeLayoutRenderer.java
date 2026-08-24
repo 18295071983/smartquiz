@@ -336,19 +336,21 @@ public class NativeLayoutRenderer {
                 final TextView tv = new TextView(context);
                 final String defVal = node.has("value") ? node.optString("value", "")
                         : node.optString("default", "");
-                final String[] cur = {defVal.isEmpty() ? "点击选择日期" : defVal};
-                tv.setText(cur[0]);
+                final String[] cur = {defVal};
+                tv.setText(cur[0].isEmpty() ? "点击选择日期" : cur[0]);
                 tv.setTextSize(14);
-                tv.setPadding(0, dp(6, density), 0, dp(6, density));
-                tv.setBackgroundColor(com.oilquiz.app.ai.chat.component.ComponentColors.fieldBg(context));
+                tv.setPadding(dp(8, density), dp(6, density), dp(8, density), dp(6, density));
+                tv.setBackground(fieldBackground(context, density));
                 final String key = node.optString("key", "");
                 tv.setOnClickListener(v -> {
                     java.util.Calendar cal = java.util.Calendar.getInstance();
                     try {
-                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                "yyyy-MM-dd", java.util.Locale.getDefault());
-                        java.util.Date d = sdf.parse(cur[0]);
-                        if (d != null) cal.setTime(d);
+                        if (!cur[0].isEmpty()) {
+                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                                    "yyyy-MM-dd", java.util.Locale.getDefault());
+                            java.util.Date d = sdf.parse(cur[0]);
+                            if (d != null) cal.setTime(d);
+                        }
                     } catch (Exception ignored) {
                     }
                     new android.app.DatePickerDialog(context,
@@ -361,26 +363,28 @@ public class NativeLayoutRenderer {
                             cal.get(java.util.Calendar.MONTH),
                             cal.get(java.util.Calendar.DAY_OF_MONTH)).show();
                 });
-                if (!key.isEmpty()) viewRefs.put(key, tv);
+                if (!key.isEmpty()) viewRefs.put(key, new DateRef(cur)); // 未选择时收集空串（不把占位文本当值）
                 return tv;
             }
             case "time": {
                 final TextView tv = new TextView(context);
                 final String defVal = node.has("value") ? node.optString("value", "")
                         : node.optString("default", "");
-                final String[] cur = {defVal.isEmpty() ? "点击选择时间" : defVal};
-                tv.setText(cur[0]);
+                final String[] cur = {defVal};
+                tv.setText(cur[0].isEmpty() ? "点击选择时间" : cur[0]);
                 tv.setTextSize(14);
-                tv.setPadding(0, dp(6, density), 0, dp(6, density));
-                tv.setBackgroundColor(com.oilquiz.app.ai.chat.component.ComponentColors.fieldBg(context));
+                tv.setPadding(dp(8, density), dp(6, density), dp(8, density), dp(6, density));
+                tv.setBackground(fieldBackground(context, density));
                 final String key = node.optString("key", "");
                 tv.setOnClickListener(v -> {
                     java.util.Calendar cal = java.util.Calendar.getInstance();
                     try {
-                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                "HH:mm", java.util.Locale.getDefault());
-                        java.util.Date d = sdf.parse(cur[0]);
-                        if (d != null) cal.setTime(d);
+                        if (!cur[0].isEmpty()) {
+                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                                    "HH:mm", java.util.Locale.getDefault());
+                            java.util.Date d = sdf.parse(cur[0]);
+                            if (d != null) cal.setTime(d);
+                        }
                     } catch (Exception ignored) {
                     }
                     new android.app.TimePickerDialog(context,
@@ -393,7 +397,7 @@ public class NativeLayoutRenderer {
                             cal.get(java.util.Calendar.MINUTE),
                             true).show();
                 });
-                if (!key.isEmpty()) viewRefs.put(key, tv);
+                if (!key.isEmpty()) viewRefs.put(key, new DateRef(cur)); // 未选择时收集空串
                 return tv;
             }
             case "color": {
@@ -654,6 +658,14 @@ public class NativeLayoutRenderer {
         return base * density;
     }
 
+    /** 表单字段背景（圆角浅底，date/time 选择器用） */
+    private static android.graphics.drawable.Drawable fieldBackground(Context context, int density) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setColor(com.oilquiz.app.ai.chat.component.ComponentColors.fieldBg(context));
+        gd.setCornerRadius(dp(6, density));
+        return gd;
+    }
+
     private static int parseColor(Context context, String hex) {
         try {
             if (hex != null && hex.startsWith("#") && hex.length() >= 7) {
@@ -750,9 +762,12 @@ public class NativeLayoutRenderer {
                 out.put(key, ((ColorRef) v).getValue());
             } else if (v instanceof RatingRef) {
                 out.put(key, ((RatingRef) v).getValue());
+            } else if (v instanceof DateRef) {
+                // date/time 选择器：返回实际选中值（未选择返回空串，不把占位文本当值）
+                out.put(key, ((DateRef) v).getValue());
             } else if (v instanceof TextView && !(v instanceof android.widget.Button)
                     && !(v instanceof android.widget.CompoundButton)) {
-                // date/time 选择器等纯文本值控件（点击弹系统选择器后回写文本）；按钮文本不收集
+                // 兼容其它纯文本值控件（按钮文本不收集）
                 out.put(key, ((TextView) v).getText() != null ? ((TextView) v).getText().toString() : "");
             }
         }
@@ -771,5 +786,12 @@ public class NativeLayoutRenderer {
         private final int[] score;
         RatingRef(int[] score) { this.score = score; }
         int getValue() { return score[0]; }
+    }
+
+    /** 日期/时间选择器值引用（key → 实际选中值；未选择为空串，占位文本不参与收集） */
+    static class DateRef {
+        private final String[] val;
+        DateRef(String[] val) { this.val = val; }
+        String getValue() { return val[0]; }
     }
 }

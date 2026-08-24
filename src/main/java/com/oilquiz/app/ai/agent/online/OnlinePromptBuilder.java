@@ -161,11 +161,14 @@ public class OnlinePromptBuilder {
         sb.append("  D. 提交文生图/文生视频任务并监控 → media_task（props: task_id/type/api_url/api_key，自动轮询）\n");
         sb.append("  E. 以上都不满足、需要自定义界面 → 见【自定义 UI】三条路（按需选一条）\n");
         sb.append("  F. 不确定有哪些组件/参数 → 先 ui_component_plugin(action=list) 和 ui_component(action=list_types) 查已有注册，别猜\n");
+        sb.append("  【参数传法】组件参数可放顶层参数或 props 内（两种等效，系统自动合并，props 内已有值优先）：\n");
+        sb.append("    如 marquee: ui_component(action=create, component_type=marquee, text=内容, speed=2) 与 props={text:内容,speed:2} 等效；\n");
+        sb.append("    otp 的 length、number 的 min/max、media_task 的 task_id/type/api_url、custom 的 fields、插件自定义参数同理（顶层或 props 均可）\n");
         sb.append("  【原生交互组件】ui_component(action=create, component_type=类型, 参数...) 创建 → get_result 取结果：\n");
         sb.append("    dialog(confirm/warning) / input(输入,input_hint) / choice(单选,options) / multi_choice(多选,options) /\n");
-        sb.append("    date(日期) / time(时间) / rating(星级) / color(取色) / otp(验证码,props.length) / number(数字,props.min/max) /\n");
+        sb.append("    date(日期) / time(时间) / rating(星级) / color(取色) / otp(验证码,length) / number(数字,min/max) /\n");
         sb.append("    file_picker(文件) / image_picker(相册) / contact_picker(联系人) / custom(动态表单,fields定义任意字段) /\n");
-        sb.append("    voice_recorder(录音) / speech_player(朗读) / snackbar(提示条) / notification(通知) / toast / progress(进度,max_value) / marquee(跑马灯,props.text/speed)\n");
+        sb.append("    voice_recorder(录音) / speech_player(朗读) / snackbar(提示条) / notification(通知) / toast / progress(进度,max或max_value,update传progress) / marquee(跑马灯,text/speed 0~3)\n");
         sb.append("  【内置卡片】ui_component(action=create, component_type=卡片类型, props={字段}) 直接展示：\n");
         sb.append("    chart(bar/line/pie) / table_card / list_card / grid_card / metric_card / info_card / alert_card /\n");
         sb.append("    steps_card / todo_card / note_card / json_viewer / code_card / link_card / image_grid / file_card /\n");
@@ -173,9 +176,9 @@ public class OnlinePromptBuilder {
         sb.append("    卡片 props 字段结构见 ui_component 工具定义（props 参数），严格按定义填，不要自创字段。\n");
         sb.append("  【交互】卡片可加 actions=[{\"label\":\"文字\",\"value\":\"回传值\",\"action\":\"callback\"}] 收集用户点击（get_result 取回）；纯展示不加 actions。\n\n");
         sb.append("【自定义 UI —— 三条路，按需选一条】\n");
-        sb.append("  路线1 一次性现场渲染（最简单）：ui_component(action=create, component_type=任意名, props={\"layout\":{...原生控件树...}}) —— 无需注册，仅本次有效\n");
+        sb.append("  路线1 一次性现场渲染（最简单）：ui_component(action=create, component_type=任意名, layout={...原生控件树...}) 或 props={layout:{...}} 或 render={layout:{...}} —— 三种传法等效，无需注册，仅本次有效\n");
         sb.append("  路线2 注册可复用类型：ui_component(action=register_type, name=类型名(字母数字下划线), description=用途, render={\"layout\":{...} 或 \"card\":内置卡片}) → 之后 ui_component(action=create, component_type=类型名) 复用；list_types 查看, remove_type 删除\n");
-        sb.append("  路线3 注册完整插件（带参数校验/生命周期/监控）：ui_component_plugin(action=create, name=..., description=..., params={字段:{type,required,default}}, render={\"layout\":{...}}, monitor=可选, persist=true|false) → 用 ui_component(action=create, component_type=插件名) 创建\n");
+        sb.append("  路线3 注册完整插件（带参数校验/生命周期/监控）：ui_component_plugin(action=create, name=..., description=..., params={字段:{type,required,default}}, render={\"layout\":{...}}, monitor=可选, persist=true|false) → 用 ui_component(action=create, component_type=插件名) 创建。创建时自动按 params schema 校验：缺必填会明确报错、类型自动转换(number/boolean/array/object)、有 default 自动填充\n");
         sb.append("  【layout 原生控件框架】JSON 声明真实原生 UI，控件 type 及属性：\n");
         sb.append("    布局: column(纵向)/row(横向)/scroll(滚动)；展示: text(text,bold,size,color)/image(url)/marquee(跑马灯,text,speed 0~3)\n");
         sb.append("    输入: input(hint,key)/number(key,min,max)；交互: button(text,action 回传 或 tool+tool_params 调后端)/select(options,key)/switch(checked,key)\n");
