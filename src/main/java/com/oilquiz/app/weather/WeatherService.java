@@ -65,6 +65,49 @@ public class WeatherService {
     private final Gson gson;
     private final QWeatherSdkManager sdkManager;
 
+    /** 天气数据更新监听器（仿 AIService 状态观察者：数据源变化主动推送，UI 实时刷新） */
+    public interface WeatherUpdateListener {
+        /**
+         * 天气数据已更新（网络拉取成功）。
+         * @param city 城市名（可能为空）
+         * @param lat  纬度（城市级更新为 0）
+         * @param lon  经度（城市级更新为 0）
+         * @param weatherText 最新天气文本（已解析为可展示格式）
+         */
+        void onWeatherUpdated(String city, double lat, double lon, String weatherText);
+    }
+
+    private final java.util.List<WeatherUpdateListener> weatherUpdateListeners
+            = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    public void registerWeatherUpdateListener(WeatherUpdateListener listener) {
+        if (listener != null && !weatherUpdateListeners.contains(listener)) {
+            weatherUpdateListeners.add(listener);
+        }
+    }
+
+    public void unregisterWeatherUpdateListener(WeatherUpdateListener listener) {
+        weatherUpdateListeners.remove(listener);
+    }
+
+    /** 通知所有监听者：天气数据已更新（主线程回调，UI 可直接刷新） */
+    private void notifyWeatherUpdate(String city, double lat, double lon, String weatherText) {
+        if (weatherUpdateListeners.isEmpty()) return;
+        final String c = city;
+        final double la = lat;
+        final double lo = lon;
+        final String w = weatherText;
+        mainHandler.post(() -> {
+            for (WeatherUpdateListener l : weatherUpdateListeners) {
+                try {
+                    l.onWeatherUpdated(c, la, lo, w);
+                } catch (Exception ignored) {
+                }
+            }
+        });
+    }
+
     private static WeatherService instance;
 
     private WeatherService(Context context) {
@@ -132,12 +175,14 @@ public class WeatherService {
         if (sdkManager.isInitialized()) {
             return sdkManager.getCurrentWeather(city).thenApply(result -> {
                 saveCacheIfValid(cacheKey, result);
+                notifyWeatherUpdate(city, 0, 0, result);
                 return result;
             });
         }
 
         return weatherManager.getCurrentWeather(city).thenApply(result -> {
             saveCacheIfValid(cacheKey, result);
+            notifyWeatherUpdate(city, 0, 0, result);
             return result;
         });
     }
@@ -160,11 +205,13 @@ public class WeatherService {
             return sdkManager.getCurrentWeather(location, cityName).thenCompose(result -> {
                 if (result != null && !result.contains("失败") && !result.contains("异常") && !result.contains("SDK未初始化")) {
                     saveCacheIfValid(cacheKey, result);
+                    notifyWeatherUpdate(cityName, lat, lon, result);
                     return CompletableFuture.completedFuture(result);
                 }
                 Log.w(TAG, "SDK weather failed, falling back to HTTP");
                 return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(httpResult -> {
                     saveCacheIfValid(cacheKey, httpResult);
+                    notifyWeatherUpdate(cityName, lat, lon, httpResult);
                     return httpResult;
                 });
             }).exceptionally(e -> {
@@ -172,6 +219,7 @@ public class WeatherService {
                 try {
                     String httpResult = weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).get();
                     saveCacheIfValid(cacheKey, httpResult);
+                    notifyWeatherUpdate(cityName, lat, lon, httpResult);
                     return httpResult;
                 } catch (Exception ex) {
                     return "天气信息解析失败";
@@ -181,6 +229,7 @@ public class WeatherService {
 
         return weatherManager.getCurrentWeatherByLocation(lat, lon, cityName).thenApply(result -> {
             saveCacheIfValid(cacheKey, result);
+            notifyWeatherUpdate(cityName, lat, lon, result);
             return result;
         });
     }
@@ -200,6 +249,7 @@ public class WeatherService {
 
         return weatherManager.getCurrentWeatherByLocationDirect(lat, lon).thenApply(result -> {
             saveCacheIfValid(cacheKey, result);
+            notifyWeatherUpdate(null, lat, lon, result);
             return result;
         });
     }
