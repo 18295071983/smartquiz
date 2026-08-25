@@ -1256,6 +1256,59 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 结构增强渲染：Markdown 内容中的代码块/表格用内置组件（code_card/table_card）渲染，
+     * 文本段保持 Markdown 渲染。组件段复用指纹缓存（流式期间组件内容稳定时不重建）。
+     */
+    private void renderMarkdownStructure(AIMessageViewHolder holder, ChatMessage message,
+                                         int availableWidth, Context ctx) {
+        List<com.oilquiz.app.ai.chat.component.MarkdownStructureSplitter.Segment> segs =
+                com.oilquiz.app.ai.chat.component.MarkdownStructureSplitter.split(message.content);
+        // 组件段指纹（与缓存索引对齐：空 props 段不渲染不计入）
+        StringBuilder fp = new StringBuilder();
+        for (com.oilquiz.app.ai.chat.component.MarkdownStructureSplitter.Segment seg : segs) {
+            if (seg.isComponent && seg.component != null && seg.component.props != null) {
+                fp.append(seg.component.type).append('|')
+                        .append(seg.component.props.toString()).append(';');
+            }
+        }
+        String newFp = fp.toString();
+        boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
+                && holder.componentSegmentViews != null;
+        List<View> oldCache = canReuse ? holder.componentSegmentViews
+                : java.util.Collections.<View>emptyList();
+        List<View> newCache = new java.util.ArrayList<View>();
+        int compIdx = 0;
+        holder.contentHost.removeAllViews();
+        for (com.oilquiz.app.ai.chat.component.MarkdownStructureSplitter.Segment seg : segs) {
+            if (seg.isComponent) {
+                View view = (canReuse && compIdx < oldCache.size()) ? oldCache.get(compIdx) : null;
+                if (view == null) {
+                    view = ComponentRegistry.getInstance().render(ctx, seg.component);
+                }
+                // 缓存占位与组件段一一对应（渲染失败也占位，保证下次指纹命中时索引对齐）
+                if (view == null) {
+                    newCache.add(null);
+                    compIdx++;
+                    continue;
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dpToPx(8, ctx);
+                holder.contentHost.addView(view, lp);
+                newCache.add(view);
+                compIdx++;
+            } else {
+                TextView tv = createSegmentTextView(ctx, holder.messageText);
+                setRenderedText(tv, seg.text, availableWidth);
+                tv.setMovementMethod(LinkMovementMethod.getInstance());
+                holder.contentHost.addView(tv);
+            }
+        }
+        holder.componentSegmentsFingerprint = newFp;
+        holder.componentSegmentViews = newCache;
+    }
+
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
         // 用户要求：主回复默认全部展开显示，长内容不自动折叠
         holder.expandButton.setVisibility(View.GONE);
@@ -1438,15 +1491,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean hasMarkers = ComponentContentSplitter.containsComponent(message.content);
 
         if (!hasMarkers) {
-            // 纯文本模式：宿主只保留 messageText
-            if (holder.contentHost != null
-                    && (holder.contentHost.getChildCount() != 1
-                        || holder.contentHost.getChildAt(0) != holder.messageText)) {
-                holder.contentHost.removeAllViews();
-                holder.contentHost.addView(holder.messageText);
+            // 结构增强渲染：内容含代码块/表格时，用内置组件（code_card/table_card）渲染，
+            // 文本段保持 Markdown 渲染；无结构时走纯文本单 TextView。
+            boolean hasStruct = com.oilquiz.app.ai.chat.component.MarkdownStructureSplitter
+                    .containsStructure(message.content);
+            if (holder.contentHost != null && hasStruct) {
+                renderMarkdownStructure(holder, message, availableWidth, ctx);
+            } else {
+                // 纯文本模式：宿主只保留 messageText
+                if (holder.contentHost != null
+                        && (holder.contentHost.getChildCount() != 1
+                            || holder.contentHost.getChildAt(0) != holder.messageText)) {
+                    holder.contentHost.removeAllViews();
+                    holder.contentHost.addView(holder.messageText);
+                }
+                setRenderedText(holder.messageText, message.content, availableWidth);
             }
-            // 全量 Markdown 渲染（恢复简单直接渲染；渲染频率由上层定时批量控制）
-            setRenderedText(holder.messageText, message.content, availableWidth);
             bindComponents(holder, message);
             return;
         }
