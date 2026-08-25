@@ -1256,6 +1256,60 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * Mermaid/数学图形化渲染：```mermaid 块与 $$ 公式拆为 html 组件段（WebView 渲染），
+     * 文本段保持 Markdown。组件段复用指纹缓存（流式期间内容稳定时不重建）。
+     */
+    private void renderMermaidMath(AIMessageViewHolder holder, ChatMessage message,
+                                   int availableWidth, Context ctx) {
+        boolean isDark = (ctx.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        List<com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment> segs =
+                com.oilquiz.app.ai.chat.component.MermaidMathSplitter.split(message.content, isDark);
+        StringBuilder fp = new StringBuilder();
+        for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
+            if (seg.isComponent && seg.component != null && seg.component.props != null) {
+                fp.append(seg.component.type).append('|')
+                        .append(seg.component.props.toString().hashCode()).append(';');
+            }
+        }
+        String newFp = fp.toString();
+        boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
+                && holder.componentSegmentViews != null;
+        List<View> oldCache = canReuse ? holder.componentSegmentViews
+                : java.util.Collections.<View>emptyList();
+        List<View> newCache = new java.util.ArrayList<View>();
+        int compIdx = 0;
+        holder.contentHost.removeAllViews();
+        for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
+            if (seg.isComponent) {
+                View view = (canReuse && compIdx < oldCache.size()) ? oldCache.get(compIdx) : null;
+                if (view == null) {
+                    view = ComponentRegistry.getInstance().render(ctx, seg.component);
+                }
+                if (view == null) {
+                    newCache.add(null);
+                    compIdx++;
+                    continue;
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dpToPx(8, ctx);
+                holder.contentHost.addView(view, lp);
+                newCache.add(view);
+                compIdx++;
+            } else {
+                TextView tv = createSegmentTextView(ctx, holder.messageText);
+                setRenderedText(tv, seg.text, availableWidth);
+                tv.setMovementMethod(LinkMovementMethod.getInstance());
+                holder.contentHost.addView(tv);
+            }
+        }
+        holder.componentSegmentsFingerprint = newFp;
+        holder.componentSegmentViews = newCache;
+    }
+
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
         // 用户要求：主回复默认全部展开显示，长内容不自动折叠
         holder.expandButton.setVisibility(View.GONE);
@@ -1438,15 +1492,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean hasMarkers = ComponentContentSplitter.containsComponent(message.content);
 
         if (!hasMarkers) {
-            // 纯文本模式：宿主只保留 messageText（Markdown 由 Markwon 统一渲染：
-            // 代码块带 Prism4j 语法高亮、表格带 TablePlugin，均由 MarkdownRenderer 处理）
-            if (holder.contentHost != null
-                    && (holder.contentHost.getChildCount() != 1
-                        || holder.contentHost.getChildAt(0) != holder.messageText)) {
-                holder.contentHost.removeAllViews();
-                holder.contentHost.addView(holder.messageText);
+            // Mermaid/数学公式图形化：```mermaid 块与 $$ 公式 → WebView(html 组件) 渲染
+            // （mermaid.js 画图 / katex 渲染公式），文本段保持 Markdown 渲染
+            boolean hasMermaidMath = com.oilquiz.app.ai.chat.component.MermaidMathSplitter
+                    .containsStructure(message.content);
+            if (holder.contentHost != null && hasMermaidMath) {
+                renderMermaidMath(holder, message, availableWidth, ctx);
+            } else {
+                // 纯文本模式：宿主只保留 messageText（Markdown 由 Markwon 统一渲染：
+                // 代码块带 Prism4j 语法高亮、表格带 TablePlugin，均由 MarkdownRenderer 处理）
+                if (holder.contentHost != null
+                        && (holder.contentHost.getChildCount() != 1
+                            || holder.contentHost.getChildAt(0) != holder.messageText)) {
+                    holder.contentHost.removeAllViews();
+                    holder.contentHost.addView(holder.messageText);
+                }
+                setRenderedText(holder.messageText, message.content, availableWidth);
             }
-            setRenderedText(holder.messageText, message.content, availableWidth);
             bindComponents(holder, message);
             return;
         }

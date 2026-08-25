@@ -252,7 +252,8 @@ public class HtmlCardView implements ChatComponent {
             webView.loadUrl(url);
         } else {
             String fullHtml = wrapHtml(html, isNightMode(context));
-            webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null);
+            // baseURL 指向 android_asset：HTML 内可引用本地 js/css（mermaid/katex 等）
+            webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
         }
 
         card.addView(webView, new LinearLayout.LayoutParams(
