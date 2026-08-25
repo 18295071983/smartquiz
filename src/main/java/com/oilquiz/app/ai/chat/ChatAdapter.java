@@ -936,19 +936,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return;
             }
 
-            // 设置思考内容：思考中增量渲染（只渲染新增，定时批量）；思考结束后全量 Markdown 渲染最终格式
+            // 设置思考内容：全量 Markdown 渲染（恢复简单直接渲染）
             holder.thinkingContent.post(() -> {
                 int width = holder.itemView.getWidth()
                     - holder.itemView.getPaddingLeft()
                     - holder.itemView.getPaddingRight()
                     - dpToPx(2, holder.itemView.getContext());
-                if (isStreaming) {
-                    setRenderedTextIncremental(holder.thinkingContent, cleanedContent, width,
-                            holder.thinkingRenderState);
-                } else {
-                    setRenderedText(holder.thinkingContent, cleanedContent, width);
-                    holder.thinkingRenderState.reset();
-                }
+                setRenderedText(holder.thinkingContent, cleanedContent, width);
             });
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
@@ -1262,135 +1256,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    /**
-     * 增量渲染状态：记录已渲染到的原始内容偏移与已渲染段，
-     * 流式更新时只渲染新增内容（回溯行首），避免全量 Markdown 重复解析。
-     */
-    static class IncrementalRenderState {
-        List<CharSequence> segs;          // 已渲染段（每段 = 一次增量渲染结果）
-        int renderedLen;                  // 已渲染的原始内容字符偏移（不含未完整块）
-        String snapshot;                  // 上次渲染时的原始内容快照（前缀校验 content 是否回退/替换）
-
-        void reset() {
-            segs = null;
-            renderedLen = 0;
-            snapshot = null;
-        }
-    }
-
-    /** 代码围栏标记（行首 ``` 或 ~~~，至少 3 个，可带语言名） */
-    private static final java.util.regex.Pattern FENCE_PATTERN =
-            java.util.regex.Pattern.compile("(?m)^\\s*(```+|~~~+)[^`]*$");
-
-    /**
-     * 计算"安全渲染长度"（整块渲染）：内容末尾若处于未完整块——未闭合的代码块（fence 未配对）、
-     * 未成型的表格（表头后缺分隔行）——这些不完整块不渲染，等块完成后再渲染；
-     * 避免流式期间显示半截代码块/表格。普通进行中的最后一行可渲染（行级增量）。
-     */
-    private static int safeRenderLength(String content) {
-        int len = content.length();
-        if (len == 0) return 0;
-        int safe = len;
-        // 1) 未闭合 fenced code block：fence 标记数为奇数 → 最后一个 fence 行之后的内容不渲染
-        java.util.regex.Matcher fm = FENCE_PATTERN.matcher(content);
-        int fenceCount = 0;
-        int lastFenceStart = -1;
-        while (fm.find()) {
-            fenceCount++;
-            lastFenceStart = fm.start();
-        }
-        if (fenceCount % 2 == 1) {
-            safe = lastFenceStart;
-        }
-        if (safe <= 0) return 0;
-        // 2) 未成型表格：内容末尾连续的表格行（| ... |）中不含分隔行（|---|）→ 表头未成型，整段不渲染
-        String text = content.substring(0, safe);
-        int idx = text.length();
-        boolean sawSeparator = false;
-        while (idx > 0) {
-            int prevNl = text.lastIndexOf('\n', idx - 1);
-            String line = text.substring(prevNl + 1, idx).trim();
-            boolean isTableLine = line.startsWith("|") && line.endsWith("|");
-            if (!isTableLine) break;
-            if (isTableSeparatorLine(line)) {
-                sawSeparator = true; // 含分隔行 → 表格成型，可渲染
-                break;
-            }
-            idx = prevNl; // 继续往前找表头起点
-        }
-        if (!sawSeparator && idx < text.length()) {
-            safe = idx; // 未成型表头行不渲染
-        }
-        return Math.max(0, safe);
-    }
-
-    /** 表格分隔行（|---|、|:---:| 等，仅由 - : 空格 | 组成且含 -） */
-    private static boolean isTableSeparatorLine(String line) {
-        if (line == null || !line.startsWith("|")) return false;
-        String body = line.substring(1, line.endsWith("|") ? line.length() - 1 : line.length()).trim();
-        if (body.isEmpty()) return false;
-        boolean hasDash = false;
-        for (int i = 0; i < body.length(); i++) {
-            char c = body.charAt(i);
-            if (c == '-') {
-                hasDash = true;
-            } else if (c != ':' && c != ' ' && c != '|') {
-                return false;
-            }
-        }
-        return hasDash;
-    }
-
-    /**
-     * 增量渲染：content 相对上次快照前缀增长时，只渲染新增部分（回溯到行首保证行内 markdown 完整），
-     * 与历史渲染段拼接后 setText。content 回退/替换时全量渲染重置。
-     * 整块渲染：末尾未完整块（未闭合代码块/未成型表格）不渲染，块完成后下次增量渲染。
-     *
-     * @param state 该 TextView 的增量渲染状态（holder 持有）
-     */
-    private void setRenderedTextIncremental(TextView tv, String content, int availableWidth,
-                                            IncrementalRenderState state) {
-        int safeLen = safeRenderLength(content);
-        if (state.segs == null || state.snapshot == null
-                || !content.startsWith(state.snapshot)
-                || state.renderedLen > safeLen) {
-            // 首次 / 内容替换 / 回退：全量渲染（渲染到安全长度，不含未完整块）
-            String renderText = safeLen <= 0 ? "" : content.substring(0, safeLen);
-            Spanned full = formatMessageContent(renderText, availableWidth);
-            SpannableStringBuilder ssb = new SpannableStringBuilder(full);
-            TextViewSpan.applyTo(ssb, tv);
-            tv.setText(ssb);
-            state.segs = new java.util.ArrayList<>();
-            state.segs.add(full);
-            state.renderedLen = safeLen;
-            state.snapshot = content;
-            return;
-        }
-        int start = state.renderedLen;
-        if (start >= safeLen) return; // 无新增完整块（增量都在未完整块内）
-        // 回溯到行首（该行从行首重渲，保证行内 markdown 完整；限制回溯长度防退化）
-        int nl = content.lastIndexOf('\n', start - 1);
-        if (nl >= 0 && start - nl <= 512) {
-            start = nl;
-        }
-        String segment = content.substring(start, safeLen);
-        Spanned rendered = formatMessageContent(segment, availableWidth);
-        // 回溯行首可能覆盖最后一段（该段从上次位置渲染，现需从更早行首重渲）→ 替换最后一段
-        List<CharSequence> segs = state.segs;
-        if (!segs.isEmpty() && start < state.renderedLen) {
-            segs.remove(segs.size() - 1);
-        }
-        segs.add(rendered);
-        state.renderedLen = safeLen;
-        state.snapshot = content;
-        // 拼接历史段（每帧 O(全文) 纯拷贝，无 Markdown 解析；渲染成本仅限增量）
-        CharSequence full = android.text.TextUtils.concat(segs.toArray(new CharSequence[0]));
-        SpannableStringBuilder ssb = full instanceof SpannableStringBuilder
-                ? (SpannableStringBuilder) full : new SpannableStringBuilder(full);
-        TextViewSpan.applyTo(ssb, tv);
-        tv.setText(ssb);
-    }
-
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
         // 用户要求：主回复默认全部展开显示，长内容不自动折叠
         holder.expandButton.setVisibility(View.GONE);
@@ -1580,16 +1445,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.contentHost.removeAllViews();
                 holder.contentHost.addView(holder.messageText);
             }
-            // 增量渲染：流式期间只渲染新增内容（定时批量），完成时全量精确渲染格式
-            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
-                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-            if (streaming) {
-                setRenderedTextIncremental(holder.messageText, message.content, availableWidth,
-                        holder.contentRenderState);
-            } else {
-                setRenderedText(holder.messageText, message.content, availableWidth);
-                holder.contentRenderState.reset(); // 完成全量渲染后重置增量状态
-            }
+            // 全量 Markdown 渲染（恢复简单直接渲染；渲染频率由上层定时批量控制）
+            setRenderedText(holder.messageText, message.content, availableWidth);
             bindComponents(holder, message);
             return;
         }
@@ -2860,10 +2717,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String componentSegmentsFingerprint;
         /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
         android.animation.ValueAnimator thinkingAnimator;
-        /** 正文增量渲染状态（流式只渲染新增内容，避免全量 Markdown 重复解析） */
-        IncrementalRenderState contentRenderState = new IncrementalRenderState();
-        /** 思考内容增量渲染状态 */
-        IncrementalRenderState thinkingRenderState = new IncrementalRenderState();
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
