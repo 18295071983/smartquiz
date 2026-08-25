@@ -9,6 +9,8 @@ import android.location.Address;
 import android.location.Geocoder;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -72,6 +74,45 @@ public class WeatherBannerView extends LinearLayout {
     private String detailAddress = "";
 
     private android.content.BroadcastReceiver locationUpdateReceiver;
+
+    /**
+     * 天气数据更新监听器（仿 AIService 状态观察者实时推送）：
+     * WeatherService 网络拉取成功即通知，横幅收到后立即刷新显示最新数据。
+     * 仅处理与当前横幅位置/城市匹配的数据（避免其它城市刷新干扰本横幅）。
+     */
+    private final WeatherService.WeatherUpdateListener weatherUpdateListener
+            = (city, lat, lon, weatherText) -> {
+        if (weatherText == null || weatherText.isEmpty()) return;
+        try {
+            boolean match = false;
+            if (lat != 0 && lon != 0 && cachedLat != 0 && cachedLon != 0) {
+                match = Math.abs(lat - cachedLat) < 0.5 && Math.abs(lon - cachedLon) < 0.5;
+            } else if (city != null && !city.isEmpty()
+                    && currentCity != null && !currentCity.isEmpty()) {
+                match = city.equals(currentCity);
+            }
+            if (!match) return;
+            // 新数据到达：预报文本失效重拉（拼总介绍用最新预报），直接更新 UI
+            forecastText = null;
+            lastRefreshTime = System.currentTimeMillis();
+            updateUIWithForecast(weatherText);
+            Log.i(TAG, "收到天气数据更新推送，横幅已刷新: " + city + " (" + lat + "," + lon + ")");
+        } catch (Exception e) {
+            Log.w(TAG, "天气更新推送处理失败: " + e.getMessage());
+        }
+    };
+
+    /** 周期刷新定时器：主界面停留时每 MIN_REFRESH_INTERVAL_MS 自动拉最新天气（动态数据） */
+    private final Handler refreshHandler = new Handler(Looper.getMainLooper());
+    private final Runnable periodicRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            periodicRefresh();
+            // 重新排下一次（只有 onResume/startPeriodicRefresh 后保持运行，onPause 停止）
+            refreshHandler.postDelayed(this, MIN_REFRESH_INTERVAL_MS);
+        }
+    };
+    private boolean periodicRefreshRunning = false;
 
     /**
      * 统一入口：写入 SP 缓存 + 双发广播（全局+本地）确保所有监听器都能收到。
@@ -166,6 +207,13 @@ public class WeatherBannerView extends LinearLayout {
 
         weatherService = WeatherService.getInstance(getContext());
 
+        // 注册天气数据更新监听：WeatherService 网络拉取成功后实时推送刷新（仿模型状态 observer 模式）
+        try {
+            weatherService.registerWeatherUpdateListener(weatherUpdateListener);
+        } catch (Exception e) {
+            Log.w(TAG, "注册天气更新监听失败: " + e.getMessage());
+        }
+
         if (attrs != null) {
             TypedArray ta = getContext().obtainStyledAttributes(attrs, R.styleable.WeatherBannerView);
             autoLoad = ta.getBoolean(R.styleable.WeatherBannerView_autoLoad, true);
@@ -239,6 +287,16 @@ public class WeatherBannerView extends LinearLayout {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+        // 停止周期定时刷新，避免 View 销毁后定时器空跑/泄漏
+        refreshHandler.removeCallbacks(periodicRefreshRunnable);
+        periodicRefreshRunning = false;
+        // 注销天气数据更新监听
+        try {
+            if (weatherService != null) {
+                weatherService.unregisterWeatherUpdateListener(weatherUpdateListener);
+            }
+        } catch (Exception ignored) {
+        }
         if (locationUpdateReceiver != null) {
             try {
                 getContext().unregisterReceiver(locationUpdateReceiver);
@@ -301,6 +359,7 @@ public class WeatherBannerView extends LinearLayout {
                         + " > lastRefreshTime=" + lastRefreshTime + "，立即刷新");
                 if (loadFromCachedLocation()) {
                     lastRefreshTime = cacheTs;
+                    startPeriodicRefresh();
                     return;
                 }
             }
@@ -310,9 +369,71 @@ public class WeatherBannerView extends LinearLayout {
 
         // 5 分钟超时兜底：超过 5 分钟才重新请求网络/重新定位
         if (lastRefreshTime == 0 || (now - lastRefreshTime) > MIN_REFRESH_INTERVAL_MS) {
-            if (loadFromCachedLocation()) return;
+            if (loadFromCachedLocation()) {
+                startPeriodicRefresh();
+                return;
+            }
             requestLocationAndLoad();
         }
+        // 无论是否触发刷新，都启动周期定时刷新（停留页面时数据持续动态更新）
+        startPeriodicRefresh();
+    }
+
+    /**
+     * 页面暂停：停止周期定时刷新（避免后台空跑网络请求）。
+     */
+    public void onPause() {
+        refreshHandler.removeCallbacks(periodicRefreshRunnable);
+        periodicRefreshRunning = false;
+    }
+
+    /** 启动周期刷新（幂等：重复调用只重置计时，不叠加任务） */
+    private void startPeriodicRefresh() {
+        if (periodicRefreshRunning) return;
+        periodicRefreshRunning = true;
+        refreshHandler.removeCallbacks(periodicRefreshRunnable);
+        refreshHandler.postDelayed(periodicRefreshRunnable, MIN_REFRESH_INTERVAL_MS);
+        Log.d(TAG, "周期刷新已启动（每 " + (MIN_REFRESH_INTERVAL_MS / 1000) + "s 自动拉取最新天气）");
+    }
+
+    /**
+     * 周期刷新：清天气缓存后重新拉取（保证看到最新实时数据），
+     * 位置优先复用缓存坐标（省去重新定位），位置缓存过期时才重新定位。
+     */
+    private void periodicRefresh() {
+        if (!isNetworkAvailable()) return;
+        Log.i(TAG, "周期刷新触发，重新拉取最新天气");
+        // 读取位置：优先内存坐标，其次 SP 位置缓存
+        double lat = cachedLat, lon = cachedLon;
+        String city = currentCity;
+        if (lat == 0 && lon == 0) {
+            try {
+                SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                long ts = prefs.getLong(KEY_TIMESTAMP, 0);
+                if (ts != 0 && System.currentTimeMillis() - ts <= LOCATION_CACHE_DURATION) {
+                    lat = Double.longBitsToDouble(prefs.getLong(KEY_LAT, 0));
+                    lon = Double.longBitsToDouble(prefs.getLong(KEY_LON, 0));
+                    city = prefs.getString(KEY_CITY, "");
+                }
+            } catch (Exception ignored) {}
+        }
+        if (lat != 0 && lon != 0) {
+            // 强制清天气缓存，确保拉到最新实时数据（而非 5 分钟缓存）
+            weatherService.clearCacheForLocation(lat, lon);
+            // 预报文本一并失效，重新拉取拼总介绍
+            forecastText = null;
+            if (cachedLat == 0 && cachedLon == 0) {
+                cachedLat = lat;
+                cachedLon = lon;
+            }
+            if (currentCity == null || currentCity.isEmpty()) {
+                currentCity = city;
+            }
+            loadWeatherByLocationDirect(lat, lon, currentCity);
+            return;
+        }
+        // 无缓存位置：重新定位并加载
+        requestLocationAndLoad();
     }
 
     private boolean loadFromCachedLocation() {
@@ -736,7 +857,7 @@ public class WeatherBannerView extends LinearLayout {
         });
     }
 
-    /** 更新当前天气 + 异步拉取今日预报拼完整总介绍（预报走 3 小时缓存，不阻塞） */
+    /** 更新当前天气 + 异步拉取今日预报/降水/预警拼完整总介绍（预报 3h、降水 5min、预警 10min 缓存，不阻塞） */
     private void updateUIWithForecast(String weatherText) {
         if (forecastText == null) {
             try {
@@ -795,27 +916,75 @@ public class WeatherBannerView extends LinearLayout {
             weatherDesc.setText(desc);
         }
 
-        // ========== 天气详情总介绍：完整一句话（今日预报段 + 当前实时段，与详情页同风格）==========
+        // ========== 天气详情总介绍：完整一句话（今日预报段 + 当前实时段 + 降水 + 预警，与详情页完全一致）==========
         if (weatherSummary != null) {
-            StringBuilder s = new StringBuilder();
+            updateSummaryAsync(info);
+        }
+    }
 
-            // 与天气详情页共用同一总结生成器（WeatherSummaryUtil），保证两处文案完全一致
+    /**
+     * 异步生成完整总介绍（与详情页同款）：并行拉取今日预报(已有) + 分钟级降水 + 天气预警，
+     * 全部就绪后调用 WeatherSummaryUtil.generate 生成完整一句话（含降水/预警段）。
+     */
+    private void updateSummaryAsync(final WeatherBannerManager.WeatherInfo info) {
+        try {
+            java.util.concurrent.CompletableFuture<String> minutelyF;
+            java.util.concurrent.CompletableFuture<String> alertsF;
+            if (cachedLat != 0 && cachedLon != 0) {
+                minutelyF = weatherService.getMinutelyByLocation(cachedLat, cachedLon);
+                alertsF = weatherService.getAlertsByLocation(cachedLat, cachedLon);
+            } else {
+                minutelyF = weatherService.getMinutely(currentCity);
+                alertsF = weatherService.getAlerts(currentCity);
+            }
+            java.util.concurrent.CompletableFuture.allOf(minutelyF, alertsF).thenAccept(v -> {
+                String minutelySummary = com.oilquiz.app.weather.WeatherSummaryUtil
+                        .parseMinutelySummary(minutelyF.join());
+                String alertSummary = com.oilquiz.app.weather.WeatherSummaryUtil
+                        .parseAlertSummary(alertsF.join());
+                String[] today = parseForecastToday(forecastText);
+                final String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
+                        today[0], today[1], today[2], today[3],
+                        info.temp, info.feelsLike, info.description,
+                        info.humidity, info.uv, info.windScale,
+                        info.visibility, minutelySummary, alertSummary);
+                post(() -> applySummaryText(summary));
+            }).exceptionally(e -> {
+                Log.w(TAG, "加载降水/预警摘要失败，总介绍降级(无降水/预警段): " + e.getMessage());
+                String[] today = parseForecastToday(forecastText);
+                final String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
+                        today[0], today[1], today[2], today[3],
+                        info.temp, info.feelsLike, info.description,
+                        info.humidity, info.uv, info.windScale,
+                        info.visibility, null, null);
+                post(() -> applySummaryText(summary));
+                return null;
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "总介绍异步生成失败: " + e.getMessage());
             String[] today = parseForecastToday(forecastText);
-            String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
+            final String summary = com.oilquiz.app.weather.WeatherSummaryUtil.generate(
                     today[0], today[1], today[2], today[3],
                     info.temp, info.feelsLike, info.description,
                     info.humidity, info.uv, info.windScale,
                     info.visibility, null, null);
-            if (summary != null) {
-                // 具体地址补充（如" · 海淀区中关村大街"）
-                if (detailAddress != null && !detailAddress.isEmpty()) {
-                    s.append(summary).append(" · ").append(detailAddress);
-                } else {
-                    s.append(summary);
-                }
-            }
-            weatherSummary.setText(s.toString().trim());
+            post(() -> applySummaryText(summary));
         }
+    }
+
+    /** 设置总介绍文本（含具体地址补充） */
+    private void applySummaryText(String summary) {
+        if (weatherSummary == null) return;
+        StringBuilder s = new StringBuilder();
+        if (summary != null) {
+            // 具体地址补充（如" · 海淀区中关村大街"）
+            if (detailAddress != null && !detailAddress.isEmpty()) {
+                s.append(summary).append(" · ").append(detailAddress);
+            } else {
+                s.append(summary);
+            }
+        }
+        weatherSummary.setText(s.toString().trim());
     }
 
     /** 解析今日预报文本：返回 [白天天气, 夜间天气, 最高温, 最低温] */
