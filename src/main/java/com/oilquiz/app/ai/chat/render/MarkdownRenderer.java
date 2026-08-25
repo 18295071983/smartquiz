@@ -99,6 +99,14 @@ public class MarkdownRenderer {
                     .tableEvenRowBackgroundColor(0x08000000)    // 偶数行微灰
                     .build();
 
+            // Prism4j 代码语法高亮（内部组件：markwon-syntax-highlight + prism4j-bundler 已引入）
+            // 语法包由 AiPrismBundle（@PrismBundle）声明，bundler 生成同包 GrammarLocatorDef
+            final io.noties.prism4j.Prism4j prism4j = new io.noties.prism4j.Prism4j(
+                    new com.oilquiz.app.ai.chat.render.GrammarLocatorDef());
+            // 深色代码块主题（与 CodeCardView 风格一致，深浅模式均可读）
+            final io.noties.markwon.syntax.Prism4jTheme prismTheme =
+                    io.noties.markwon.syntax.Prism4jThemeDarkula.create();
+
             markwon = Markwon.builder(appContext)
                     .usePlugin(GlideImagesPlugin.create(glideStore))
                     .usePlugin(HtmlPlugin.create())
@@ -106,6 +114,7 @@ public class MarkdownRenderer {
                     .usePlugin(StrikethroughPlugin.create())
                     .usePlugin(TaskListPlugin.create(appContext))
                     .usePlugin(LinkifyPlugin.create())
+                    .usePlugin(io.noties.markwon.syntax.SyntaxHighlightPlugin.create(prism4j, prismTheme))
                     .build();
             initialized = true;
         }

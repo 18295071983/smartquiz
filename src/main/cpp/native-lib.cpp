@@ -3765,6 +3765,8 @@ private:
     std::vector<std::pair<std::string, std::string>> chatMessages;
     // 上次格式化的总字符长度，用于增量提取
     int prev_formatted_len = 0;
+    /** 最近一次生成的思考模式（chatSend 设置；reencode/格式化时保持一致，保证 KV 增量对齐） */
+    bool thinkingEnabled = false;
 
     struct Turn {
         std::string role;
@@ -3832,6 +3834,46 @@ private:
         return result;
     }
 
+    /**
+     * 带 enable_thinking 的模板应用：与 generateStream/chatJson 一致，走 common_chat_templates，
+     * 显式把 thinkingEnabled 传给模板（enable_thinking=false 可关闭 Qwen3 等 thinking 模型的默认思考）。
+     * 失败时回退 applyChatTemplate（旧行为）。
+     */
+    std::string applyChatTemplateWithThinking(bool addAssistantStart) {
+        if (!model || chatMessages.empty()) return "";
+        auto chat_templates = common_chat_templates_init(model, "");
+        if (!chat_templates) {
+            LOGW("applyChatTemplateWithThinking: template init failed, fallback");
+            return applyChatTemplate(addAssistantStart);
+        }
+        std::vector<common_chat_msg> chat_msgs;
+        chat_msgs.reserve(chatMessages.size());
+        for (auto& m : chatMessages) {
+            common_chat_msg msg;
+            msg.role = m.first;
+            msg.content = m.second;
+            chat_msgs.push_back(msg);
+        }
+        common_chat_templates_inputs inputs;
+        inputs.messages = chat_msgs;
+        inputs.add_generation_prompt = addAssistantStart;
+        inputs.use_jinja = true;
+        // 仅当模板支持时才启用 thinking，否则模板引擎内部会 abort（signal 6）
+        bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
+        inputs.enable_thinking = thinkingEnabled && supports_thinking;
+        try {
+            common_chat_params params = common_chat_templates_apply(chat_templates.get(), inputs);
+            if (params.prompt.empty()) {
+                LOGW("applyChatTemplateWithThinking: empty prompt, fallback");
+                return applyChatTemplate(addAssistantStart);
+            }
+            return params.prompt;
+        } catch (const std::exception& e) {
+            LOGW("applyChatTemplateWithThinking failed: %s, fallback", e.what());
+            return applyChatTemplate(addAssistantStart);
+        }
+    }
+
     // 合并 global+system+normal prompt 为一条 system 消息
     std::string mergeSystemPrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
         std::string merged;
@@ -3856,7 +3898,7 @@ private:
             return true;
         }
 
-        std::string formatted = applyChatTemplate(false);
+        std::string formatted = applyChatTemplateWithThinking(false);
         if (formatted.empty()) {
             LOGE("reencodeFromMessages: applyChatTemplate returned empty");
             return false;
@@ -4160,6 +4202,9 @@ public:
         auto totalStartTime = std::chrono::steady_clock::now();
         LOGI("=== CHAT SEND START === user_msg_len=%zu, maxTokens=%d, thinking=%d", userMessage.size(), maxTokens, enableThinking);
 
+        // 记录思考模式：模板格式化统一用它（enable_thinking=false 可关闭 thinking 模型默认思考）
+        thinkingEnabled = enableThinking;
+
         if (!isValid()) {
             LOGE("chatSend: context invalid - model=%p, ctx=%p, vocab=%p, n_ctx=%d",
                  (void*)model, (void*)ctx, (void*)vocab, n_ctx);
@@ -4177,9 +4222,10 @@ public:
         }
 
         auto stepStartTime = std::chrono::steady_clock::now();
-        // 用 llama_chat_apply_template 格式化（add_ass=true 在末尾加 assistant 开始标记）
+        // 用带 enable_thinking 的模板格式化（add_ass=true 在末尾加 assistant 开始标记；
+        // thinking 引导由模板按 thinkingEnabled 处理，不再手动追加 <think>）
         chatMessages.push_back({"user", userMessage});
-        std::string formatted = applyChatTemplate(true);
+        std::string formatted = applyChatTemplateWithThinking(true);
         if (formatted.empty()) {
             LOGE("chatSend: applyChatTemplate returned empty");
             chatMessages.pop_back();
@@ -4194,10 +4240,6 @@ public:
             prompt = formatted.substr(prev_formatted_len);
         } else {
             prompt = formatted;
-        }
-        // 思考链：在 assistant 开始标记后加 <think>
-        if (enableThinking) {
-            prompt += "<think>\n";
         }
         std::vector<llama_token> user_tokens = tokenize(prompt, false);
         auto stepEndTime = std::chrono::steady_clock::now();
@@ -4225,14 +4267,11 @@ public:
             shiftContext();
             // shiftContext 会重新编码所有消息并重置 prev_formatted_len
             // 重新格式化以获取新的增量
-            formatted = applyChatTemplate(true);
+            formatted = applyChatTemplateWithThinking(true);
             if (prev_formatted_len > 0 && (int)formatted.size() >= prev_formatted_len) {
                 prompt = formatted.substr(prev_formatted_len);
             } else {
                 prompt = formatted;
-            }
-            if (enableThinking) {
-                prompt += "<think>\n";
             }
             user_tokens = tokenize(prompt, false);
             if (total_tokens_in_kv + (int)user_tokens.size() + maxTokens <= n_ctx - 4) break;
@@ -4475,7 +4514,7 @@ public:
             turns.push_back(assistantTurn);
 
             chatMessages.push_back({assistantTurn.role, fullResponse});
-            std::string formattedAfter = applyChatTemplate(false);
+            std::string formattedAfter = applyChatTemplateWithThinking(false);
             prev_formatted_len = (int)formattedAfter.size();
         }
 
