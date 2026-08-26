@@ -2,6 +2,10 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
@@ -17,6 +21,28 @@ import java.util.TimeZone;
  * - timestamp: 时间戳（秒），timestamp_to_date 用
  * - date: 日期字符串（yyyy-MM-dd HH:mm:ss），date_to_timestamp 用
  */
+@Tool(
+    value = "time_date",
+    description = "时间日期工具：查询当前时间/日期/时区，时间戳与日期互转。"
+            + "action: now(当前时间,默认)/timestamp_to_date(时间戳转日期)/date_to_timestamp(日期转时间戳)/timezone(时区信息)。"
+            + "当前时间相关询问（现在几点/今天日期）用本工具获取准确时间。",
+    category = "utility",
+    aliases = {"time", "date", "current_time", "当前时间"},
+    actions = {
+        @Action(name = "now", description = "获取当前时间/日期/时区",
+            params = {}),
+        @Action(name = "timestamp_to_date", description = "时间戳转日期",
+            params = {
+                @Param(name = "timestamp", type = "integer", description = "秒级时间戳", required = true)
+            }),
+        @Action(name = "date_to_timestamp", description = "日期转时间戳",
+            params = {
+                @Param(name = "date", type = "string", description = "日期字符串（yyyy-MM-dd HH:mm:ss）", required = true)
+            }),
+        @Action(name = "timezone", description = "获取时区信息",
+            params = {})
+    }
+)
 public class TimeDateTool implements AITool {
 
     private static final String TAG = "TimeDateTool";

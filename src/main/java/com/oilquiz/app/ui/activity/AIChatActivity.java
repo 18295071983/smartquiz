@@ -126,9 +126,9 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnStopGeneration;
     private MaterialButton btnLogViewer;
     private View serviceStatusBar;
-    private TextView modelNameText;
     private TextView serviceStatusIcon;
     private TextView serviceStatusText;
+    private android.widget.TextView tvApiBalance; // 在线 API 余额显示
     private android.widget.ProgressBar serviceStatusProgress;
     private TextView serviceStatusElapsed;
     private androidx.recyclerview.widget.RecyclerView messageList;
@@ -139,6 +139,11 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnSend;
     private MaterialButton btnAttach;
     private MaterialButton btnVoice; // 语音输入按钮（录音→ASR→填入输入框）
+    private android.widget.TextView holdToTalk; // 微信式"按住 说话"按钮（语音模式下替换输入框）
+    private boolean voiceInputMode = false; // 是否处于语音输入模式（true=按住说话，false=键盘）
+    private boolean slideToCancel = false; // 按住说话时是否已上滑到取消区域
+    private float pressStartY = 0; // 按住说话按下时的 Y 坐标（上滑取消判定）
+    private static final int SLIDE_CANCEL_THRESHOLD_DP = 60; // 上滑取消阈值(dp)
     private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
     private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
     private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
@@ -262,6 +267,11 @@ public class AIChatActivity extends BaseActivity {
     private long lastUpdateTime = 0;
     private boolean isUpdateScheduled = false;
     private android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** 文件历史是否已加载完成：文件是权威持久化源（含最新组件），
+     *  VM 的 chatMessages 是 initialize 时的一次性快照，旋转重建后不含本次会话新组件，
+     *  故文件加载完成前禁止 VM 快照抢位填充 chatHistory（否则最新组件丢失）。 */
+    private volatile boolean fileHistoryLoaded = false;
 
     // ===== 思考内容定时渲染（节流）：防止每 token notifyItemChanged 导致思考区画面抽搐 =====
     /** 思考区最小刷新间隔（ms）：思考 token 累积后批量刷新一次 */
@@ -414,7 +424,6 @@ public class AIChatActivity extends BaseActivity {
             btnClearChat = findViewById(R.id.btn_clear_chat);
             btnStopGeneration = findViewById(R.id.btn_stop_generation);
             btnLogViewer = findViewById(R.id.btn_log_viewer);
-            modelNameText = findViewById(R.id.model_name);
             messageList = findViewById(R.id.message_list);
             attachmentList = findViewById(R.id.attachment_list);
             historyList = findViewById(R.id.history_list);
@@ -437,6 +446,7 @@ public class AIChatActivity extends BaseActivity {
             btnSend = findViewById(R.id.btn_send);
             btnAttach = findViewById(R.id.btn_attach);
             btnVoice = findViewById(R.id.btn_voice);
+            holdToTalk = findViewById(R.id.hold_to_talk);
             btnAutoTts = findViewById(R.id.btn_auto_tts);
             voiceRecordingBar = findViewById(R.id.voice_recording_bar);
             tvVoiceRecordingTime = findViewById(R.id.tv_voice_recording_time);
@@ -474,6 +484,7 @@ public class AIChatActivity extends BaseActivity {
             serviceStatusBar = findViewById(R.id.service_status_bar);
             serviceStatusIcon = findViewById(R.id.service_status_icon);
             serviceStatusText = findViewById(R.id.service_status_text);
+            tvApiBalance = findViewById(R.id.tv_api_balance);
             serviceStatusProgress = findViewById(R.id.service_status_progress);
             serviceStatusElapsed = findViewById(R.id.service_status_elapsed);
             
@@ -621,9 +632,14 @@ public class AIChatActivity extends BaseActivity {
                         List<ChatMessage> loadedHistory = chatHistoryManager.loadAIChatHistory();
                         if (loadedHistory != null && !loadedHistory.isEmpty()) {
                             runOnUiThread(() -> {
-                                // VM observe 可能已填充（双轨历史），避免重复
-                                if (!chatHistory.isEmpty()) return;
-                                chatHistory.addAll(loadedHistory);
+                                // 文件历史是权威持久化源（含最新组件）。VM observe 可能已用
+                                // 启动时快照填充（旋转重建时 VM 保留，快照缺本次会话新组件），
+                                // 这里必须用文件数据替换而非跳过，否则最新组件/消息会丢失。
+                                if (chatHistory != loadedHistory) {
+                                    chatHistory.clear();
+                                    chatHistory.addAll(loadedHistory);
+                                }
+                                fileHistoryLoaded = true;
                                 if (chatAdapter != null) {
                                     chatAdapter.notifyDataSetChanged();
                                 }
@@ -641,7 +657,9 @@ public class AIChatActivity extends BaseActivity {
                                 if (fullSession != null && fullSession.messages != null && !fullSession.messages.isEmpty()) {
                                     final String sessionId = fullSession.id;
                                     runOnUiThread(() -> {
+                                        chatHistory.clear();
                                         chatHistory.addAll(fullSession.messages);
+                                        fileHistoryLoaded = true;
                                         currentSessionId = sessionId;
                                         // 同步引擎会话：恢复该会话的 Agent 上下文（如存在）
                                         if (agentChatHandler != null) {
@@ -653,16 +671,23 @@ public class AIChatActivity extends BaseActivity {
                                         showToast("已恢复上次对话");
                                     });
                                 } else {
-                                    runOnUiThread(() -> showWelcomeGuide());
+                                    runOnUiThread(() -> {
+                                        fileHistoryLoaded = true;
+                                        showWelcomeGuide();
+                                    });
                                 }
                             } else {
                                 // 历史为空，显示新手引导
-                                runOnUiThread(() -> showWelcomeGuide());
+                                runOnUiThread(() -> {
+                                    fileHistoryLoaded = true;
+                                    showWelcomeGuide();
+                                });
                             }
                         }
                     }
                 } catch (Exception e) {
                     AppLogger.aiE(TAG, "Error loading chat history: " + e.getMessage());
+                    runOnUiThread(() -> fileHistoryLoaded = true);
                 }
             }).start();
 
@@ -670,7 +695,6 @@ public class AIChatActivity extends BaseActivity {
             initModules();
 
             // 4. 现在可以安全地使用模块了
-            updateModelNameDisplay();
 
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing data: " + e.getMessage());
@@ -684,19 +708,16 @@ public class AIChatActivity extends BaseActivity {
     private void observeViewModel() {
         if (chatViewModel == null) return;
 
-        // 观察聊天消息变化（VM 消息列表与 Activity chatHistory 双轨：仅当 chatHistory 为空时
-        // 从 VM 恢复，避免两列表各自增长导致数据脱节；正常发送走 Activity 的 chatHistory）
+        // 观察聊天消息变化（VM 消息列表与 Activity chatHistory 双轨：仅当 chatHistory 为空且
+        // 文件历史尚未加载完成时从 VM 恢复，避免两列表各自增长导致数据脱节；正常发送走 Activity 的 chatHistory）
         chatViewModel.getChatMessages().observe(this, messages -> {
-            if (messages != null && !messages.isEmpty() && chatHistory.isEmpty() && chatAdapter != null) {
+            // fileHistoryLoaded：文件历史加载完成后不再接受 VM 快照（VM 是启动时一次性快照，
+            // 旋转重建后缺本次会话新组件；以文件为准），且文件加载期间不抢位，避免最新组件被旧快照覆盖
+            if (messages != null && !messages.isEmpty() && chatHistory.isEmpty() && !fileHistoryLoaded && chatAdapter != null) {
                 chatHistory.addAll(messages);
                 chatAdapter.notifyDataSetChanged();
                 scrollToBottom();
             }
-        });
-
-        // 观察模型名称变化
-        chatViewModel.getModelName().observe(this, modelName -> {
-            updateModelNameDisplay();
         });
 
         // 观察生成状态变化（兼容旧版）
@@ -721,7 +742,7 @@ public class AIChatActivity extends BaseActivity {
         // 观察初始化状态
         chatViewModel.isInitialized().observe(this, initialized -> {
             if (initialized != null && initialized) {
-                updateModelNameDisplay();
+                updateModeButtonText();
             }
         });
 
@@ -1087,7 +1108,6 @@ public class AIChatActivity extends BaseActivity {
             @Override public void onAddErrorMessage(String title, String detail, boolean withRetry) { addErrorMessage(title, detail, withRetry); }
             @Override public void onShowToast(String message) { showToast(message); }
             @Override public void onShouldUseOnlineModel() {}
-            @Override public void onUpdateModelNameDisplay() { updateModelNameDisplay(); }
             @Override public void onHideLoading() { hideLoading(); }
         });
         // 绑定视图（带空检查）
@@ -1245,13 +1265,6 @@ public class AIChatActivity extends BaseActivity {
                 startActivity(intent);
             });
         }
-        // 模型名称文字也可点击，打开模型选择页面
-        if (modelNameText != null) {
-            modelNameText.setOnClickListener(v -> {
-                Intent intent = new Intent(AIChatActivity.this, ModelSelectorActivity.class);
-                startActivity(intent);
-            });
-        }
         if (btnClearChat != null) {
             btnClearChat.setOnClickListener(v -> clearChat());
             // 长按：压缩对话（模型生成摘要，保留最近 8 条，长对话省 tokens）
@@ -1266,7 +1279,12 @@ public class AIChatActivity extends BaseActivity {
             btnAttach.setOnClickListener(v -> showAttachmentOptionsDialog());
         }
         if (btnVoice != null) {
-            btnVoice.setOnClickListener(v -> handleSpeechInput());
+            // 微信式交互：点击切换语音/键盘模式
+            btnVoice.setOnClickListener(v -> toggleVoiceInputMode());
+        }
+        // 微信式"按住 说话"：按住录音、上滑取消、松开结束识别
+        if (holdToTalk != null) {
+            holdToTalk.setOnTouchListener((v, event) -> handleHoldToTalkTouch(event));
         }
 
         // 自动语音合成开关：状态持久化，开启后 AI 回复流式按句自动朗读
@@ -6201,55 +6219,20 @@ public class AIChatActivity extends BaseActivity {
         return params;
     }
 
-    private void updateModelNameDisplay() {
-        if (modelNameText == null) return;
-
-        try {
-            if (shouldUseOnlineModel()) {
-                String modelName = "";
-                if (inferenceRouter != null) {
-                    modelName = inferenceRouter.getCurrentModelName();
-                }
-                String display = "☁️ " + (modelName != null && !modelName.isEmpty() ? modelName : "在线模型");
-                modelNameText.setText(display);
-                // 异步查询 API 余额并显示（仅 DeepSeek 官方 API 支持）
-                OnlineModelManager.OnlineModelConfig active =
-                        onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
-                if (active != null) {
-                    com.oilquiz.app.ai.util.ApiBalanceChecker.checkAsync(active, (balance, error) ->
-                            runOnUiThread(() -> {
-                                if (modelNameText != null && balance != null && !balance.isEmpty()) {
-                                    modelNameText.setText(display + " · " + balance);
-                                }
-                            }));
-                }
-            } else if (aiService != null) {
-                String name = modelBridge != null ? modelBridge.getCurrentModelName() : "";
-                modelNameText.setText("📱 " + (name != null && !name.isEmpty() ? name : "未选择模型"));
-            } else {
-                // 本地服务未初始化 ≠ "AI服务未初始化"：可能只是未选择模型，避免误导（在线模型仍可用）
-                modelNameText.setText("未选择模型");
-            }
-        } catch (Exception e) {
-            AppLogger.aiW(TAG, "Error updating model name display: " + e.getMessage());
-            modelNameText.setText("模型加载中...");
-        }
-    }
-
     /**
-     * 注册在线模型变更监听，模型切换时自动刷新名称显示
+     * 注册在线模型变更监听，模型切换时自动刷新模式按钮
      */
     private void registerModelChangeListener() {
         if (onlineModelManager == null) return;
         modelChangeListener = new OnlineModelManager.ModelChangeListener() {
             @Override
             public void onModelListChanged() {
-                // 模型列表变化时刷新名称显示
-                runOnUiThread(() -> updateModelNameDisplay());
+                // 模型列表变化时刷新模式按钮
+                runOnUiThread(() -> updateModeButtonText());
             }
             @Override
             public void onActiveModelChanged(String activeModelId) {
-                // 激活模型变化时立即刷新名称和模式按钮
+                // 激活模型变化时立即刷新模式按钮
                 runOnUiThread(() -> {
                     // 检测在线模型切换（如 deepseek → qwen）：旧模型的 system 提示词与工具调用记录
                     // 不适用于新模型，清空引擎历史避免上下文污染（UI 会话消息保留）
@@ -6261,8 +6244,8 @@ public class AIChatActivity extends BaseActivity {
                         }
                     }
                     lastOnlineModelId = activeModelId;
-                    updateModelNameDisplay();
                     updateModeButtonText();
+                    updateApiBalanceDisplay();
                 });
             }
         };
@@ -6875,6 +6858,31 @@ public class AIChatActivity extends BaseActivity {
             return inferenceRouter.isUsingOnlineModel();
         }
         return false;
+    }
+
+    /** 查询在线 API 余额并显示到状态栏（仅在线模型；DeepSeek 官方 API 支持余额接口） */
+    private void updateApiBalanceDisplay() {
+        if (tvApiBalance == null) return;
+        if (!shouldUseOnlineModel()) {
+            tvApiBalance.setVisibility(View.GONE);
+            return;
+        }
+        OnlineModelManager.OnlineModelConfig active =
+                onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+        if (active == null) {
+            tvApiBalance.setVisibility(View.GONE);
+            return;
+        }
+        com.oilquiz.app.ai.util.ApiBalanceChecker.checkAsync(active, (balance, error) ->
+                runOnUiThread(() -> {
+                    if (tvApiBalance == null) return;
+                    if (balance != null && !balance.isEmpty()) {
+                        tvApiBalance.setText("💰 " + balance);
+                        tvApiBalance.setVisibility(View.VISIBLE);
+                    } else {
+                        tvApiBalance.setVisibility(View.GONE);
+                    }
+                }));
     }
 
     private boolean ensureModelLoaded(String pendingMessage) {
@@ -7513,6 +7521,8 @@ public class AIChatActivity extends BaseActivity {
                     if (chatAdapter != null) {
                         chatAdapter.notifyItemChanged(msgIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);
                     }
+                    // 工具完成即落盘：防止生成尚未结束时刷新界面导致已合并组件丢失
+                    saveHistoryAsync();
                     scrollToBottom();
                     return;
                 }
@@ -7533,6 +7543,8 @@ public class AIChatActivity extends BaseActivity {
             if (chatAdapter != null) {
                 chatAdapter.notifyItemChanged(msgIndex, ChatAdapter.PAYLOAD_CONTENT_UPDATE);
             }
+            // 新工具卡片（running）也立即落盘，刷新不丢
+            saveHistoryAsync();
             scrollToBottom();
         } catch (Exception e) {
             AppLogger.aiW(TAG, "appendAgentToolCall failed: " + e.getMessage());
@@ -7769,6 +7781,129 @@ public class AIChatActivity extends BaseActivity {
         speakMessage(target, action.messageId);
     }
 
+    /**
+     * 微信式语音输入模式切换：点击麦克风按钮在「键盘输入」与「按住说话」之间切换。
+     * 语音模式：输入框隐藏、显示"按住 说话"按钮、麦克风图标变为键盘图标；
+     * 键盘模式：恢复输入框、隐藏按住说话按钮、图标恢复麦克风。
+     */
+    private void toggleVoiceInputMode() {
+        voiceInputMode = !voiceInputMode;
+        // 退出录音状态（若正在按住说话则先取消）
+        if (isSpeechRecording || isOfflineAsrMode) {
+            cancelSpeechRecording();
+            isOfflineAsrMode = false;
+        }
+        updateVoiceInputModeUI();
+    }
+
+    /** 根据语音输入模式刷新输入区 UI */
+    private void updateVoiceInputModeUI() {
+        if (inputMessage != null) {
+            inputMessage.setVisibility(voiceInputMode ? View.GONE : View.VISIBLE);
+        }
+        if (holdToTalk != null) {
+            holdToTalk.setVisibility(voiceInputMode ? View.VISIBLE : View.GONE);
+            if (voiceInputMode) {
+                holdToTalk.setText("按住 说话");
+                holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
+                holdToTalk.setTextColor(getResources().getColor(R.color.text_secondary, getTheme()));
+            }
+        }
+        if (btnVoice != null) {
+            // 语音模式显示键盘图标（点击切回键盘），键盘模式显示麦克风图标
+            btnVoice.setIconResource(voiceInputMode ? R.drawable.ic_keyboard : R.drawable.ic_mic);
+        }
+        if (voiceRecordingBar != null) {
+            voiceRecordingBar.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 微信式"按住 说话"触摸处理：
+     * - 按下：开始录音（先请求权限）
+     * - 上滑超过阈值：进入取消态（红色"松开 取消"）
+     * - 松开：取消区域→取消录音；否则→结束录音并识别
+     * - 取消事件：取消录音
+     */
+    private boolean handleHoldToTalkTouch(android.view.MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                pressStartY = event.getRawY();
+                slideToCancel = false;
+                // 先请求麦克风权限，授权后启动语音输入流程
+                com.oilquiz.app.resource.PermissionResourceProvider provider =
+                        com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+                provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        runOnUiThread(() -> startSpeechInputFlow());
+                    }
+
+                    @Override
+                    public void onDenied(java.util.List<String> deniedPermissions) {
+                        showToast("需要录音权限才能使用语音输入");
+                        setVoiceButtonEnabled(false);
+                    }
+                });
+                return true;
+            case android.view.MotionEvent.ACTION_MOVE:
+                if (isSpeechRecording || isOfflineAsrMode) {
+                    float dy = pressStartY - event.getRawY();
+                    boolean nowCancel = dy > dpToPx(SLIDE_CANCEL_THRESHOLD_DP);
+                    if (nowCancel != slideToCancel) {
+                        slideToCancel = nowCancel;
+                        updateHoldToTalkPressUI();
+                    }
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+                if (slideToCancel) {
+                    cancelSpeechRecording();
+                    isOfflineAsrMode = false;
+                } else if (isSpeechRecording) {
+                    stopSpeechRecording();
+                } else if (isOfflineAsrMode) {
+                    // 系统识别模式：松开结束识别
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopOfflineRecognition();
+                }
+                slideToCancel = false;
+                updateHoldToTalkPressUI();
+                return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+                cancelSpeechRecording();
+                isOfflineAsrMode = false;
+                slideToCancel = false;
+                updateHoldToTalkPressUI();
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    /** 按住说话过程中的按钮视觉反馈：正常按住=变深色，上滑取消=红色"松开 取消" */
+    private void updateHoldToTalkPressUI() {
+        if (holdToTalk == null) return;
+        boolean pressed = isSpeechRecording || isOfflineAsrMode;
+        if (slideToCancel) {
+            holdToTalk.setText("松开 取消");
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_error);
+            holdToTalk.setTextColor(0xFFE53935);
+        } else if (pressed) {
+            holdToTalk.setText("松开 结束");
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_pressed);
+            holdToTalk.setTextColor(getResources().getColor(R.color.on_primary_container, getTheme()));
+        } else {
+            holdToTalk.setText("按住 说话");
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
+            holdToTalk.setTextColor(getResources().getColor(R.color.text_secondary, getTheme()));
+        }
+    }
+
+    /** dp → px 换算（上滑取消阈值） */
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
     /** 语音输入：录音 → ASR 识别 → 文字填入输入框；在线不可用时自动兜底到系统识别 */
     private void handleSpeechInput() {
         com.oilquiz.app.ai.speech.SpeechManager speech =
@@ -7994,7 +8129,7 @@ public class AIChatActivity extends BaseActivity {
 
             isSpeechRecording = true;
             updateVoiceRecordingUI(true);
-            showToast("🎙️ 正在录音，说完后点击 🎤 按钮结束并识别");
+            showToast("正在录音，上滑取消 · 松开结束");
         } catch (Exception e) {
             AppLogger.aiE(TAG, "语音输入录音启动失败: " + e.getMessage());
             showToast("录音启动失败: " + e.getMessage());
@@ -8004,12 +8139,10 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 更新语音输入的录音状态 UI（按钮图标/横幅/计时） */
+    /** 更新语音输入的录音状态 UI（按住说话按钮/横幅/计时） */
     private void updateVoiceRecordingUI(boolean recording) {
-        if (btnVoice != null) {
-            btnVoice.setText(recording ? "⏹️" : "🎤");
-            btnVoice.setTextColor(recording ? 0xFFE53935 : getResources().getColor(R.color.text_secondary, getTheme()));
-        }
+        // 录音状态由"按住 说话"按钮体现（btnVoice 是模式切换按钮，不随录音变化）
+        updateHoldToTalkPressUI();
         if (voiceRecordingBar != null) {
             voiceRecordingBar.setVisibility(recording ? View.VISIBLE : View.GONE);
         }
@@ -8107,6 +8240,30 @@ public class AIChatActivity extends BaseActivity {
                 inputManager.appendText(text);
             }
         });
+    }
+
+    /** 取消语音输入录音：停止录音、删除临时文件、不识别（微信式上滑取消） */
+    private void cancelSpeechRecording() {
+        if (speechMediaRecorder != null) {
+            try {
+                speechMediaRecorder.stop();
+            } catch (Exception ignored) {
+            }
+        }
+        isSpeechRecording = false;
+        releaseSpeechRecorder();
+        // 释放麦克风占用（Agent 语音输入组件可继续录音）
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
+        // 删除临时录音文件
+        if (speechRecordingFilePath != null) {
+            try {
+                File f = new File(speechRecordingFilePath);
+                if (f.exists()) f.delete();
+            } catch (Exception ignored) {
+            }
+            speechRecordingFilePath = null;
+        }
+        updateVoiceRecordingUI(false);
     }
 
     /** 释放语音输入录音器 */
@@ -8742,8 +8899,8 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        updateModelNameDisplay();
         updateModeButtonText();
+        updateApiBalanceDisplay();
         initAgentChatHandler();
         // 权限/模型配置可能已变化，刷新语音输入按钮可用性
         updateVoiceButtonAvailability();

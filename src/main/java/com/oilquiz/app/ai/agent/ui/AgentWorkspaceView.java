@@ -25,6 +25,21 @@ public class AgentWorkspaceView {
 
     private final Context context;
     private LinearLayout listContainer;
+    /** 上次渲染的文件列表签名（name|size|lastModified 拼接），内容未变化时跳过重建避免闪烁 */
+    private String lastListSignature = "";
+    /** 自动刷新：Agent 后台新增/删除文件时列表自动更新（无需手动点刷新）。
+     *  用 View 的 attach/detach 生命周期启停，避免 Fragment 切走/页面关闭后空转。 */
+    private static final long AUTO_REFRESH_INTERVAL = 3000L;
+    private final android.os.Handler autoRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable autoRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            refresh();
+            if (listContainer != null && listContainer.isAttachedToWindow()) {
+                autoRefreshHandler.postDelayed(this, AUTO_REFRESH_INTERVAL);
+            }
+        }
+    };
 
     public AgentWorkspaceView(Context context) {
         this.context = context;
@@ -113,13 +128,17 @@ public class AgentWorkspaceView {
         clearBtn.setOnClickListener(v -> {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle("清空长期文件")
-                .setMessage("将删除 files/ 下所有长期文件（用户保留的产物）。确定继续吗？")
+                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文件《工具创建指南.md》《使用速查表.md》会保留）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {
                     int removed = 0;
                     for (AgentWorkspace.WorkspaceFile f : ws.listFiles()) {
-                        if ("files".equals(f.zone) && ws.deleteFile(f.name)) removed++;
+                        if ("files".equals(f.zone)
+                                && !"工具创建指南.md".equals(f.name)
+                                && !"使用速查表.md".equals(f.name)
+                                && ws.deleteFile(f.name)) removed++;
                     }
-                    Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个（内置指南已保留）",
+                            Toast.LENGTH_SHORT).show();
                     refresh();
                 })
                 .setNegativeButton("取消", null)
@@ -150,14 +169,35 @@ public class AgentWorkspaceView {
         listContainer.setOrientation(LinearLayout.VERTICAL);
         page.addView(listContainer);
 
+        // 自动刷新：attach 后启动定时轮询，detach 停止（Agent 后台新增/删除文件时列表自动更新）
+        page.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {
+                autoRefreshHandler.removeCallbacks(autoRefreshRunnable);
+                autoRefreshHandler.postDelayed(autoRefreshRunnable, AUTO_REFRESH_INTERVAL);
+            }
+            @Override public void onViewDetachedFromWindow(View v) {
+                autoRefreshHandler.removeCallbacks(autoRefreshRunnable);
+            }
+        });
+
         refresh();
         return page;
     }
 
     private void refresh() {
-        listContainer.removeAllViews();
         AgentWorkspace ws = AgentWorkspace.getInstance(context);
         List<AgentWorkspace.WorkspaceFile> files = ws.listFiles();
+
+        // 内容未变化时跳过重建（自动轮询 3s 一次，避免频繁 removeAllViews 闪烁/滚动跳动）
+        StringBuilder sig = new StringBuilder();
+        for (AgentWorkspace.WorkspaceFile f : files) {
+            sig.append(f.zone).append('|').append(f.name).append('|')
+               .append(f.size).append('|').append(f.lastModified).append(';');
+        }
+        if (sig.toString().equals(lastListSignature)) return;
+        lastListSignature = sig.toString();
+
+        listContainer.removeAllViews();
 
         if (files.isEmpty()) {
             TextView empty = new TextView(context);

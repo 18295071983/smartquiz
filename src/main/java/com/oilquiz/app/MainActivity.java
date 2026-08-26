@@ -163,7 +163,7 @@ public class MainActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
                     if (tvAiStatus != null) {
-                        tvAiStatus.setText("AI状态未知");
+                        tvAiStatus.setText(getString(R.string.ai_status_unknown));
                         tvAiStatus.setTextColor(getResources().getColor(R.color.error));
                     }
                 });
@@ -184,16 +184,18 @@ public class MainActivity extends BaseActivity {
                 // 本地初始化失败（stage=ERROR）不影响在线能力，不应误报"在线服务异常"。
                 switch (stage) {
                     case INITIALIZED:
-                        statusText = "在线 · " + (displayModelName != null ? displayModelName : "API");
+                        statusText = getString(R.string.status_online_prefix,
+                                displayModelName != null ? displayModelName : getString(R.string.status_online_api));
                         statusColor = getResources().getColor(R.color.success);
                         break;
                     case ERROR:
                         // 本地服务 ERROR（如 LlamaHelper 未加载）与在线服务无关，在线仍可用
-                        statusText = "在线 · " + (displayModelName != null ? displayModelName : "就绪");
+                        statusText = getString(R.string.status_online_prefix,
+                                displayModelName != null ? displayModelName : getString(R.string.status_local_ready));
                         statusColor = getResources().getColor(R.color.success);
                         break;
                     default:
-                        statusText = "在线 · 就绪";
+                        statusText = getString(R.string.status_online_ready);
                         statusColor = getResources().getColor(R.color.success);
                         break;
                 }
@@ -202,11 +204,11 @@ public class MainActivity extends BaseActivity {
                 switch (stage) {
                     case INITIALIZED:
                         if (displayModelName != null) {
-                            statusText = "本地 · " + displayModelName;
+                            statusText = getString(R.string.status_local_prefix, displayModelName);
                         } else if (localModelName != null) {
-                            statusText = "本地 · " + localModelName;
+                            statusText = getString(R.string.status_local_prefix, localModelName);
                         } else {
-                            statusText = "本地就绪";
+                            statusText = getString(R.string.status_local_ready);
                         }
                         statusColor = getResources().getColor(R.color.success);
                         break;
@@ -215,24 +217,24 @@ public class MainActivity extends BaseActivity {
                     case GPU_INITIALIZATION:
                     case CHAT_CONTEXT_CREATING:
                     case NATIVE_LIBRARY_LOADING:
-                        statusText = "加载中 " + progress + "%";
+                        statusText = getString(R.string.status_loading_progress, progress);
                         statusColor = getResources().getColor(R.color.warning);
                         break;
                     case CPU_FALLBACK:
-                        statusText = "CPU模式 " + progress + "%";
+                        statusText = getString(R.string.status_cpu_progress, progress);
                         statusColor = getResources().getColor(R.color.warning);
                         break;
                     case ERROR:
                         if (errorMessage != null && !errorMessage.isEmpty()) {
-                            statusText = "AI错误";
+                            statusText = getString(R.string.status_ai_error);
                         } else {
-                            statusText = "初始化失败";
+                            statusText = getString(R.string.status_init_failed);
                         }
                         statusColor = getResources().getColor(R.color.error);
                         break;
                     case UNINITIALIZED:
                     default:
-                        statusText = "未加载";
+                        statusText = getString(R.string.status_not_loaded);
                         statusColor = getResources().getColor(R.color.error);
                         break;
                 }
@@ -326,12 +328,12 @@ public class MainActivity extends BaseActivity {
             public void onSuccess(java.util.List<com.oilquiz.app.model.Template> templates) {
                 if (templates.isEmpty()) {
                     // 创建6个模板
-                    createTemplate(templateViewModel, "讲义", "课程讲义模板", "lecture_notes.json");
-                    createTemplate(templateViewModel, "小抄", "考试小抄模板", "cheat_sheet.json");
-                    createTemplate(templateViewModel, "打印", "打印材料模板", "print_material.json");
-                    createTemplate(templateViewModel, "背诵", "背诵内容模板", "recitation.json");
-                    createTemplate(templateViewModel, "阅读", "阅读材料模板", "reading_material.json");
-                    createTemplate(templateViewModel, "记忆", "记忆卡片模板", "memory_cards.json");
+                    createTemplate(templateViewModel, getString(R.string.template_jiangyi), getString(R.string.template_jiangyi_desc), "lecture_notes.json");
+                    createTemplate(templateViewModel, getString(R.string.template_xiaochao), getString(R.string.template_xiaochao_desc), "cheat_sheet.json");
+                    createTemplate(templateViewModel, getString(R.string.template_dayin), getString(R.string.template_dayin_desc), "print_material.json");
+                    createTemplate(templateViewModel, getString(R.string.template_beisong), getString(R.string.template_beisong_desc), "recitation.json");
+                    createTemplate(templateViewModel, getString(R.string.template_yuedu), getString(R.string.template_yuedu_desc), "reading_material.json");
+                    createTemplate(templateViewModel, getString(R.string.template_jiyi), getString(R.string.template_jiyi_desc), "memory_cards.json");
                 }
             }
 
@@ -430,15 +432,16 @@ public class MainActivity extends BaseActivity {
                 public void onClick(View v) {
                     // 弹出选择对话框
                     new android.app.AlertDialog.Builder(MainActivity.this)
-                            .setTitle("选择操作")
-                            .setItems(new String[]{"导入题目", "导出题目"}, (dialog, which) -> {
+                            .setTitle(getString(R.string.select_operation))
+                            .setItems(new String[]{getString(R.string.button_import),
+                                    getString(R.string.button_export)}, (dialog, which) -> {
                                 if (which == 0) {
                                     startActivity(new Intent(MainActivity.this, ImportGuideActivity.class));
                                 } else {
                                     startActivity(new Intent(MainActivity.this, ExportActivity.class));
                                 }
                             })
-                            .setNegativeButton("取消", null)
+                            .setNegativeButton(getString(R.string.cancel), null)
                             .show();
                 }
             });
@@ -550,7 +553,7 @@ public class MainActivity extends BaseActivity {
     private void openQuestionRenderer() {
         Intent intent = new Intent(this, WebViewActivity.class);
         intent.putExtra("url", "https://www.qweather.com");
-        intent.putExtra("title", "天气详情");
+        intent.putExtra("title", getString(R.string.weather_detail_title));
         startActivity(intent);
     }
 
@@ -572,123 +575,123 @@ public class MainActivity extends BaseActivity {
         com.oilquiz.app.util.NativeEnvironmentChecker.EnvironmentInfo info = checker.getFullEnvironmentInfo();
 
         StringBuilder environmentInfo = new StringBuilder();
-        environmentInfo.append("╔══════════════════════════════════╗\n");
-        environmentInfo.append("║       原生环境检测报告           ║\n");
-        environmentInfo.append("╚══════════════════════════════════╝\n\n");
+        environmentInfo.append(getString(R.string.env_report_frame_top)).append("\n");
+        environmentInfo.append(getString(R.string.env_report_frame_title)).append("\n");
+        environmentInfo.append(getString(R.string.env_report_frame_bottom)).append("\n\n");
 
         // 设备信息
-        environmentInfo.append("【设备信息】\n");
-        environmentInfo.append("制造商: " + info.deviceInfo.manufacturer + "\n");
-        environmentInfo.append("品牌: " + info.deviceInfo.brand + "\n");
-        environmentInfo.append("型号: " + info.deviceInfo.model + "\n");
-        environmentInfo.append("设备类型: " + info.deviceInfo.deviceType + "\n");
-        environmentInfo.append("硬件: " + info.deviceInfo.hardware + "\n");
-        environmentInfo.append("主板: " + info.deviceInfo.board + "\n\n");
+        environmentInfo.append(getString(R.string.section_device_info)).append("\n");
+        environmentInfo.append(getString(R.string.manufacturer) + ": " + info.deviceInfo.manufacturer + "\n");
+        environmentInfo.append(getString(R.string.brand) + ": " + info.deviceInfo.brand + "\n");
+        environmentInfo.append(getString(R.string.model) + ": " + info.deviceInfo.model + "\n");
+        environmentInfo.append(getString(R.string.device_type) + ": " + info.deviceInfo.deviceType + "\n");
+        environmentInfo.append(getString(R.string.hardware) + ": " + info.deviceInfo.hardware + "\n");
+        environmentInfo.append(getString(R.string.mainboard) + ": " + info.deviceInfo.board + "\n\n");
 
         // 系统信息
-        environmentInfo.append("【系统信息】\n");
-        environmentInfo.append("Android版本: " + info.systemInfo.androidVersion + "\n");
-        environmentInfo.append("SDK级别: " + info.systemInfo.sdkInt + "\n");
-        environmentInfo.append("安全补丁: " + info.systemInfo.securityPatch + "\n");
-        environmentInfo.append("语言: " + info.systemInfo.displayLanguage + "\n");
-        environmentInfo.append("时区: " + info.systemInfo.timeZone + "\n");
-        environmentInfo.append("是否Root: " + (info.systemInfo.isRooted ? "是" : "否") + "\n");
-        environmentInfo.append("是否模拟器: " + (info.systemInfo.isEmulator ? "是" : "否") + "\n\n");
+        environmentInfo.append(getString(R.string.section_system_info)).append("\n");
+        environmentInfo.append(getString(R.string.android_version) + ": " + info.systemInfo.androidVersion + "\n");
+        environmentInfo.append(getString(R.string.sdk_level) + ": " + info.systemInfo.sdkInt + "\n");
+        environmentInfo.append(getString(R.string.security_patch) + ": " + info.systemInfo.securityPatch + "\n");
+        environmentInfo.append(getString(R.string.language) + ": " + info.systemInfo.displayLanguage + "\n");
+        environmentInfo.append(getString(R.string.time_zone) + ": " + info.systemInfo.timeZone + "\n");
+        environmentInfo.append(getString(R.string.is_rooted) + ": " + (info.systemInfo.isRooted ? getString(R.string.yes) : getString(R.string.no)) + "\n");
+        environmentInfo.append(getString(R.string.is_emulator) + ": " + (info.systemInfo.isEmulator ? getString(R.string.yes) : getString(R.string.no)) + "\n\n");
 
         // 屏幕信息
-        environmentInfo.append("【屏幕信息】\n");
-        environmentInfo.append("分辨率: " + info.screenInfo.widthPixels + " x " + info.screenInfo.heightPixels + "\n");
-        environmentInfo.append("屏幕密度: " + info.screenInfo.densityDpi + " dpi\n");
-        environmentInfo.append("屏幕尺寸: " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + " 英寸\n");
-        environmentInfo.append("方向: " + info.screenInfo.orientation + "\n\n");
+        environmentInfo.append(getString(R.string.section_screen_info)).append("\n");
+        environmentInfo.append(getString(R.string.resolution) + ": " + info.screenInfo.widthPixels + " x " + info.screenInfo.heightPixels + "\n");
+        environmentInfo.append(getString(R.string.screen_density) + ": " + info.screenInfo.densityDpi + " dpi\n");
+        environmentInfo.append(getString(R.string.screen_size) + ": " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + " 英寸\n");
+        environmentInfo.append(getString(R.string.orientation) + ": " + info.screenInfo.orientation + "\n\n");
 
         // 内存信息
-        environmentInfo.append("【内存信息】\n");
-        environmentInfo.append("总内存: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.memoryInfo.totalMemory) + "\n");
-        environmentInfo.append("可用内存: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.memoryInfo.availableMemory) + "\n");
-        environmentInfo.append("使用率: " + info.memoryInfo.usagePercent + "%\n");
-        environmentInfo.append("应用内存限制: " + info.memoryInfo.memoryClass + " MB\n");
-        environmentInfo.append("低内存状态: " + (info.memoryInfo.lowMemory ? "是" : "否") + "\n\n");
+        environmentInfo.append(getString(R.string.section_memory_info)).append("\n");
+        environmentInfo.append(getString(R.string.total_memory) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.memoryInfo.totalMemory) + "\n");
+        environmentInfo.append(getString(R.string.available_memory) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.memoryInfo.availableMemory) + "\n");
+        environmentInfo.append(getString(R.string.usage_percent) + ": " + info.memoryInfo.usagePercent + "%\n");
+        environmentInfo.append(getString(R.string.app_memory_limit) + ": " + info.memoryInfo.memoryClass + " MB\n");
+        environmentInfo.append(getString(R.string.low_memory_state) + ": " + (info.memoryInfo.lowMemory ? getString(R.string.yes) : getString(R.string.no)) + "\n\n");
 
         // 存储信息
-        environmentInfo.append("【存储信息】\n");
-        environmentInfo.append("内部存储总空间: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.internalTotal) + "\n");
-        environmentInfo.append("内部存储可用: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.internalAvailable) + "\n");
+        environmentInfo.append(getString(R.string.section_storage_info)).append("\n");
+        environmentInfo.append(getString(R.string.internal_storage_total) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.internalTotal) + "\n");
+        environmentInfo.append(getString(R.string.internal_storage_available) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.internalAvailable) + "\n");
         if (info.storageInfo.externalMounted) {
-            environmentInfo.append("外部存储总空间: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.externalTotal) + "\n");
-            environmentInfo.append("外部存储可用: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.externalAvailable) + "\n");
+            environmentInfo.append(getString(R.string.external_storage_total) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.externalTotal) + "\n");
+            environmentInfo.append(getString(R.string.external_storage_available) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.externalAvailable) + "\n");
         }
-        environmentInfo.append("应用文件大小: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.appFilesSize) + "\n");
-        environmentInfo.append("应用缓存大小: " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.appCacheSize) + "\n\n");
+        environmentInfo.append(getString(R.string.app_files_size) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.appFilesSize) + "\n");
+        environmentInfo.append(getString(R.string.app_cache_size) + ": " + com.oilquiz.app.util.NativeEnvironmentChecker.formatBytes(info.storageInfo.appCacheSize) + "\n\n");
 
         // 应用信息
-        environmentInfo.append("【应用信息】\n");
-        environmentInfo.append("应用名称: " + info.appInfo.appName + "\n");
-        environmentInfo.append("包名: " + info.appInfo.packageName + "\n");
-        environmentInfo.append("版本: " + info.appInfo.versionName + " (" + info.appInfo.versionCode + ")\n");
-        environmentInfo.append("目标SDK: " + info.appInfo.targetSdkVersion + "\n");
-        environmentInfo.append("最小SDK: " + info.appInfo.minSdkVersion + "\n");
-        environmentInfo.append("调试模式: " + (info.appInfo.isDebuggable ? "是" : "否") + "\n\n");
+        environmentInfo.append(getString(R.string.section_app_info)).append("\n");
+        environmentInfo.append(getString(R.string.app_name_label) + ": " + info.appInfo.appName + "\n");
+        environmentInfo.append(getString(R.string.package_name) + ": " + info.appInfo.packageName + "\n");
+        environmentInfo.append(getString(R.string.version_label) + ": " + info.appInfo.versionName + " (" + info.appInfo.versionCode + ")\n");
+        environmentInfo.append(getString(R.string.target_sdk) + ": " + info.appInfo.targetSdkVersion + "\n");
+        environmentInfo.append(getString(R.string.min_sdk) + ": " + info.appInfo.minSdkVersion + "\n");
+        environmentInfo.append(getString(R.string.debug_mode) + ": " + (info.appInfo.isDebuggable ? getString(R.string.yes) : getString(R.string.no)) + "\n\n");
 
         // 硬件信息
-        environmentInfo.append("【硬件信息】\n");
-        environmentInfo.append("CPU架构: " + info.hardwareInfo.cpuAbi + "\n");
+        environmentInfo.append(getString(R.string.section_hardware_info)).append("\n");
+        environmentInfo.append(getString(R.string.cpu_arch) + ": " + info.hardwareInfo.cpuAbi + "\n");
         if (info.hardwareInfo.supportedAbis != null && info.hardwareInfo.supportedAbis.length > 0) {
-            environmentInfo.append("支持的ABI: " + String.join(", ", info.hardwareInfo.supportedAbis) + "\n");
+            environmentInfo.append(getString(R.string.supported_abis) + ": " + String.join(", ", info.hardwareInfo.supportedAbis) + "\n");
         }
-        environmentInfo.append("处理器数量: " + info.runtimeInfo.availableProcessors + "\n");
-        environmentInfo.append("相机: " + (info.hardwareInfo.hasCamera ? "支持" : "不支持") + "\n");
-        environmentInfo.append("GPS: " + (info.hardwareInfo.hasGPS ? "支持" : "不支持") + "\n");
-        environmentInfo.append("NFC: " + (info.hardwareInfo.hasNFC ? "支持" : "不支持") + "\n");
-        environmentInfo.append("蓝牙: " + (info.hardwareInfo.hasBluetooth ? "支持" : "不支持") + "\n");
-        environmentInfo.append("WiFi: " + (info.hardwareInfo.hasWifi ? "支持" : "不支持") + "\n");
+        environmentInfo.append(getString(R.string.processor_count) + ": " + info.runtimeInfo.availableProcessors + "\n");
+        environmentInfo.append(getString(R.string.camera) + ": " + (info.hardwareInfo.hasCamera ? getString(R.string.supported) : getString(R.string.not_supported)) + "\n");
+        environmentInfo.append(getString(R.string.gps) + ": " + (info.hardwareInfo.hasGPS ? getString(R.string.supported) : getString(R.string.not_supported)) + "\n");
+        environmentInfo.append(getString(R.string.nfc) + ": " + (info.hardwareInfo.hasNFC ? getString(R.string.supported) : getString(R.string.not_supported)) + "\n");
+        environmentInfo.append(getString(R.string.bluetooth) + ": " + (info.hardwareInfo.hasBluetooth ? getString(R.string.supported) : getString(R.string.not_supported)) + "\n");
+        environmentInfo.append(getString(R.string.wifi) + ": " + (info.hardwareInfo.hasWifi ? getString(R.string.supported) : getString(R.string.not_supported)) + "\n");
 
         new android.app.AlertDialog.Builder(this)
-                .setTitle("原生环境检测")
+                .setTitle(getString(R.string.native_environment_detection))
                 .setMessage(environmentInfo.toString())
-                .setPositiveButton("确定", null)
-                .setNeutralButton("复制", (dialog, which) -> {
+                .setPositiveButton(getString(R.string.button_ok), null)
+                .setNeutralButton(getString(R.string.button_copy), (dialog, which) -> {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    android.content.ClipData clip = android.content.ClipData.newPlainText("环境检测报告", environmentInfo.toString());
+                    android.content.ClipData clip = android.content.ClipData.newPlainText(getString(R.string.environment_report), environmentInfo.toString());
                     clipboard.setPrimaryClip(clip);
-                    android.widget.Toast.makeText(this, "环境信息已复制", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.environment_info_copied), android.widget.Toast.LENGTH_SHORT).show();
                 })
                 .show();
     }
     
     private void runTests() {
         StringBuilder testResults = new StringBuilder();
-        testResults.append("测试结果:\n\n");
+        testResults.append(getString(R.string.test_result_header)).append("\n\n");
         
         // 测试数据库连接
         try {
             com.oilquiz.app.database.AppDatabase db = com.oilquiz.app.database.AppDatabase.getDatabase(this);
-            testResults.append("✓ 数据库连接正常\n");
+            testResults.append(getString(R.string.db_connection_ok)).append("\n");
         } catch (Exception e) {
-            testResults.append("✗ 数据库连接失败: " + e.getMessage() + "\n");
+            testResults.append(getString(R.string.db_connection_failed, e.getMessage())).append("\n");
         }
         
         // 测试存储权限
         com.oilquiz.app.resource.AppResourceManager resources = com.oilquiz.app.resource.AppResourceManager.getInstance(this);
         if (resources.hasStoragePermission()) {
-            testResults.append("✓ 存储权限已授予\n");
+            testResults.append(getString(R.string.storage_permission_granted)).append("\n");
         } else {
-            testResults.append("✗ 存储权限未授予\n");
+            testResults.append(getString(R.string.storage_permission_denied)).append("\n");
         }
         
         // 测试网络连接
         android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
         android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
         if (activeNetwork != null && activeNetwork.isConnectedOrConnecting()) {
-            testResults.append("✓ 网络连接正常\n");
+            testResults.append(getString(R.string.network_connection_ok)).append("\n");
         } else {
-            testResults.append("✗ 网络连接失败\n");
+            testResults.append(getString(R.string.network_connection_failed)).append("\n");
         }
         
         new android.app.AlertDialog.Builder(this)
-                .setTitle("测试结果")
+                .setTitle(getString(R.string.test_result))
                 .setMessage(testResults.toString())
-                .setPositiveButton("确定", null)
+                .setPositiveButton(getString(R.string.button_ok), null)
                 .show();
     }
     
@@ -697,7 +700,7 @@ public class MainActivity extends BaseActivity {
             android.content.pm.PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
             return packageInfo.versionName;
         } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-            return "未知";
+            return getString(R.string.unknown);
         }
     }
     
@@ -751,7 +754,7 @@ public class MainActivity extends BaseActivity {
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
-                    android.widget.Toast.makeText(this, "处理文件失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.processing_file_failed, e.getMessage()), android.widget.Toast.LENGTH_SHORT).show();
                 }
             }
         }

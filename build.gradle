@@ -318,6 +318,11 @@ dependencies {
     implementation "org.jsoup:jsoup:1.17.2"
     // Markdown → HTML（flexmark 成熟库：标题/列表/表格/代码块/转义/图片标准渲染）
     implementation "com.vladsch.flexmark:flexmark-all:0.64.8"
+
+    // ExoPlayer (Media3)：聊天流原生视频/音频播放（支持流媒体/倍速/自适应，替代 VideoView）
+    implementation "androidx.media3:media3-exoplayer:1.3.1"
+    implementation "androidx.media3:media3-ui:1.3.1"
+    implementation "androidx.media3:media3-common:1.3.1"
     
     // PdfiumAndroid - 免费开源PDF渲染库 (Google Pdfium)
     implementation("com.github.barteksc:pdfium-android:1.9.0") {

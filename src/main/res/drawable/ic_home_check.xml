@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="42dp"
+    android:height="42dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底 -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#059669"
+                android:endColor="#34D399" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 盾牌（白色渐变） -->
+    <path android:pathData="M12,2.5 L20,5.2 V10.8 C20,16.3 16.6,20.2 12,21.8 C7.4,20.2 4,16.3 4,10.8 V5.2 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="2.5"
+                android:endX="20" android:endY="21.8"
+                android:startColor="#FFFFFF"
+                android:endColor="#D1FAE5" />
+        </aapt:attr>
+    </path>
+
+    <!-- 盾牌上部亮区（半透明白） -->
+    <path
+        android:fillColor="#59FFFFFF"
+        android:pathData="M12,4.8 L17.6,6.9 V10.8 C17.6,14.9 15.4,17.9 12,19.3 Z" />
+
+    <!-- 对勾（深绿渐变） -->
+    <path android:pathData="M9.5,12 L11.3,13.8 L14.8,10 C15.19,9.61 15.81,9.61 16.2,10 C16.59,10.39 16.59,11.01 16.2,11.4 L11.9,15.6 C11.51,15.99 10.89,15.99 10.5,15.6 L8.1,13.2 C7.71,12.81 7.71,12.19 8.1,11.8 C8.49,11.41 9.11,11.41 9.5,11.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="8.1" android:startY="10"
+                android:endX="16.2" android:endY="15.6"
+                android:startColor="#059669"
+                android:endColor="#047857" />
+        </aapt:attr>
+    </path>
+</vector>

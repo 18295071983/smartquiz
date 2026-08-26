@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="42dp"
+    android:height="42dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底 -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#475569"
+                android:endColor="#94A3B8" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 信息圆（白色渐变） -->
+    <path android:pathData="M12,4 C7.58,4 4,7.58 4,12 C4,16.42 7.58,20 12,20 C16.42,20 20,16.42 20,12 C20,7.58 16.42,4 12,4 Z M12,5.8 C15.42,5.8 18.2,8.58 18.2,12 C18.2,15.42 15.42,18.2 12,18.2 C8.58,18.2 5.8,15.42 5.8,12 C5.8,8.58 8.58,5.8 12,5.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="4"
+                android:endX="20" android:endY="20"
+                android:startColor="#FFFFFF"
+                android:endColor="#E2E8F0" />
+        </aapt:attr>
+    </path>
+
+    <!-- i 字（深灰） -->
+    <path android:pathData="M11,10.4 H13 V16.6 H11 Z M11,7.4 H13 V9.4 H11 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="11" android:startY="7.4"
+                android:endX="13" android:endY="16.6"
+                android:startColor="#475569"
+                android:endColor="#334155" />
+        </aapt:attr>
+    </path>
+</vector>

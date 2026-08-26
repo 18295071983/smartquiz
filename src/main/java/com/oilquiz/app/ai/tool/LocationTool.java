@@ -134,7 +134,12 @@ public class LocationTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "位置查询工具，获取当前位置信息";
+        return "位置查询工具：获取当前位置信息（经纬度/城市/详细地址）。"
+                + "action: get_current(当前经纬度+城市+地址，默认)/get_city(当前城市名)/get_coordinates(经纬度坐标)。"
+                + "返回含 latitude/longitude/city/district/address 等字段；"
+                + "位置服务未开启或权限未授予时自动引导用户开启（返回错误提示+系统设置跳转）。"
+                + "别名: get_location/get_current_location/get_city/get_coordinates。"
+                + "适合定位相关场景（天气/附近推荐/导航/基于位置的信息查询）。";
     }
     
     private void normalizeParameters(Map<String, Object> parameters) {

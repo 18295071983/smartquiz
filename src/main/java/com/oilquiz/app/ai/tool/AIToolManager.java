@@ -231,6 +231,9 @@ public class AIToolManager {
         registerToolFactory("voice_input", VoiceInputTool.class, VoiceInputTool::new);
         registerToolFactory("speech_synthesis", SpeechSynthesisTool.class, SpeechSynthesisTool::new);
         registerToolFactory("excel_tool", ExcelTool.class, ExcelTool::new);
+        registerToolFactory("ocr_recognize", OCRRecognizeTool.class, OCRRecognizeTool::new);
+        registerToolFactory("video_to_player", VideoToPlayerTool.class, VideoToPlayerTool::new);
+        registerToolFactory("system_connect", SystemConnectTool.class, SystemConnectTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
@@ -862,15 +865,27 @@ public class AIToolManager {
     public ToolDefinition getToolDefinition(String toolName) {
         switch (toolName) {
             case "ai_weather":
-                return ToolDefinition.builder("ai_weather", "天气查询工具，获取指定城市的天气信息")
-                    .addParameter("action", "string", "操作类型: current/forecast/hourly/air_quality/alerts/indices/all", false, "current")
-                    .addParameter("city", "string", "城市名称，如：北京、上海", false)
-                    .addParameter("lat", "number", "纬度", false)
-                    .addParameter("lon", "number", "经度", false)
+                return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
+                        + "action: current(实时天气,默认)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
+                        + "alerts(预警)/indices(生活指数)/all(全部)。"
+                        + "city=城市名(如北京/上海) 或 lat+lon=经纬度二选一。"
+                        + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
+                        + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
+                        + "查询天气时优先用本工具（实时数据，禁止凭训练知识编造）。"
+                        + "别名: get_weather/weather。")
+                    .addParameter("action", "string", "操作类型: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", false, "current")
+                    .addParameter("city", "string", "城市名称，如：北京、上海（与经纬度二选一）", false)
+                    .addParameter("lat", "number", "纬度（与city二选一，配合lon）", false)
+                    .addParameter("lon", "number", "经度（与city二选一，配合lat）", false)
                     .category("weather")
                     .build();
             case "network_search":
-                return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取")
+                return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"
+                        + "action: search(关键词搜索,返回标题/链接/摘要)/ask(智能问答,返回答案+引用来源)/"
+                        + "read_url(读取网页正文)/get_webpage(网页原始内容)/extract_info(提取信息)/"
+                        + "summarize(网页摘要)/search_and_read(搜索并读正文)/smart_search(智能搜索)。"
+                        + "涉及实时/最新/动态信息（新闻、价格、天气、汇率、政策、热点）必须联网搜索，禁止凭训练知识编造。"
+                        + "别名: search。")
                     .addParameter("action", "string", "操作类型: search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage/extract_info/summarize/search_and_read/smart_search", false, "search")
                     .addParameter("query", "string", "搜索关键词（用于search等操作）", false)
                     .addParameter("question", "string", "问题（用于ask操作，秘塔智能问答，返回答案+引用来源）", false)
@@ -1090,9 +1105,9 @@ public class AIToolManager {
                     .category("media")
                     .build();
             case "ui_component":
-                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)，创建时可直接传 layout/render/props(三种等效) 带 layout 树现场自定义UI。组件参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result。")
+                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)；临时layout：create时component_type给任意未注册名+layout参数(顶层layout/props.layout/render.layout三选一等效)不注册即用,仅本次有效。组件参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result。**layout 交互已完善**：输入/选择/交互控件在卡片或弹窗内可正常操作（键盘可唤起），带 key 的控件值在布局内 button 提交时统一收集，get_result 返回 values={key:值}；多控件内容自动可滚动；divider 正常显示。**layout 类型解析与嵌套（实测可用）**：①已注册组件类型名(register_type/插件/layout模板)可直接作layout节点type嵌套(如{\"type\":\"online_music_player\"})，自动展开其render.layout，节点props覆盖模板占位；②未注册类型但节点自带layout(顶层layout字段或render={layout:...})现场展开渲染(等效临时注册)；③layout模板用{\"use\":\"模板名\",\"props\":{参数}}引用，模板内{key}由props替换。**已注册的自定义类型/插件/layout模板可能不在本描述列出**：ui_component(list_types)查看自定义类型、ui_component_plugin(list)查看插件、ui_component_plugin(layout_list)查看layout模板——注册过的直接用name作component_type创建。layout框架控件(88种)也可作component_type直接生成聊天流卡片(如line_chart/bar_chart/pie_chart/qrcode/calendar/table/steps/timeline/alert/stat/notice/progress_ring/countdown/breadcrumb/avatar_group/toggle/stepper/tag_input等)。注意：layout 的 alert 提示条样式字段用 alert_type 或 variant(success|warning|error|info)，勿用 type。")
                     .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)/register_type(外部注入自定义类型,persist可选)/list_types(列出注册类型)/remove_type(删除类型)/clear_temporary_types(清除临时类型)", true)
-                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字:text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)。web=网页卡片(传url或html), image=图片卡片(传default_value或images)。各组件参数可放顶层或 props 内(等效,自动合并)", false)
+                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字:text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)/数据卡片(table(headers,rows)/steps(steps)/timeline(items)/alert(alert_type或variant:success|warning|error|info,title,content)/stat(label,value)/empty(icon,title)/notice(icon,text)/progress_ring(progress))/图表(line_chart(categories,series)/bar_chart/pie_chart(data)/sparkline(data))/工具(qrcode(content)/barcode(content)/countdown(seconds)/calendar(value)/breadcrumb(items))/其他(avatar_group(urls)/toggle(options)/stepper(min,max)/tag_input(tags)/badge/quote/icon)。web=网页卡片(传url或html), image=图片卡片(传default_value或images)。也可用已注册类型名(register_type/插件)或任意未注册名+layout参数现场创建临时layout。各组件参数可放顶层或 props 内(等效,自动合并)", false)
                     .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)
                     .addParameter("title", "string", "标题", false)
                     .addParameter("message", "string", "内容/提示文本", false)
@@ -1103,26 +1118,28 @@ public class AIToolManager {
                     .addParameter("default_value", "string", "默认值(input/date/time/image用)", false)
                     .addParameter("input_hint", "string", "输入框提示(input用)", false)
                     .addParameter("action_label", "string", "按钮文字(snackbar用)", false)
-                    .addParameter("fields", "array", "custom动态表单字段定义数组，如[{\"key\":\"name\",\"label\":\"姓名\",\"type\":\"text\",\"required\":true},{\"key\":\"age\",\"label\":\"年龄\",\"type\":\"number\"},{\"key\":\"sex\",\"label\":\"性别\",\"type\":\"select\",\"options\":[\"男\",\"女\"]},{\"key\":\"agree\",\"label\":\"同意\",\"type\":\"switch\",\"default\":true},{\"key\":\"score\",\"label\":\"评分\",\"type\":\"slider\",\"min\":0,\"max\":10},{\"key\":\"tags\",\"label\":\"标签\",\"type\":\"checkbox\",\"options\":[\"A\",\"B\"]},{\"key\":\"birth\",\"label\":\"生日\",\"type\":\"date\"}]；字段类型:text/password/number/multiline/select/radio/checkbox/switch/slider/date", false)
+                    .addParameter("fields", "array", "custom动态表单字段定义数组，如[{\"key\":\"name\",\"label\":\"姓名\",\"type\":\"text\",\"required\":true},{\"key\":\"age\",\"label\":\"年龄\",\"type\":\"number\"},{\"key\":\"sex\",\"label\":\"性别\",\"type\":\"select\",\"options\":[\"男\",\"女\"]},{\"key\":\"agree\",\"label\":\"同意\",\"type\":\"switch\",\"default\":true},{\"key\":\"score\",\"label\":\"评分\",\"type\":\"slider\",\"min\":0,\"max\":10},{\"key\":\"tags\",\"label\":\"标签\",\"type\":\"checkbox\",\"options\":[\"A\",\"B\"]},{\"key\":\"birth\",\"label\":\"生日\",\"type\":\"date\"}]；字段类型:text/password/number/multiline/select/radio/checkbox/switch/slider/date/time/datetime/otp/email/tel/url/search/file。**连续输入表单（配套能力，实测可用）**: props 内加 rounds=N(N>1) → 多轮连续输入,弹窗含「添加下一条」(收集本轮并清空重建)与「完成」(收集并结束),get_result 返回 {\"rounds\":[{第1轮}...],\"total\":N},适合批量录入多条数据(多条记录/题目/清单项)", false)
                     .addParameter("items", "array", "列表项(list用)", false)
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
-                    .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值", false)
+                    .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值；临时layout时也可用props={layout:{控件树}}", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
                     .addParameter("auto_close", "integer", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", false)
                     .addParameter("name", "string", "register_type/remove_type 用：自定义类型名（字母数字下划线）", false)
-                    .addParameter("render", "object", "register_type 用：渲染定义 {card:内置卡片类型 或 layout:原生控件框架树, props:固定字段}；layout 控件: column/row/scroll/text/marquee/image/input/number/button/select/switch/progress/divider，按钮可加 tool+tool_params 调后端", false)
+                    .addParameter("layout", "object", "现场自定义UI（create用，可选）：原生控件框架树JSON。component_type 可给任意未注册名(如 debug_layout_test)，无需 register_type，仅本次创建有效。layout 树内支持：已注册类型名作节点type嵌套({\"type\":\"online_music_player\"},自动展开其render.layout,节点props覆盖占位)；use 引用 layout 模板({\"use\":\"模板名\",\"props\":{参数}},模板内{key}由props替换)；未注册类型节点自带 layout 字段现场展开({\"type\":\"my_widget\",\"layout\":{...}})。控件type: 布局column/row/scroll/card/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页)/stack(层叠)/accordion(折叠面板)/carousel(图片轮播)；展示text/marquee(跑马灯,speed 0~3)/image/badge/avatar/avatar_group/quote/code/icon；数据table/steps/timeline/alert(alert_type或variant)/stat/empty/notice/progress_ring；图表line_chart/bar_chart/pie_chart/sparkline；工具qrcode/barcode/countdown/calendar/breadcrumb；媒体video/audio/html；输入input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle/dropdown/stepper/slider_range；交互button(提交时收集全部带key控件值)/link/slider/progress/spinner；文件file；装饰divider/divider_v/separator。通用属性: width/height(match/wrap/数字dp/百分比), margin(数字或{top,left,bottom,right}), weight或flex(弹性), align, 容器spacing/alignItems/justify", false)
+                    .addParameter("render", "object", "register_type 用：渲染定义 {card:内置卡片类型 或 layout:原生控件框架树, props:固定字段}；也可作 create 现场 layout 的容器(render={layout:...} 等效顶层 layout)；layout 控件清单见 layout 参数说明。按钮可加 tool+tool_params 调后端。带 key 控件提交后 get_result 返回 values 收集", false)
                     .addParameter("monitor", "object", "register_type 用（可选）：任务监控 {tool,action,poll_seconds,param_map,success_field}，创建后自动轮询", false)
                     .category("system")
                     .build();
             case "ui_component_plugin":
-                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）。动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、render不能为空、monitor.tool限已注册工具。创建组件时自动按params schema校验: 缺必填报错/类型转换/默认值填充。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。")
-                    .addParameter("action", "string", "操作: create/template/validate/get/list/remove/clear_temporary", true)
-                    .addParameter("name", "string", "插件名（create/get/remove 用），即新的 component_type，仅字母数字下划线", false)
-                    .addParameter("description", "string", "插件用途说明（create 用，给模型看）", false)
+                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）与原生layout模板库（可复用控件模板）。插件动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)；layout模板动作: register_layout(注册命名layout模板)/layout_list(列出)/layout_remove(删除)/layout_clear_temporary(清除临时模板)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、render不能为空、monitor.tool限已注册工具。创建组件时自动按params schema校验: 缺必填报错/类型转换/默认值填充。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。**插件/类型/模板的复用**: 注册的插件名和register_type类型名可直接作其他layout树的节点type嵌套({\"type\":\"插件名\"},自动展开其render.layout,节点props覆盖占位)；layout模板注册后任意layout内可用{\"use\":\"模板名\",\"props\":{参数}}引用,模板内{key}由props替换。")
+                    .addParameter("action", "string", "操作: create/template/validate/get/list/remove/clear_temporary/register_layout/layout_list/layout_remove/layout_clear_temporary", true)
+                    .addParameter("name", "string", "插件名或layout模板名（create/get/remove/register_layout/layout_remove 用），仅字母数字下划线", false)
+                    .addParameter("description", "string", "插件或模板用途说明（create/register_layout 用，给模型看）", false)
                     .addParameter("params", "object", "参数 schema JSON（create 用）：{字段名: {type: string|number|boolean|array|object, required: 可选布尔, default: 可选, description: 可选, enum: 可选数组}}", false)
-                    .addParameter("render", "object", "渲染配置 JSON（create 用，可选）：{card: 项目内置卡片类型(如 info_card/progress_card), title: 标题, props: 卡片固定字段, layout: 项目原生控件框架树(JSON 声明原生 UI，见下)}。layout 示例: {root:{type:'column',children:[{type:'text',text:'标题'},{type:'input',hint:'输入',key:'name'},{type:'button',text:'提交',action:'submit'}]}}；控件 type: column/row/scroll/text/marquee(跑马灯,speed 0~3)/input/number/button/image/progress/switch/select/divider；控件属性: text/hint/key/action/url/progress/max/options 等；后端组件: button 可加 tool=后端工具名+tool_params={参数,支持{key}占位符}，点击直接调用后端工具并回传结果", false)
+                    .addParameter("render", "object", "渲染配置 JSON（create 用，可选）：{card: 项目内置卡片类型(如 info_card/progress_card), title: 标题, props: 卡片固定字段, layout: 项目原生控件框架树(JSON 声明原生 UI，见下)}。layout 示例: {root:{type:'column',children:[{type:'text',text:'标题'},{type:'input',hint:'输入',key:'name'},{type:'button',text:'提交',action:'submit'}]}}；控件 type: 布局 column/row/scroll/card/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠)/accordion(折叠面板)/carousel(图片轮播)；展示 text/marquee(跑马灯,speed 0~3)/image/badge/avatar/avatar_group/quote/code/icon；数据 table(headers/rows)/steps(步骤条)/timeline(时间线)/alert(提示条,样式字段用alert_type或variant)/stat(指标卡)/empty(空态)/notice(通知条)/progress_ring(环形进度)；图表 line_chart(折线)/bar_chart(柱状)/pie_chart(饼图)/sparkline(迷你趋势)；工具 qrcode(二维码)/barcode(条形码)/countdown(倒计时)/calendar(日历)/breadcrumb(面包屑)；媒体 video(url或src,title,autoPlay,loop,speed)/audio(url或src,title,artist)/html(富文本)；输入 input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择 select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle(胶囊开关)/dropdown(下拉)/stepper(步进器)/slider_range(双滑块)；交互 button/link(text,url或action)/slider/progress/spinner；文件 file；装饰 divider/divider_v/separator；通用属性 width/height(match/wrap/数字dp/百分比)/margin(数字或对象)/weight或flex(弹性)/align(对齐)/容器spacing/alignItems/justify；自定义模板 use=名字（register_layout注册或layout顶层define）；**嵌套**: 已注册插件名/类型名可直接作layout节点type嵌套({\"type\":\"插件名\"})，未注册类型节点带layout字段现场展开({\"type\":\"x\",\"layout\":{...}})；后端组件: button 可加 tool=后端工具名+tool_params={参数,支持{key}占位符}，点击直接调用后端工具并回传结果", false)
+                    .addParameter("layout", "object", "layout模板定义（register_layout 用）：控件树JSON，如{type:'card',title:'{label}',children:[...]}，模板内{key}由use的props替换；注册后任意layout内可用use=模板名引用", false)
                     .addParameter("monitor", "object", "任务监控配置 JSON（create 用，可选）：{tool: 已注册工具名, action: 工具action参数, poll_seconds: 轮询间隔秒数(2~30,默认5), param_map: {组件props字段: 查询参数名}, success_field: 查询结果含该字段即完成(展示该文件路径), error_field: 失败原因字段(可选)}", false)
-                    .addParameter("persist", "boolean", "生命周期（create 用）：true=长久插件落盘跨重启保留可复用(默认)；false=临时插件仅内存任务结束即消失", false)
+                    .addParameter("persist", "boolean", "生命周期（create/register_layout 用）：true=长久插件落盘跨重启保留可复用(默认)；false=临时插件仅内存任务结束即消失", false)
                     .category("system")
                     .build();
             case "system_ui_control":
@@ -1162,6 +1179,41 @@ public class AIToolManager {
                     .addParameter("height", "integer", "高度(图像处理使用)", false)
                     .addParameter("city", "string", "城市名(天气操作使用)", false)
                     .category("app")
+                    .build();
+            case "ocr_recognize":
+                return ToolDefinition.builder("ocr_recognize", "图片理解工具：OCR文字识别 + 视觉问答（看图理解）。识别图片/PDF文字，或看图回答用户问题")
+                    .addParameter("action", "string", "操作类型: ocr_recognize(识别图片文字,默认)/ocr_recognize_pdf(识别PDF文字)/image_understand(图片理解视觉问答)/ocr_set_language(设置语言)/ocr_get_language(获取语言)", false, "ocr_recognize")
+                    .addParameter("image_path", "string", "图片路径(ocr_recognize/image_understand用)：绝对路径或 content:// 或 file:// URI", false)
+                    .addParameter("pdf_path", "string", "PDF路径(ocr_recognize_pdf用)：绝对路径或 content:// 或 file:// URI", false)
+                    .addParameter("question", "string", "关于图片的问题(image_understand用，如：图里有什么？描述一下这张图)", false)
+                    .addParameter("language", "string", "识别语言: auto/chinese/english/japanese/korean(可选)", false)
+                    .category("utility")
+                    .build();
+            case "video_to_player":
+                return ToolDefinition.builder("video_to_player", "视频下载转播放工具：输入视频页面链接或直链URL，解析视频源并下载到本地工作区，返回 local_path（mp4绝对路径）供 video_player 组件渲染原生播放。直链(mp4/webm等扩展名或视频Content-Type)直接下载；网页链接抓取HTML提取og:video或<video>标签src后下载。下载完成后返回文件卡片可直接点击全屏播放。用户说\"播放视频\"时优先用本工具下载后创建 video_player 组件")
+                    .addParameter("url", "string", "视频页面链接或直链URL（必填）", true)
+                    .addParameter("title", "string", "视频标题（可选，默认取文件名）", false)
+                    .addParameter("timeout", "integer", "下载超时秒数（可选，默认120）", false)
+                    .category("media")
+                    .build();
+            case "system_connect":
+                return ToolDefinition.builder("system_connect", "系统级连接与设备能力工具。"
+                        + "系统级UI: notify(系统通知)/floating_window(悬浮窗,需权限)/toast(屏幕提示)/screenshot(截屏,需MediaProjection)。"
+                        + "系统级数据: clipboard(剪贴板读写)/battery(电池状态)/network(网络状态)/volume(音量控制)/brightness(亮度调节)。"
+                        + "系统级连接: wifi(WiFi状态/开关)/bluetooth(蓝牙状态/开关)/hotspot(热点,需系统权限)/usb(USB状态)/screen(屏幕)。"
+                        + "系统参数与设备连接管理统一走本工具；跳转系统设置页用 system_resource(open_settings)。")
+                    .addParameter("action", "string", "操作: notify/toast/floating_window/close_floating/screenshot/clipboard/battery/network/volume/brightness/wifi/bluetooth/hotspot/usb/screen", true)
+                    .addParameter("title", "string", "通知标题（notify用）", false)
+                    .addParameter("content", "string", "通知内容（notify用）", false)
+                    .addParameter("text", "string", "Toast文本/剪贴板写入内容/悬浮窗文字", false)
+                    .addParameter("op", "string", "子操作: read/write/get/set/up/down/on/off/status/keep_on/keep_off/mobile", false)
+                    .addParameter("enable", "boolean", "开关值（network-mobile/hotspot用）", false)
+                    .addParameter("stream", "string", "音量类型: music/ring/alarm/notification", false)
+                    .addParameter("value", "integer", "数值（音量0-100/亮度0-255）", false)
+                    .addParameter("path", "string", "截图保存路径（screenshot用）", false)
+                    .addParameter("x", "integer", "悬浮窗X坐标", false)
+                    .addParameter("y", "integer", "悬浮窗Y坐标", false)
+                    .category("system")
                     .build();
             case "ai_create_tool":
                 return ToolDefinition.builder("ai_create_tool", "AI创建工具，使用AI自动生成新工具")

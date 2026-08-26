@@ -268,9 +268,27 @@ public class AgentWorkspace {
         return result;
     }
 
-    /** 删除工作区文件（仅限工作区内，防越权） */
+    /** 删除工作区文件（仅限工作区内，防越权）。
+     *  列表中的文件名可能位于 files/、tmp/ 或工作区根目录——不能只按文件名拼到
+     *  工作区根（此前 deleteFile 用 resolveFile 拼到 workspaceDir，实际文件在
+     *  files/ 子目录时删除失败——Agent 管理界面"删除文件无效"根因）。
+     *  这里依次在 files/ → tmp/ → 工作区根 搜索并删除。 */
     public boolean deleteFile(String fileName) {
-        File f = resolveFile(fileName);
+        if (fileName == null || fileName.trim().isEmpty()) return false;
+        String name = fileName.trim();
+        File f = null;
+        // 绝对路径：直接校验是否在工作区内
+        File direct = new File(name);
+        if (direct.isAbsolute()) {
+            f = direct;
+        } else {
+            // 相对路径：files/ → tmp/ → 工作区根（列表文件名可能带 "files/" 或 "tmp/" 前缀）
+            f = resolveExistingFile(name);
+            if (f == null) {
+                File inRoot = resolveSafely(getWorkspaceDir(), name);
+                if (inRoot != null && inRoot.isFile()) f = inRoot;
+            }
+        }
         if (f == null) return false;
         try {
             String ws = getWorkspaceDir().getCanonicalPath();
@@ -279,7 +297,9 @@ public class AgentWorkspace {
                 AILogger.w(TAG, "Delete blocked: outside workspace: " + target);
                 return false;
             }
-            return f.delete();
+            boolean ok = f.delete();
+            AILogger.i(TAG, "Delete workspace file: " + target + " -> " + ok);
+            return ok;
         } catch (Exception e) {
             AILogger.w(TAG, "Delete workspace file failed: " + e.getMessage());
             return false;
@@ -370,19 +390,37 @@ public class AgentWorkspace {
                 + "   array/object)、有 default 自动填充；render 必须含 card 或 layout。\n\n"
                 + "4) ui_component register_type（轻量类型注册）：\n"
                 + "   name + description + render（layout 或 card）→ 之后 ui_component(action=create,\n"
-                + "   component_type=类型名) 直接创建复用；list_types 查看、remove_type 删除。\n\n"
+                + "   component_type=类型名) 直接创建复用；list_types 查看、remove_type 删除。\n"
+                + "5) 连续输入表单（配套能力，实测可用）：custom 类型 props 内加 rounds=N(N>1) → 多轮连续输入,\n"
+                + "   弹窗含「添加下一条」(收集本轮值并清空重建继续)与「完成」(收集本轮并结束),\n"
+                + "   get_result 返回 {\"rounds\":[{第1轮}...],\"total\":N}——批量录入多条数据(多条记录/题目/清单项)\n"
+                + "   一次 create 连续收集。示例: create(component_type=custom, props={fields:[{key:姓名,type:text,\n"
+                + "   required:true},{key:金额,type:number}], rounds:3}) → 用户连续填3轮 → 返回3条记录\n\n"
                 + "二、layout 原生控件框架（JSON 声明真实原生 UI）\n"
                 + "----------------------------------------------------------------\n"
-                + "   布局: column(纵向)/row(横向)/scroll(滚动)\n"
-                + "   展示: text(text,bold,size,color)/image(url,width,height)/marquee(text,speed 0~3)\n"
-                + "   输入: input(hint,key)/number(key,min,max)/password/multiline/otp(length)\n"
-                + "   选择: select(options,key)/switch(checked,key)/checkbox(checked)/radio(options,value)/\n"
-                + "         date(value)/time(value)/color(value)/rating(value 1~5)\n"
-                + "   交互: button(text,action 回传 或 tool+tool_params 调后端)/slider(key,min,max)/\n"
-                + "         progress(progress,max)\n"
-                + "   装饰: divider\n"
-                + "   文本支持 {key} 从 props 替换；尺寸 width/height 支持 match/fill/wrap/数字 dp\n"
-                + "   传法三种等效: 顶层 layout / props={layout:...} / render={layout:...}\n\n"
+                 + "   布局: column(纵向)/row(横向)/scroll(滚动)/card(圆角卡片容器,title)/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠,子项gravity定位)/accordion(折叠面板,items=[{title,content}])/carousel(图片轮播,images)\n"
+                 + "   展示: text(text,bold,size,color,align)/image(url,width,height)/marquee(text,speed 0~3)/\n"
+                 + "         badge(徽章,text,color)/avatar(头像,url,size)/avatar_group(头像组,urls)/quote(引用,text,author)/\n"
+                 + "         code(代码块,code,language)/icon(图标,size,color)\n"
+                 + "   数据: table(headers=[列],rows=[[值]])/steps(步骤条,steps=[{title,status}])/timeline(时间线,items=[{title,time,description}])/\n"
+                 + "         alert(提示条,样式字段用 alert_type 或 variant(success|warning|error|info),title,content)/stat(指标卡,label,value,unit,sub)/empty(空态,icon,title)/notice(通知条,icon,text,action)/progress_ring(环形进度,progress)\n"
+                 + "   图表: line_chart(categories,series折线)/bar_chart(柱状)/pie_chart(data=[{label,value}]饼图)/sparkline(data迷你趋势)\n"
+                 + "   工具: qrcode(content,size二维码)/barcode(content条形码)/countdown(seconds倒计时)/calendar(日历,value)/breadcrumb(items面包屑)\n"
+                 + "   媒体: video(url或src,title,autoPlay,loop,speed,ExoPlayer原生播放)/audio(url或src,title,artist)/\n"
+                 + "         html(html富文本内容,maxHeight)\n"
+                 + "   输入: input(hint,key)/number(key,min,max)/password/multiline/otp(length)/\n"
+                 + "         email/tel/url/search/search_bar(搜索条)/tag_input(标签输入,tags)——点击可唤起软键盘\n"
+                 + "   选择: select(options,key)/switch(checked,key)/checkbox(checked)/checkbox_group(复选组)/radio(options,value)/radio_group/\n"
+                 + "         date(value)/time(value)/datetime(日期+时间)/color(value)/rating(value 1~5)/\n"
+                 + "         toggle(胶囊开关,options,value)/dropdown(下拉,options)/stepper(步进器,min/max/step)/slider_range(双滑块,min/max/low/high)\n"
+                 + "   交互: button(text,action 回传 或 tool+tool_params 调后端)/link(text,url或action)/\n"
+                 + "         slider(key,min,max)/progress(progress,max)/spinner(加载圈,size)\n"
+                 + "   文件: file(key,label,value 预填或手填路径)\n"
+                 + "   装饰: divider/divider_v/separator\n"
+                 + "   **交互能力（实测可用）**：带 key 的控件值在布局内 button 提交时统一收集，get_result 返回 values={key:值}；多控件内容自动可滚动；divider 正常显示。\n"
+                 + "   通用属性: width/height(match/wrap/数字dp/百分比如\"50%\"在wrap/grid内), margin(数字或{top,left,bottom,right}), weight或flex(弹性比例), align(对齐), 容器spacing(子项间距)/alignItems(对齐)/justify(flex_start/flex_end/center/space_between)\n"
+                 + "   自定义模板: layout顶层define={模板名:节点树}或ui_component_plugin(register_layout)注册, 树内use={模板名,props:{参数}}引用, 模板内{key}由props替换\n"
+                 + "   **类型嵌套与现场定义（实测可用）**: ①已注册组件类型名(register_type/插件/模板)可直接作layout节点type嵌套(如{\"type\":\"online_music_player\"}), 自动展开其render.layout, 节点props覆盖模板占位; ②未注册类型但节点自带layout现场展开({\"type\":\"my_widget\",\"layout\":{...}} 或 {\"type\":\"x\",\"render\":{\"layout\":{...}}}, 等效临时注册); ③临时layout: create时component_type给任意未注册名+layout参数(顶层/props/render三选一等效)不注册即用, 仅本次有效\n"
                 + "三、工作区目录\n"
                 + "----------------------------------------------------------------\n"
                 + "   files/ 长期文件区（用户保留产物，不自动清理；指南文件在此）\n"
@@ -419,6 +457,21 @@ public class AgentWorkspace {
                 + "   persist=true 长久落盘可复用(默认) / false 临时仅内存\n"
                 + "   创建时自动按 params schema 校验（缺必填报错/类型转换/默认值填充）\n"
                 + "   render 必须含 card(内置卡片) 或 layout(控件树)；monitor 可自动轮询任务\n\n"
+                + "四·五、自定义 layout 控件树（三条路：现场 layout / register_type / 插件）\n"
+                + "----------------------------------------------------------------\n"
+                + "   控件 type: 布局 column/row/scroll/card/wrap/grid/tabs/stack/accordion/carousel；\n"
+                + "   展示 text/image/marquee/badge/avatar/avatar_group/quote/code/icon；\n"
+                + "   数据 table/steps/timeline/alert(样式字段用 alert_type 或 variant: success|warning|error|info)/stat/empty/notice/progress_ring；\n"
+                + "   图表 line_chart/bar_chart/pie_chart/sparkline；工具 qrcode/barcode/countdown/calendar/breadcrumb；\n"
+                + "   媒体 video/audio/html；输入 input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；\n"
+                + "   选择 select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle/dropdown/stepper/slider_range；\n"
+                + "   交互 button/link/slider/progress/spinner；文件 file；装饰 divider/divider_v/separator\n"
+                + "   **交互能力（实测可用）**：输入/选择/交互控件可正常操作（点击可唤起软键盘）；\n"
+                + "   带 key 的控件值在布局内 button 提交时统一收集，get_result 返回 values={key:值}；\n"
+                + "   多控件内容自动可滚动；divider 正常显示分隔线。\n"
++ "   **类型嵌套与现场定义（实测可用）**: 已注册类型名(register_type/插件/模板)可直接作layout节点type嵌套(如{\"type\":\"online_music_player\"},自动展开其render.layout,节点props覆盖占位); 未注册类型节点带layout现场展开({\"type\":\"my_widget\",\"layout\":{...}}或{\"type\":\"x\",\"render\":{\"layout\":{...}}}); 临时layout: create时component_type任意未注册名+layout参数(顶层/props/render三选一)不注册即用,仅本次有效; use引用模板: {\"use\":\"模板名\",\"props\":{参数}},模板内{key}由props替换。\n"
++ "   连续输入表单（配套能力）: custom + props.rounds=N(N>1) → 多轮连续输入,「添加下一条」收集清空重建/「完成」结束,\n"
++ "   get_result 返回 {\"rounds\":[{第1轮}...],\"total\":N}——批量录入多条数据一次创建连续收集。\n\n"
                 + "五、核心工具速查\n"
                 + "----------------------------------------------------------------\n"
                 + "   ai_weather       天气(当前/预报/空气质量/预警/生活指数)\n"
@@ -530,3 +583,4 @@ public class AgentWorkspace {
         }
     }
 }
+

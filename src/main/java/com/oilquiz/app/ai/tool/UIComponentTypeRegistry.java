@@ -88,8 +88,10 @@ public class UIComponentTypeRegistry {
                 return problems;
             }
             if (render.has("layout")) {
+                // 校验时放行已注册类型名/插件名/模板名（layout 内可嵌套引用它们）
+                java.util.Set<String> known = collectRegisteredNames();
                 String layoutErr = com.oilquiz.app.ai.python.NativeLayoutRenderer
-                        .validate(render.opt("layout"));
+                        .validate(render.opt("layout"), known);
                 if (layoutErr != null) {
                     problems.add("render.layout 非法: " + layoutErr);
                     return problems;
@@ -112,6 +114,28 @@ public class UIComponentTypeRegistry {
 
     public boolean hasType(String name) {
         return name != null && types.containsKey(name);
+    }
+
+    /** 已注册类型名集合（不含 layout 模板/插件，仅本表） */
+    public java.util.Set<String> typeNames() {
+        return new java.util.HashSet<>(types.keySet());
+    }
+
+    /**
+     * 收集当前已注册的全部可引用名：类型表 + 插件表 + layout 模板表。
+     * 供 layout 校验放行嵌套引用（render.layout 内可用它们作节点 type）。
+     */
+    private java.util.Set<String> collectRegisteredNames() {
+        java.util.Set<String> known = typeNames();
+        try {
+            known.addAll(com.oilquiz.app.ai.tool.UIComponentPluginManager.getInstance(context).pluginNames());
+        } catch (Throwable ignored) {
+        }
+        try {
+            known.addAll(com.oilquiz.app.ai.python.LayoutTemplateRegistry.getInstance(context).templateNames());
+        } catch (Throwable ignored) {
+        }
+        return known;
     }
 
     public JSONObject getType(String name) {
@@ -185,6 +209,10 @@ public class UIComponentTypeRegistry {
             File f = typesFile();
             if (!f.exists()) return;
             String text = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
+            // 容错：剥离 UTF-8 BOM（外部写入可能带 \uFEFF，org.json 无法解析会致类型"丢失"）
+            if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
+                text = text.substring(1);
+            }
             JSONArray arr = new JSONArray(text);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.optJSONObject(i);
@@ -196,5 +224,11 @@ public class UIComponentTypeRegistry {
         } catch (Exception e) {
             Log.e(TAG, "加载类型失败: " + e.getMessage(), e);
         }
+    }
+
+    /** 重新从磁盘加载类型（管理界面刷新用）：单例可能先于外部注册初始化，reload 保证显示磁盘最新。 */
+    public synchronized void reload() {
+        types.clear();
+        load();
     }
 }

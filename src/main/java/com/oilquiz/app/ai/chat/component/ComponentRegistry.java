@@ -70,8 +70,19 @@ public class ComponentRegistry {
         register(new HtmlCardView());
         // Markdown 富文本（内容框架文本承载组件，渲染加粗/列表/链接/代码块等）
         register(new MarkdownCardView());
+        // 媒体播放（原生播放器：视频/音频）
+        register(new VideoCardView());
+        register(new AudioCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）
         register(new ToolCallCardView());
+        // Layout 原语桥接：把 NativeLayoutRenderer 的单控件渲染暴露为聊天流卡片
+        // （table/steps/timeline/alert/stat/qrcode/barcode/calendar/图表/stepper 等，
+        //  props 直接作为单控件节点渲染，Agent 可用 component_type=xxx 直接生成）
+        for (String lt : LayoutPrimitiveCardView.BRIDGED_TYPES) {
+            register(new LayoutPrimitiveCardView(lt));
+        }
+        // Layout 树卡片：ui_component 传 layout 控件树时渲染为聊天流卡片
+        register(new LayoutCardView());
     }
 
     /**

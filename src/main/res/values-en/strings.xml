@@ -359,7 +359,7 @@ Enter \'Help\' to see more functions.</string>
     <string name="environment_info_copied">Environment info copied</string>
     <string name="native_environment_detection">Native Environment Detection</string>
     <string name="test_result">Test Result</string>
-    <string name="processing_file_failed">Failed to process file</string>
+    <string name="processing_file_failed">Failed to process file: %1$s</string>
 
     <!-- WebViewActivity -->
     <string name="preparing_to_load">Preparing to load…</string>
@@ -458,6 +458,187 @@ Enter \'Help\' to see more functions.</string>
     <string name="indigo">Indigo</string>
     <string name="theme_applied">Theme applied, restart the app to take effect</string>
     <string name="color_selected">%1$s theme selected</string>
+
+    <!-- Home / Model / Chat status / Permissions / Service types -->
+    <string name="add_model">Add Model</string>
+    <string name="current_using">Currently Using</string>
+    <string name="empty_models">No Models</string>
+    <string name="no_models_available">No Models Available</string>
+    <string name="default_ai_status">-</string>
+    <string name="default_question_count">0</string>
+    <string name="ai_status_unknown">AI Status Unknown</string>
+    <string name="chevron_arrow">›</string>
+    <string name="status_online_prefix">Online · %1$s</string>
+    <string name="status_online_ready">Online · Ready</string>
+    <string name="status_online_api">API</string>
+    <string name="status_local_prefix">Local · %1$s</string>
+    <string name="status_local_ready">Local Ready</string>
+    <string name="status_loading_progress">Loading %1$d%%</string>
+    <string name="status_cpu_progress">CPU Mode %1$d%%</string>
+    <string name="status_ai_error">AI Error</string>
+    <string name="status_init_failed">Initialization Failed</string>
+    <string name="status_not_loaded">Not Loaded</string>
+    <string name="template_jiangyi">Lecture Notes</string>
+    <string name="template_jiangyi_desc">Course lecture notes template</string>
+    <string name="template_xiaochao">Cheat Sheet</string>
+    <string name="template_xiaochao_desc">Exam cheat sheet template</string>
+    <string name="template_dayin">Print</string>
+    <string name="template_dayin_desc">Print material template</string>
+    <string name="template_beisong">Recitation</string>
+    <string name="template_beisong_desc">Recitation content template</string>
+    <string name="template_yuedu">Reading</string>
+    <string name="template_yuedu_desc">Reading material template</string>
+    <string name="template_jiyi">Memory</string>
+    <string name="template_jiyi_desc">Memory cards template</string>
+    <string name="button_copy">Copy</string>
+    <string name="weather_detail_title">Weather Details</string>
+    <string name="manufacturer">Manufacturer</string>
+    <string name="brand">Brand</string>
+    <string name="model">Model</string>
+    <string name="device_type">Device Type</string>
+    <string name="hardware">Hardware</string>
+    <string name="mainboard">Mainboard</string>
+    <string name="security_patch">Security Patch</string>
+    <string name="time_zone">Time Zone</string>
+    <string name="is_rooted">Rooted</string>
+    <string name="is_emulator">Emulator</string>
+    <string name="resolution">Resolution</string>
+    <string name="screen_density">Screen Density</string>
+    <string name="screen_size">Screen Size</string>
+    <string name="orientation">Orientation</string>
+    <string name="total_memory">Total Memory</string>
+    <string name="available_memory">Available Memory</string>
+    <string name="usage_percent">Usage</string>
+    <string name="app_memory_limit">App Memory Limit</string>
+    <string name="low_memory_state">Low Memory State</string>
+    <string name="internal_storage_total">Internal Storage Total</string>
+    <string name="internal_storage_available">Internal Storage Available</string>
+    <string name="external_storage_total">External Storage Total</string>
+    <string name="external_storage_available">External Storage Available</string>
+    <string name="app_files_size">App Files Size</string>
+    <string name="app_cache_size">App Cache Size</string>
+    <string name="app_name_label">App Name</string>
+    <string name="package_name">Package Name</string>
+    <string name="version_label">Version</string>
+    <string name="target_sdk">Target SDK</string>
+    <string name="min_sdk">Min SDK</string>
+    <string name="debug_mode">Debug Mode</string>
+    <string name="supported_abis">Supported ABIs</string>
+    <string name="processor_count">Processor Count</string>
+    <string name="camera">Camera</string>
+    <string name="gps">GPS</string>
+    <string name="nfc">NFC</string>
+    <string name="bluetooth">Bluetooth</string>
+    <string name="wifi">WiFi</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="supported">Supported</string>
+    <string name="not_supported">Not Supported</string>
+    <string name="environment_report">Environment Detection Report</string>
+    <string name="test_result_header">Test Results:</string>
+    <string name="section_device_info">[Device Info]</string>
+    <string name="section_system_info">[System Info]</string>
+    <string name="section_screen_info">[Screen Info]</string>
+    <string name="section_memory_info">[Memory Info]</string>
+    <string name="section_storage_info">[Storage Info]</string>
+    <string name="section_app_info">[App Info]</string>
+    <string name="section_hardware_info">[Hardware Info]</string>
+    <string name="android_version">Android Version</string>
+    <string name="sdk_level">SDK Level</string>
+    <string name="cpu_arch">CPU Architecture</string>
+    <string name="env_report_frame_top">╔══════════════════════════════════╗</string>
+    <string name="env_report_frame_title">║   Environment Detection Report   ║</string>
+    <string name="env_report_frame_bottom">╚══════════════════════════════════╝</string>
+    <string name="db_connection_ok">✓ Database connection OK</string>
+    <string name="db_connection_failed">✗ Database connection failed: %1$s</string>
+    <string name="storage_permission_granted">✓ Storage permission granted</string>
+    <string name="storage_permission_denied">✗ Storage permission not granted</string>
+    <string name="network_connection_ok">✓ Network connection OK</string>
+    <string name="network_connection_failed">✗ Network connection failed</string>
+    <string name="database_management">Database Management</string>
+    <string name="toolkit">Toolbox</string>
+    <string name="enable">Enable</string>
+    <string name="disable">Disable</string>
+
+    <!-- Chat actions -->
+    <string name="chat_collapse">Collapse</string>
+    <string name="chat_copy">Copy</string>
+    <string name="chat_desc_back">Back</string>
+    <string name="chat_desc_clear">Clear</string>
+    <string name="chat_desc_history">History</string>
+    <string name="chat_expand_full">Expand Full</string>
+    <string name="chat_loading">Loading…</string>
+    <string name="chat_model_loading">Model loading…</string>
+    <string name="chat_new_chat">New Chat</string>
+    <string name="chat_no_model_selected">No Model Selected</string>
+    <string name="chat_regenerate">Regenerate</string>
+    <string name="chat_send">Send</string>
+    <string name="chat_service_not_initialized">AI service not initialized</string>
+    <string name="chat_share">Share</string>
+    <string name="chat_speak">🔊 Read Aloud</string>
+    <string name="chat_stop">Stop</string>
+    <string name="chat_task_breakdown">📋 Task Breakdown</string>
+    <string name="chat_task_progress">📋 Task Progress</string>
+    <string name="chat_thinking_collapsed">▶ Thinking Process</string>
+    <string name="chat_thinking_expanded">▼ Thinking Process</string>
+    <string name="chat_thinking_process">💭 Thinking Process</string>
+    <string name="chat_thinking_streaming_collapse">▼ Thinking… (tap to collapse)</string>
+    <string name="chat_thinking_streaming_expand">🤔 Thinking… (tap to expand)</string>
+    <string name="chat_tokens_format">⚡ %1$d tokens</string>
+    <string name="chat_toolbar_auto">🔊 Auto</string>
+    <string name="chat_toolbar_mode">📱 Smart</string>
+    <string name="chat_toolbar_model">🤖 Model</string>
+    <string name="chat_status_completed">Completed</string>
+    <string name="chat_status_delivered">Delivered</string>
+    <string name="chat_status_failed">Failed</string>
+    <string name="chat_status_generating">Generating…</string>
+    <string name="chat_status_in_progress">Processing…</string>
+    <string name="chat_status_paused">Paused</string>
+    <string name="chat_status_read">Read</string>
+    <string name="chat_status_send_failed">Send Failed</string>
+    <string name="chat_status_sending">Sending…</string>
+    <string name="chat_status_sent">Sent</string>
+
+    <!-- Last used -->
+    <string name="last_used_just_now">Used just now</string>
+    <string name="last_used_minutes">Used %d minutes ago</string>
+    <string name="last_used_hours">Used %d hours ago</string>
+    <string name="last_used_days">Used %d days ago</string>
+
+    <!-- Permissions -->
+    <string name="permission_denied">Permission Denied</string>
+    <string name="permission_request_title">Permission Request</string>
+    <string name="permission_request_message">The app needs the following permissions to provide full functionality:\n\n%s\n\nTap OK to grant.</string>
+    <string name="permission_required">Permission Required</string>
+    <string name="permission_debug_inject_label">Debug API Key Injection</string>
+    <string name="permission_debug_inject_desc">Allows injecting API keys for debugging purposes</string>
+
+    <!-- Service types -->
+    <string name="service_type_baichuan">Baichuan</string>
+    <string name="service_type_baidu">Baidu</string>
+    <string name="service_type_dashscope">DashScope</string>
+    <string name="service_type_dashscope_maas">DashScope MaaS</string>
+    <string name="service_type_dashscope_multimodal">DashScope Multimodal</string>
+    <string name="service_type_deepseek">DeepSeek</string>
+    <string name="service_type_glm">Zhipu GLM</string>
+    <string name="service_type_hunyuan">Tencent Hunyuan</string>
+    <string name="service_type_kimi">Moonshot Kimi</string>
+    <string name="service_type_mimo">Xiaomi MiMo</string>
+    <string name="service_type_openai">OpenAI Compatible</string>
+    <string name="service_type_siliconflow">SiliconFlow</string>
+    <string name="service_type_volcano">Volcano Engine</string>
+    <string name="service_type_xfyun">iFlytek</string>
+
+    <!-- Status -->
+    <string name="status_online">Online</string>
+    <string name="status_offline">Offline</string>
+    <string name="status_error">Error</string>
+    <string name="status_unknown">Unknown</string>
+
+    <!-- Thinking -->
+    <string name="thinking_indicator">💭 Thinking…</string>
+    <string name="thinking_stage_start">Analyzing user request…</string>
+    <string name="thinking_stage_complete">Thinking complete, preparing to execute…</string>
 
     <!-- Common -->
 </resources>

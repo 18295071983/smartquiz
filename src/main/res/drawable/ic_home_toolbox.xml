@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="42dp"
+    android:height="42dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底 -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#2563EB"
+                android:endColor="#60A5FA" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 工具箱主体（白色渐变） -->
+    <path android:pathData="M5,9.5 H19 V19 C19,20.1 18.1,21 17,21 H7 C5.9,21 5,20.1 5,19 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="5" android:startY="9.5"
+                android:endX="19" android:endY="21"
+                android:startColor="#FFFFFF"
+                android:endColor="#DBEAFE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 提手（白色） -->
+    <path android:pathData="M9,9.5 V8 C9,6.34 10.34,5 12,5 C13.66,5 15,6.34 15,8 V9.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="9" android:startY="5"
+                android:endX="15" android:endY="9.5"
+                android:startColor="#FFFFFF"
+                android:endColor="#DBEAFE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 提手内孔（深蓝，制造空心感） -->
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M10.8,9.2 V8.2 C10.8,7.54 11.34,7 12,7 C12.66,7 13.2,7.54 13.2,8.2 V9.2 Z" />
+
+    <!-- 锁孔（深蓝） -->
+    <path android:pathData="M12,12.8 m-1.7,0 a1.7,1.7 0 1,0 3.4,0 a1.7,1.7 0 1,0 -3.4,0 M12,14.3 V17.2">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="10.3" android:startY="11.1"
+                android:endX="13.7" android:endY="17.2"
+                android:startColor="#2563EB"
+                android:endColor="#1D4ED8" />
+        </aapt:attr>
+    </path>
+
+    <!-- 箱体横档（深蓝） -->
+    <path
+        android:fillColor="#BFDBFE"
+        android:pathData="M5,14 H19 V15.4 H5 Z" />
+</vector>

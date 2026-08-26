@@ -14,6 +14,7 @@ import com.oilquiz.app.manager.ObjectDetectionManager;
 import com.oilquiz.app.manager.OCRManager;
 import com.oilquiz.app.toolkit.AppToolkit;
 import com.oilquiz.app.util.ImageGeneratorUtil.ImageFormat;
+import com.oilquiz.app.util.UriPathResolver;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -215,15 +216,15 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: image_path", parameters);
         }
         
-        File imageFile = new File(imagePath);
-        if (!imageFile.exists()) {
-            return new AIToolResult("图片文件不存在: " + imagePath, parameters);
+        File imageFile = UriPathResolver.resolveToFile(context, imagePath);
+        if (imageFile == null) {
+            return new AIToolResult("图片文件不存在或无法访问: " + imagePath + "（仅支持绝对路径、content:// 或 file:// URI）", parameters);
         }
         
         try {
             // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
             com.oilquiz.app.manager.OCRManager ocrManager = toolkit.getOcrManager();
-            String resultText = ocrManager.recognizeFileOnlineFirst(imagePath, language)
+            String resultText = ocrManager.recognizeFileOnlineFirst(imageFile.getAbsolutePath(), language)
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
             
             if (resultText == null || resultText.isEmpty()) {
@@ -251,9 +252,9 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: pdf_path", parameters);
         }
         
-        File pdfFile = new File(pdfPath);
-        if (!pdfFile.exists()) {
-            return new AIToolResult("PDF文件不存在: " + pdfPath, parameters);
+        File pdfFile = UriPathResolver.resolveToFile(context, pdfPath);
+        if (pdfFile == null) {
+            return new AIToolResult("PDF文件不存在或无法访问: " + pdfPath + "（仅支持绝对路径、content:// 或 file:// URI）", parameters);
         }
         
         Uri pdfUri = Uri.fromFile(pdfFile);
@@ -351,9 +352,9 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: image_path", parameters);
         }
         
-        File imageFile = new File(imagePath);
-        if (!imageFile.exists()) {
-            return new AIToolResult("图片文件不存在: " + imagePath, parameters);
+        File imageFile = UriPathResolver.resolveToFile(context, imagePath);
+        if (imageFile == null) {
+            return new AIToolResult("图片文件不存在或无法访问: " + imagePath + "（仅支持绝对路径、content:// 或 file:// URI）", parameters);
         }
         
         try {
@@ -502,9 +503,9 @@ public class AppToolkitAITool implements AITool {
             return new AIToolResult("缺少参数: image_path", parameters);
         }
         
-        File imageFile = new File(imagePath);
-        if (!imageFile.exists()) {
-            return new AIToolResult("图片文件不存在: " + imagePath, parameters);
+        File imageFile = UriPathResolver.resolveToFile(context, imagePath);
+        if (imageFile == null) {
+            return new AIToolResult("图片文件不存在或无法访问: " + imagePath + "（仅支持绝对路径、content:// 或 file:// URI）", parameters);
         }
         
         try {

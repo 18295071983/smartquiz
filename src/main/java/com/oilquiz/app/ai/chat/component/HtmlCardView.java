@@ -23,6 +23,11 @@ import org.json.JSONObject;
  * 交互已修复：组件内可滚动/可点击/链接跳转，不与外层消息列表抢触摸。
  * 内容高度自适应（JS 读取 scrollHeight，上限 maxHeight 内部滚动）。
  *
+ * 字段兼容：html/content/text/body/html_content/markdown/description/message/value
+ * 及嵌套 props.data.html 等；url 字段直接加载网页（web 组件映射）。
+ * 设计升级：统一排版 CSS（标题/列表/表格/引用/代码块配色高亮/标签徽章/按钮/
+ * 状态色/卡片容器），深色模式双主题。
+ *
  * 数据格式（ComponentData.props）：
  * <pre>
  * {
@@ -51,12 +56,11 @@ public class HtmlCardView implements ChatComponent {
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String html = p.optString("html", "");
-        if (html.isEmpty()) html = p.optString("content", "");
-        if (html.isEmpty()) html = p.optString("text", "");
+        // 兼容多字段名 + 嵌套结构提取 HTML 内容
+        String html = extractHtml(p);
         // url 字段：直接加载网页（web 组件映射用），优先于 html 字符串
         String url = p.optString("url", "");
-        String title = p.optString("title", "");
+        String title = extractTitle(p);
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
 
@@ -76,11 +80,35 @@ public class HtmlCardView implements ChatComponent {
         }
 
         if (html.trim().isEmpty()) {
+            // 空态：展示可读提示 + 原始数据预览（帮助排查字段映射问题）
+            LinearLayout emptyBox = new LinearLayout(context);
+            emptyBox.setOrientation(LinearLayout.VERTICAL);
+            emptyBox.setPadding(0, dp(context, 4), 0, dp(context, 4));
             TextView emptyTv = new TextView(context);
-            emptyTv.setText("⚠ 未获取到组件内容（html 数据解析为空）");
-            emptyTv.setTextSize(12);
-            emptyTv.setTextColor(ComponentColors.textTertiary(context));
-            card.addView(emptyTv);
+            emptyTv.setText("⚠ 未获取到 HTML 内容");
+            emptyTv.setTextSize(13);
+            emptyTv.setTextColor(ComponentColors.warning(context));
+            emptyBox.addView(emptyTv);
+            // 有 url 但没有 html：提示用 url 加载（应走 web 类型）
+            if (!url.isEmpty()) {
+                TextView urlHint = new TextView(context);
+                urlHint.setText("检测到 url 字段：" + url + "\n（网页链接建议用 component_type=web 加载）");
+                urlHint.setTextSize(11);
+                urlHint.setTextColor(ComponentColors.textTertiary(context));
+                urlHint.setPadding(0, dp(context, 4), 0, 0);
+                emptyBox.addView(urlHint);
+            } else {
+                // 预览 props 结构（截断），帮助定位内容放错字段
+                String preview = p.toString();
+                if (preview.length() > 200) preview = preview.substring(0, 200) + "...";
+                TextView dataTv = new TextView(context);
+                dataTv.setText("接收到的字段：" + preview);
+                dataTv.setTextSize(11);
+                dataTv.setTextColor(ComponentColors.textTertiary(context));
+                dataTv.setPadding(0, dp(context, 4), 0, 0);
+                emptyBox.addView(dataTv);
+            }
+            card.addView(emptyBox);
             Log.w("HtmlCardView", "html component: empty content, props=" + p.toString());
             return card;
         }
@@ -101,13 +129,7 @@ public class HtmlCardView implements ChatComponent {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setClickable(true);
-        final String htmlFinal = html;
-        final String urlFinal = url;
-        final String titleFinal = title;
-        final long[] downTime = {0};
-        final float[] downPos = {0, 0};
         final boolean[] interactiveDown = {false};
-        final int touchSlop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         webView.setOnTouchListener((v, event) -> {
             // 防护：event 为 null（WebView 快速滑动/组件回收等场景）直接放行，避免 NPE
             if (event == null) {
@@ -118,36 +140,17 @@ public class HtmlCardView implements ChatComponent {
             }
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
-                    downTime[0] = event.getEventTime();
-                    downPos[0] = event.getX();
-                    downPos[1] = event.getY();
                     interactiveDown[0] = false;
                     // 异步探测按下位置是否为可点击元素（a/button/onclick/表单控件）
                     probeInteractive(webView, (int) event.getX(), (int) event.getY(), interactiveDown);
                     break;
                 case android.view.MotionEvent.ACTION_UP:
-                    float dx = event.getX() - downPos[0];
-                    float dy = event.getY() - downPos[1];
-                    long dt = event.getEventTime() - downTime[0];
-                    // 轻点（位移小、时间短）：
-                    // 命中可交互元素（链接/按钮/onclick）→ 放行给 WebView 执行页内 JS，不跳全屏；
-                    // 其余区域 → 打开全屏页完整查看/交互
-                    if (Math.abs(dx) < touchSlop && Math.abs(dy) < touchSlop && dt < 500) {
-                        if (interactiveDown[0]) {
-                            return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
-                        }
-                        if (!urlFinal.isEmpty()) {
-                            // 本地文件模式：点空白 → 全屏加载原文件完整查看；http(s) → 应用内打开
-                            if (urlFinal.startsWith("file://")) {
-                                openLocalFileFullScreen(context, urlFinal, titleFinal);
-                            } else {
-                                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, urlFinal);
-                            }
-                        } else {
-                            openFullScreen(context, htmlFinal, titleFinal);
-                        }
+                    // 命中可交互元素（链接/按钮/onclick）→ 放行给 WebView 执行页内 JS；
+                    // 空白区域 → 放行让 WebView 自身处理（不跳全屏页）
+                    if (interactiveDown[0]) {
+                        return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
                     }
-                    break;
+                    return false;
                 default:
                     break;
             }
@@ -264,9 +267,46 @@ public class HtmlCardView implements ChatComponent {
     }
 
     /**
+     * 从 props 提取 HTML 内容：兼容多字段名与嵌套结构。
+     * 字段优先级：html > content > text > body > html_content > markdown > description > message；
+     * 嵌套支持 props.data.html / props.data.content 等（模型常把内容包在 data 里）。
+     */
+    private static String extractHtml(JSONObject p) {
+        if (p == null) return "";
+        String[] keys = {"html", "content", "text", "body", "html_content", "markdown",
+                "description", "message", "value"};
+        for (String k : keys) {
+            String v = p.optString(k, "");
+            if (!v.trim().isEmpty()) return v;
+        }
+        // 嵌套提取：data / result / item 对象里的 html/content
+        String[] nested = {"data", "result", "item", "content_obj"};
+        for (String nk : nested) {
+            JSONObject obj = p.optJSONObject(nk);
+            if (obj == null) continue;
+            String v = extractHtml(obj);
+            if (!v.trim().isEmpty()) return v;
+        }
+        return "";
+    }
+
+    /** 提取标题：title > heading > name（兼容多字段） */
+    private static String extractTitle(JSONObject p) {
+        if (p == null) return "";
+        String[] keys = {"title", "heading", "name", "label"};
+        for (String k : keys) {
+            String v = p.optString(k, "");
+            if (!v.trim().isEmpty()) return v;
+        }
+        return "";
+    }
+
+    /**
      * 包裹完整 HTML：非完整文档时补 viewport（手机竖屏适配）+ 基础样式。
      * 预览与全屏页（临时文件）共用，保证两处渲染一致。
      * 深色模式使用深色文字/表格/代码配色，避免白底刺眼。
+     * 设计升级：统一排版（标题/段落/列表间距）、代码块配色高亮、引用块、表格美化、
+     * 标签/徽章、按钮样式、链接配色、响应式图片。
      */
     private static String wrapHtml(String html, boolean dark) {
         if (html == null) return "";
@@ -274,19 +314,70 @@ public class HtmlCardView implements ChatComponent {
         if (lower.contains("<!doctype") || lower.contains("<html")) {
             return html;
         }
+        // 配色（浅色/深色双主题）
+        String bg = dark ? "transparent" : "transparent";
         String bodyColor = dark ? "#D1D5DB" : "#333333";
-        String borderColor = dark ? "#4B5563" : "#cccccc";
-        String preBg = dark ? "#1F2937" : "#f5f5f5";
-        String codeBg = dark ? "#374151" : "#f0f0f0";
+        String headingColor = dark ? "#F3F4F6" : "#1F2937";
+        String borderColor = dark ? "#4B5563" : "#E5E7EB";
+        String preBg = dark ? "#1E293B" : "#F8FAFC";
+        String codeBg = dark ? "#334155" : "#F1F5F9";
+        String codeColor = dark ? "#E2E8F0" : "#475569";
+        String linkColor = dark ? "#7DD3FC" : "#2563EB";
+        String quoteBg = dark ? "#1E293B" : "#F0F7FF";
+        String quoteBorder = dark ? "#3B82F6" : "#93C5FD";
+        String tagBg = dark ? "#312E81" : "#E0E7FF";
+        String tagColor = dark ? "#C7D2FE" : "#4338CA";
+        String okColor = dark ? "#86EFAC" : "#16A34A";
+        String warnColor = dark ? "#FDE68A" : "#B45309";
+        String errColor = dark ? "#FCA5A5" : "#DC2626";
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
-                + "<style>html,body{margin:0;padding:0;background:transparent;}"
-                + "body{font-family:sans-serif;font-size:14px;line-height:1.5;"
-                + "color:" + bodyColor + ";word-break:break-word;padding:2px;}"
-                + "img{max-width:100%;height:auto;}table{border-collapse:collapse;width:100%;}"
-                + "td,th{border:1px solid " + borderColor + ";padding:4px 6px;font-size:13px;}"
-                + "pre{background:" + preBg + ";padding:8px;border-radius:6px;overflow-x:auto;}"
-                + "code{background:" + codeBg + ";padding:1px 4px;border-radius:4px;font-size:13px;}"
+                + "<style>"
+                + "html,body{margin:0;padding:0;background:" + bg + ";}"
+                + "body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;"
+                + "font-size:14px;line-height:1.6;color:" + bodyColor + ";word-break:break-word;padding:4px;}"
+                // 标题层级
+                + "h1,h2,h3,h4{color:" + headingColor + ";line-height:1.35;margin:14px 0 8px;font-weight:600;}"
+                + "h1{font-size:20px;border-bottom:2px solid " + borderColor + ";padding-bottom:6px;}"
+                + "h2{font-size:17px;}h3{font-size:15px;}h4{font-size:14px;}"
+                // 段落/列表
+                + "p{margin:6px 0;}ul,ol{margin:6px 0;padding-left:22px;}"
+                + "li{margin:3px 0;}b,strong{color:" + headingColor + ";}"
+                // 图片
+                + "img{max-width:100%;height:auto;border-radius:8px;margin:6px 0;}"
+                // 表格
+                + "table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px;}"
+                + "th{background:" + (dark ? "#1F2937" : "#F3F4F6") + ";color:" + headingColor + ";"
+                + "border:1px solid " + borderColor + ";padding:7px 9px;text-align:left;font-weight:600;}"
+                + "td{border:1px solid " + borderColor + ";padding:6px 9px;}"
+                + "tr:nth-child(even){background:" + (dark ? "#111827" : "#FAFAFA") + ";}"
+                // 代码
+                + "pre{background:" + preBg + ";padding:10px 12px;border-radius:8px;overflow-x:auto;"
+                + "border:1px solid " + borderColor + ";font-size:12.5px;line-height:1.5;}"
+                + "pre code{background:transparent;padding:0;color:" + codeColor + ";font-family:'JetBrains Mono',Consolas,monospace;}"
+                + "code{background:" + codeBg + ";padding:1.5px 5px;border-radius:4px;"
+                + "font-size:12.5px;color:" + codeColor + ";font-family:'JetBrains Mono',Consolas,monospace;}"
+                // 引用块
+                + "blockquote{margin:8px 0;padding:8px 12px;background:" + quoteBg + ";"
+                + "border-left:4px solid " + quoteBorder + ";border-radius:0 8px 8px 0;color:" + bodyColor + ";}"
+                + "blockquote p{margin:2px 0;}"
+                // 链接
+                + "a{color:" + linkColor + ";text-decoration:none;}a:hover{text-decoration:underline;}"
+                // 分割线
+                + "hr{border:none;border-top:1px solid " + borderColor + ";margin:10px 0;}"
+                // 按钮
+                + "button{padding:7px 16px;border:none;border-radius:8px;cursor:pointer;font-size:13px;"
+                + "background:" + (dark ? "#334155" : "#E2E8F0") + ";color:" + headingColor + ";margin:3px 4px 3px 0;}"
+                + "button:hover{opacity:0.85;}"
+                // 标签/徽章（class="tag" 或 <mark>）
+                + ".tag,mark{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;"
+                + "background:" + tagBg + ";color:" + tagColor + ";margin:1px 3px 1px 0;}"
+                // 状态色（class="ok"/"warn"/"err"）
+                + ".ok{color:" + okColor + ";font-weight:600;}.warn{color:" + warnColor + ";font-weight:600;}"
+                + ".err{color:" + errColor + ";font-weight:600;}"
+                // 卡片容器（class="box"）
+                + ".box{background:" + (dark ? "#1E293B" : "#F8FAFC") + ";border:1px solid " + borderColor
+                + ";border-radius:10px;padding:10px 12px;margin:8px 0;}"
                 + "</style></head><body>" + html + "</body></html>";
     }
 
@@ -321,71 +412,6 @@ public class HtmlCardView implements ChatComponent {
             });
         } catch (Throwable t) {
             // 探测失败不影响 WebView 自身点击
-        }
-    }
-
-    /**
-     * 点击组件 → 打开全屏页完整查看/交互：
-     * HTML 写入临时文件，交给 WebViewActivity（项目完整 WebView：智能编码检测防 GBK 乱码、
-     * TBS 内核/系统内核回退、文件预览、链接处理、标题栏；相比 SimpleWebViewActivity
-     * 能正确处理非 UTF-8 编码的 HTML，避免"无法解析数据"）。
-     */
-    /** 本地文件全屏查看：交给 WebViewActivity（file_path 走完整预览链路：智能编码检测防 GBK 乱码） */
-    private static void openLocalFileFullScreen(Context context, String fileUrl, String title) {
-        try {
-            String path = fileUrl;
-            if (path.startsWith("file://")) {
-                path = android.net.Uri.parse(path).getPath();
-            }
-            if (path == null || path.isEmpty() || !new java.io.File(path).exists()) {
-                Log.w("HtmlCardView", "本地文件不存在: " + fileUrl);
-                return;
-            }
-            android.content.Intent intent = new android.content.Intent(context,
-                    com.oilquiz.app.WebViewActivity.class);
-            intent.putExtra("file_path", path);
-            if (title != null && !title.isEmpty()) {
-                intent.putExtra("title", title);
-            }
-            if (!(context instanceof android.app.Activity)) {
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            }
-            context.startActivity(intent);
-            Log.i("HtmlCardView", "opened local file full screen (WebViewActivity): " + path);
-        } catch (Exception e) {
-            Log.w("HtmlCardView", "打开本地文件全屏失败: " + e.getMessage());
-        }
-    }
-
-    private static void openFullScreen(Context context, String html, String title) {        try {
-            if (html == null || html.isEmpty()) return;
-            java.io.File dir = new java.io.File(context.getCacheDir(), "html_preview");
-            if (!dir.exists() && !dir.mkdirs()) {
-                Log.w("HtmlCardView", "无法创建预览目录");
-                return;
-            }
-            java.io.File f = new java.io.File(dir,
-                    "preview_" + System.currentTimeMillis() + ".html");
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
-            try {
-                // 与预览一致的包裹逻辑：补 viewport，全屏页不再"横屏"
-                fos.write(wrapHtml(html, isNightMode(context)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            } finally {
-                fos.close();
-            }
-            android.content.Intent intent = new android.content.Intent(context,
-                    com.oilquiz.app.WebViewActivity.class);
-            intent.putExtra("file_path", f.getAbsolutePath());
-            if (title != null && !title.isEmpty()) {
-                intent.putExtra("title", title);
-            }
-            if (!(context instanceof android.app.Activity)) {
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            }
-            context.startActivity(intent);
-            Log.i("HtmlCardView", "opened WebViewActivity: " + f.getAbsolutePath());
-        } catch (Exception e) {
-            Log.w("HtmlCardView", "打开全屏失败: " + e.getMessage());
         }
     }
 
