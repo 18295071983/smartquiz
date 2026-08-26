@@ -102,11 +102,15 @@ public class PythonToolManager {
     // ==================== 系统 UI 组件公开 API（供 SystemUIComponentTool / Agent 直接调用） ====================
 
     private volatile AndroidUiActionHandler uiActionHandler;
+    /** UI handler 专用锁：与 this 锁分离，避免渲染主线程在 Python 初始化持锁期间被阻塞（ANR） */
+    private final Object uiActionHandlerLock = new Object();
 
-    /** 获取（懒创建）UI 动作处理器，供工具/Agent 直接填参数调用系统 UI 组件 */
+    /** 获取（懒创建）UI 动作处理器，供工具/Agent 直接填参数调用系统 UI 组件。
+     *  使用独立锁对象而非 synchronized(this)：Python 初始化在后台线程持有 this 锁并等待主线程时，
+     *  渲染主线程调本方法不再被 this 锁阻塞（修复 UI 渲染 ANR）。 */
     public AndroidUiActionHandler getUiActionHandler() {
         if (uiActionHandler == null) {
-            synchronized (this) {
+            synchronized (uiActionHandlerLock) {
                 if (uiActionHandler == null) {
                     uiActionHandler = new AndroidUiActionHandler();
                 }
@@ -1181,6 +1185,16 @@ public class PythonToolManager {
                         if (!propsObj.has("images") && !fDefault.isEmpty()) {
                             propsObj.put("images", new org.json.JSONArray().put(fDefault));
                         }
+                    } else if ("video".equals(fType) || "audio".equals(fType)) {
+                        // 媒体组件：顶层 url/src/default_value → props.url（VideoCardView/AudioCardView 取 url）
+                        renderType = fType;
+                        if (!propsObj.has("url")) {
+                            String mediaUrl = !fUrl.trim().isEmpty() ? fUrl.trim()
+                                    : (!fDefault.isEmpty() ? fDefault.trim() : "");
+                            if (!mediaUrl.isEmpty()) {
+                                propsObj.put("url", mediaUrl);
+                            }
+                        }
                     }
                     if (registry.hasType(renderType)) {
                         // 未显式传 title 时用组件的 title 参数
@@ -1217,6 +1231,7 @@ public class PythonToolManager {
                                 (int) (8 * fAct.getResources().getDisplayMetrics().density));
                         android.widget.ScrollView scroll = new android.widget.ScrollView(fAct);
                         scroll.addView(view);
+                        setupScrollViewForInput(scroll);
                         root.addView(scroll, new android.widget.LinearLayout.LayoutParams(
                                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -1236,6 +1251,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         scheduleAutoClose(rt, main, autoCloseSeconds);
@@ -1289,6 +1306,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] input created: " + id);
@@ -1353,6 +1372,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] choice created: " + id);
@@ -1425,6 +1446,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] multi_choice created: " + id);
@@ -1546,6 +1569,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] image created: " + id);
@@ -1643,12 +1668,21 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] list created: " + id);
                     } else if ("custom".equals(fType)) {
                         // 动态自定义原生表单：fields JSON 定义任意字段
-                        showCustomFormDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds);
+                        // rounds=N（props 或顶层，N>1）→ 连续输入模式：多轮提交，完成返回 {"rounds":[...],"total":N}
+                        int rounds = 0;
+                        try {
+                            org.json.JSONObject pjR = new org.json.JSONObject(fProps.isEmpty() ? "{}" : fProps);
+                            rounds = pjR.optInt("rounds", 0);
+                        } catch (Exception ignored) {
+                        }
+                        showCustomFormDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds, rounds);
                     } else if ("file_picker".equals(fType) || "image_picker".equals(fType)
                             || "contact_picker".equals(fType)) {
                         // 系统级选择器：文件/图片/联系人
@@ -1720,6 +1754,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] web created: " + id);
@@ -1751,6 +1787,8 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         rt.dialog = dialog;
                         Log.i(TAG, "[Python component] dialog created: " + id);
@@ -1920,6 +1958,8 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
+            configureDialogInput(dialog);
+
             dialog.show();
             rt.dialog = dialog;
             Log.i(TAG, "[Python component] rating created: " + componentId);
@@ -1987,6 +2027,8 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
+            configureDialogInput(dialog);
+
             dialog.show();
             rt.dialog = dialog;
             Log.i(TAG, "[Python component] color created: " + componentId);
@@ -2074,6 +2116,8 @@ public class PythonToolManager {
                         synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         dialog.dismiss();
                     }));
+            configureDialogInput(dialog);
+
             dialog.show();
             rt.dialog = dialog;
             Log.i(TAG, "[Python component] " + (isOtp ? "otp" : "number") + " created: " + componentId);
@@ -2143,6 +2187,8 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "closed");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
+            configureDialogInput(dialog);
+
             dialog.show();
             if (autoCloseSeconds > 0) {
                 final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -2237,6 +2283,8 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "closed");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
+            configureDialogInput(dialog);
+
             dialog.show();
             final String[] resultFilePath = {null};
             final Runnable[] poller = new Runnable[1];
@@ -2516,13 +2564,26 @@ public class PythonToolManager {
             layout.addView(statusView);
             layout.addView(imgView);
             layout.addView(videoInfo);
+            // 内容可滚动：多控件布局（10+ 种输入控件）超出 Dialog 高度时被截断，
+            // 后半部分控件（switch/checkbox/date/slider/提交按钮）完全看不到、无法操作
+            // （此前 plugin 路径无 ScrollView，只有 custom 表单路径有——布局溢出根因）。
+            // 结构与 custom 表单一致：ScrollView 直接作为 dialog view（scrollWrap → layout），
+            // 不额外包 LinearLayout——多层嵌套会导致 ScrollView 触摸被外层拦截，
+            // EditText 收不到 ACTION_UP，setupInputView 的键盘唤起不触发（实测 served 失效）。
+            final android.widget.ScrollView scrollWrap = new android.widget.ScrollView(act);
+            scrollWrap.addView(layout, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            setupScrollViewForInput(scrollWrap);
 
             final boolean[] doneRef = {false};
+            // 是否有可交互按钮（提交/工具按钮）：有则等待用户操作，不立即完成组件
+            final boolean[] hasInteractiveButtons = {false};
             final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
             final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
                     .setTitle(fTitle)
                     .setMessage(message != null && !message.isEmpty() ? message : null)
-                    .setView(layout)
+                    .setView(scrollWrap)
                     .setPositiveButton("关闭", (d, w) -> {
                         rt.result.compareAndSet("pending", "closed");
                         synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -2540,7 +2601,7 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "closed");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            dialog.show();
+            configureDialogInput(dialog);
 
             final Runnable[] renderCard = new Runnable[1];
             renderCard[0] = () -> {
@@ -2557,13 +2618,54 @@ public class PythonToolManager {
                                 java.util.Iterator<String> rk = renderProps.keys();
                                 while (rk.hasNext()) {
                                     String rk2 = rk.next();
-                                    cardProps.put(rk2, renderProps.get(rk2));
+                                    Object rv = renderProps.get(rk2);
+                                    // render.props 支持 {key} 占位符：由创建参数替换
+                                    // （如 "path": "{local_path}" → 创建时传 local_path 自动填入）
+                                    if (rv instanceof String) {
+                                        String rs = (String) rv;
+                                        java.util.Iterator<String> pk2 = props.keys();
+                                        while (pk2.hasNext()) {
+                                            String pk3 = pk2.next();
+                                            Object pv = props.opt(pk3);
+                                            if (pv != null) {
+                                                rs = rs.replace("{" + pk3 + "}",
+                                                        String.valueOf(pv));
+                                            }
+                                        }
+                                        cardProps.put(rk2, rs);
+                                    } else {
+                                        cardProps.put(rk2, rv);
+                                    }
                                 }
                             }
                             java.util.Iterator<String> keys = props.keys();
                             while (keys.hasNext()) {
                                 String k = keys.next();
                                 cardProps.put(k, props.get(k));
+                            }
+                            // 字段映射：file_card/file_list 需要 path 才可点击打开。
+                            // 插件创建参数常用 local_path/url/file_path 等别名，统一映射到 path，
+                            // 否则渲染出无路径的空壳卡片（video_player 等插件"不能点击播放"根因）。
+                            if (("file_card".equals(card) || "file_list".equals(card)) && !cardProps.has("path")) {
+                                Object mapped = cardProps.opt("local_path");
+                                if (mapped == null || String.valueOf(mapped).trim().isEmpty()) {
+                                    mapped = cardProps.opt("file_path");
+                                }
+                                if (mapped == null || String.valueOf(mapped).trim().isEmpty()) {
+                                    mapped = cardProps.opt("path2");
+                                }
+                                if (mapped == null || String.valueOf(mapped).trim().isEmpty()) {
+                                    mapped = cardProps.opt("url");
+                                }
+                                if (mapped != null && !String.valueOf(mapped).trim().isEmpty()) {
+                                    // 工作区相对路径 → 绝对路径（resolveExistingFile）
+                                    String mp = String.valueOf(mapped).trim();
+                                    cardProps.put("path", com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                            .getInstance(context).resolveExistingFile(mp) != null
+                                            ? com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                                    .getInstance(context).resolveExistingFile(mp).getAbsolutePath()
+                                            : mp);
+                                }
                             }
                             com.oilquiz.app.ai.chat.component.ComponentRegistry registry =
                                     com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance();
@@ -2578,111 +2680,116 @@ public class PythonToolManager {
                             android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
                                     act, layoutObj, props, layoutViewRefs);
                             if (v != null) cardArea.addView(v);
-                            for (java.util.Map.Entry<String, Object> le : layoutViewRefs.entrySet()) {
-                                if (le.getValue() instanceof android.widget.Button) {
-                                    android.widget.Button lb = (android.widget.Button) le.getValue();
-                                    final String tag = lb.getTag() != null ? lb.getTag().toString() : "";
-                                    lb.setOnClickListener(btnV -> {
-                                        if (doneRef[0]) return;
-                                        java.util.Map<String, Object> values =
-                                                com.oilquiz.app.ai.python.NativeLayoutRenderer
-                                                        .collectValues(layoutViewRefs);
-                                        if (tag.startsWith("{")) {
-                                            try {
-                                                org.json.JSONObject bind = new org.json.JSONObject(tag);
-                                                String tool = bind.optString("tool", "");
-                                                if (!tool.isEmpty()) {
-                                                    org.json.JSONObject tp = bind.optJSONObject("tool_params");
-                                                    final java.util.Map<String, Object> callParams = new HashMap<>();
-                                                    if (tp != null) {
-                                                        java.util.Iterator<String> tk = tp.keys();
-                                                        while (tk.hasNext()) {
-                                                            String tk2 = tk.next();
-                                                            Object tv = tp.opt(tk2);
-                                                            if (tv instanceof String) {
-                                                                String s = (String) tv;
-                                                                for (java.util.Map.Entry<String, Object> ve : values.entrySet()) {
-                                                                    s = s.replace("{" + ve.getKey() + "}", String.valueOf(ve.getValue()));
-                                                                }
-                                                                callParams.put(tk2, s);
-                                                            } else {
-                                                                callParams.put(tk2, tv);
+                            // 绑定布局内全部按钮（含无 key 的提交按钮）：点击时收集
+                            // layout 树内输入控件值（collectValues）并回传 result。
+                            // 注意：此前只遍历 layoutViewRefs 中带 key 的 Button，无 key 的
+                            // 提交按钮点不动；且无 monitor 时组件创建后立即完成（doneRef=true）
+                            // 短路按钮收集——"layout 控件输入值无法回传"根因。
+                            java.util.List<android.widget.Button> btns = new java.util.ArrayList<>();
+                            collectButtons(cardArea, btns);
+                            hasInteractiveButtons[0] = !btns.isEmpty();
+                            for (final android.widget.Button lb : btns) {
+                                final String tag = lb.getTag() != null ? lb.getTag().toString() : "";
+                                lb.setOnClickListener(btnV -> {
+                                    if (doneRef[0]) return;
+                                    java.util.Map<String, Object> values =
+                                            com.oilquiz.app.ai.python.NativeLayoutRenderer
+                                                    .collectValues(layoutViewRefs);
+                                    if (tag.startsWith("{")) {
+                                        try {
+                                            org.json.JSONObject bind = new org.json.JSONObject(tag);
+                                            String tool = bind.optString("tool", "");
+                                            if (!tool.isEmpty()) {
+                                                org.json.JSONObject tp = bind.optJSONObject("tool_params");
+                                                final java.util.Map<String, Object> callParams = new HashMap<>();
+                                                if (tp != null) {
+                                                    java.util.Iterator<String> tk = tp.keys();
+                                                    while (tk.hasNext()) {
+                                                        String tk2 = tk.next();
+                                                        Object tv = tp.opt(tk2);
+                                                        if (tv instanceof String) {
+                                                            String s = (String) tv;
+                                                            for (java.util.Map.Entry<String, Object> ve : values.entrySet()) {
+                                                                s = s.replace("{" + ve.getKey() + "}", String.valueOf(ve.getValue()));
                                                             }
+                                                            callParams.put(tk2, s);
+                                                        } else {
+                                                            callParams.put(tk2, tv);
                                                         }
                                                     }
-                                                    statusView.setText("⏳ 调用后端 " + tool + "…");
-                                                    new Thread(() -> {
-                                                        try {
-                                                            com.oilquiz.app.ai.tool.AIToolManager tm =
-                                                                    com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
-                                                            com.oilquiz.app.ai.tool.AIToolResult br = tm.executeTool(tool, callParams);
-                                                            handler.post(() -> {
-                                                                if (doneRef[0]) return;
-                                                                org.json.JSONObject res = new org.json.JSONObject();
-                                                                try {
-                                                                    res.put("status", "success");
-                                                                    res.put("component_type", pluginName);
-                                                                    res.put("action", bind.optString("action", ""));
-                                                                    res.put("tool", tool);
-                                                                    res.put("values", new org.json.JSONObject(
-                                                                            new com.google.gson.Gson().toJson(values)));
-                                                                    if (br != null) {
-                                                                        if (br.getResult() != null) {
-                                                                            res.put("tool_result",
-                                                                                    br.getResult() instanceof String
-                                                                                            ? (String) br.getResult()
-                                                                                            : new org.json.JSONObject(
-                                                                                                    new com.google.gson.Gson().toJson(br.getResult())).toString());
-                                                                        }
-                                                                        if (br.getErrorMessage() != null) {
-                                                                            res.put("tool_error", br.getErrorMessage());
-                                                                        }
-                                                                        res.put("tool_success", br.isSuccess());
-                                                                    }
-                                                                } catch (Exception ignored) {
-                                                                }
-                                                                doneRef[0] = true;
-                                                                rt.result.set(res.toString());
-                                                                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                                                                dialog.dismiss();
-                                                            });
-                                                        } catch (Throwable t) {
-                                                            handler.post(() -> {
-                                                                if (doneRef[0]) return;
-                                                                org.json.JSONObject res = new org.json.JSONObject();
-                                                                try {
-                                                                    res.put("status", "failed");
-                                                                    res.put("tool", tool);
-                                                                    res.put("error", String.valueOf(t.getMessage()));
-                                                                } catch (Exception ignored) {
-                                                                }
-                                                                doneRef[0] = true;
-                                                                rt.result.set(res.toString());
-                                                                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                                                                dialog.dismiss();
-                                                            });
-                                                        }
-                                                    }).start();
-                                                    return;
                                                 }
-                                            } catch (Exception ignored) {
+                                                statusView.setText("⏳ 调用后端 " + tool + "…");
+                                                new Thread(() -> {
+                                                    try {
+                                                        com.oilquiz.app.ai.tool.AIToolManager tm =
+                                                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
+                                                        com.oilquiz.app.ai.tool.AIToolResult br = tm.executeTool(tool, callParams);
+                                                        handler.post(() -> {
+                                                            if (doneRef[0]) return;
+                                                            org.json.JSONObject res = new org.json.JSONObject();
+                                                            try {
+                                                                res.put("status", "success");
+                                                                res.put("component_type", pluginName);
+                                                                res.put("action", bind.optString("action", ""));
+                                                                res.put("tool", tool);
+                                                                res.put("values", new org.json.JSONObject(
+                                                                        new com.google.gson.Gson().toJson(values)));
+                                                                if (br != null) {
+                                                                    if (br.getResult() != null) {
+                                                                        res.put("tool_result",
+                                                                                br.getResult() instanceof String
+                                                                                        ? (String) br.getResult()
+                                                                                        : new org.json.JSONObject(
+                                                                                                new com.google.gson.Gson().toJson(br.getResult())).toString());
+                                                                    }
+                                                                    if (br.getErrorMessage() != null) {
+                                                                        res.put("tool_error", br.getErrorMessage());
+                                                                    }
+                                                                    res.put("tool_success", br.isSuccess());
+                                                                }
+                                                            } catch (Exception ignored) {
+                                                            }
+                                                            doneRef[0] = true;
+                                                            rt.result.set(res.toString());
+                                                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                                            dialog.dismiss();
+                                                        });
+                                                    } catch (Throwable t) {
+                                                        handler.post(() -> {
+                                                            if (doneRef[0]) return;
+                                                            org.json.JSONObject res = new org.json.JSONObject();
+                                                            try {
+                                                                res.put("status", "failed");
+                                                                res.put("tool", tool);
+                                                                res.put("error", String.valueOf(t.getMessage()));
+                                                            } catch (Exception ignored) {
+                                                            }
+                                                            doneRef[0] = true;
+                                                            rt.result.set(res.toString());
+                                                            synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                                            dialog.dismiss();
+                                                        });
+                                                    }
+                                                }).start();
+                                                return;
                                             }
-                                        }
-                                        org.json.JSONObject res = new org.json.JSONObject();
-                                        try {
-                                            res.put("status", "success");
-                                            res.put("component_type", pluginName);
-                                            res.put("action", tag);
-                                            res.put("values", new org.json.JSONObject(
-                                                    new com.google.gson.Gson().toJson(values)));
                                         } catch (Exception ignored) {
                                         }
-                                        doneRef[0] = true;
-                                        rt.result.set(res.toString());
-                                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                                        dialog.dismiss();
-                                    });
-                                }
+                                    }
+                                    org.json.JSONObject res = new org.json.JSONObject();
+                                    try {
+                                        res.put("status", "success");
+                                        res.put("component_type", pluginName);
+                                        res.put("action", tag);
+                                        res.put("values", new org.json.JSONObject(
+                                                new com.google.gson.Gson().toJson(values)));
+                                    } catch (Exception ignored) {
+                                    }
+                                    doneRef[0] = true;
+                                    rt.result.set(res.toString());
+                                    synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                    dialog.dismiss();
+                                });
                             }
                         }
                     }
@@ -2690,7 +2797,12 @@ public class PythonToolManager {
                     Log.w(TAG, "插件卡片渲染失败: " + t.getMessage());
                 }
             };
+            // 关键顺序：先渲染内容再 show()——若 show 后再 addView，窗口显示时视图树中
+            // 没有 EditText，窗口焦点落在 DecorView，之后加入的 EditText 永远不会被 IME
+            // serve（"is not served"，layout 控件输入法不唤起根因；对照实测 showDialog
+            // 先渲染后 show 成功 served=true，plugin 路径 show 后渲染 served=false）。
             renderCard[0].run();
+            dialog.show();
 
             final boolean[] done = doneRef;
             final String[] resultFilePath = {null};
@@ -2707,7 +2819,10 @@ public class PythonToolManager {
 
             final boolean hasMonitor = plugin.optJSONObject("monitor") != null;
             org.json.JSONObject monitor = plugin.optJSONObject("monitor");
-            if (!hasMonitor) {
+            if (!hasMonitor && !hasInteractiveButtons[0]) {
+                // 纯展示组件（无按钮可点）：创建即完成，返回组件信息（不等待用户操作）。
+                // 注意：含交互按钮（提交/工具按钮）的组件不能走这里——否则 doneRef 提前置 true，
+                // 用户点击按钮时收集被短路，"layout 控件输入值无法回传"（Bug 报告根因）。
                 statusView.setText("✅ 组件已创建");
                 try {
                     org.json.JSONObject ok = new org.json.JSONObject();
@@ -2857,6 +2972,25 @@ public class PythonToolManager {
             }
         }
 
+        /** 递归收集容器内全部 Button（含无 key 的提交按钮，此前只遍历 layoutViewRefs 漏掉无 key 按钮）。
+         *  注意：RadioButton/CheckBox/Switch/ToggleButton 都是 CompoundButton 的子类，
+         *  instanceof Button 也会命中——但它们不是提交按钮，必须排除，否则点击单选圆点/
+         *  复选框/开关会误触发"提交→收集→完成 dialog"（实测点击单选圆点 dialog 自动退出）。 */
+        private void collectButtons(android.view.View root, java.util.List<android.widget.Button> out) {
+            if (root == null) return;
+            if (root instanceof android.widget.CompoundButton) return; // RadioButton/CheckBox/Switch/Toggle 排除
+            if (root instanceof android.widget.Button) {
+                out.add((android.widget.Button) root);
+                return;
+            }
+            if (root instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) root;
+                for (int i = 0; i < vg.getChildCount(); i++) {
+                    collectButtons(vg.getChildAt(i), out);
+                }
+            }
+        }
+
         /** 复制到公共 Download/OilQuiz（私有工作区分享用），返回 content URI */
         private android.net.Uri copyToPublicDownloads(android.app.Activity act, java.io.File source) {
             try {
@@ -2896,11 +3030,13 @@ public class PythonToolManager {
             return String.format(java.util.Locale.US, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0);
         }
 
-        /** 动态自定义原生表单组件（type=custom）：fields JSON 定义任意字段，确定返回全部值 JSON */
+        /** 动态自定义原生表单组件（type=custom）：fields JSON 定义任意字段，确定返回全部值 JSON。
+         *  rounds>1 时进入连续输入模式：弹窗含"添加下一条"(收集本轮并清空重建)与"完成"(收集本轮并结束)，
+         *  完成时返回 {"rounds":[第1轮values, 第2轮...], "total":N}；取消返回 cancelled。 */
         private void showCustomFormDialog(final android.app.Activity act, final ComponentRuntime rt,
                                           final String componentId, final String title,
                                           final String message, final String propsJson,
-                                          final int autoCloseSeconds) {
+                                          final int autoCloseSeconds, final int rounds) {
             final org.json.JSONArray fieldDefs = new org.json.JSONArray();
             try {
                 org.json.JSONObject pj = new org.json.JSONObject(propsJson != null ? propsJson : "");
@@ -2942,93 +3078,197 @@ public class PythonToolManager {
             }
             final java.util.Map<String, Boolean> fieldRequired = new java.util.LinkedHashMap<>();
             final java.util.Map<String, String> fieldLabels = new java.util.LinkedHashMap<>();
-            // ---- 方案A：字段定义 → NativeLayoutRenderer JSON 布局树（消除硬编码表单构建，统一样式/主题） ----
-            final java.util.Map<String, Object> viewRefs = new java.util.HashMap<>();
-            org.json.JSONArray children = new org.json.JSONArray();
-            for (int i = 0; i < fieldDefs.length(); i++) {
+            final boolean multiMode = rounds > 1;
+            final java.util.List<org.json.JSONObject> collectedRounds = new java.util.ArrayList<>();
+            // 表单内容容器：多轮"添加下一条"时替换内部 view（控件全部归零重建，无需逐控件清空）。
+            // 用 ScrollView 直接作为 dialog view（与原单轮方案一致，wrap 测量正常），内部 LinearLayout 可替换。
+            final android.widget.ScrollView formHolder = new android.widget.ScrollView(act);
+            final android.widget.LinearLayout formColumn = new android.widget.LinearLayout(act);
+            formColumn.setOrientation(android.widget.LinearLayout.VERTICAL);
+            formHolder.addView(formColumn, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            // 当前轮 viewRefs（每次重建替换）
+            final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> curRefs =
+                    new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
+            final android.widget.TextView roundHint = new android.widget.TextView(act);
+            roundHint.setPadding(dp4(8), dp4(4), dp4(8), dp4(4));
+            roundHint.setTextSize(12);
+            roundHint.setTextColor(0xFF888888);
+            setupScrollViewForInput(formHolder);
+
+            // ---- 构建单轮表单 view 并装入 formHolder ----
+            final Runnable rebuildForm = () -> {
                 try {
-                    org.json.JSONObject fd = fieldDefs.optJSONObject(i);
-                    if (fd == null) continue;
-                    String key = fd.optString("key", "");
-                    if (key.isEmpty()) key = "field" + i;
-                    String label = fd.optString("label", key);
-                    String ftype = fd.optString("type", "text").toLowerCase();
-                    String def = fd.optString("default", "");
-                    boolean required = fd.optBoolean("required", false);
-                    fieldRequired.put(key, required);
-                    fieldLabels.put(key, label);
-                    // 字段标签行
-                    org.json.JSONObject labelNode = new org.json.JSONObject();
-                    labelNode.put("type", "text");
-                    labelNode.put("text", (required ? "* " : "") + label);
-                    labelNode.put("size", 14);
-                    children.put(labelNode);
-                    // 控件节点（字段类型 → 布局控件；select/switch/slider/date/time/password/number/multiline 原生支持）
-                    org.json.JSONObject ctrl = new org.json.JSONObject();
-                    String ltype;
-                    switch (ftype) {
-                        case "select": ltype = "select"; break;
-                        case "switch": ltype = "switch"; break;
-                        case "checkbox": ltype = "checkbox"; break;
-                        case "radio": ltype = "radio"; break;
-                        case "slider": ltype = "slider"; break;
-                        case "date": ltype = "date"; break;
-                        case "time": ltype = "time"; break;
-                        case "password": ltype = "password"; break;
-                        case "number": ltype = "number"; break;
-                        case "multiline": ltype = "multiline"; break;
-                        case "otp": ltype = "otp"; break;
-                        default: ltype = "input"; break;
+                    java.util.Map<String, Object> refs = new java.util.HashMap<>();
+                    curRefs.set(refs);
+                    org.json.JSONArray kids = new org.json.JSONArray();
+                    for (int i = 0; i < fieldDefs.length(); i++) {
+                        org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                        if (fd == null) continue;
+                        String key = fd.optString("key", "");
+                        if (key.isEmpty()) key = "field" + i;
+                        String label = fd.optString("label", key);
+                        String ftype = fd.optString("type", "text").toLowerCase();
+                        String def = fd.optString("default", "");
+                        boolean required = fd.optBoolean("required", false);
+                        fieldRequired.put(key, required);
+                        fieldLabels.put(key, label);
+                        org.json.JSONObject labelNode = new org.json.JSONObject();
+                        labelNode.put("type", "text");
+                        labelNode.put("text", (required ? "* " : "") + label);
+                        labelNode.put("size", 14);
+                        kids.put(labelNode);
+                        org.json.JSONObject ctrl = new org.json.JSONObject();
+                        String ltype;
+                        switch (ftype) {
+                            case "select": ltype = "select"; break;
+                            case "switch": ltype = "switch"; break;
+                            case "checkbox": ltype = "checkbox"; break;
+                            case "radio": ltype = "radio"; break;
+                            case "slider": ltype = "slider"; break;
+                            case "date": ltype = "date"; break;
+                            case "time": ltype = "time"; break;
+                            case "datetime": ltype = "datetime"; break;
+                            case "password": ltype = "password"; break;
+                            case "number": ltype = "number"; break;
+                            case "multiline": ltype = "multiline"; break;
+                            case "otp": ltype = "otp"; break;
+                            case "email": ltype = "email"; break;
+                            case "tel": ltype = "tel"; break;
+                            case "url": ltype = "url"; break;
+                            case "search": ltype = "search"; break;
+                            case "file": ltype = "file"; break;
+                            default: ltype = "input"; break;
+                        }
+                        ctrl.put("type", ltype);
+                        ctrl.put("key", key);
+                        if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
+                            ctrl.put("checked", "true".equalsIgnoreCase(def));
+                        } else if (!def.isEmpty()) {
+                            ctrl.put("value", def);
+                        }
+                        if ("select".equals(ftype) || "radio".equals(ftype)) {
+                            org.json.JSONArray opts = fd.optJSONArray("options");
+                            if (opts != null && opts.length() > 0) ctrl.put("options", opts);
+                        }
+                        if ("otp".equals(ftype)) ctrl.put("length", fd.optInt("length", 6));
+                        if ("slider".equals(ftype)) {
+                            ctrl.put("max", fd.optInt("max", 100));
+                            ctrl.put("show_value", true);
+                        }
+                        String hint = fd.optString("hint", "");
+                        if (!hint.isEmpty()) ctrl.put("hint", hint);
+                        kids.put(ctrl);
                     }
-                    ctrl.put("type", ltype);
-                    ctrl.put("key", key);
-                    if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
-                        ctrl.put("checked", "true".equalsIgnoreCase(def));
-                    } else if (!def.isEmpty()) {
-                        ctrl.put("value", def);
+                    org.json.JSONObject root = new org.json.JSONObject();
+                    org.json.JSONObject layout = new org.json.JSONObject();
+                    root.put("type", "column");
+                    root.put("children", kids);
+                    layout.put("root", root);
+                    android.view.View formView = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
+                            act, layout, new org.json.JSONObject(), refs);
+                    if (formView == null) {
+                        android.widget.TextView tvErr = new android.widget.TextView(act);
+                        tvErr.setText("⚠ 表单渲染失败");
+                        tvErr.setTextSize(12);
+                        formView = tvErr;
                     }
-                    if ("select".equals(ftype) || "radio".equals(ftype)) {
-                        org.json.JSONArray opts = fd.optJSONArray("options");
-                        if (opts != null && opts.length() > 0) ctrl.put("options", opts);
+                    android.widget.ScrollView scrollForm = new android.widget.ScrollView(act);
+                    scrollForm.addView(formView);
+                    setupScrollViewForInput(scrollForm);
+                    formColumn.removeAllViews();
+                    formColumn.addView(scrollForm, new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                    if (multiMode) {
+                        roundHint.setText("已录入 " + collectedRounds.size() + " / " + rounds
+                                + " 条（点「添加下一条」继续）");
+                        formColumn.addView(roundHint, new android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
                     }
-                    if ("otp".equals(ftype)) {
-                        ctrl.put("length", fd.optInt("length", 6));
-                    }
-                    if ("slider".equals(ftype)) {
-                        ctrl.put("max", fd.optInt("max", 100));
-                        ctrl.put("show_value", true);
-                    }
-                    String hint = fd.optString("hint", "");
-                    if (!hint.isEmpty()) ctrl.put("hint", hint);
-                    children.put(ctrl);
-                } catch (Exception ignored) {
+                } catch (Throwable t) {
+                    Log.w(TAG, "custom 表单重建失败: " + t.getMessage());
                 }
-            }
-            org.json.JSONObject root = new org.json.JSONObject();
-            org.json.JSONObject layout = new org.json.JSONObject();
-            try {
-                root.put("type", "column");
-                root.put("children", children);
-                layout.put("root", root);
-            } catch (Exception e) {
-                rt.result.set("cancelled:表单构建失败");
-                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                return;
-            }
-            android.view.View formView = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
-                    act, layout, new org.json.JSONObject(), viewRefs);
-            if (formView == null) {
-                rt.result.set("cancelled:表单渲染失败");
-                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                return;
-            }
-            android.widget.ScrollView scrollForm = new android.widget.ScrollView(act);
-            scrollForm.addView(formView);
+            };
+
+            // ---- 收集本轮 values（类型转换同原逻辑）并校验必填；通过返回 JSONObject，否则 null ----
+            final java.util.function.Supplier<org.json.JSONObject> collectRound = () -> {
+                java.util.Map<String, Object> values =
+                        com.oilquiz.app.ai.python.NativeLayoutRenderer.collectValues(curRefs.get());
+                for (int i = 0; i < fieldDefs.length(); i++) {
+                    try {
+                        org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                        if (fd == null) continue;
+                        String key = fd.optString("key", "");
+                        if (key.isEmpty()) key = "field" + i;
+                        if (Boolean.TRUE.equals(fieldRequired.get(key))) {
+                            Object val = values.get(key);
+                            String s = val == null ? "" : String.valueOf(val);
+                            if (s.trim().isEmpty()) {
+                                showToast("请填写必填项：" + fieldLabels.get(key), false);
+                                return null;
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                org.json.JSONObject out = new org.json.JSONObject();
+                for (int i = 0; i < fieldDefs.length(); i++) {
+                    try {
+                        org.json.JSONObject fd = fieldDefs.optJSONObject(i);
+                        if (fd == null) continue;
+                        String key = fd.optString("key", "");
+                        if (key.isEmpty()) key = "field" + i;
+                        String ftype = fd.optString("type", "text").toLowerCase();
+                        Object val = values.get(key);
+                        if ("number".equals(ftype)) {
+                            String s = val == null ? "" : String.valueOf(val).trim();
+                            try {
+                                out.put(key, Double.parseDouble(s.isEmpty() ? "0" : s));
+                            } catch (NumberFormatException ex) {
+                                out.put(key, s);
+                            }
+                        } else if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
+                            out.put(key, Boolean.TRUE.equals(val));
+                        } else {
+                            out.put(key, val == null ? "" : String.valueOf(val));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                return out;
+            };
+
             android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
             if (title != null && !title.isEmpty()) b.setTitle(title);
             if (message != null && !message.isEmpty()) b.setMessage(message);
-            b.setView(scrollForm);
-            b.setPositiveButton("确定", null);
+            b.setView(formHolder);
+            if (multiMode) {
+                // 多轮连续输入：添加下一条（收集并清空重建）+ 完成（收集并结束）
+                b.setPositiveButton("添加下一条", null);
+                b.setNeutralButton("完成", (d, w) -> {
+                    try {
+                        org.json.JSONObject last = collectRound.get();
+                        if (last == null) return; // 必填未通过，停留本页
+                        collectedRounds.add(last);
+                        org.json.JSONObject res = new org.json.JSONObject();
+                        org.json.JSONArray arr = new org.json.JSONArray();
+                        for (org.json.JSONObject r : collectedRounds) arr.put(r);
+                        res.put("rounds", arr);
+                        res.put("total", collectedRounds.size());
+                        rt.result.set(res.toString());
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                        Log.i(TAG, "[Python component] multi-round form result: " + res);
+                    } catch (Exception ex) {
+                        Log.w(TAG, "多轮表单结果序列化失败: " + ex.getMessage());
+                    }
+                    d.dismiss();
+                });
+            } else {
+                b.setPositiveButton("确定", null);
+            }
             b.setNegativeButton("取消", (d, w) -> {
                 rt.result.set("cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -3044,60 +3284,40 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(v -> {
-                        // 统一从布局收集控件值（input/select/switch/slider/date/time 等）
-                        java.util.Map<String, Object> values =
-                                com.oilquiz.app.ai.python.NativeLayoutRenderer.collectValues(viewRefs);
-                        // 必填校验（空字符串视为未填）
-                        for (int i = 0; i < fieldDefs.length(); i++) {
-                            try {
-                                org.json.JSONObject fd = fieldDefs.optJSONObject(i);
-                                if (fd == null) continue;
-                                String key = fd.optString("key", "");
-                                if (key.isEmpty()) key = "field" + i;
-                                if (Boolean.TRUE.equals(fieldRequired.get(key))) {
-                                    Object val = values.get(key);
-                                    String s = val == null ? "" : String.valueOf(val);
-                                    if (s.trim().isEmpty()) {
-                                        showToast("请填写必填项：" + fieldLabels.get(key), false);
-                                        return;
-                                    }
-                                }
-                            } catch (Exception ignored) {
-                            }
-                        }
-                        org.json.JSONObject out = new org.json.JSONObject();
-                        for (int i = 0; i < fieldDefs.length(); i++) {
-                            try {
-                                org.json.JSONObject fd = fieldDefs.optJSONObject(i);
-                                if (fd == null) continue;
-                                String key = fd.optString("key", "");
-                                if (key.isEmpty()) key = "field" + i;
-                                String ftype = fd.optString("type", "text").toLowerCase();
-                                Object val = values.get(key);
-                                if ("number".equals(ftype)) {
-                                    String s = val == null ? "" : String.valueOf(val).trim();
-                                    try {
-                                        out.put(key, Double.parseDouble(s.isEmpty() ? "0" : s));
-                                    } catch (NumberFormatException ex) {
-                                        out.put(key, s);
-                                    }
-                                } else if ("switch".equals(ftype) || "checkbox".equals(ftype)) {
-                                    out.put(key, Boolean.TRUE.equals(val));
-                                } else {
-                                    out.put(key, val == null ? "" : String.valueOf(val));
-                                }
-                            } catch (Exception ignored) {
-                            }
-                        }
+            dialog.setOnShowListener(d -> {
+                android.widget.Button positive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+                if (multiMode) {
+                    positive.setOnClickListener(v -> {
+                        org.json.JSONObject round = collectRound.get();
+                        if (round == null) return; // 必填未通过
+                        collectedRounds.add(round);
+                        Log.i(TAG, "[Python component] multi-round added #" + collectedRounds.size()
+                                + ": " + round);
+                        rebuildForm.run(); // 清空重建，继续下一轮
+                    });
+                } else {
+                    positive.setOnClickListener(v -> {
+                        org.json.JSONObject out = collectRound.get();
+                        if (out == null) return; // 必填未通过
                         rt.result.set(out.toString());
                         synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         dialog.dismiss();
-                    }));
+                    });
+                }
+            });
+            configureDialogInput(dialog);
+            rebuildForm.run();
             dialog.show();
             rt.dialog = dialog;
-            Log.i(TAG, "[Python component] custom form created: " + componentId);
+            Log.i(TAG, "[Python component] custom form created: " + componentId
+                    + (multiMode ? " (multi-round x" + rounds + ")" : ""));
+        }
+
+        /** dp 换算（本类内小工具，供多轮表单提示条 padding 用） */
+        private static int dp4(int dp) {
+            return (int) android.util.TypedValue.applyDimension(
+                    android.util.TypedValue.COMPLEX_UNIT_DIP, dp,
+                    android.content.res.Resources.getSystem().getDisplayMetrics());
         }
 
         /** 自动关闭调度：autoCloseSeconds>0 且组件已显示时，N 秒后 dismiss 并置 result=closed。
@@ -3119,6 +3339,177 @@ public class PythonToolManager {
                 }
             };
             main.postDelayed(rt.autoCloseTask, autoCloseSeconds * 1000L);
+        }
+
+        /**
+         * 弹窗输入法配置：检测 view 树中是否含输入控件（EditText/Spinner/SeekBar/DatePicker 等），
+         * 有则设置 SOFT_INPUT_ADJUST_RESIZE + STATE_ALWAYS_VISIBLE——修复自定义 UI
+         * 无法聚焦输入框/不弹输入法的问题（AlertDialog 默认 softInputMode 不弹键盘）。
+         * 无输入控件时仅设 ADJUST_UNSPECIFIED（不弹输入法，不影响纯展示）。
+         */
+        private void configureDialogInput(android.app.AlertDialog dialog) {
+            if (dialog == null || dialog.getWindow() == null) return;
+            try {
+                // 统一 ADJUST_RESIZE：弹窗内容随输入法收缩，避免遮挡（无输入控件也无害）。
+                dialog.getWindow().setSoftInputMode(
+                        android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                // 清除 ALT_FOCUSABLE_IM：部分 ROM 主题设置后窗口声明"不关心输入法"，
+                // IME 拒绝为该窗口建立输入连接（layout 控件输入法不唤起）。
+                // 注意：绝不能动 DecorView 的 focusable——Dialog 窗口焦点必须能落到 DecorView，
+                // 否则窗口输入焦点链断裂，EditText requestFocus 只生效在 view 树内（hasFocus=true）
+                // 但无法成为 ViewRootImpl 的输入目标，served 停留在旧窗口（实测 served=false）。
+                android.view.WindowManager.LayoutParams wlp = dialog.getWindow().getAttributes();
+                if (wlp != null) {
+                    wlp.flags &= ~android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+                    dialog.getWindow().setAttributes(wlp);
+                }
+                // show 后（decorView 挂载完成）为所有 EditText 注入"点击强制弹键盘"：
+                // 自定义 layout 面板的 EditText 在 Dialog 内点击可能不自动唤起输入法，
+                // 这里显式绑定触摸/点击 → requestFocus + showSoftInput（双保险）。
+                final android.view.View decor = dialog.getWindow().getDecorView();
+                decor.postDelayed(() -> {
+                    try {
+                        if (!dialog.isShowing()) return;
+                        injectEditTextIme(decor, 0);
+                    } catch (Throwable ignored) {
+                    }
+                }, 250);
+            } catch (Throwable t) {
+                Log.w(TAG, "配置弹窗输入法失败: " + t.getMessage());
+            }
+        }
+
+        /** 递归为 view 树中所有 EditText 注入"点击强制唤起键盘"（仅兜底 OnClickListener）。
+         *  注意：不覆盖已有 OnTouchListener——NativeLayoutRenderer.setupInputView 已为输入控件
+         *  设置 ACTION_UP → showSoftInput 的完整链路（含 attach 等待，实测 served=true 键盘正常）；
+         *  此前 injectEditTextIme 用 forceShowIme 整体覆盖 OnTouchListener，而 forceShowIme 缺少
+         *  attach 等待导致 served=false、"is not served"（layout 控件输入法不唤起根因）。
+         *  用 tag 标记（0x5A17F002）判断是否已由 setupInputView 处理，避免重复注入。 */
+        private static final int TAG_KEY_IME_HANDLED = 0x5A17F002;
+
+        private void injectEditTextIme(android.view.View view, int depth) {
+            if (view == null || depth > 15) return;
+            if (view instanceof android.widget.EditText) {
+                final android.widget.EditText et = (android.widget.EditText) view;
+                // 仅当未设置任何触摸/点击处理时才补 OnClickListener 兜底
+                if (et.getTag(TAG_KEY_IME_HANDLED) == null) {
+                    et.setTag(TAG_KEY_IME_HANDLED, Boolean.TRUE);
+                    et.setOnClickListener(v -> forceShowIme(et));
+                }
+                return;
+            }
+            if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) view;
+                for (int i = 0; i < vg.getChildCount(); i++) {
+                    injectEditTextIme(vg.getChildAt(i), depth + 1);
+                }
+            }
+        }
+
+        /** 强制唤起键盘：requestFocus + restartInput 重建 IME 绑定 + showSoftInput，防抖 400ms。
+         *  与 DebugLayoutInjectActivity 验证成功的 injectIme 保持一致：
+         *  - showSoftInput flag=0（SHOW_FORCED 在部分 MIUI 版本上会被服务端忽略）
+         *  - requestFocus 后 80ms 延迟再弹（等窗口输入焦点落定） */
+        private void forceShowIme(final android.widget.EditText et) {
+            try {
+                long now = System.currentTimeMillis();
+                Long last = (Long) et.getTag(0x5A17F001);
+                if (last != null && now - last < 400) return;
+                et.setTag(0x5A17F001, now);
+                final android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) et.getContext()
+                                .getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm == null) return;
+                et.postDelayed(() -> {
+                    try {
+                        et.setFocusableInTouchMode(true);
+                        if (!et.hasFocus()) {
+                            et.requestFocus();
+                        }
+                        boolean shown = imm.showSoftInput(et, 0);
+                        android.util.Log.i(TAG, "forceShowIme result=" + shown
+                                + " focused=" + et.hasFocus() + " served=" + (imm.isActive(et)));
+                        if (!shown || !imm.isActive(et)) {
+                            // 首次失败：restartInput 强制以 et 为目标重建输入连接后重试
+                            et.postDelayed(() -> {
+                                try {
+                                    et.requestFocus();
+                                    try {
+                                        imm.restartInput(et);
+                                    } catch (Throwable ignored) {
+                                    }
+                                    imm.showSoftInput(et, 0);
+                                } catch (Throwable ignored) {
+                                }
+                            }, 200);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }, 80);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /** 聚焦 view 树中第一个 EditText */
+        private void focusFirstInput(android.view.View view, int depth) {
+            if (view == null || depth > 12) return;
+            if (view instanceof android.widget.EditText) {
+                view.requestFocus();
+                return;
+            }
+            if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) view;
+                for (int i = 0; i < vg.getChildCount(); i++) {
+                    focusFirstInput(vg.getChildAt(i), depth + 1);
+                }
+            }
+        }
+
+        /**
+         * 弹窗 ScrollView 触摸/焦点注入（"hit" 注入）：
+         * 1. ScrollView 不抢焦点（focusable=false），否则 EditText 点击不聚焦；
+         * 2. 触摸放行：DOWN/MOVE 不拦截（默认 ScrollView 对 EditText 会放行 DOWN，
+         *    但滚动判定可能在 DOWN 后吞掉事件），这里显式放行子控件命中，
+         *    仅保留 ScrollView 自身的滚动能力（返回 false 走默认 onTouchEvent）。
+         */
+        private void setupScrollViewForInput(final android.widget.ScrollView sv) {
+            if (sv == null) return;
+            sv.setFocusable(false);
+            sv.setFocusableInTouchMode(false);
+            // 触摸放行：DOWN 让子控件先接收（EditText 聚焦需要 DOWN），
+            // 滚动由 ScrollView 默认逻辑处理（不消费事件，仅确保不拦截 DOWN 的命中传递）
+            sv.setOnTouchListener((v, event) -> {
+                if (event == null) return false;
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                    // 通知父级不要拦截，确保子 EditText 收到 DOWN 完成聚焦
+                    if (v.getParent() != null) {
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                }
+                return false; // 不消费：ScrollView 默认滚动逻辑保留
+            });
+        }
+
+        /** 递归检测 view 树是否含输入控件 */
+        private boolean containsInputView(android.view.View view, int depth) {
+            if (view == null || depth > 12) return false;
+            if (view instanceof android.widget.EditText
+                    || view instanceof android.widget.Spinner
+                    || view instanceof android.widget.SeekBar
+                    || view instanceof android.widget.SearchView
+                    || view instanceof android.widget.DatePicker
+                    || view instanceof android.widget.TimePicker
+                    || view instanceof android.widget.NumberPicker
+                    || view instanceof android.webkit.WebView) {
+                return true;
+            }
+            if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) view;
+                for (int i = 0; i < vg.getChildCount(); i++) {
+                    if (containsInputView(vg.getChildAt(i), depth + 1)) return true;
+                }
+            }
+            return false;
         }
 
         /**
@@ -3224,6 +3615,8 @@ public class PythonToolManager {
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                             return;
                         }
+                        configureDialogInput(dialog);
+
                         dialog.show();
                         statusView.setText("🔴 录音中 00:00");
                         handler.postDelayed(ticker[0], 1000);
@@ -3315,6 +3708,8 @@ public class PythonToolManager {
                 public void onStart() {
                     handler.post(() -> {
                         if (!finished[0] && act != null && !act.isFinishing()) {
+                            configureDialogInput(dialog);
+
                             dialog.show();
                             statusView.setText("🔊 正在朗读...（点「停止」或应用层停止按钮可中断）");
                         }

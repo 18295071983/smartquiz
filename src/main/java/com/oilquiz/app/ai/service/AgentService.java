@@ -244,22 +244,27 @@ public class AgentService {
         toolNameAliases.put("open_page", "app_operation");
         toolNameAliases.put("create_tool", "create_dynamic_tool");
         toolNameAliases.put("dynamic_tool", "create_dynamic_tool");
+        toolNameAliases.put("ocr", "ocr_recognize");
+        toolNameAliases.put("ocr_recognize_pdf", "ocr_recognize");
+        toolNameAliases.put("文字识别", "ocr_recognize");
+        toolNameAliases.put("图片识别", "ocr_recognize");
+        toolNameAliases.put("识别图片文字", "ocr_recognize");
         // 系统UI组件控制：遗留名 → ui_component（对话框/提示条/进度条/输入等）
         toolNameAliases.put("system_ui_control", "ui_component");
         toolNameAliases.put("ui_control", "ui_component");
     }
 
     private void registerDefaultTools() {
-        registerToolSchema("ai_weather", "天气查询工具，获取指定城市的天气信息", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all,默认current), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。current返回温度/体感/天气现象/风力湿度/紫外线；forecast返回逐日预报；air_quality返回AQI/PM2.5。查询天气必须用本工具（实时数据，禁止凭知识编造）", "action(操作类型: current实时/forecast预报/hourly逐小时/air_quality空气质量/alerts预警/indices生活指数/all全部,默认current), city(城市名,如北京/上海,与经纬度二选一), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("get_weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
-        registerToolSchema("location", "位置查询工具，获取当前位置信息", "action(操作类型: get_current/get_city/get_coordinates,默认get_current)");
+        registerToolSchema("location", "位置查询工具：获取当前位置（经纬度/城市/地址）。get_current返回经纬度+城市+地址；get_city返回城市名；get_coordinates返回经纬度。位置服务未开启自动引导开启", "action(操作类型: get_current默认/get_city/get_coordinates)");
         registerToolSchema("get_location", "获取位置信息", "action(操作类型: get_current/get_city/get_coordinates)");
-        registerToolSchema("network_search", "网络搜索工具，支持搜索、智能问答、网页读取", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(结果数量,默认5), num_results(结果数量别名,默认5)");
+        registerToolSchema("network_search", "网络搜索工具（秘塔搜索引擎）：联网搜索+智能问答+网页读取。search返回标题/链接/摘要；ask返回答案+引用来源；read_url读取网页正文。实时/最新信息必须联网搜索，禁止凭训练知识编造", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(结果数量,默认5), num_results(结果数量别名,默认5)");
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(结果数量限制,默认5)");
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
-        registerToolSchema("calculator", "执行数学计算", "expression(数学表达式,必填)");
+        registerToolSchema("calculator", "数学计算器：计算算术表达式(支持+ - * / % ^ 括号、小数)。除零/非法表达式返回明确错误。简单计算优先用本工具，复杂数据分析用python_calculate", "expression(算术表达式,必填,如 3.5*(2+4)/7 或 2^10)");
         registerToolSchema("database", "数据库操作工具，支持任意SQL、表结构查看、题目查询与管理、用户管理、分数记录等", "action(操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), sql(SQL语句,execute_sql用), table_name(表名,get_table_schema用), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
@@ -275,6 +280,7 @@ public class AgentService {
         registerToolSchema("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker文件选择/image_picker选图/contact_picker联系人/rating评分/color取色/otp验证码/number数字/marquee跑马灯/media_task任务监控)或内置卡片(chart/info_card/table_card等)。参数可放顶层或props内(等效,自动合并)。自定义UI可传layout树(顶层/render/props等效)。握手:create→component_id→update/close→get_result取用户操作", "action(create/update/close/get_result,必填), component_type(组件类型,create用), component_id(组件ID), title(标题), message(内容), dialog_type(info/confirm/warning), options(选项列表), default_value(默认值), input_hint(输入提示), items(列表项), url(网址), progress(进度值,update用), max或max_value(进度最大值), layout(自定义控件树), props(内置组件参数;custom的fields;otp的length;number的min/max;marquee的text/speed;media_task的task_id/type), fields(custom动态表单字段定义数组,如[{\"key\":\"name\",\"label\":\"姓名\",\"type\":\"text\",\"required\":true}],字段类型:text/number/password/multiline/select/radio/checkbox/switch/slider/date), wait_seconds(等待秒数)");
         registerToolSchema("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用", "action(list/search/get,必填), keyword(搜索关键词,search用), tool(工具名,get用)");
         registerToolSchema("app_toolkit", "应用工具集，提供多种实用功能", "action(操作类型: weather_current/weather_forecast/calculate/ocr_recognize等,必填)");
+        registerToolSchema("ocr_recognize", "图片理解工具：OCR文字识别 + 视觉问答（看图理解）。识别图片/PDF文字，或看图回答用户问题", "action(操作类型: ocr_recognize识别图片文字/ocr_recognize_pdf识别PDF文字/image_understand图片理解视觉问答/ocr_set_language设置语言/ocr_get_language获取语言,默认ocr_recognize), image_path(图片路径:绝对路径或content://或file://URI,ocr_recognize/image_understand用), pdf_path(PDF路径:绝对路径或content://或file://URI,ocr_recognize_pdf用), question(关于图片的问题,image_understand用), language(识别语言:auto/chinese/english/japanese/korean,可选)");
         registerToolSchema("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：show_toast提示条；系统UI组件API：create_component('dialog'/'progress',...)创建系统对话框/进度条→component_id，update_component更新进度，get_component_result阻塞获取用户点击，close_component关闭", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
         registerToolSchema("python_analyze_data", "使用Python分析数据", "data(数据,可选), task(任务描述,可选)");
         registerToolSchema("ai_create_tool", "AI创建工具，使用AI自动生成新工具", "tool_name(工具名称,必填), description(工具描述,必填), parameters(参数定义,可选), logic(执行逻辑,可选)");

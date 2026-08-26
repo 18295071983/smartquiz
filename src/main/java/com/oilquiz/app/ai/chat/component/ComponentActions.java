@@ -38,6 +38,44 @@ public final class ComponentActions {
     private static final java.util.concurrent.ConcurrentHashMap<String, java.util.function.BiConsumer<String, String>>
             componentCallbacks = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * 输入控件收集器注册表：component_id → 该组件渲染的输入控件值收集器（Supplier）。
+     * 用于 layout 卡片等容器：卡片内含 input/select/switch 等输入控件，点击提交按钮
+     * （action=callback）时除了回传按钮 value，还把容器内输入控件值一并收集回传
+     * （修复 "layout 控件输入值无法回传"：此前按钮只回传自身 value，输入值全部丢失）。
+     * 用 WeakReference 持有：卡片视图被回收（聊天流滚动/Activity 销毁）后自动失效，
+     * 不泄漏 Activity/View。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String,
+            java.lang.ref.WeakReference<java.util.function.Supplier<java.util.Map<String, Object>>>>
+            inputCollectors = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 注册组件的输入控件值收集器（LayoutCardView 渲染时调用）。 */
+    public static void registerInputCollector(String componentId,
+                                              java.util.function.Supplier<java.util.Map<String, Object>> collector) {
+        if (componentId != null && collector != null) {
+            inputCollectors.put(componentId, new java.lang.ref.WeakReference<>(collector));
+        }
+    }
+
+    /** 收集组件的输入控件值；无收集器或已失效返回 null。 */
+    public static java.util.Map<String, Object> collectInputs(String componentId) {
+        if (componentId == null) return null;
+        java.lang.ref.WeakReference<java.util.function.Supplier<java.util.Map<String, Object>>> ref =
+                inputCollectors.get(componentId);
+        if (ref == null) return null;
+        java.util.function.Supplier<java.util.Map<String, Object>> s = ref.get();
+        if (s == null) {
+            inputCollectors.remove(componentId);
+            return null;
+        }
+        try {
+            return s.get();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private ComponentActions() {
     }
 
@@ -152,14 +190,28 @@ public final class ComponentActions {
             btn.setClickable(true);
             btn.setOnClickListener(v -> {
                 if ("callback".equals(action) && !componentId.isEmpty()) {
-                    // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）
+                    // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）。
+                    // layout 卡片等容器：同时收集容器内输入控件值（input/select/switch 等）合并回传，
+                    // 修复"layout 控件输入值无法回传"——仅按钮 value 不含用户填写内容。
                     // 点击反馈：Toast 提示已记录（避免"点了没反应"的体验）
                     try {
                         Toast.makeText(context, "已选择: " + (value.isEmpty() ? label : value),
                                 Toast.LENGTH_SHORT).show();
                     } catch (Throwable ignored) {
                     }
-                    notifyResult(context, componentId, value.isEmpty() ? label : value);
+                    String payload = value.isEmpty() ? label : value;
+                    try {
+                        java.util.Map<String, Object> inputs = collectInputs(componentId);
+                        if (inputs != null && !inputs.isEmpty()) {
+                            JSONObject merged = new JSONObject();
+                            merged.put("action", payload);
+                            merged.put("inputs", new JSONObject(
+                                    new com.google.gson.Gson().toJson(inputs)));
+                            payload = merged.toString();
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    notifyResult(context, componentId, payload);
                     return;
                 }
                 // P3：refresh 动作（带 component_id 时）：通知组件注册表用户点了刷新，

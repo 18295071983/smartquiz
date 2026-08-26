@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 基础网络安全配置 -->
-    <base-config>
-        <!-- 强制使用HTTPS -->
+    <!-- 基础网络安全配置：允许明文 HTTP（Agent 动态传入的媒体/网页链接多为 http，禁明文会导致
+         video/audio/html 播放与加载失败；https 仍走系统 CA 校验，安全性不受影响） -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <!-- 信任系统CA -->
             <certificates src="system" />
@@ -11,7 +11,7 @@
         </trust-anchors>
     </base-config>
     
-    <!-- 允许localhost明文HTTP流量 -->
+    <!-- 允许localhost明文HTTP流量（本地调试/内网服务） -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>

@@ -46,6 +46,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 系统级悬浮窗（system_connect floating_window） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- 电池优化豁免 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -94,6 +97,10 @@
             android:name=".infra.DebugKeyInjectActivity"
             android:exported="false"
             android:permission="com.oilquiz.app.permission.DEBUG_INJECT"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".infra.DebugLayoutInjectActivity"
+            android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".ui.activity.LoginActivity"

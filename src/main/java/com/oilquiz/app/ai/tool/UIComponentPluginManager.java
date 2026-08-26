@@ -142,9 +142,20 @@ public class UIComponentPluginManager {
                 problems.add("render.card 不是项目内置卡片类型（见 ui_component 工具 component_type 说明）: " + card);
             }
         }
-        // render.layout 存在时校验根节点 type（column/row/scroll/控件）
+        // render.layout 存在时校验根节点 type（column/row/scroll/控件）；
+        // 放行已注册类型名/插件名/模板名（layout 内可嵌套引用它们）
         if (render != null && render.has("layout")) {
-            String layoutErr = com.oilquiz.app.ai.python.NativeLayoutRenderer.validate(render.opt("layout"));
+            java.util.Set<String> known = new java.util.HashSet<>(pluginNames());
+            try {
+                known.addAll(com.oilquiz.app.ai.tool.UIComponentTypeRegistry.getInstance(context).typeNames());
+            } catch (Throwable ignored) {
+            }
+            try {
+                known.addAll(com.oilquiz.app.ai.python.LayoutTemplateRegistry.getInstance(context).templateNames());
+            } catch (Throwable ignored) {
+            }
+            String layoutErr = com.oilquiz.app.ai.python.NativeLayoutRenderer
+                    .validate(render.opt("layout"), known);
             if (layoutErr != null) {
                 problems.add("render.layout 非法: " + layoutErr);
             }
@@ -202,6 +213,11 @@ public class UIComponentPluginManager {
     /** 是否存在插件（临时+长久） */
     public boolean hasPlugin(String name) {
         return name != null && plugins.containsKey(name);
+    }
+
+    /** 已注册插件名集合（临时+长久） */
+    public java.util.Set<String> pluginNames() {
+        return new java.util.HashSet<>(plugins.keySet());
     }
 
     /** 获取插件定义（原对象，勿修改） */
@@ -279,6 +295,10 @@ public class UIComponentPluginManager {
             File f = pluginsFile();
             if (!f.exists()) return;
             String text = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
+            // 容错：剥离 UTF-8 BOM（PowerShell/编辑器写入可能带 \uFEFF，org.json 无法解析会致插件"丢失"）
+            if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
+                text = text.substring(1);
+            }
             JSONArray arr = new JSONArray(text);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject p = arr.optJSONObject(i);
@@ -292,6 +312,12 @@ public class UIComponentPluginManager {
         } catch (Exception e) {
             Log.e(TAG, "加载插件失败: " + e.getMessage(), e);
         }
+    }
+
+    /** 重新从磁盘加载插件（管理界面刷新用）：单例可能先于外部注册初始化，reload 保证显示磁盘最新。 */
+    public synchronized void reload() {
+        plugins.clear();
+        load();
     }
 
     /** 返回一个标准的插件模板（给 Agent 填参用，含设计方法注释字段） */

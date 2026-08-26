@@ -14,47 +14,19 @@
         android:orientation="vertical"
         android:background="@color/background">
 
-        <!-- 自定义标题栏（极简：标题 + 右侧抽屉按钮） -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@color/surface"
-            android:paddingHorizontal="8dp"
-            android:elevation="0dp">
-            <TextView
-                android:id="@+id/toolbar_title"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="AI助手"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:layout_marginEnd="4dp"/>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_back"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                style="@style/Widget.Material3.Button.IconButton"
-                app:icon="@drawable/ic_menu_hamburger"
-                app:iconSize="22dp"
-                app:iconTint="@color/text_primary"
-                android:contentDescription="工具中心"/>
-        </LinearLayout>
-
+        <!-- 合并头部：状态信息 + 右侧抽屉按钮，同一渐变胶囊容器 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp">
+            android:background="@drawable/status_bar_background"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="8dp">
+
+            <!-- 模型状态信息（可点击弹出详情） -->
             <LinearLayout
                 android:id="@+id/service_status_bar"
                 android:layout_width="0dp"
@@ -62,72 +34,114 @@
                 android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:padding="8dp"
-                android:background="@drawable/status_bar_background"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
-                <TextView
-                    android:id="@+id/service_status_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⏳"
-                    android:textSize="16sp"
-                    android:layout_marginEnd="6dp"/>
+
+                <!-- 状态图标容器（圆形浅紫底） -->
+                <LinearLayout
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@drawable/status_icon_bg"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/service_status_icon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="⏳"
+                        android:textSize="18sp"/>
+                </LinearLayout>
+
+                <!-- 三行信息区：服务状态 / 进度+统计 -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:id="@+id/service_status_text"
+                    android:orientation="vertical"
+                    android:layout_marginStart="10dp">
+
+                    <!-- 行1：服务状态 + 余额 -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/chat_service_not_initialized"
-                        android:textSize="12sp"
-                        android:textColor="@color/text_primary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                    <TextView
-                        android:id="@+id/model_name"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/service_status_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/chat_service_not_initialized"
+                            android:textSize="11sp"
+                            android:textColor="@color/text_primary"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/tv_api_balance"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text=""
+                            android:textSize="10sp"
+                            android:textColor="@color/text_secondary"
+                            android:visibility="gone"/>
+                    </LinearLayout>
+
+                    <!-- 行2：进度 + 耗时 + token 统计 -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/chat_no_model_selected"
-                        android:textSize="11sp"
-                        android:textColor="@color/text_secondary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
+                        android:layout_marginTop="3dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <ProgressBar
+                            android:id="@+id/service_status_progress"
+                            android:layout_width="0dp"
+                            android:layout_height="4dp"
+                            android:layout_weight="1"
+                            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                            android:progress="0"
+                            android:max="100"
+                            android:visibility="gone"/>
+
+                        <TextView
+                            android:id="@+id/service_status_elapsed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text=""
+                            android:textSize="10sp"
+                            android:textColor="@color/text_secondary"
+                            android:visibility="gone"/>
+
+                        <TextView
+                            android:id="@+id/tv_token_stats"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="🔵 0 tokens"
+                            android:textSize="11sp"
+                            android:textColor="@color/primary"
+                            android:textStyle="bold"
+                            android:visibility="gone"/>
+                    </LinearLayout>
                 </LinearLayout>
-                <ProgressBar
-                    android:id="@+id/service_status_progress"
-                    android:layout_width="0dp"
-                    android:layout_height="4dp"
-                    android:layout_weight="0.35"
-                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                    android:progress="0"
-                    android:max="100"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginEnd="4dp"
-                    android:visibility="gone"/>
-                <TextView
-                    android:id="@+id/service_status_elapsed"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text=""
-                    android:textSize="10sp"
-                    android:textColor="@color/text_secondary"
-                    android:visibility="gone"/>
-                <TextView
-                    android:id="@+id/tv_token_stats"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔵 0 tokens"
-                    android:textSize="12sp"
-                    android:textColor="@color/primary"
-                    android:textStyle="bold"
-                    android:layout_marginStart="8dp"
-                    android:visibility="gone"/>
             </LinearLayout>
+
+            <!-- 右侧抽屉按钮 -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                style="@style/Widget.Material3.Button.IconButton"
+                app:icon="@drawable/ic_menu_hamburger"
+                app:iconSize="20dp"
+                app:iconTint="@color/text_primary"
+                android:contentDescription="工具中心"/>
         </LinearLayout>
 
         <LinearLayout
@@ -539,7 +553,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="正在录音，点击 🎤 按钮结束并识别"
+                    android:text="手指上滑，取消发送"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:layout_marginStart="8dp"/>
@@ -624,14 +638,30 @@
                         android:textColorHint="@color/text_secondary"
                         android:layout_marginHorizontal="8dp"/>
 
+                    <!-- 微信式"按住 说话"：语音模式下替换输入框，按住录音/上滑取消/松开结束 -->
+                    <TextView
+                        android:id="@+id/hold_to_talk"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="8dp"
+                        android:background="@drawable/rounded_edittext"
+                        android:gravity="center"
+                        android:text="按住 说话"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"/>
+
                     <!-- 语音输入按钮：点击开始录音，再次点击结束并识别为文字 -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_voice"
                         android:layout_width="44dp"
                         android:layout_height="44dp"
                         style="@style/Widget.Material3.Button.TextButton"
-                        android:text="🎤"
-                        android:textSize="20sp"
+                        app:icon="@drawable/ic_mic"
+                        app:iconSize="22dp"
+                        app:iconTint="@color/text_secondary"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         app:iconPadding="0dp"
@@ -644,7 +674,7 @@
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:layout_marginStart="12dp"
-                    app:backgroundTint="@color/primary"
+                    app:backgroundTint="@color/success"
                     app:cornerRadius="24dp"
                     style="@style/Widget.Material3.Button.IconButton"
                     app:icon="@drawable/ic_send_message"

@@ -21,12 +21,10 @@ public class ImportGuideActivity extends BaseActivity {
     private static final int REQUEST_CODE_AI_IMPORT = 1003;
 
     private CardView cardAIImport;
-    private CardView cardSourceImport;
     private CardView cardDirectImport;
     private CardView cardTemplateImport;
     private CardView cardHistory;
     private MaterialButton btnAIImport;
-    private MaterialButton btnSourceImport;
     private MaterialButton btnDirectImport;
     private MaterialButton btnTemplateImport;
     private MaterialButton btnViewHistory;
@@ -48,12 +46,10 @@ public class ImportGuideActivity extends BaseActivity {
         setupToolbar("题目导入");
 
         cardAIImport = findViewById(R.id.cardAIImport);
-        cardSourceImport = findViewById(R.id.cardSourceImport);
         cardDirectImport = findViewById(R.id.cardDirectImport);
         cardTemplateImport = findViewById(R.id.cardTemplateImport);
         cardHistory = findViewById(R.id.cardHistory);
         btnAIImport = findViewById(R.id.btnAIImport);
-        btnSourceImport = findViewById(R.id.btnSourceImport);
         btnDirectImport = findViewById(R.id.btnDirectImport);
         btnTemplateImport = findViewById(R.id.btnTemplateImport);
         btnViewHistory = findViewById(R.id.btnViewHistory);
@@ -73,10 +69,6 @@ public class ImportGuideActivity extends BaseActivity {
         // AI 导入
         btnAIImport.setOnClickListener(v -> startAIImport());
         cardAIImport.setOnClickListener(v -> startAIImport());
-
-        // source 目录一键批量导入
-        btnSourceImport.setOnClickListener(v -> startSourceDirImport());
-        cardSourceImport.setOnClickListener(v -> startSourceDirImport());
 
         // 直接导入
         btnDirectImport.setOnClickListener(v -> startDirectImport());
@@ -119,13 +111,6 @@ public class ImportGuideActivity extends BaseActivity {
 
     private void startDirectImport() {
         Intent intent = new Intent(this, ImportActivity.class);
-        startActivityForResult(intent, REQUEST_CODE_IMPORT);
-    }
-
-    /** 一键导入：携带批量模式参数启动导入页，扫描公共 source 目录全部题库文件 */
-    private void startSourceDirImport() {
-        Intent intent = new Intent(this, ImportActivity.class);
-        intent.putExtra(ImportActivity.EXTRA_SOURCE_DIR_MODE, true);
         startActivityForResult(intent, REQUEST_CODE_IMPORT);
     }
 

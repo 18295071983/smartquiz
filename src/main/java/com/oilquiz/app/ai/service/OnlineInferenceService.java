@@ -1204,6 +1204,7 @@ public class OnlineInferenceService {
      */
     private String readStreamResponse(HttpURLConnection connection, StreamCallback callback) throws Exception {
         StringBuilder fullText = new StringBuilder();
+        StringBuilder reasoningText = new StringBuilder();
         InputStream inputStream = connection.getInputStream();
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
         
@@ -1222,7 +1223,12 @@ public class OnlineInferenceService {
                             JsonObject choice = choices.get(0).getAsJsonObject();
                             if (choice.has("delta")) {
                                 JsonObject delta = choice.getAsJsonObject("delta");
-                                if (delta.has("content")) {
+                                // 深度思考：reasoning_content 思考链（累计，用于 content 空时兜底）
+                                if (delta.has("reasoning_content") && !delta.get("reasoning_content").isJsonNull()) {
+                                    String rc = delta.get("reasoning_content").getAsString();
+                                    reasoningText.append(rc);
+                                }
+                                if (delta.has("content") && !delta.get("content").isJsonNull()) {
                                     String content = delta.get("content").getAsString();
                                     fullText.append(content);
                                     final String token = content;
@@ -1240,6 +1246,12 @@ public class OnlineInferenceService {
         }
         
         String result = fullText.toString();
+        // 深度思考模型可能只返回 reasoning_content 无 content：空正文时用思考内容兜底
+        if ((result == null || result.trim().isEmpty())
+                && reasoningText.length() > 0) {
+            AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningText.length() + ")");
+            result = reasoningText.toString();
+        }
         // 清理模型输出中的乱码/非法字符
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
         final String outputResult = cleaned != null ? cleaned : 
@@ -1819,32 +1831,34 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
-            // 深度思考：enableThinking=true 时按模型名选择 thinking 参数。
+            // 深度思考：按模型名选择 thinking 参数。
             // DeepSeek/Qwen3/GLM/豆包 → enable_thinking（+chat_template_kwargs 双位置，
             // 兼容 vLLM/llama.cpp/DeepSeek 官方 API 的参数位置差异）；
             // OpenAI o1/o3/o4 → reasoning_effort。
             // 门控：模型名不在支持名单（isThinkingModelName=false）时不发送 thinking 参数，
             // 避免对不支持的服务商 400 报错——静默降级为普通模式（引擎层已优先降级，此处为最后防线）。
-            if (enableThinking) {
-                if (!com.oilquiz.app.ai.model.OnlineModelManager.isThinkingModelName(modelName)) {
-                    AILogger.w(TAG, "Deep thinking skipped: model does not support thinking param: "
-                            + modelName + " (treated as normal mode)");
-                } else {
-                    try {
-                        String paramName = com.oilquiz.app.ai.model.OnlineModelManager
-                                .getThinkingParamName(modelName);
-                        if ("reasoning_effort".equals(paramName)) {
-                            requestBody.addProperty("reasoning_effort", "high");
-                            AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
-                        } else {
-                            requestBody.addProperty("enable_thinking", true);
-                            JsonObject chatTemplateKwargs = new JsonObject();
-                            chatTemplateKwargs.addProperty("enable_thinking", true);
-                            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
-                            AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true)");
-                        }
-                    } catch (Exception ignored) {}
-                }
+            // 重要：仅在用户/引擎主动开启深度思考时才传 enable_thinking=true；
+            // 关闭时不强制传 false（不阻拦模型自身行为，如 DeepSeek-R1 在复杂任务下自行思考）。
+            boolean thinkingSupported = com.oilquiz.app.ai.model.OnlineModelManager
+                    .isThinkingModelName(modelName);
+            if (thinkingSupported && enableThinking) {
+                try {
+                    String paramName = com.oilquiz.app.ai.model.OnlineModelManager
+                            .getThinkingParamName(modelName);
+                    if ("reasoning_effort".equals(paramName)) {
+                        requestBody.addProperty("reasoning_effort", "high");
+                        AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
+                    } else {
+                        requestBody.addProperty("enable_thinking", true);
+                        JsonObject chatTemplateKwargs = new JsonObject();
+                        chatTemplateKwargs.addProperty("enable_thinking", true);
+                        requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+                        AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true for " + modelName + ")");
+                    }
+                } catch (Exception ignored) {}
+            } else {
+                AILogger.d(TAG, "Thinking param not sent for model " + modelName
+                        + " (supported=" + thinkingSupported + ", enabled=" + enableThinking + ")");
             }
             // 请求流式 usage（缓存命中统计等）：OpenAI/DeepSeek 标准 stream_options.include_usage
             try {
@@ -2247,6 +2261,14 @@ public class OnlineInferenceService {
         // 构建 final 结果
         String fullContent = contentBuf.toString();
         String reasoningContent = reasoningBuf.toString();
+        // 深度思考模型（DeepSeek-R1/Qwen3 等）可能只返回 reasoning_content 而无 content：
+        // content 为空时回退使用 reasoning_content，避免"未返回 response"空白回复
+        if ((fullContent == null || fullContent.trim().isEmpty())
+                && reasoningContent != null && !reasoningContent.trim().isEmpty()) {
+            AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningContent.length() + ")");
+            fullContent = reasoningContent;
+            reasoningContent = "";
+        }
         // 清理模型输出中的乱码/非法字符
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(fullContent);
         if (cleaned != null) {

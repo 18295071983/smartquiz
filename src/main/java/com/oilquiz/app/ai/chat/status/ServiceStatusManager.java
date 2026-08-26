@@ -30,7 +30,6 @@ public class ServiceStatusManager {
         void onAddErrorMessage(String title, String detail, boolean withRetry);
         void onShowToast(String message);
         void onShouldUseOnlineModel();
-        void onUpdateModelNameDisplay();
         void onHideLoading();
     }
 
@@ -299,7 +298,6 @@ public class ServiceStatusManager {
             modelName != null ? modelName : "未知", loadTimeMs / 1000.0);
         callback.onAddSystemMessage(successMsg, ChatMessage.SystemMessageType.SUCCESS);
         callback.onShowToast("模型加载成功");
-        callback.onUpdateModelNameDisplay();
         updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, "AI服务已就绪", 100, 0);
     }
 

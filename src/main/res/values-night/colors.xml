@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     
-    <!-- 主色调 - 暗色模式 -->
-    <color name="primary">#818CF8</color>
-    <color name="primary_dark">#6366F1</color>
-    <color name="primary_light">#A5B4FC</color>
-    <color name="primary_container">#3730A3</color>
-    <color name="on_primary">#1E1B4B</color>
-    <color name="on_primary_container">#E0E7FF</color>
+    <!-- 主色调 - 暗色模式（与浅色主题统一为紫色系） -->
+    <color name="primary">#A78BFA</color>
+    <color name="primary_dark">#8B5CF6</color>
+    <color name="primary_light">#C4B5FD</color>
+    <color name="primary_container">#4C1D95</color>
+    <color name="on_primary">#2E1065</color>
+    <color name="on_primary_container">#EDE9FE</color>
     
     <!-- 辅助色调 - 暗色模式 -->
-    <color name="secondary">#A78BFA</color>
-    <color name="secondary_dark">#8B5CF6</color>
-    <color name="secondary_light">#C4B5FD</color>
-    <color name="secondary_container">#5B21B6</color>
-    <color name="on_secondary">#2E1065</color>
-    <color name="on_secondary_container">#EDE9FE</color>
+    <color name="secondary">#22D3EE</color>
+    <color name="secondary_dark">#06B6D4</color>
+    <color name="secondary_light">#67E8F9</color>
+    <color name="secondary_container">#155E75</color>
+    <color name="on_secondary">#083344</color>
+    <color name="on_secondary_container">#CFFAFE</color>
     
     <!-- 第三色调 - 暗色模式 -->
     <color name="tertiary">#FBBF24</color>
@@ -49,26 +49,26 @@
     <color name="on_warning">#451A03</color>
     <color name="on_warning_container">#FEF3C7</color>
     
-    <!-- 中性色 - 暗色模式 -->
-    <color name="surface">#1F2937</color>
-    <color name="surface_dark">#111827</color>
-    <color name="surface_light">#1F2937</color>
-    <color name="surface_variant">#374151</color>
-    <color name="on_surface">#F9FAFB</color>
-    <color name="on_surface_variant">#D1D5DB</color>
+    <!-- 中性色 - 暗色模式（层级：背景最暗 → surface 略亮 → variant 更亮） -->
+    <color name="surface">#1E293B</color>
+    <color name="surface_dark">#0F172A</color>
+    <color name="surface_light">#273549</color>
+    <color name="surface_variant">#334155</color>
+    <color name="on_surface">#F1F5F9</color>
+    <color name="on_surface_variant">#CBD5E1</color>
     
-    <color name="background">#111827</color>
-    <color name="on_background">#F9FAFB</color>
+    <color name="background">#0F172A</color>
+    <color name="on_background">#F1F5F9</color>
     
     <color name="outline">#4B5563</color>
     <color name="outline_variant">#374151</color>
     
     <!-- 文本颜色 - 暗色模式 -->
-    <color name="text_primary">#F9FAFB</color>
-    <color name="text_secondary">#D1D5DB</color>
-    <color name="text_tertiary">#9CA3AF</color>
-    <color name="text_disabled">#6B7280</color>
-    <color name="text_light">#111827</color>
+    <color name="text_primary">#F1F5F9</color>
+    <color name="text_secondary">#CBD5E1</color>
+    <color name="text_tertiary">#94A3B8</color>
+    <color name="text_disabled">#64748B</color>
+    <color name="text_light">#F8FAFC</color>
     
     <!-- 阴影和分割线 - 暗色模式 -->
     <color name="divider">#374151</color>
@@ -90,13 +90,13 @@
     <color name="gradient_end">#F472B6</color>
     
     <!-- 透明度变体 - 暗色模式 -->
-    <color name="primary_alpha_10">#1A818CF8</color>
-    <color name="primary_alpha_20">#33818CF8</color>
-    <color name="primary_alpha_50">#80818CF8</color>
-    <color name="primary_alpha_80">#CC818CF8</color>
+    <color name="primary_alpha_10">#1AA78BFA</color>
+    <color name="primary_alpha_20">#33A78BFA</color>
+    <color name="primary_alpha_50">#80A78BFA</color>
+    <color name="primary_alpha_80">#CCA78BFA</color>
     
-    <color name="surface_alpha_90">#E61F2937</color>
-    <color name="surface_alpha_95">#F21F2937</color>
+    <color name="surface_alpha_90">#E61E293B</color>
+    <color name="surface_alpha_95">#F21E293B</color>
     
     <!-- Material Design 暗色模式 -->
     <color name="purple_50">#1E0033</color>
@@ -200,11 +200,11 @@
     <color name="cyan_700">#ECFEFF</color>
     
     <!-- 应用特定颜色 - 暗色模式 -->
-    <color name="background_color">#111827</color>
-    <color name="background_gray">#1F2937</color>
-    <color name="card_background">#1F2937</color>
-    <color name="text_hint">#6B7280</color>
-    <color name="divider_color">#374151</color>
+    <color name="background_color">#0F172A</color>
+    <color name="background_gray">#1E293B</color>
+    <color name="card_background">#1E293B</color>
+    <color name="text_hint">#64748B</color>
+    <color name="divider_color">#334155</color>
     <color name="success_color">#6EE7B7</color>
     <color name="info_color">#60A5FA</color>
     <color name="error_color">#F87171</color>
@@ -257,12 +257,12 @@
     <color name="log_error">#F87171</color>
 
     <!-- 边框和分割线 - 暗色模式 -->
-    <color name="border">#374151</color>
-    <color name="border_light">#2D3748</color>
+    <color name="border">#334155</color>
+    <color name="border_light">#273549</color>
     <!-- 深度思考开关（夜间）：关闭灰色 / 开启主色 -->
-    <color name="chip_gray_bg">#2D3748</color>
-    <color name="chip_gray_text">#D1D5DB</color>
-    <color name="chip_gray_stroke">#374151</color>
+    <color name="chip_gray_bg">#273549</color>
+    <color name="chip_gray_text">#CBD5E1</color>
+    <color name="chip_gray_stroke">#334155</color>
 
     <!-- Violet系 - 暗色模式 -->
     <color name="violet_200">#4338CA</color>
@@ -274,18 +274,18 @@
     <color name="agent_summary_divider">#374151</color>
 
     <!-- ========== 对话组件色板 - 暗色模式（覆盖 values/colors.xml 同名色，否则组件卡片在深色界面显示浅色底） ========== -->
-    <color name="component_text_primary">#F9FAFB</color>
-    <color name="component_text_secondary">#D1D5DB</color>
-    <color name="component_text_tertiary">#9CA3AF</color>
+    <color name="component_text_primary">#F1F5F9</color>
+    <color name="component_text_secondary">#CBD5E1</color>
+    <color name="component_text_tertiary">#94A3B8</color>
     <color name="component_accent">#A78BFA</color>
-    <color name="component_bg">#1F2937</color>
-    <color name="component_border">#374151</color>
+    <color name="component_bg">#1E293B</color>
+    <color name="component_border">#334155</color>
     <color name="component_success">#6EE7B7</color>
     <color name="component_warning">#FBBF24</color>
     <color name="component_error">#F87171</color>
-    <color name="component_field_bg">#374151</color>
-    <color name="component_rating_empty">#4B5563</color>
-    <color name="component_image_placeholder">#374151</color>
+    <color name="component_field_bg">#334155</color>
+    <color name="component_rating_empty">#475569</color>
+    <color name="component_image_placeholder">#334155</color>
     <color name="component_image_error">#7F1D1D</color>
     <color name="chart_1">#A78BFA</color>
     <color name="chart_2">#22D3EE</color>

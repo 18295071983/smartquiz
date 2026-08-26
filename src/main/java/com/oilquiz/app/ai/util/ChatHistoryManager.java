@@ -200,12 +200,47 @@ public class ChatHistoryManager {
     }
 
     // AI Chat History
-    public void saveAIChatHistory(List<ChatMessage> chatHistory) {
+    /**
+     * 保存前深拷贝消息列表：主线程可能在后台保存线程序列化期间继续修改
+     * 消息的 components/attachments/thinkingSteps/thinkingRounds 等可变集合
+     * （如 appendAgentToolCall 向 msg.components 追加组件），浅拷贝共享引用会导致
+     * Gson 序列化时 ConcurrentModificationException（Crash）。
+     * 返回的列表与调用方完全解耦，可安全序列化。
+     */
+        public static List<ChatMessage> deepCopyForSave(List<ChatMessage> chatHistory) {
+        if (chatHistory == null) return new ArrayList<>();
+        List<ChatMessage> copy = new ArrayList<>(chatHistory.size());
+        for (ChatMessage msg : chatHistory) {
+            if (msg == null) { copy.add(null); continue; }
+            // 基于 clone()（Builder 深拷贝 thinkingSteps/attachments），
+            // 再补上 clone() 未覆盖的可变集合与运行时字段（防并发修改 CME）
+            ChatMessage m = msg.clone();
+            m.components = msg.components != null ? new ArrayList<>(msg.components) : null;
+            m.thinkingRounds = msg.thinkingRounds != null ? new ArrayList<>(msg.thinkingRounds) : null;
+            // Agent 运行时字段（clone() 的 Builder 未覆盖，直接赋值）
+            m.agentToolsExpanded = msg.agentToolsExpanded;
+            m.agentMode = msg.agentMode;
+            m.agentGroupId = msg.agentGroupId;
+            m.isAgentGroupHeader = msg.isAgentGroupHeader;
+            m.agentGroupCollapsed = msg.agentGroupCollapsed;
+            m.agentGroupStepCount = msg.agentGroupStepCount;
+            m.agentGroupToolCount = msg.agentGroupToolCount;
+            m.agentStepStatus = msg.agentStepStatus;
+            m.agentSummary = msg.agentSummary;
+            m.hasUserToggledExpand = msg.hasUserToggledExpand;
+            m.agentExecutionState = msg.agentExecutionState;
+            copy.add(m);
+        }
+        return copy;
+    }
+public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         try {
+            // 深拷贝防并发修改崩溃（主线程可能仍在改 components 等集合）
+            List<ChatMessage> snapshot = deepCopyForSave(chatHistory);
             File file = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE);
             File tempFile = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE + ".tmp");
             FileWriter writer = new FileWriter(tempFile);
-            gson.toJson(chatHistory, writer);
+            gson.toJson(snapshot, writer);
             writer.close();
             // 原子替换：先写临时文件，再重命名
             if (file.exists()) file.delete();
@@ -477,9 +512,11 @@ public class ChatHistoryManager {
     public ConversationSession saveCurrentChatAsSession(List<ChatMessage> chatHistory, String existingSessionId) {
         if (chatHistory == null || chatHistory.isEmpty()) return null;
     
+        // 深拷贝防并发修改崩溃（主线程可能仍在改 components 等集合）
+        List<ChatMessage> safeHistory = deepCopyForSave(chatHistory);
         // 过滤掉系统消息，只保留用户和AI消息
         List<ChatMessage> filtered = new ArrayList<>();
-        for (ChatMessage msg : chatHistory) {
+        for (ChatMessage msg : safeHistory) {
             if (msg.isUserMessage() || msg.isAIMessage()) {
                 filtered.add(msg);
             }

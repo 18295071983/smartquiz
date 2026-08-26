@@ -394,30 +394,6 @@ public class ImportMain {
         });
     }
 
-    /**
-     * 扫描公共 source 目录依次导入（结束时发出 all-done 阶段信号，供 UI 汇总展示）。
-     * 后台线程执行 + 重置取消/批量标志：避免在调用线程（UI）同步阻塞，且上次取消后再次批量不空跑。
-     */
-    public void runAllFromSourceDir(ImportListener listener) {
-        cancelled = false;
-        batchMode = true;
-        executor.execute(() -> {
-            try {
-                File dir = ImportDirs.sourceDir();
-                File[] files = dir.listFiles();
-                if (files == null || files.length == 0) {
-                    emitError(listener, "源目录为空: " + dir.getAbsolutePath()
-                            + "，请先将题库文件放入该目录");
-                    return;
-                }
-                runAllFromSourceFilesInternalInner(java.util.Arrays.asList(files), listener);
-            } finally {
-                // 所有路径（正常/取消/空目录）都必须发 all-done，否则 UI 永远等不到批量收尾
-                emitStage(listener, "all-done", "批量导入结束");
-            }
-        });
-    }
-
     /** 批量导入指定文件列表（支持多文件） */
     public void runAllFromSourceFiles(java.util.List<File> files, ImportListener listener) {
         cancelled = false;
