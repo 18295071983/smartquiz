@@ -3485,7 +3485,41 @@ public class AIService implements ComponentCallbacks2 {
     private long tryCreateChatContextWithFallback(String globalPrompt, String systemPrompt, String normalPrompt, int nThreads) {
         // 首值 0 = 使用模型加载时的完整上下文（native chatCreate 对 ctxSize<=0 取模型 n_ctx，
         // 避免此前 {16384,8192,...} 与模型上下文脱节的误导性尝试）；失败再逐级减半降级。
-        int[] ctxSizes = { 0, 8192, 4096, 2048, 1024 };
+        // 防崩溃加固：低内存设备上 0（=模型完整 n_ctx，如 Qwen3-4B 32768）的 KV 缓存
+        // 峰值可达数 GB（实测 16K≈4.8GB），创建阶段即被系统杀进程，fallback 链根本来不及执行。
+        // 因此按设备总内存钳制首试值：<6GB 先试 4096，<10GB 先试 8192，高内存才用完整 n_ctx。
+        int firstCtx = 0;
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+                am.getMemoryInfo(mi);
+                long totalMemMB = mi.totalMem / (1024L * 1024L);
+                if (totalMemMB > 0 && totalMemMB < 6144) {
+                    firstCtx = 4096;
+                } else if (totalMemMB < 10240) {
+                    firstCtx = 8192;
+                }
+                AILogger.i(TAG, "Device total RAM=" + totalMemMB + "MB, memory-aware first ctxSize=" + firstCtx);
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Memory-aware ctxSize detection failed: " + t.getMessage());
+        }
+        // 按从大到小构造降序候选（去重，且只取 ≤ firstCtx 的值），保证后续降级只减不增
+        int[] ctxSizes;
+        if (firstCtx <= 0) {
+            ctxSizes = new int[]{0, 8192, 4096, 2048, 1024};
+        } else {
+            java.util.LinkedHashSet<Integer> set = new java.util.LinkedHashSet<>();
+            set.add(firstCtx);
+            for (int c : new int[]{8192, 4096, 2048, 1024}) {
+                if (c < firstCtx) set.add(c);
+            }
+            ctxSizes = new int[set.size()];
+            int idx = 0;
+            for (int c : set) ctxSizes[idx++] = c;
+        }
+        AILogger.i(TAG, "Chat context candidate ctxSizes=" + java.util.Arrays.toString(ctxSizes));
 
         for (int ctxSize : ctxSizes) {
             AILogger.i(TAG, "Trying to create chat context with ctxSize=" + ctxSize);

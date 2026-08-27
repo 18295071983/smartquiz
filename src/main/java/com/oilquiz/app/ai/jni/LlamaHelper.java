@@ -573,6 +573,26 @@ public class LlamaHelper {
             return;
         }
 
+        // 最后一扇门：防超 n_ctx assert——prompt 过长时优雅失败，避免 native 崩溃
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = 0;
+            for (int i = 0; i < roles.length; i++) {
+                promptTokens += countTokens(new String(contents[i], StandardCharsets.UTF_8));
+            }
+            if (toolsJson != null && toolsJson.length > 0) {
+                promptTokens += countTokens(new String(toolsJson, StandardCharsets.UTF_8));
+            }
+            if (promptTokens + maxTokens >= safeRef) {
+                AILogger.e(TAG, "[generateWithTools] ❌ Prompt过长: " + promptTokens + "+" + maxTokens
+                        + " >= " + safeRef + "，拒绝生成避免 native 崩溃");
+                if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[generateWithTools] 预算检查失败(放行): " + t.getMessage());
+        }
+
         // 获取推理锁
         long lockStart = System.currentTimeMillis();
         try {
@@ -617,6 +637,22 @@ public class LlamaHelper {
         if (requestJson == null || requestJson.isEmpty()) {
             if (callback != null) callback.onError("Empty request");
             return;
+        }
+
+        // 最后一扇门：防超 n_ctx assert（与 generateStream 一致）——prompt 过长时优雅失败，
+        // 避免 llama.cpp 断言崩溃导致进程退出（Agent 循环/FC 循环都走 chatJson）
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = estimateChatJsonPromptTokens(requestJson);
+            int maxTokens = extractJsonMaxTokens(requestJson);
+            if (promptTokens + maxTokens >= safeRef) {
+                AILogger.e(TAG, "[chatJson] ❌ Prompt过长: " + promptTokens + "+" + maxTokens
+                        + " >= " + safeRef + "，拒绝生成避免 native 崩溃");
+                if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[chatJson] 预算检查失败(放行): " + t.getMessage());
         }
 
         // 获取推理锁（与 generateWithTools 同一把写锁，防止并发推理）
@@ -671,6 +707,22 @@ public class LlamaHelper {
                 callback.onError("Invalid request");
             }
             return;
+        }
+
+        // 最后一扇门：防超 n_ctx assert（与 generateStream-Messages 一致）
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = countTokens(new String(request.getFullPromptUtf8(), StandardCharsets.UTF_8));
+            if (promptTokens + request.getMaxTokens() >= safeRef) {
+                AILogger.w(TAG, "[generateStream-ChatRequest] ❌ Prompt过长: " + promptTokens + "+"
+                        + request.getMaxTokens() + ">=" + safeRef + ", thread=" + threadName);
+                if (callback != null) {
+                    callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                }
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[generateStream-ChatRequest] 预算检查失败(放行): " + t.getMessage());
         }
 
         // 获取推理锁，防止并发推理导致 native 层崩溃
@@ -1474,6 +1526,53 @@ public class LlamaHelper {
             return nativeCountTokens(text);
         } catch (Throwable t) {
             AILogger.e(TAG, "Error counting tokens: " + t.getMessage(), t);
+            return 0;
+        }
+    }
+
+    /**
+     * 从 chatJson 请求 JSON 估算 prompt token 数（供"最后一扇门"守卫使用）：
+     * 统计 messages[].content + assistant.tool_calls 的 arguments + tools 定义。
+     * 解析失败返回 0（守卫层有兜底放行逻辑，不会误伤）。
+     */
+    public static int estimateChatJsonPromptTokens(String requestJson) {
+        if (requestJson == null || requestJson.isEmpty()) return 0;
+        int tokens = 0;
+        try {
+            org.json.JSONObject req = new org.json.JSONObject(requestJson);
+            org.json.JSONArray msgs = req.optJSONArray("messages");
+            if (msgs != null) {
+                for (int i = 0; i < msgs.length(); i++) {
+                    org.json.JSONObject m = msgs.optJSONObject(i);
+                    if (m == null) continue;
+                    String content = m.optString("content", "");
+                    if (!content.isEmpty()) tokens += countTokens(content);
+                    org.json.JSONArray tcs = m.optJSONArray("tool_calls");
+                    if (tcs != null) {
+                        for (int j = 0; j < tcs.length(); j++) {
+                            org.json.JSONObject tc = tcs.optJSONObject(j);
+                            if (tc == null) continue;
+                            org.json.JSONObject fn = tc.optJSONObject("function");
+                            if (fn != null) tokens += countTokens(fn.optString("arguments", ""));
+                        }
+                    }
+                }
+            }
+            org.json.JSONArray tools = req.optJSONArray("tools");
+            if (tools != null && tools.length() > 0) tokens += countTokens(tools.toString());
+        } catch (Throwable t) {
+            AILogger.w(TAG, "estimateChatJsonPromptTokens failed: " + t.getMessage());
+        }
+        return tokens;
+    }
+
+    /** 从 chatJson 请求 JSON 提取 max_tokens（供守卫使用），缺失/非法返回 0 */
+    public static int extractJsonMaxTokens(String requestJson) {
+        if (requestJson == null || requestJson.isEmpty()) return 0;
+        try {
+            int v = new org.json.JSONObject(requestJson).optInt("max_tokens", 0);
+            return v > 0 ? v : 0;
+        } catch (Throwable t) {
             return 0;
         }
     }
