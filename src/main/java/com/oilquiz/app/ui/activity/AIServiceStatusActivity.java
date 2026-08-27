@@ -118,6 +118,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private SwitchMaterial agentSwitch;
     private SwitchMaterial useJsonProtocolSwitch;
     private SwitchMaterial localAgentSwitch;
+    private SwitchMaterial localFcSwitch;
     private AppCompatSpinner tokenSpinner;
 
     @Override
@@ -223,6 +224,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         agentSwitch = findViewById(R.id.agent_switch);
         useJsonProtocolSwitch = findViewById(R.id.use_json_protocol_switch);
         localAgentSwitch = findViewById(R.id.local_agent_switch);
+        localFcSwitch = findViewById(R.id.local_fc_switch);
 
         // 初始化按钮
         MaterialButton btnInitializeModel = findViewById(R.id.btn_initialize_model);
@@ -256,8 +258,17 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         gpuLayersInput = findViewById(R.id.gpu_layers_input);
         btnApplyGpuLayers = findViewById(R.id.btn_apply_gpu_layers);
         if (gpuLayersInput != null) {
-            gpuLayersInput.setText(String.valueOf(LlamaHelper.getGPULayers()));
+            // 默认"自动"：仅当存在手动覆盖（gpu_layers_manual）时才显示具体数值
+            gpuLayersInput.setText(isGpuLayersManual()
+                    ? String.valueOf(LlamaHelper.getGPULayers())
+                    : "自动");
         }
+    }
+
+    /** 是否处于手动 GPU 层数模式（model_state_cache 中存在 gpu_layers_manual 键） */
+    private boolean isGpuLayersManual() {
+        return getSharedPreferences("model_state_cache", MODE_PRIVATE)
+                .contains("gpu_layers_manual");
     }
 
     private void setButtonListeners() {
@@ -329,12 +340,41 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         }
 
         // 本地 Agent 复活开关（spec §3.1.1，实验功能；默认 false）
-        // 已停用：UI 直接禁止打开（置灰不可交互），本地模型固定走普通对话路径
+        // 启用后：本地模型走 AgentSoftwareLayer（意图编排 + 模型自主工具调用）。
+        // 崩溃加固已就位（n_ctx 守卫/内存钳制/GPU 层数修正/OpenCL 后端）。
         if (localAgentSwitch != null) {
-            localAgentSwitch.setChecked(false);
-            localAgentSwitch.setEnabled(false);
-            localAgentSwitch.setAlpha(0.4f);
-            localAgentSwitch.setOnCheckedChangeListener(null);
+            localAgentSwitch.setChecked(aiConfig.isLocalAgentEnabled());
+            localAgentSwitch.setEnabled(true);
+            localAgentSwitch.setAlpha(1.0f);
+            localAgentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                aiConfig.setLocalAgentEnabled(isChecked);
+                // FC 开关随动：本地 Agent 关闭时强制禁用 FC（FC 依赖本地 Agent）
+                if (localFcSwitch != null) {
+                    localFcSwitch.setEnabled(isChecked);
+                    localFcSwitch.setAlpha(isChecked ? 1.0f : 0.4f);
+                    if (!isChecked && localFcSwitch.isChecked()) {
+                        localFcSwitch.setChecked(false);
+                        aiConfig.setFcEnabled(false);
+                    }
+                }
+                Toast.makeText(this, isChecked
+                        ? "本地Agent已启用（重启AI对话后生效）"
+                        : "本地Agent已禁用", Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        // 本地 Agent 工具调用（FC）开关：模型按 Qwen 原生 <tool_call> 自主调用工具。
+        // 依赖 localAgentEnabled 开启；仅当本地 Agent 启用时允许打开。
+        if (localFcSwitch != null) {
+            localFcSwitch.setChecked(aiConfig.isFcEnabled());
+            localFcSwitch.setEnabled(aiConfig.isLocalAgentEnabled());
+            localFcSwitch.setAlpha(aiConfig.isLocalAgentEnabled() ? 1.0f : 0.4f);
+            localFcSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                aiConfig.setFcEnabled(isChecked);
+                Toast.makeText(this, isChecked
+                        ? "本地Agent工具调用已启用（重启AI对话后生效）"
+                        : "本地Agent工具调用已禁用", Toast.LENGTH_SHORT).show();
+            });
         }
 
         if (btnTestAi != null) {
@@ -363,18 +403,34 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     /**
      * 应用 GPU 层数设置并重载模型（GPU 层数仅在 initModel 时生效，改后必须重载）
+     * 输入"自动"/"auto"/空 = 恢复自动计算；输入 0-36 整数 = 手动指定
      */
     private void applyGpuLayersAndReload() {
         if (gpuLayersInput == null) return;
-        final int target;
-        try {
-            target = Integer.parseInt(gpuLayersInput.getText().toString().trim());
-        } catch (Exception e) {
-            Toast.makeText(this, "请输入 0-30 的整数", Toast.LENGTH_SHORT).show();
+        String inputText = gpuLayersInput.getText().toString().trim();
+
+        // 自动模式：删除手动键，恢复按设备/模型/内存自动计算
+        if (inputText.isEmpty() || "自动".equals(inputText) || "auto".equalsIgnoreCase(inputText)) {
+            getSharedPreferences("model_state_cache", MODE_PRIVATE)
+                    .edit().remove("gpu_layers_manual").apply();
+            Toast.makeText(this, "已恢复自动 GPU 层数", Toast.LENGTH_SHORT).show();
+            boolean modelLoaded = LlamaHelper.isModelInitialized();
+            if (modelLoaded && aiService != null) {
+                aiService.reloadModelAsync(null);
+            }
+            refreshStatus();
             return;
         }
-        if (target < 0 || target > 30) {
-            Toast.makeText(this, "GPU 层数范围 0-30（0=纯CPU）", Toast.LENGTH_SHORT).show();
+
+        final int target;
+        try {
+            target = Integer.parseInt(inputText);
+        } catch (Exception e) {
+            Toast.makeText(this, "请输入 0-36 的整数或“自动”", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (target < 0 || target > 36) {
+            Toast.makeText(this, "GPU 层数范围 0-36（0=纯CPU，36=全量GPU）", Toast.LENGTH_SHORT).show();
             return;
         }
         int current = 0;
@@ -618,9 +674,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             } catch (Exception e) {
                 Log.e(TAG, "Error getting GPU layers: " + e.getMessage());
             }
-            // 同步 GPU 层数输入框（重载后显示新值）
+            // 同步 GPU 层数输入框（重载后显示新值；自动模式下保持"自动"）
             if (gpuLayersInput != null) {
-                gpuLayersInput.setText(String.valueOf(gpuLayers));
+                gpuLayersInput.setText(isGpuLayersManual() ? String.valueOf(gpuLayers) : "自动");
             }
             
             if (openclLight != null) {
