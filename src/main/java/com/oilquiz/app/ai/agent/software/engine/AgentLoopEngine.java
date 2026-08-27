@@ -2037,21 +2037,27 @@ public class AgentLoopEngine {
                     putStr(args, "action", "open");
                     putStr(args, "text", slots.get("app"));
                 } else if ("ui_component".equals(tool) || "system_ui_control".equals(tool)) {
-                    // 系统UI组件控制：意图层传 action(对话框/提示条/进度条) + message，
-                    // 映射为 ui_component 的 create + component_type
-                    String action = slots.getOrDefault("action", "show_toast");
+                    // 系统UI组件控制：意图层优先传 component_type（IntentEngine 直接识别
+                    // 对话框/进度/提示/选择/输入/通知/日期/时间/列表），兼容旧 action 映射
                     putStr(args, "action", "create");
-                    String actionLower = action != null ? action.toLowerCase() : "";
-                    if (actionLower.contains("对话框") || actionLower.contains("dialog")
-                            || actionLower.contains("确认") || actionLower.contains("警告")) {
-                        putStr(args, "component_type", "dialog");
-                    } else if (actionLower.contains("进度") || actionLower.contains("progress")) {
-                        putStr(args, "component_type", "progress");
-                    } else {
-                        putStr(args, "component_type", "snackbar"); // 提示条/toast 默认
+                    String ct = slots.get("component_type");
+                    if (ct == null || ct.isEmpty()) {
+                        String action = slots.getOrDefault("action", "show_toast");
+                        String actionLower = action != null ? action.toLowerCase() : "";
+                        if (actionLower.contains("对话框") || actionLower.contains("dialog")
+                                || actionLower.contains("确认") || actionLower.contains("警告")) {
+                            ct = "dialog";
+                        } else if (actionLower.contains("进度") || actionLower.contains("progress")) {
+                            ct = "progress";
+                        } else {
+                            ct = "snackbar"; // 提示条/toast 默认
+                        }
                     }
+                    putStr(args, "component_type", ct);
                     putStr(args, "message", slots.get("message"));
                     putStr(args, "title", slots.get("title"));
+                    // choice/input 等交互组件可选 options
+                    putStr(args, "options", slots.get("options"));
                 } else if ("memory".equals(tool)) {
                     putStr(args, "action", slots.get("action"));
                     putStr(args, "key", slots.get("key"));

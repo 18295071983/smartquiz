@@ -116,6 +116,9 @@ public class IntentEngine {
         new Intent("calculate", "数学计算：表达式求值",
                 Arrays.asList("calculator"), Arrays.asList("expression"), Arrays.asList(),
                 q("expression", "请告诉我要计算的内容，例如：3.5 * 2 + 1"), d()),
+        new Intent("unit_converter", "单位换算：长度/重量/温度/面积/体积/速度单位转换",
+                Arrays.asList("unit_converter"), Arrays.asList(), Arrays.asList("value", "from", "to"),
+                q("from", "请告诉我要换算的内容，如：100公里等于多少英里"), d()),
         new Intent("analyze_data", "数据分析：对数据做统计/分析（action 程序化）",
                 Arrays.asList("python_analyze_data"),
                 Arrays.asList(
@@ -123,6 +126,12 @@ public class IntentEngine {
                 ),
                 Arrays.asList(), Arrays.asList("data"),
                 q("data", "请提供要分析的数据或文件"), d()),
+        new Intent("chart", "数据可视化：用 Python 生成柱状/折线/饼图/散点图",
+                Arrays.asList("python_chart"), Arrays.asList(), Arrays.asList("data", "title"),
+                q("data", "请提供图表数据（如：[3,5,2,8] 或 {系列:数据}）"), d("title", "数据图表")),
+        new Intent("text_tools", "文本处理：JSON 格式化/校验、Base64、URL 编码、正则提取、大小写等",
+                Arrays.asList("text_tools"), Arrays.asList(), Arrays.asList("action", "text"),
+                q("action", "要做什么处理？(json格式化/json校验/base64/正则提取/转大写/转小写等)"), d("action", "json_format")),
 
         // ---- 文件类 ----
         new Intent("read_file", "读取文件：查看文本/配置/表格内容",
@@ -177,9 +186,10 @@ public class IntentEngine {
         new Intent("open_app", "打开应用：启动设备上的应用",
                 Arrays.asList("app_operation"), Arrays.asList("app"), Arrays.asList(),
                 q("app", "您想打开哪个应用？"), d()),
-        new Intent("ui_control", "系统 UI：显示对话框/提示条/进度条",
-                Arrays.asList("ui_component"), Arrays.asList(), Arrays.asList("action", "message"),
-                q("action", "请告诉我操作类型（对话框/提示条/进度条）"), d("action", "show_toast")),
+        new Intent("ui_control", "系统 UI：创建对话框/提示条/进度条/选择/输入/通知/日期/时间/列表等原生组件",
+                Arrays.asList("ui_component"), Arrays.asList(), Arrays.asList("action", "message", "component_type"),
+                q("action", "请告诉我 UI 类型（对话框/提示条/进度条/选择/输入/通知/日期/时间/列表）"),
+                d("action", "show_toast", "message", "这是一条提示")),
         new Intent("permission", "权限管理：查看/请求系统权限",
                 Arrays.asList("permission_manager"), Arrays.asList(), Arrays.asList("permission"),
                 q("permission", "要查看哪个权限（如 位置/录音/存储）？"), d("action", "list_permissions")),
@@ -210,8 +220,12 @@ public class IntentEngine {
             {"research", "调研,研究报告,深度调研,查资料,搜集资料,写报告,调查"},
             {"quiz", "题库,查题,题目,知识点,刷题,搜索题目,考题"},
             {"system_resource", "内存,cpu,电量,存储空间,系统信息,手机信息,运行内存"},
+            {"ui_control", "弹窗,弹个框,弹框,提示条,提示框,进度条,进度显示,通知我,选择一下,选一个,选一下,输入框,输入一下,日期选择,时间选择,下拉选择,列表展示,弹个提示,显示进度,弹对话框,弹窗显示"},
             {"time", "时间,日期,现在几点,时钟,星期几,几号"},
+            {"unit_converter", "单位换算,换算成,换成,是多少,公里等于,英里等于,华氏度,摄氏度,公斤,千克,磅,英尺,英寸,加仑,公顷,亩,毫升,换算"},
             {"calculate", "计算,算一下,算算,数学,求和,平均,统计,等于多少,多少钱一共"},
+            {"chart", "柱状图,折线图,饼图,散点图,数据可视化,画个图,生成图表,图表,画图表,柱形图"},
+            {"text_tools", "json格式化,json校验,校验json,base64,url编码,url解码,正则提取,转大写,转小写,文本处理,编码解码,格式化json"},
             {"analyze_data", "数据分析,统计一下数据,分析数据,处理数据,表格分析"},
             {"read_file", "读文件,读取文件,打开文件,文件内容,查看文件,读一下,看看文件"},
             {"analyze_file", "分析文件,解析文件,文件分析,提取信息,解析"},
@@ -225,7 +239,6 @@ public class IntentEngine {
             {"tool_list", "工具列表,有哪些工具,工具介绍,会什么,可用工具,工具箱,你能做什么"},
             {"model_list", "模型列表,有哪些模型,模型信息,支持什么模型,模型文件,模型上下文"},
             {"open_app", "打开应用,打开app,启动应用,打开微信,打开浏览器,打开设置"},
-            {"ui_control", "对话框,弹窗,toast,提示框,进度条,显示提示,弹个框,弹窗提醒"},
             {"permission", "权限,授权,权限设置,开启权限,权限管理,权限检查"},
             {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我"},
             {"balance", "余额,deepseek余额,账户余额,还有多少钱"},
@@ -293,6 +306,42 @@ public class IntentEngine {
                 if (v != null && !v.trim().isEmpty()) slots.put("expression", v.trim());
                 break;
             }
+            case "unit_converter": {
+                // "100公里等于多少英里" / "36.5摄氏度换成华氏度" → value/from/to
+                java.util.regex.Matcher numM = java.util.regex.Pattern
+                        .compile("(\\d+(?:\\.\\d+)?)").matcher(msg);
+                if (numM.find()) slots.put("value", numM.group(1));
+                int sep = indexOfAny(msg, "等于", "换成", "是多少");
+                if (sep < 0) sep = msg.length();
+                String fromPart = msg.substring(0, sep);
+                String toPart = msg.substring(sep);
+                String from = findUnit(fromPart);
+                String to = findUnit(toPart);
+                if (from != null) slots.put("from", from);
+                if (to != null) slots.put("to", to);
+                break;
+            }
+            case "chart": {
+                String v = stripKeywords(msg, intent.name);
+                if (v != null && !v.trim().isEmpty()) {
+                    slots.put("data", v.trim());
+                    slots.put("title", v.trim());
+                }
+                break;
+            }
+            case "text_tools": {
+                String v = stripKeywords(msg, intent.name);
+                if (v != null && !v.trim().isEmpty()) slots.put("text", v.trim());
+                if (msg.contains("校验") || msg.contains("验证")) slots.put("action", "json_validate");
+                else if (msg.contains("base64") || msg.contains("解码")) slots.put("action", "base64_decode");
+                else if (msg.contains("编码")) slots.put("action", "base64_encode");
+                else if (msg.contains("大写")) slots.put("action", "upper");
+                else if (msg.contains("小写")) slots.put("action", "lower");
+                else if (msg.contains("正则")) slots.put("action", "regex_extract");
+                else if (msg.contains("url")) slots.put("action", "url_decode");
+                else slots.put("action", "json_format");
+                break;
+            }
             case "read_file":
             case "analyze_file": {
                 String v = stripKeywords(msg, intent.name);
@@ -326,16 +375,40 @@ public class IntentEngine {
                 break;
             }
             case "ui_control": {
-                String action = findAction(msg);
-                if (action != null) slots.put("action", action);
+                // component_type 直接识别（对话框/进度/提示/选择/输入/通知/日期/时间/列表），
+                // 不依赖模糊的 action 字符串映射
+                String ct = findComponentType(msg);
+                if (ct != null) slots.put("component_type", ct);
                 String m = stripKeywords(msg, intent.name);
                 if (m != null && !m.trim().isEmpty()) slots.put("message", m.trim());
                 break;
             }
             case "memory": {
-                String v = stripKeywords(msg, intent.name);
-                if (v != null && !v.trim().isEmpty()) slots.put("value", v.trim());
-                if (msg.contains("忘") || msg.contains("删")) slots.put("action", "delete");
+                // "记住我叫小明" → key=user_name, value=小明；"记住我喜欢篮球" → preference
+                if (msg.contains("忘") || msg.contains("删")) {
+                    slots.put("action", "delete");
+                } else {
+                    String afterJiao = extractAfter(msg, "叫");
+                    if (afterJiao != null && !afterJiao.trim().isEmpty()) {
+                        slots.put("action", "save");
+                        slots.put("key", "user_name");
+                        slots.put("value", afterJiao.trim());
+                    } else {
+                        String afterXihuan = extractAfter(msg, "喜欢");
+                        if (afterXihuan != null && !afterXihuan.trim().isEmpty()) {
+                            slots.put("action", "save");
+                            slots.put("key", "preference");
+                            slots.put("value", "喜欢" + afterXihuan.trim());
+                        } else {
+                            String v = stripKeywords(msg, intent.name);
+                            if (v != null && !v.trim().isEmpty()) {
+                                slots.put("action", "save");
+                                slots.put("key", "user_note");
+                                slots.put("value", v.trim());
+                            }
+                        }
+                    }
+                }
                 break;
             }
             case "speech": {
@@ -402,13 +475,57 @@ public class IntentEngine {
         return m.find() ? m.group() : null;
     }
 
-    /** UI 操作类型识别 */
-    private static String findAction(String message) {
+    /** UI 组件类型识别（直接产出 ui_component 的 component_type） */
+    private static String findComponentType(String message) {
         if (message == null) return null;
-        if (message.contains("进度") || message.contains("progress")) return "update_progress";
-        if (message.contains("对话框") || message.contains("弹窗") || message.contains("dialog")) return "show_dialog";
-        if (message.contains("提示") || message.contains("toast")) return "show_toast";
+        if (message.contains("进度")) return "progress";
+        if (message.contains("对话框") || message.contains("弹窗") || message.contains("dialog")) return "dialog";
+        if (message.contains("提示") || message.contains("toast")) return "snackbar";
+        if (message.contains("选择") || message.contains("选一个")) return "choice";
+        if (message.contains("输入") || message.contains("填写")) return "input";
+        if (message.contains("通知")) return "notification";
+        if (message.contains("日期")) return "date";
+        if (message.contains("时间")) return "time";
+        if (message.contains("列表")) return "list";
         return null;
+    }
+
+    /** 单位词 → 工具单位码（长度/重量/温度/面积/体积/速度） */
+    private static final String[][] UNIT_WORDS = {
+            {"公里", "km"}, {"千米", "km"}, {"米", "m"}, {"厘米", "cm"}, {"毫米", "mm"},
+            {"英里", "mile"}, {"英尺", "ft"}, {"英寸", "inch"}, {"码", "yd"},
+            {"公斤", "kg"}, {"千克", "kg"}, {"克", "g"}, {"毫克", "mg"}, {"吨", "t"},
+            {"磅", "lb"}, {"盎司", "oz"},
+            {"华氏", "fahrenheit"}, {"摄氏", "celsius"}, {"开尔文", "kelvin"},
+            {"平方米", "m2"}, {"公顷", "hectare"}, {"亩", "acre"},
+            {"升", "l"}, {"毫升", "ml"}, {"加仑", "gallon"},
+    };
+
+    /** 从文本中找已知单位词（返回工具单位码） */
+    private static String findUnit(String text) {
+        if (text == null) return null;
+        for (String[] u : UNIT_WORDS) {
+            if (text.contains(u[0])) return u[1];
+        }
+        return null;
+    }
+
+    /** 首个出现位置（任一关键词），无则 -1 */
+    private static int indexOfAny(String text, String... needles) {
+        int best = -1;
+        for (String n : needles) {
+            int idx = text.indexOf(n);
+            if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+        }
+        return best;
+    }
+
+    /** 提取关键词之后的剩余文本（用于"我叫小明"→"小明"） */
+    private static String extractAfter(String text, String keyword) {
+        int idx = text.indexOf(keyword);
+        if (idx < 0) return null;
+        String rest = text.substring(idx + keyword.length()).trim();
+        return rest.replaceAll("[，。！？!?\\s]+$", "");
     }
 
     /** 去掉意图关键词后的剩余文本（query/expression/path/prompt 等槽位） */
