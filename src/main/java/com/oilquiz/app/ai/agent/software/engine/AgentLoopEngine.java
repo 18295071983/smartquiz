@@ -226,9 +226,14 @@ public class AgentLoopEngine {
                 AILogger.i(TAG, "FC mode: injecting full tool pool (" + allTools.size() + " tools)");
             }
         }
-        // tool_registry（工具检索）始终注入，作为超预算工具/意图外工具的发现入口
-        if (!selectedTools.contains("tool_registry")) {
-            selectedTools.add(0, "tool_registry");
+        // 检索型工具始终注入（逃生口）：
+        // - tool_registry：工具发现（list/search/get），超预算工具/意图外工具的入口
+        // - control_lookup：低频 UI 控件参数查询（视频/图表/二维码等），
+        //   系统提示词只列高频控件，建 UI 时需按关键词查精确参数字段
+        for (String metaTool : new String[]{"tool_registry", "control_lookup"}) {
+            if (!selectedTools.contains(metaTool)) {
+                selectedTools.add(0, metaTool);
+            }
         }
         String toolsJson = buildToolsJson(selectedTools);
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
@@ -1205,6 +1210,7 @@ public class AgentLoopEngine {
         sb.append("4. 收到工具结果后，基于结果继续推理；所有必要信息齐备后，直接给出最终回答，不再输出 tool_call。\n");
         sb.append("5. 如果无需调用工具即可回答，直接回答用户即可，严禁输出 tool_call 标签。\n");
         sb.append("6. 需要的工具不在上方列表中时，先调用 tool_registry 工具（list 列出全部工具 / search 按关键词检索 / get 获取单个工具的参数），找到后再调用对应工具。\n");
+        sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
         return sb.toString();
     }
 
@@ -1327,9 +1333,11 @@ public class AgentLoopEngine {
                 // schema token 预算守卫：超出则停止追加更多工具
                 int addTokens = countTokensSafe(tool.toString());
                 if (schemaTokens + addTokens > MAX_SCHEMA_TOKENS && tools.length() > 0) {
-                    // tool_registry 例外：它是"工具检索逃生口"（list/search/get），
-                    // 全池注入被预算裁剪掉其他工具后，模型仍可借它按需发现剩余工具
-                    if (!"tool_registry".equals(def.getName())) {
+                    // 检索型工具豁免：tool_registry（工具发现）与 control_lookup
+                    // （低频 UI 控件参数）是全池注入被裁剪后模型按需检索的逃生口，
+                    // 被裁掉就失去了发现剩余工具/控件参数的能力
+                    String n = def.getName();
+                    if (!"tool_registry".equals(n) && !"control_lookup".equals(n)) {
                         AILogger.w(TAG, "Schema token budget reached, dropping tool: " + name);
                         continue;
                     }
