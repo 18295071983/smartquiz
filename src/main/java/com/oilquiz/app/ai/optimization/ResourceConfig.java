@@ -261,11 +261,14 @@ public class ResourceConfig {
         AILogger.i(TAG, "Memory calculation:");
         AILogger.i(TAG, "  usableGpuMemoryMB=" + usableGpuMemoryMB + "MB (60% of total)");
 
-        // 考虑单次分配限制
-        if (maxMemAllocSizeMB > 0 && usableGpuMemoryMB > maxMemAllocSizeMB) {
-            usableGpuMemoryMB = maxMemAllocSizeMB;
-            AILogger.i(TAG, "  Limited by maxMemAllocSize to " + maxMemAllocSizeMB + "MB");
-        }
+        // 不再用 maxMemAllocSize 钳制可用预算：llama.cpp ggml-alloc 按
+        // CL_DEVICE_MAX_MEM_ALLOC_SIZE（buffer_type get_max_size）自动把大 tensor
+        // 拆成多个 OpenCL buffer，单次分配上限不构成总卸载量的硬约束。
+        // 之前用 maxAlloc 硬卡导致 4B 模型只能卸载 23/36 层，剩余 13 层在 CPU
+        // 上成为每 token 瓶颈（实测 CPU 374%、8-11 tok/s）。
+        // 安全兜底仍保留：AIService 加载时按系统可用内存降级（10/15/20 层），
+        // 模型加载失败自动切 CPU。手机 GPU 为共享内存架构，全量 offload 不增加
+        // 内存总量（权重本就常驻），反而释放 CPU 给 UI。
 
         int gpuLayers;
 
