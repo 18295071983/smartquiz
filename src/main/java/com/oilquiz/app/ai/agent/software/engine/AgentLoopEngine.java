@@ -1217,6 +1217,24 @@ public class AgentLoopEngine {
         sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
         sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，调用 ui_component 创建原生组件（action=create，component_type 支持 dialog/snackbar/progress/choice/multi_choice/input/date/time/list/notification 等）；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
         sb.append("9. 涉及当前时间/日期/星期的问题，先调用 time_date 或 dynamic_clock 工具获取；涉及当前位置/附近的问题，先调用 location 工具获取。禁止编造时间、日期或位置。\n");
+        sb.append("10. 生成图片/图表（python_chart/image_gen 等）后，必须调用 ui_component（action=create，component_type=image，default_value=返回的图片文件路径或 URL）展示给用户，不能只返回路径文字。\n");
+        sb.append("\n");
+        sb.append("【长期记忆】\n");
+        sb.append("你拥有跨会话记忆能力（memory 工具），可记住用户信息并在后续对话中运用：\n");
+        sb.append("- 保存：用户明确要求记住、或主动告知个人信息/偏好（如名字、地址、喜好、习惯）时，调用 memory save（key 用英文短词如 user_name/preference_city，value 为内容）；不要擅自把普通聊天内容存为记忆。\n");
+        sb.append("- 读取：需要回忆用户历史信息时调用 memory recall 或 memory list。\n");
+        sb.append("- 删除：用户要求忘记某条记忆时调用 memory delete。\n");
+        if (appContext != null) {
+            try {
+                String memorySummary = com.oilquiz.app.ai.agent.online.AgentMemoryStore
+                        .getInstance(appContext).buildMemorySummary();
+                if (memorySummary != null && !memorySummary.isEmpty()) {
+                    sb.append("【已保存的记忆（回答时可自然运用）】\n").append(memorySummary).append("\n");
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Memory summary injection failed: " + t.getMessage());
+            }
+        }
         return sb.toString();
     }
 
