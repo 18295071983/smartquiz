@@ -74,8 +74,10 @@ public class AgentLoopEngine {
     private static final int ITER_MAX_TOKENS = 500;
     /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
     private static final int MAX_TOOLS_PER_RUN = 5;
-    /** 工具 schema 的 token 预算（无 ui_component 后 2500 足够覆盖常驻+命中工具） */
-    private static final int MAX_SCHEMA_TOKENS = 2500;
+    /** 工具 schema 的 token 预算：1500 ≈ 20-25 个工具定义。
+     *  关键词命中工具优先注入，超预算的长尾工具经 tool_registry（list/search/get）
+     *  按需检索，为多轮对话历史留出更多上下文空间 */
+    private static final int MAX_SCHEMA_TOKENS = 1500;
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
@@ -217,13 +219,18 @@ public class AgentLoopEngine {
         // 智能工具选择：只注入与本次问题相关的工具，不再全量加载（旧版全量注入会塞满上下文导致 decode 崩溃）
         List<String> selectedTools = selectRelevantTools(userMessage);
         if (aiConfig != null && aiConfig.isFcEnabled()) {
-            // FC 模式：模型自主选择工具 → 注入全工具池（buildToolsJson 按
-            // MAX_SCHEMA_TOKENS=2500 裁剪，超预算自动丢弃；n_ctx 守卫兜底防 decode 崩溃）。
-            // 被裁剪的工具仍可经 tool_registry（list/search/get）按需检索。
+            // FC 模式：关键词命中工具优先注入（最相关，预算内必保），
+            // 其余全池按注册序补齐；超 MAX_SCHEMA_TOKENS=1500 的长尾工具
+            // 被 buildToolsJson 裁剪，模型可经 tool_registry（list/search/get）检索。
+            // 给多轮历史留出上下文，同时保证核心工具单跳可用。
             List<String> allTools = toolManager.getRegisteredToolNames();
-            if (allTools.size() > selectedTools.size()) {
-                selectedTools = allTools;
-                AILogger.i(TAG, "FC mode: injecting full tool pool (" + allTools.size() + " tools)");
+            List<String> expanded = new ArrayList<>(selectedTools);
+            for (String t : allTools) {
+                if (!expanded.contains(t)) expanded.add(t);
+            }
+            if (expanded.size() > selectedTools.size()) {
+                selectedTools = expanded;
+                AILogger.i(TAG, "FC mode: keyword tools first + pool tail (" + expanded.size() + " tools)");
             }
         }
         // 检索型工具始终注入（逃生口）：
