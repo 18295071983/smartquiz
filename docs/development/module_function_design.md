@@ -1,6 +1,6 @@
 # 答题宝 (SmartQuiz) — 模块功能设计文档
 
-**版本: 2.1 | 更新日期: 2026-07-18**
+**版本: 2.2 | 更新日期: 2026-08-28**
 
 ---
 
@@ -246,25 +246,31 @@
 
 ### 3.1 Agent 智能体系统
 
+> v2.2 修订：引擎列表为 v2.1 规划概念。当前实际架构为**本地/在线混合双引擎**：
+> - **本地 Agent**（`ai/agent/function/`）：原生 Function Calling 单循环架构（2026-08-05 重构，135980b）
+> - **在线 Agent**（`ai/agent/online/`）：OnlineAgentEngine + 工具链/记忆（AgentMemoryStore）/思考链（OnlineThinkingChain）/工作区（AgentWorkspace），OpenAI Tool Calling 协议，在线不可用可本地降级
+> - 行为策略（2026-08-21 调优）：信任模型自主决策，迭代上限仅作安全兜底（接管 100/辅助 50）；信息不足时用 choice/input 主动问询用户
+> - 推理协议：本地推理统一 JSON 协议 v1.11（chatJson/generateStreamIncremental，is_partial 增量解析）
+
 | 特性 | 说明 |
 |------|------|
-| 多引擎架构 | 支持模块化引擎注册，按任务类型自动路由 |
+| 双引擎架构 | 本地 Function Calling / 在线 Tool Calling 按模型可用性路由 |
 | 任务分解 | 复杂任务自动拆分为子任务，并行或串行执行 |
-| 上下文管理 | 会话上下文保持，支持多轮对话记忆 |
+| 上下文管理 | 会话上下文保持 + 上下文窗口动态推断（GET /models）+ 动态压缩阈值（contextWindow×60%） |
 | 引擎调度 | 按任务优先级和引擎负载动态调度 |
 | 状态追踪 | 任务执行状态实时追踪与反馈 |
-| 错误恢复 | 子任务失败自动重试或降级处理 |
+| 错误恢复 | 子任务失败自动重试或降级处理（在线→本地降级） |
 
-**引擎列表：**
+**引擎列表（v2.1 规划概念，功能对应关系）：**
 
-| 引擎名称 | 用途 |
-|----------|------|
-| DeepThinkingEngine | 深度推理分析，复杂题目解答 |
-| CreativeWritingEngine | 创意写作，题目创意生成 |
-| IntentRecognitionEngine | 用户意图智能识别与路由 |
-| QuestionAnalysisEngine | 题目解析、知识点提取 |
-| KnowledgeRetrievalEngine | 知识库检索增强（RAG） |
-| CodeInterpreterEngine | 代码执行与解释 |
+| 引擎名称 | 用途 | 当前对应实现 |
+|----------|------|------------|
+| DeepThinkingEngine | 深度推理分析，复杂题目解答 | ai/agent/software/ ThinkingChainEngine + OnlineThinkingChain |
+| CreativeWritingEngine | 创意写作，题目创意生成 | ai/feature/ 题目生成 |
+| IntentRecognitionEngine | 用户意图智能识别与路由 | ai/intent/ + ServiceRouter |
+| QuestionAnalysisEngine | 题目解析、知识点提取 | ai/feature/ QuestionAnalyzer |
+| KnowledgeRetrievalEngine | 知识库检索增强（RAG） | DatabaseTool + SmartResearchTool |
+| CodeInterpreterEngine | 代码执行与解释 | ai/python/ PythonToolManager（Chaquopy） |
 
 ### 3.2 AI Chat 对话
 
@@ -312,69 +318,33 @@
 
 ### 3.6 工具系统（Tool System）
 
-> 共 27 个工具，分类如下：
+> 实际实现：`ai/tool/` 目录共 **58 个工具类**，由 `AIToolManager` 统一注册调度，OpenAI Tool Calling 协议与本地 Function Calling 共用同一工具面。v2.1 文档中的工具名（FileWriter/WebSearch 等）为早期规划，以下为实际类名：
 
-**文件工具（5 个）：**
-
-| 工具 | 功能 |
+| 类别 | 工具（实际类名） |
 |------|------|
-| FileReader | 读取本地文件内容（txt/md/json/csv 等） |
-| FileWriter | 写入内容到本地文件 |
-| FileLister | 列出目录文件结构 |
-| FileSearcher | 在文件中搜索内容 |
-| FileConverter | 文件格式转换（如 MD→PDF） |
+| **文件** | FileReaderTool, FileAnalyzerTool, FileGeneratorTool, AIFileExporter, AIFileParser, ExcelTool, WorkspaceTool |
+| **数据库** | DatabaseTool（题目/错题/笔记增删改查） |
+| **网络** | NetworkSearchTool（Metaso 联网搜索）, SmartResearchTool, WebPageReaderTool |
+| **系统** | AppOperationTool, AppToolkitAITool, SystemResourceTool, SystemConnectTool, TimeDateTool, CalculatorTool, PermissionManagerTool, GetModelsProfileTool, UpdateModelsProfileTool |
+| **UI 组件** | SystemUIComponentTool, UIComponentPluginTool/PluginManager/TypeRegistry, LayoutEditorTool（动态布局画布）, ControlLookupTool, FloatingWindowController, VideoToPlayerTool |
+| **多模态** | OCRRecognizeTool, ImageGenTool, DashscopeMediaTool, SpeechSynthesisTool, VoiceInputTool |
+| **动态插件** | DynamicAITool, DynamicToolManagerTool, DynamicToolExecutor, ToolRegistryTool |
+| **其他** | LocationTool, MemoryTool（Agent 记忆）, ToolDependencyChecker, AIWeatherManager, AIEntertainmentManager |
 
-**网络工具（6 个）：**
+### 3.6.1 动态布局画布（v2.2 新增，2026-08-26~28）
 
-| 工具 | 功能 |
-|------|------|
-| WebSearch | 联网搜索，获取实时信息 |
-| WebFetch | 获取网页内容并提取正文 |
-| URLValidator | URL 有效性验证 |
-| Downloader | 文件下载管理 |
-| APIRequester | HTTP API 请求工具 |
-| RSSReader | RSS 订阅源读取 |
+AI 通过工具直接编排原生 UI：
 
-**数据库工具（4 个）：**
+- `LayoutEditorTool`：layout_canvas 增删改查（JSON 容错 + add 参数兼容）
+- `LayoutCanvasManager`（chat/component）+ `NativeLayoutRenderer`（python）：渲染管线
+- `ControlLookupTool`：查询现有控件树，供 AI 引用已有控件
+- 控件树支持嵌套注册类型、现场定义、use 模板；连续输入场景以 rounds 多轮表单呈现
 
-| 工具 | 功能 |
-|------|------|
-| QuizQuery | 题库查询，支持复杂条件 |
-| QuizStats | 题库统计信息获取 |
-| StudyLog | 学习记录查询与分析 |
-| NoteQuery | 笔记内容检索 |
+详见 [AI_COMPONENT_LAYOUT_DESIGN.md](AI_COMPONENT_LAYOUT_DESIGN.md)。
 
-**位置工具（3 个）：**
+### 3.6.2 语音能力（v2.2 新增，2026-08-12）
 
-| 工具 | 功能 |
-|------|------|
-| CurrentLocation | 获取当前 GPS 位置 |
-| Geocoding | 地理编码（地址→坐标/坐标→地址） |
-| NearbySearch | 周边搜索（学校、图书馆等） |
-
-**天气工具（2 个）：**
-
-| 工具 | 功能 |
-|------|------|
-| CurrentWeather | 获取当前天气 |
-| WeatherForecast | 获取未来天气预报 |
-
-**翻译工具（2 个）：**
-
-| 工具 | 功能 |
-|------|------|
-| TextTranslate | 文本翻译，支持 100+ 语言 |
-| DocumentTranslate | 文档翻译，保留格式 |
-
-**其他工具（5 个）：**
-
-| 工具 | 功能 |
-|------|------|
-| Calculator | 数学计算器，支持复杂表达式 |
-| DateTimeTool | 日期时间查询与计算 |
-| UnitConverter | 单位换算工具 |
-| ImageAnalyzer | 图片内容分析（含 OCR） |
-| TextSummarizer | 文本摘要生成 |
+`SpeechManager` 门面 + `TtsEngine` 策略（OpenAI 兼容 /audio/speech、DashScope 原生、系统 TTS 兜底）；在线 ASR 走 OpenAI 兼容 /audio/transcriptions。对 Agent 暴露 SpeechSynthesisTool / VoiceInputTool。
 
 ### 3.7 技能系统（Skill System）
 
@@ -392,8 +362,8 @@
 
 | 特性 | 说明 |
 |------|------|
-| OpenCL 加速 | 利用 GPU 通用计算加速矩阵运算，支持主流 Adreno/Mali GPU |
-| Vulkan 加速 | 基于 Vulkan Compute Shader 的推理加速 |
+| Vulkan 加速 | **唯一 GPU 后端**（GGML_VULKAN=ON，OpenCL 已于 v2.1 构建中关闭） |
+| GpuAdaptiveTuner | 设备 GPU 能力检测与自适应调优（GpuInfo/GpuDatabase/GpuProfile/BenchmarkResult） |
 | 算子优化 | 常用算子（Conv、MatMul、Attention）的 GPU 实现 |
 | 自动回退 | GPU 不可用时自动回退到 CPU（ARM Neon 优化） |
 | 功耗管理 | 智能调度，平衡性能与功耗 |

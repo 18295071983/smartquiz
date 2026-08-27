@@ -1,15 +1,16 @@
 # 答题宝 (SmartQuiz) 系统架构设计
 
-> 版本: 2.3 | 更新日期: 2026-08-10 | 对应代码版本: v2.3
+> 版本: 2.4 | 更新日期: 2026-08-28 | 对应代码版本: v2.0（versionName，DB v24）
 
 ## 一、项目概述
 
-答题宝是一款基于 Android 的智能学习平台，集成了**本地大语言模型推理引擎**、**Agent 智能代理系统**、**多格式文件处理**和**WebView 混合界面**。
+答题宝是一款基于 Android 的智能学习平台，集成了**本地大语言模型推理引擎**、**本地/在线混合 Agent 智能代理系统**、**多模态输入（OCR/语音/图片）**、**多格式文件处理**和**WebView 混合界面**。
 
-- **包名**: `com.oilquiz.app`
+- **包名**: `com.oilquiz.app`（versionName 2.0，versionCode 2）
+- **代码规模**: ~720 个 Java 文件，83 个 Activity（app 源码当前**无 .kt 文件**，纯 Java 实现；Compose/Kotlin 依赖为早期预留）
 - **最低 SDK**: API 31 (Android 12)
 - **目标 SDK**: API 34 (Android 14)
-- **构建工具**: Gradle 8.13 + AGP 8.4.0 + JDK 17
+- **构建工具**: Gradle 8.13 + AGP 8.4.0 + JDK 17 + Chaquopy 16.1.0（Python 工具链）
 
 ## 二、总体架构
 
@@ -18,28 +19,28 @@
 │                       UI 层 (Presentation)                    │
 │  ┌──────────────────────┬──────────────────────────────────┐  │
 │  │  Jetpack Compose UI  │  传统 XML Layout + ViewBinding   │  │
-│  │  (Material 3)        │  (60+ Activity)                  │  │
+│  │  (Material 3)        │  (83 Activity)                   │  │
 │  └──────────────────────┴──────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────────┤
 │                    ViewModel 层 (State Management)            │
 │  ┌──────────────────────────────────────────────────────┐     │
-│  │  5个 ViewModel  |  LiveData / StateFlow             │     │
+│  │  13个 ViewModel  |  LiveData / StateFlow             │     │
 │  └──────────────────────────────────────────────────────┘     │
 ├──────────────────────────────────────────────────────────────┤
 │                     Domain 层 (Business Logic)                │
 │  ┌──────────────────┬──────────────────┬──────────────────┐  │
-│  │  Manager (6)     │  Adapter (4)     │  Resource (1)    │  │
+│  │  Manager (12)    │  AI Agent 引擎   │  AI 工具 (58)    │  │
 │  └──────────────────┴──────────────────┴──────────────────┘  │
 ├──────────────────────────────────────────────────────────────┤
 │                       Data 层 (Data Access)                   │
 │  ┌──────────────────┬──────────────────┬──────────────────┐  │
-│  │  Room DB (v20)   │  Retrofit/OkHttp │  DataStore       │  │
+│  │  Room DB (v24)   │  Retrofit/OkHttp │  DataStore       │  │
 │  └──────────────────┴──────────────────┴──────────────────┘  │
 ├──────────────────────────────────────────────────────────────┤
 │                    Native 层 (C++ JNI)                        │
 │  ┌──────────────────────────────────────────────┐             │
 │  │  llama.cpp → llama-bridge.cpp → JNI Bridge   │             │
-│  │  GPU: OpenCL / Vulkan                        │             │
+│  │  GPU: Vulkan（唯一后端，OpenCL 已关闭）        │             │
 │  └──────────────────────────────────────────────┘             │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -47,95 +48,83 @@
 ### 架构特点
 
 - **MVVM 架构**: ViewModel + LiveData 驱动 UI 更新
-- **依赖注入**: Hilt (Dagger) 管理对象创建与生命周期
+- **依赖注入**: Hilt (Dagger 2.48) 管理对象创建与生命周期
 - **混合 UI**: Compose (Material 3) + 传统 XML Layout
 - **Repository 模式**: 数据访问通过 DAO 层直接访问
-- **JNI 桥接**: C++ AI 推理引擎通过 JNI 与 Java 层通信
+- **JNI 桥接**: C++ AI 推理引擎通过 JNI 与 Java 层通信（统一 JSON 协议 v1.11）
+- **本地/在线混合**: Agent 引擎按模型可用性路由本地 Function Calling 或在线 OpenAI 兼容协议，在线不可用可本地降级
+- **Python 工具链**: Chaquopy 内嵌 Python（pandas/numpy/bs4/jieba 等），供 AI 工具动态调用与原生布局渲染
 
 ## 三、模块划分
 
 ```
 com.oilquiz.app/
 ├── ai/                 # AI 智能模块（核心）
-│   ├── agent/          # Agent 引擎 (20+ files)
-│   │   ├── function/   # 函数定义
+│   ├── agent/          # Agent 引擎
+│   │   ├── function/   # 本地原生 Function Calling 单循环架构
+│   │   ├── online/     # 在线 Agent（OnlineAgentEngine/ToolManager/PromptBuilder/
+│   │   │               #   AgentWorkspace/AgentMemoryStore/ThinkingChain 等）
 │   │   ├── software/   # 软件层（engine/model/recognizer/result）
+│   │   └── ui/         # Agent UI 呈现
+│   ├── bridge/         # 本地推理 JNI 桥接
 │   ├── callback/       # 回调处理 (2 files)
-│   ├── chat/           # 聊天与对话管理 (30+ files)
-│   │   ├── coordination/ # 协调器
-│   │   ├── event/      # 事件系统
-│   │   ├── history/    # 历史管理
-│   │   ├── input/      # 输入处理
-│   │   ├── lifecycle/  # 生命周期
-│   │   ├── live/       # 实时数据
-│   │   ├── mode/       # 模式处理
-│   │   ├── parser/     # 解析器
-│   │   ├── processor/  # 处理器
-│   │   ├── recovery/   # 恢复机制
-│   │   ├── render/     # 渲染器
-│   │   ├── status/     # 状态管理
-│   │   ├── streaming/  # 流式处理
-│   │   ├── ui/         # UI 辅助
-│   │   └── viewmodel/  # ViewModel
-│   ├── config/         # 配置验证 (4 files)
-│   ├── db/             # 聊天数据库 (2 files)
-│   ├── engine/         # 推理引擎 (2 files)
-│   ├── feature/        # AI 功能 (4 files)
+│   ├── chat/           # 聊天与对话管理 (20+ 子包)
+│   │   ├── cache/ component/ coordination/ event/ history/ input/
+│   │   ├── lifecycle/ live/ mode/ parser/ processor/ recovery/
+│   │   ├── render/ status/ streaming/ ui/ viewmodel/
+│   │   └── weather/    # 天气联动（横幅/实时刷新 observer）
+│   ├── config/         # 配置验证
+│   ├── db/             # 聊天数据库
+│   ├── engine/         # 推理引擎
+│   ├── export/         # AI 导出
+│   ├── feature/        # AI 功能（题目生成/解析/翻译等）
 │   ├── gpu/            # GPU 加速 (12 files)
-│   ├── inference/      # 推理队列 (2 files)
-│   ├── intent/         # 意图识别 (1 file)
-│   ├── jni/            # JNI 桥接 (3 files)
+│   ├── importing/      # AI 导入流水线（v4 混合）
+│   ├── inference/      # 推理队列
+│   ├── intent/         # 意图识别
+│   ├── jni/            # JNI 桥接
 │   ├── model/          # 模型管理 (20+ files)
-│   ├── monitor/        # 性能监控 (1 file)
-│   ├── optimization/   # 优化检测 (1 file)
-│   ├── performance/    # 性能仪表盘 (2 files)
-│   ├── python/         # Python 工具 (6 files)
-│   ├── refactor/       # 推理核心重构 (4 files)
-│   ├── service/        # AI 服务 (9 files)
-│   ├── skill/          # 技能系统 (3 files)
-│   ├── stats/          # 统计管理 (1 file)
-│   ├── tool/           # AI 工具系统 (30+ files)
+│   ├── monitor/        # 性能监控
+│   ├── optimization/   # 优化检测
+│   ├── performance/    # 性能仪表盘
+│   ├── python/         # Python 工具链（PythonToolManager/NativeLayoutRenderer）
+│   ├── refactor/       # 推理核心重构
+│   ├── repair/         # 推理修复
+│   ├── service/        # AI 服务
+│   ├── skill/          # 技能系统
+│   ├── speech/         # 语音（asr/core/tts，SpeechManager 门面 + TTS 引擎策略）
+│   ├── stats/          # 统计管理
+│   ├── tool/           # AI 工具系统 (58 files)
 │   │   ├── annotation/ # 注解定义
-│   └── util/           # AI 工具类 (6 files)
+│   │   └── openai/     # OpenAI Tool Calling 协议适配
+│   ├── usage/          # AI 用法配置与统计
+│   └── util/           # AI 工具类
 │
-├── adapter/            # 适配器层 (5 files)
-├── database/           # Room 数据库层 (11 files)
-├── di/                 # Hilt 依赖注入 (1 file)
-├── infra/              # 基础设施 (6 files)
-├── manager/            # 业务管理器 (10 files)
-├── model/              # 数据模型 (15 files)
-├── repository/         # 数据仓库层 (12 files)
-├── resource/           # 资源管理 (9 files)
-├── toolkit/            # 应用工具集 (1 file)
-├── ui/                 # UI 层 (50+ files)
-│   ├── accessibility/  # 无障碍辅助 (1 file)
-│   ├── activity/       # 活动 (50+ Activity)
-│   ├── adapter/        # 适配器 (15 files)
-│   ├── animation/      # 动画 (1 file)
-│   ├── base/           # 基类 (2 files)
-│   ├── dialog/         # 对话框 (1 file)
-│   ├── export/         # 导出 UI (3 files)
-│   └── widget/         # 自定义组件 (3 files)
-├── util/               # 工具类 (40+ files)
-│   ├── export/         # 导出 (20+ files)
-│   │   ├── format/     # 格式导出器
-│   │   └── template/   # 模板导出 (10+ files)
-│   ├── fileparser/     # 文件解析 (2 files)
-│   ├── preview/        # 文件预览 (20+ files)
-│   ├── quiz/           # 答题工具 (1 file)
-│   └── render/         # 文件渲染 (13 files)
-├── viewmodel/          # ViewModel (12 files)
-├── weather/            # 天气服务 (3 files)
-│   ├── QWeatherSdkManager  # 和风天气SDK管理
-│   ├── WeatherService    # 天气服务（三级回退机制）
-│   └── ...               # 其他天气相关类
-├── webview/            # WebView 组件 (12 files)
-│   ├── js/             # JS 接口 (5 files)
-│   └── security/       # 安全配置 (3 files)
-├── App.java            # 应用入口
-├── MainActivity.java   # 主界面
-├── SmartQuizApplication.java  # Application 类
-└── WebViewActivity.java       # WebView 容器
+├── adapter/            # 适配器层
+├── database/           # Room 数据库层 (v24)
+├── di/                 # Hilt 依赖注入
+├── infra/              # 基础设施
+├── manager/            # 业务管理器 (12 files)
+├── model/              # 数据模型
+├── receiver/           # 广播接收器
+├── repository/         # 数据仓库层
+├── resource/           # 资源管理
+├── toolkit/            # 应用工具集
+├── ui/                 # UI 层
+│   ├── accessibility/  # 无障碍辅助
+│   ├── activity/       # 活动 (83 Activity)
+│   ├── adapter/        # 适配器
+│   ├── agent/ animation/ base/ dialog/ export/ widget/
+├── util/               # 工具类（已分类）
+│   ├── export/         # 导出（含 format/template）
+│   ├── fileparser/     # 文件解析
+│   ├── preview/        # 文件预览
+│   ├── quiz/           # 答题工具
+│   └── render/         # 文件渲染
+├── viewmodel/          # ViewModel (13 files)
+├── weather/            # 天气服务（model/util，QWeather SDK v5.2.2）
+├── webview/            # WebView 组件（js/security）
+└── MyApplication.java  # Application 类
 ```
 
 ## 四、核心子系统
@@ -155,7 +144,7 @@ com.oilquiz.app/
                       ↓
          ┌───────────┼───────────┐
          ↓           ↓           ↓
-     FileTool   DatabaseTool  TranslationTool  ... (27 tools)
+     DatabaseTool  FileReaderTool  LayoutEditorTool  ... (58 tool files)
 ```
 
 ### 4.2 AI 服务层
@@ -205,20 +194,22 @@ VulkanInfo   GpuDatabase
 GpuProfile  BenchmarkResult
 ```
 
-支持 OpenCL 和 Vulkan 两种后端，自动检测设备能力并选择最优方案。
+构建仅启用 **Vulkan 后端**（GGML_VULKAN=ON，OpenCL 已关闭），自动检测设备能力并调优。
 
 ### 4.4 AI 工具系统
 
-共 27 个工具，覆盖：
+共 **58 个工具类**（ai/tool/ 目录），覆盖：
 
-| 类别 | 工具 |
+| 类别 | 工具（示例） |
 |------|------|
-| **文件操作** | FileReaderTool, AIFileExporter, AIFileParser, FileTool |
-| **网络** | Network, WebSearchHelper |
-| **系统** | AppOperationTool, AppToolkitAITool, DatabaseTool |
-| **位置** | LocationTool |
-| **翻译** | TranslationTool, Translator |
-| **天气** | AIWeatherManager, WeatherService |
+| **文件操作** | FileReaderTool, FileAnalyzerTool, FileGeneratorTool, AIFileExporter, AIFileParser, ExcelTool, WorkspaceTool |
+| **数据库** | DatabaseTool（题目/错题/笔记增删改查） |
+| **网络** | NetworkSearchTool（Metaso 联网搜索）, SmartResearchTool, WebPageReaderTool |
+| **系统** | AppOperationTool, AppToolkitAITool, SystemResourceTool, SystemConnectTool, TimeDateTool, CalculatorTool, PermissionManagerTool, GetModelsProfileTool, UpdateModelsProfileTool |
+| **UI 组件** | SystemUIComponentTool（原生 UI 卡片）, UIComponentPluginTool/PluginManager/TypeRegistry（插件化组件）, LayoutEditorTool（动态布局画布）, ControlLookupTool（控件查询）, FloatingWindowController, VideoToPlayerTool |
+| **多模态** | OCRRecognizeTool, ImageGenTool, DashscopeMediaTool, SpeechSynthesisTool, VoiceInputTool |
+| **动态插件** | DynamicAITool, DynamicToolManagerTool, DynamicToolExecutor, ToolRegistryTool |
+| **其他** | LocationTool, MemoryTool（Agent 记忆）, ToolDependencyChecker, AIWeatherManager, AIEntertainmentManager |
 
 ### 4.5 天气服务系统
 
@@ -304,6 +295,41 @@ WebView 与原生通过 JavaScript Bridge 通信，支持：
 | Word | WordExporter |
 | 长图 | 模板导出 (24种模板) |
 
+### 4.9 语音子系统（2026-08-12 落地）
+
+```
+SpeechManager（门面）
+   ├── ASR（在线识别，OpenAI 兼容 /audio/transcriptions）
+   └── TTS（策略）
+        ├── OpenAiTtsEngine（/audio/speech）
+        ├── DashScopeTtsEngine（DashScope 原生）
+        └── SystemTtsEngine（系统 TTS 兜底）
+```
+
+- `ai/speech/core|asr|tts` 三层结构；含 SSL 宽松回退与系统 TTS 并发/回调防护。
+- 对 Agent 暴露 SpeechSynthesisTool / VoiceInputTool。
+
+### 4.10 动态布局画布子系统（2026-08-26 ~ 08-28 落地）
+
+AI 可通过工具直接编排原生 UI：
+
+```
+LLM 工具调用
+   ├── SystemUIComponentTool（原生 UI 组件卡片，插件化注册）
+   ├── LayoutEditorTool（layout_canvas 增删改查，JSON 容错 + add 参数兼容）
+   │        → LayoutCanvasManager（chat/component）→ NativeLayoutRenderer（python）
+   ├── ControlLookupTool（查询现有控件树）
+   └── 控件树增强：嵌套注册类型 / 现场定义 / use 模板；连续输入多轮表单
+```
+
+详见 [AI_COMPONENT_LAYOUT_DESIGN.md](../development/AI_COMPONENT_LAYOUT_DESIGN.md)。
+
+### 4.11 AI 对话渲染管线（2026-08-25 落地）
+
+- 流式渲染 + is_partial 增量解析 + 误判防护
+- Markdown 结构用内置 UI 组件渲染（代码卡/表格卡）+ Prism4j 语法高亮
+- Mermaid 图形化与 KaTeX 数学公式：本地 js（assets/js）+ WebView 渲染
+
 ## 五、数据流
 
 ### 5.1 题目导入流程
@@ -374,12 +400,15 @@ QuizActivity → QuizViewModel
 | 类别 | 技术 |
 |------|------|
 | **UI** | Compose Material 3, XML Layout, ViewBinding, RecyclerView |
-| **架构** | MVVM, Hilt DI |
-| **数据库** | Room 2.5.2 (v20) |
+| **架构** | MVVM, Hilt DI 2.48 |
+| **数据库** | Room 2.5.2 (v24) |
 | **网络** | Retrofit 2.9.0, OkHttp 4.12.0 |
-| **AI** | llama.cpp JNI, TensorFlow Lite 2.14.0, ML Kit 16.0.0 |
+| **AI** | llama.cpp JNI (Vulkan), TensorFlow Lite 2.15.0, ML Kit 16.0.0 |
 | **文件** | Apache POI 5.2.3, iText7 7.2.3, Pdfium 1.9.0 |
 | **图像** | Glide 4.16.0, Coil 2.6.0, Lottie 6.4.0 |
+| **Python** | Chaquopy 16.1.0（pandas/numpy/bs4/jieba/requests） |
+| **富文本渲染** | Prism4j 2.0.0（代码高亮）、本地 Mermaid/KaTeX（assets/js，WebView 渲染） |
+| **天气** | QWeather SDK 5.2.2 |
 | **工具** | Guava 32.1.2, JGit 6.7.0, ZXing 4.3.0, Jsoup 1.17.2 |
 | **安全** | SecurityCrypto, BouncyCastle 1.76 |
 | **测试** | JUnit 4, Mockito 4.8.1, Robolectric 4.10.3 |
