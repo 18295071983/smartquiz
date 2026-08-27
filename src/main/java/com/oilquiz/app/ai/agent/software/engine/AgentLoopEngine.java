@@ -132,6 +132,7 @@ public class AgentLoopEngine {
     private static final String[][] TOOL_ROUTES = {
             {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
             {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
+            {"time_date", "时间,日期,几点,今天几号,星期几,现在几点,当前时间,几月几号"},
             {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
             {"text_tools", "json格式化,json校验,base64,url编码,url解码,正则提取,转大写,转小写,去空白,字数统计,文本处理,编码解码"},
             {"unit_converter", "换算,单位转换,单位换算,厘米,公斤,磅,华氏,摄氏,千米,英里,英寸,英尺,加仑,公顷"},
@@ -1198,13 +1199,9 @@ public class AgentLoopEngine {
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("你是答题宝AI助手，一个可以使用工具完成任务的智能助手。请用中文简洁回答。\n\n");
-
-        // 环境上下文注入（当前时间/位置）
-        try {
-            sb.append(buildEnvironmentContext()).append("\n");
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
-        }
+        // 注意：FC 模式下不注入环境上下文（时间/位置）——模型需要时通过
+        // time_date / dynamic_clock / location 工具自行获取（见规则 9），
+        // 节省 prompt token 且行为与"agent 按需取数"设计一致。
 
         sb.append("\n");
         sb.append("【工具使用规则】\n");
@@ -1219,6 +1216,7 @@ public class AgentLoopEngine {
         sb.append("6. 需要的工具不在上方列表中时，先调用 tool_registry 工具（list 列出全部工具 / search 按关键词检索 / get 获取单个工具的参数），找到后再调用对应工具。\n");
         sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
         sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，调用 ui_component 创建原生组件（action=create，component_type 支持 dialog/snackbar/progress/choice/multi_choice/input/date/time/list/notification 等）；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
+        sb.append("9. 涉及当前时间/日期/星期的问题，先调用 time_date 或 dynamic_clock 工具获取；涉及当前位置/附近的问题，先调用 location 工具获取。禁止编造时间、日期或位置。\n");
         return sb.toString();
     }
 
