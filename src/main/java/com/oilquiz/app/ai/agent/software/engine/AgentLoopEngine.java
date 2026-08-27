@@ -51,9 +51,10 @@ public class AgentLoopEngine {
 
     private static final String TAG = "AgentLoopEngine";
     /** Agent 总轮次上限（与上下文容量联动，128k+ 允许更多轮次） */
-    private static final int MAX_ITERATIONS_BASE = 10;
-    /** 循环保护：实际工具调用轮次上限（防止模型反复调工具不收敛） */
-    private static final int MAX_TOOL_ROUNDS = 4;
+    private static final int MAX_ITERATIONS_BASE = 16;
+    /** 循环保护：实际工具调用轮次上限（两跳检索+多工具链会吃轮次；
+     *  去重/重复检测/时间预算仍是兜底，防小模型反复调工具不收敛） */
+    private static final int MAX_TOOL_ROUNDS = 8;
     /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理） */
     private static final long TOTAL_TIME_BUDGET_MS = 180000;
     /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
@@ -1181,8 +1182,8 @@ public class AgentLoopEngine {
     private int getAgentMaxIterations() {
         try {
             int ctxSize = getEffectiveContextSize();
-            if (ctxSize >= 65536) return 15;
-            if (ctxSize >= 32768) return 12;
+            if (ctxSize >= 65536) return 24;
+            if (ctxSize >= 32768) return 20;
         } catch (Throwable t) {
             AILogger.w(TAG, "getAgentMaxIterations failed: " + t.getMessage());
         }
