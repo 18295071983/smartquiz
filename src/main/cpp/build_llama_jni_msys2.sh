@@ -33,7 +33,18 @@ export PATH="$NDK_DIR/shader-tools/windows-x86_64:$PATH"
 
 # OpenCL: 在Android上使用NDK提供的stub库进行编译时链接
 # 运行时会自动加载设备厂商的驱动（/vendor/lib64/libOpenCL.so）
-OPENCL_ENABLED=0
+# Adreno 首选后端：Qualcomm 专有 OpenCL 驱动 + Adreno 优化 kernel
+# （llama-adreno 实测 Adreno 830: 663 t/s prefill；Qualcomm 工程师持续维护上游 OpenCL 后端）
+OPENCL_ENABLED=1
+# OpenCL kernel 嵌入（GGML_OPENCL_EMBED_KERNELS）需要 Python3；
+# MSYS2 无 python3，使用 Windows 侧 Python（构建机 PATH 中的 python.exe）
+export PATH="/c/Python312:/c/Python314:$PATH"
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+    log_error "Python3 未找到！OpenCL kernel 嵌入（GGML_OPENCL_EMBED_KERNELS）需要 Python3"
+    exit 1
+fi
+log_info "使用 Python: $PYTHON_BIN"
 
 # 检查工具是否存在
 if [ ! -f "$CMAKE" ]; then
@@ -48,12 +59,10 @@ if [ ! -f "$NINJA" ]; then
     exit 1
 fi
 
-# 启用Vulkan（NDK自带Vulkan headers + libvulkan.so 存根 + glslc；
-# 运行时由 Android 系统 Vulkan 加载器提供设备驱动，PC 无需安装 Vulkan SDK）
-VULKAN_ENABLED=1
-log_info "Vulkan已启用（NDK头+存根库+glslc，运行时设备驱动动态加载）"
-
-log_info "OpenCL已禁用"
+# Vulkan 降为备用（Adreno 高级特性驱动 bug 多，仅走 F16 基础路径；OpenCL 为主）
+VULKAN_ENABLED=0
+log_info "OpenCL已启用（Adreno 优化 kernel + 厂商驱动运行时加载）"
+log_info "Vulkan已禁用（备用，Adreno 高级特性驱动不兼容）"
 
 log_info "使用CMake: $CMAKE"
 log_info "使用Ninja: $NINJA"

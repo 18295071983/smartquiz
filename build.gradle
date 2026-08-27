@@ -38,11 +38,11 @@ android {
         
         // 本地库由 Gradle externalNativeBuild（CMake）直接编译：
         // CMake 产物输出到 src/main/jniLibs/<abi>/（见 src/main/cpp/CMakeLists.txt LIBRARY_OUTPUT_DIRECTORY），
-        // AGP 打包时自动 strip。GGML_VULKAN=ON 为唯一 GPU backend（OpenCL 关闭）。
+        // AGP 打包时自动 strip。GGML_OPENCL=ON 为唯一 GPU backend（Adreno 优化 kernel，Vulkan 关闭）。
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=OFF", "-DGGML_VULKAN=ON"
+                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON", "-DGGML_VULKAN=OFF"
             }
         }
         ndk {
