@@ -37,6 +37,14 @@ import java.util.regex.Pattern;
  * 3. 最终回复用 generateStream() 流式输出，UI 通过 onToken 接收
  * 4. 不支持原生 FC 的模型自动降级为 prompt 模式
  *
+ * 路径 A（Qwen 原生格式对齐）：
+ * - FC 循环由 AIConfig.local_fc_enabled 开关控制；开启后"意图未命中"的请求进入本循环，
+ *   由模型自主决定是否调用工具（Qwen 官方 demo 行为一致）
+ * - <tool_call> 解析兼容多形态：单条 / {"tool_calls":[...]} 数组（一轮并行多个工具）/
+ *   arguments 为 JSON 字符串 / parameters 别名 / function.name 等（Qwen-Agent fncall 约定）
+ * - FC 模式 system 提示词带工具使用规则（buildFcSystemPrompt，nous_fncall_prompt 风格）
+ * - 思考链：C++ onReasoning / onJson reasoning 事件优先，回退 <think>/<thought> 标签提取
+ *
  * 线程模型：所有回调在调用线程执行（AgentSoftwareLayer 的单线程 executor）
  */
 public class AgentLoopEngine {
@@ -214,8 +222,11 @@ public class AgentLoopEngine {
         final int promptBudget = computePromptBudget();
         AILogger.i(TAG, "Prompt budget: " + promptBudget + " tokens");
 
+        // FC 模式（local_fc_enabled）：system 提示词带 Qwen 原生工具调用规则（<tool_call> 格式）
+        boolean modelFcMode = aiConfig != null && aiConfig.isFcEnabled();
+
         List<ChatMessage> history = new ArrayList<>();
-        history.add(new ChatMessage("system", buildSystemPrompt()));
+        history.add(new ChatMessage("system", modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt()));
         // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
         // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
         if (priorHistory != null) {
@@ -245,6 +256,10 @@ public class AgentLoopEngine {
                     + outcome.directReply.length());
             finalAnswer = outcome.directReply;
             handled = true;
+        } else if (aiConfig != null && aiConfig.isFcEnabled()) {
+            // ===== 意图未命中 + FC 开关开启 → 交给下方模型自主 FC 循环 =====
+            // handled 保持 false，不在此处理：模型自主决定是否调用工具（Qwen 原生格式）。
+            AILogger.i(TAG, "No intent matched → model FC loop (Qwen native format)");
         } else {
             // ===== 意图未命中 → 转普通对话 =====
             // 模型直接回答（不注入工具、不进入 FC 工具循环），行为与普通聊天一致。
@@ -274,10 +289,10 @@ public class AgentLoopEngine {
                     System.currentTimeMillis() - startTime, toolCallCount, 1);
         }
 
-        // ===== 历史遗留：模型自主 FC 循环 =====
-        // 当前流程永不进入（handled 恒 true）——意图命中走程序化输出，意图未命中转普通对话。
-        // 保留代码以防未来需要恢复模型自主调用工具能力（modelAutonomyEnabled 置 true）。
-        boolean modelAutonomyEnabled = false;
+        // ===== 模型自主 FC 循环（仅 local_fc_enabled 开启时可达）=====
+        // 意图命中 → 程序化输出；意图未命中 + FC 关闭 → 普通对话；仅当两者皆非时进入此处。
+        // 与 Qwen-Agent 对齐：模型按 <tool_call> 原生格式自主发起工具调用（多工具并行/多轮）。
+        boolean modelAutonomyEnabled = aiConfig != null && aiConfig.isFcEnabled();
         if (modelAutonomyEnabled) {
 
         // 循环保护状态：已执行调用去重、工具轮次计数、最近一次有效回复
@@ -355,9 +370,14 @@ public class AgentLoopEngine {
                 callback.onIterationEnd(iteration, response);
             }
 
-            // 提取思考过程（C++ 层通过 onReasoning 回调传递，也检查文本中的标签）
-            if (genResult.reasoning != null && !genResult.reasoning.isEmpty() && callback != null) {
-                callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(genResult.reasoning, 120));
+            // 提取思考过程（C++ 层通过 onReasoning / onJson reasoning 事件传递；
+            // 未走回调时回退从文本 <think>/<thought> 标签提取，reasoning_content 对齐）
+            String reasoning = genResult.reasoning;
+            if (reasoning == null || reasoning.isEmpty()) {
+                reasoning = extractThought(response);
+            }
+            if (reasoning != null && !reasoning.isEmpty() && callback != null) {
+                callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(reasoning, 120));
             }
 
             // 工具调用解析：优先 C++ 层 common_chat_parse（原生 JSON tool_call）；
@@ -505,7 +525,7 @@ public class AgentLoopEngine {
         if (callback != null) callback.onComplete(fb);
         return buildResponse(fb, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
 
-        } // end modelAutonomyEnabled (legacy model FC loop)
+        } // end modelAutonomyEnabled (Qwen-native model FC loop)
         // 理论不可达（前方已全部 return），仅满足编译器
         return buildResponse("", totalTokens, System.currentTimeMillis() - startTime, toolCallCount, 1);
     }
@@ -1092,6 +1112,38 @@ public class AgentLoopEngine {
         return sb.toString();
     }
 
+    /**
+     * FC 模式的 system 提示词：对齐 Qwen-Agent nous_fncall_prompt 约定。
+     * 仅当 local_fc_enabled 开启、模型需要自主调用工具时使用。
+     * 核心：明确工具调用输出格式（<tool_call> JSON 标签，Qwen3 原生格式）、
+     * 支持一轮多个工具调用、工具结果以 tool 消息返回、无需工具时直接回答。
+     * 说明：llama.cpp 的 Qwen chat 模板在注入 tools 后也会附加工具指令，
+     * 此段为模板之外的兜底强化（覆盖模板未覆盖的旧模板/自定义模板场景）。
+     */
+    private String buildFcSystemPrompt() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("你是答题宝AI助手，一个可以使用工具完成任务的智能助手。请用中文简洁回答。\n\n");
+
+        // 环境上下文注入（当前时间/位置）
+        try {
+            sb.append(buildEnvironmentContext()).append("\n");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
+        }
+
+        sb.append("\n");
+        sb.append("【工具使用规则】\n");
+        sb.append("1. 你可以调用下方提供的工具来完成用户请求；工具的执行结果会以 tool 消息返回给你。\n");
+        sb.append("2. 需要调用工具时，必须严格使用以下格式（arguments 为合法的 JSON 对象，参数名与工具定义一致）：\n");
+        sb.append("<tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
+        sb.append("3. 一轮可以输出多个工具调用（并行），每个调用独立成块，例如：\n");
+        sb.append("<tool_call>{\"name\":\"ai_weather\",\"arguments\":{\"city\":\"北京\"}}</tool_call>\n");
+        sb.append("<tool_call>{\"name\":\"calculator\",\"arguments\":{\"expression\":\"127*3\"}}</tool_call>\n");
+        sb.append("4. 收到工具结果后，基于结果继续推理；所有必要信息齐备后，直接给出最终回答，不再输出 tool_call。\n");
+        sb.append("5. 如果无需调用工具即可回答，直接回答用户即可，严禁输出 tool_call 标签。\n");
+        return sb.toString();
+    }
+
     // ==================== 环境上下文注入 ====================
 
     /** 位置缓存有效期（毫秒）：10 分钟内不重复定位 */
@@ -1318,39 +1370,95 @@ public class AgentLoopEngine {
 
     // ==================== 工具调用标签解析 ====================
 
-    /** 模型输出的 <tool_call> 标签（Qwen3-4B 实测输出此格式，common_chat_parse 不识别） */
+    /** 模型输出的 <tool_call> 标签（Qwen3 实测输出此格式，common_chat_parse 不识别） */
     private static final Pattern TOOL_CALL_TAG =
             Pattern.compile("<tool_call>(.*?)</tool_call>", Pattern.DOTALL);
 
     /**
-     * 从回复文本解析 <tool_call> 标签包裹的 JSON 工具调用。
+     * 从回复文本解析 <tool_call> 标签包裹的 JSON 工具调用（Qwen 原生格式，与 Qwen-Agent fncall 约定一致）。
      * 实测 Qwen3-4B 输出：<tool_call>{"name":"ai_weather","arguments":{"city":"北京"}}</tool_call>
+     * 支持一轮多个工具调用（并行）：循环匹配全部标签并展开。
      */
     private List<ToolCall> parseToolCallsTag(String response) {
         List<ToolCall> calls = new ArrayList<>();
         if (response == null) return calls;
         Matcher tagMatcher = TOOL_CALL_TAG.matcher(response);
         while (tagMatcher.find()) {
-            ToolCall tc = parseToolCallJsonFromTag(tagMatcher.group(1).trim());
-            if (tc != null) calls.add(tc);
+            calls.addAll(parseToolCallJson(tagMatcher.group(1).trim()));
         }
         return calls;
     }
 
-    /** 解析标签内 JSON：{"name": "...", "arguments": {...}} */
-    private ToolCall parseToolCallJsonFromTag(String jsonStr) {
+    /**
+     * 解析单个 <tool_call> 标签内 JSON，兼容多种形态：
+     * 1. 单条：{"name":"ai_weather","arguments":{"city":"北京"}}
+     * 2. 数组包裹（一轮并行）：{"tool_calls":[{"name":..,"arguments":{..}}, ...]}，展开为 0..n 条
+     * 3. arguments/parameters/args 三种参数名；arguments 可为 JSON 对象或 JSON 字符串
+     * 4. 工具名别名 name/tool/function.name；可选 id（call_xx，R4-1 需要时由上层补齐）
+     */
+    private List<ToolCall> parseToolCallJson(String jsonStr) {
+        List<ToolCall> calls = new ArrayList<>();
+        if (jsonStr == null || jsonStr.isEmpty()) return calls;
         try {
             JSONObject json = new JSONObject(jsonStr);
-            String name = json.optString("name", json.optString("tool", ""));
-            if (name.isEmpty()) return null;
-            JSONObject args = json.optJSONObject("arguments");
-            if (args == null) args = json.optJSONObject("args");
-            if (args == null) args = new JSONObject();
-            return new ToolCall(name, args);
+            // 数组包裹形态：一轮多个工具调用
+            JSONArray array = json.optJSONArray("tool_calls");
+            if (array != null) {
+                for (int i = 0; i < array.length(); i++) {
+                    JSONObject item = array.optJSONObject(i);
+                    if (item == null) continue;
+                    ToolCall tc = buildToolCallFromJson(item);
+                    if (tc != null) calls.add(tc);
+                }
+                return calls;
+            }
+            ToolCall tc = buildToolCallFromJson(json);
+            if (tc != null) calls.add(tc);
         } catch (Exception e) {
             AILogger.w(TAG, "Parse tool call tag failed: " + truncate(jsonStr, 80));
         }
-        return null;
+        return calls;
+    }
+
+    /** 从单条工具调用 JSON 构建 ToolCall（名称/参数/ID 多别名兼容） */
+    private ToolCall buildToolCallFromJson(JSONObject json) {
+        try {
+            String name = json.optString("name", "");
+            if (name.isEmpty()) name = json.optString("tool", "");
+            if (name.isEmpty()) {
+                JSONObject fn = json.optJSONObject("function");
+                if (fn != null) name = fn.optString("name", "");
+            }
+            if (name.isEmpty()) return null;
+            return new ToolCall(resolveCallId(json), name, resolveArgsObject(json));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 工具调用 id（可能缺失，缺失时上层执行前补齐 R4-1） */
+    private String resolveCallId(JSONObject json) {
+        String id = json.isNull("id") ? null : json.optString("id", null);
+        return (id == null || id.isEmpty()) ? null : id;
+    }
+
+    /** 兼容 arguments(JSON 对象/JSON 字符串) / parameters / args 三种取值 */
+    private JSONObject resolveArgsObject(JSONObject json) {
+        Object args = json.opt("arguments");
+        if (args == null) args = json.opt("parameters");
+        if (args == null) args = json.opt("args");
+        if (args instanceof JSONObject) return (JSONObject) args;
+        if (args instanceof String) {
+            String s = ((String) args).trim();
+            if (!s.isEmpty()) {
+                try {
+                    return new JSONObject(s);
+                } catch (Exception ignored) {
+                    AILogger.w(TAG, "Tool call arguments string not JSON: " + truncate(s, 80));
+                }
+            }
+        }
+        return new JSONObject();
     }
 
     // ==================== 程序化意图编排 ====================

@@ -61,6 +61,7 @@ public class AIConfig {
     private boolean agentEnabled = true; // 启用 Agent 模式
     private boolean useJsonProtocol = true;      // 本地推理 JSON 协议开关（spec §10.2 回退用）
     private boolean localAgentEnabled = false;   // 本地 Agent 复活入口开关（spec §3.1.1，R3-1）
+    private boolean fcEnabled = false;   // 本地 Agent 模型自主 FC 循环开关（Qwen 原生格式对齐，路径 A）
     private OptimizationMode optimizationMode = OptimizationMode.BALANCED;
 
     public AIConfig(Context context) {
@@ -140,6 +141,13 @@ public class AIConfig {
             prefs.edit().remove("local_agent_enabled").putBoolean("local_agent_enabled", false).apply();
             localAgentEnabled = false;
         }
+
+        try {
+            fcEnabled = prefs.getBoolean("local_fc_enabled", false);
+        } catch (ClassCastException e) {
+            prefs.edit().remove("local_fc_enabled").putBoolean("local_fc_enabled", false).apply();
+            fcEnabled = false;
+        }
         
         try {
             optimizationMode = OptimizationMode.fromId(prefs.getInt("optimization_mode", OptimizationMode.BALANCED.id));
@@ -162,6 +170,7 @@ public class AIConfig {
             .putBoolean("agent_enabled", agentEnabled)
             .putBoolean("use_json_protocol", useJsonProtocol)
             .putBoolean("local_agent_enabled", localAgentEnabled)
+            .putBoolean("local_fc_enabled", fcEnabled)
             .putInt("optimization_mode", optimizationMode.id)
             .apply();
     }
@@ -198,6 +207,9 @@ public class AIConfig {
 
     public boolean isLocalAgentEnabled() { return localAgentEnabled; }
     public void setLocalAgentEnabled(boolean localAgentEnabled) { this.localAgentEnabled = localAgentEnabled; saveToPreferences(); }
+
+    public boolean isFcEnabled() { return fcEnabled; }
+    public void setFcEnabled(boolean fcEnabled) { this.fcEnabled = fcEnabled; saveToPreferences(); }
 
     public OptimizationMode getOptimizationMode() { return optimizationMode; }
     public void setOptimizationMode(OptimizationMode mode) { this.optimizationMode = mode; saveToPreferences(); }
