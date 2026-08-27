@@ -50,11 +50,12 @@ import java.util.regex.Pattern;
 public class AgentLoopEngine {
 
     private static final String TAG = "AgentLoopEngine";
-    /** Agent 总轮次上限（与上下文容量联动，128k+ 允许更多轮次） */
-    private static final int MAX_ITERATIONS_BASE = 16;
-    /** 循环保护：实际工具调用轮次上限（两跳检索+多工具链会吃轮次；
-     *  去重/重复检测/时间预算仍是兜底，防小模型反复调工具不收敛） */
-    private static final int MAX_TOOL_ROUNDS = 8;
+    /** Agent 总轮次上限（与上下文容量联动：8K 历史容量≈8-10轮完整保留，
+     *  12 轮为平衡点——再多则旧历史被裁剪、模型"忘前面"，轮次白给） */
+    private static final int MAX_ITERATIONS_BASE = 12;
+    /** 循环保护：实际工具调用轮次上限（两跳检索+多工具链≈6轮够用，
+     *  6 覆盖 95% 任务且防小模型空转；去重/重复检测/时间预算仍兜底） */
+    private static final int MAX_TOOL_ROUNDS = 6;
     /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理） */
     private static final long TOTAL_TIME_BUDGET_MS = 180000;
     /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
