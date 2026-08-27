@@ -1218,6 +1218,7 @@ public class AgentLoopEngine {
         sb.append("5. 如果无需调用工具即可回答，直接回答用户即可，严禁输出 tool_call 标签。\n");
         sb.append("6. 需要的工具不在上方列表中时，先调用 tool_registry 工具（list 列出全部工具 / search 按关键词检索 / get 获取单个工具的参数），找到后再调用对应工具。\n");
         sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
+        sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，调用 ui_component 创建原生组件（action=create，component_type 支持 dialog/snackbar/progress/choice/multi_choice/input/date/time/list/notification 等）；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
         return sb.toString();
     }
 
