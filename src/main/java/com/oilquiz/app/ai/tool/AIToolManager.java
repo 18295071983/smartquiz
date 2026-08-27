@@ -225,6 +225,7 @@ public class AIToolManager {
         registerToolFactory("dashscope_media", DashscopeMediaTool.class, DashscopeMediaTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
         registerToolFactory("ui_component_plugin", UIComponentPluginTool.class, UIComponentPluginTool::new);
+        registerToolFactory("control_lookup", ControlLookupTool.class, ControlLookupTool::new);
         registerToolFactory("layout_editor", LayoutEditorTool.class, LayoutEditorTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
         registerToolFactory("update_models_profile", UpdateModelsProfileTool.class, UpdateModelsProfileTool::new);
@@ -1147,12 +1148,18 @@ public class AIToolManager {
             case "ui_control":
                 // 遗留工具名 → ui_component（系统UI组件控制：对话框/提示条/进度条/输入等）
                 return getToolDefinition("ui_component");
+            case "control_lookup":
+                return ToolDefinition.builder("control_lookup", "控件参数查询：按关键词检索低频 UI 控件的详细参数说明(视频/音频/图表/二维码/日期等)。动作: search(按关键词查控件参数)/list(列出全部低频控件)。当要构建含低频控件的 layout 但不确定字段时调用,避免凭记忆猜字段。高频常用控件(text/button/input/select/table等)已在系统提示词列出,无需查询。")
+                        .addParameter("action", "string", "操作: search(按关键词查)/list(列出全部低频控件)", true)
+                        .addParameter("keyword", "string", "搜索关键词(search用): 控件名或功能,如video/二维码/图表/stepper/marquee", false)
+                        .category("meta")
+                        .build();
             case "layout_editor":
-                return ToolDefinition.builder("layout_editor", "布局画布编辑器：动态编辑常驻布局画布(layout_canvas组件)的控件树。动作: set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。前置: 先用 ui_component(action=create, component_type=layout_canvas) 创建空画布拿到 component_id (可先不传layout)。用法示例: ①add加标题 layout_editor(action=add, component_id=画布id, node={\"type\":\"text\",\"text\":\"标题\",\"bold\":true})；②add加输入框 layout_editor(action=add, component_id=画布id, node={\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"})；③整体替换 layout_editor(action=set, component_id=画布id, layout={\"root\":{\"type\":\"column\",\"children\":[...]}})；④查看 layout_editor(action=get, component_id=画布id)。每次编辑后画布即时刷新,输入控件值自动回填。**推荐逐个add控件而非一次生成超大layout**。")
+                return ToolDefinition.builder("layout_editor", "布局画布编辑器：动态编辑常驻布局画布(layout_canvas组件)的控件树。动作: set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。前置: 先用 ui_component(action=create, component_type=layout_canvas, layout=完整带输入控件的布局, title=标题) 创建画布拿 component_id——**create 时就要带含 input/button 的完整布局，不要只建空画布**；每个 input/select/switch/date/number 必须带 key，button 必须带 action，否则控件无法收集值/不可用。后续编辑用同一 component_id。推荐 set 整树替换: layout_editor(action=set, component_id=画布id, layout={\"root\":{\"type\":\"column\",\"spacing\":12,\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"},{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}})。或用 add 逐个加**单个控件节点**(非容器): add(component_id, node={\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"})。**全程用同一个 component_id，不要反复重建画布**；add 的 node 必须是单个控件，勿传含 children 的容器。")
                         .addParameter("action", "string", "操作: set/add/patch/get/rebuild", true)
-                        .addParameter("component_id", "string", "画布组件ID(layout_canvas创建返回的component_id),必填", true)
-                        .addParameter("layout", "object", "set用: 完整布局JSON(如{\"root\":{\"type\":\"column\",\"children\":[...]}}或单节点{\"type\":\"column\"})；add用也可传单节点", false)
-                        .addParameter("node", "object", "add用: 追加的子节点JSON(如{\"type\":\"text\",\"text\":\"标题\"}或{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入\"})；也兼容layout/item/child参数名", false)
+                        .addParameter("component_id", "string", "画布组件ID(layout_canvas创建返回的component_id),必填,全程保持同一个", true)
+                        .addParameter("layout", "object", "set用: 完整布局JSON(如{\"root\":{\"type\":\"column\",\"children\":[...]}}或单节点{\"type\":\"column\"})；add用也可传单控件", false)
+                        .addParameter("node", "object", "add用: **单个控件节点JSON**(如{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"}或{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}或{\"type\":\"select\",\"options\":[\"A\",\"B\"],\"key\":\"choice\"}); 不要传含children的容器; 也兼容layout/item/child参数名", false)
                         .addParameter("container", "string", "add用: 目标容器路径(如'root'或'root/children/0'),默认'root'", false)
                         .addParameter("index", "integer", "add用: 插入位置(0为开头,省略则追加到末尾)", false)
                         .addParameter("key", "string", "patch用: 节点key(容器/节点带key时用key定位)", false)
