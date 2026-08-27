@@ -185,6 +185,23 @@ public class AgentLoopEngine {
         this.callback = callback;
     }
 
+    /** UI 运行态提示（toast）：本地 Agent 的实验性可见性——工具调用/结果/意图执行等
+     *  关键事件直接弹给用户，无需翻日志。失败静默（无 Context/异常不崩）。 */
+    private void showToast(String msg) {
+        try {
+            if (appContext != null && msg != null && !msg.isEmpty()) {
+                android.widget.Toast.makeText(appContext, msg, android.widget.Toast.LENGTH_SHORT).show();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 工具友好名（TOOL_LABELS 缺省用原名） */
+    private String toolLabel(String toolName) {
+        String label = TOOL_LABELS.get(toolName);
+        return label != null ? label : toolName;
+    }
+
     // ==================== 主循环 ====================
 
     /** 历史对话条目：供多轮上下文传入（role 仅 user/assistant） */
@@ -251,6 +268,9 @@ public class AgentLoopEngine {
         String toolsJson = buildToolsJson(selectedTools);
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Selected tools: " + selectedTools.size() + " tools, schema len: " + toolsJson.length());
+        if (aiConfig != null && aiConfig.isFcEnabled()) {
+            showToast("🤖 本地Agent就绪: " + selectedTools.size() + " 个工具（关键词优先，其余可检索）");
+        }
 
         // 单次推理的 prompt token 预算（结合配置上下文容量）
         final int promptBudget = computePromptBudget();
@@ -580,6 +600,8 @@ public class AgentLoopEngine {
             for (int i = 0; i < callCount; i++) {
                 ToolCall tc = freshCalls.get(i);
                 toolCallCount++;
+                String tLabel = toolLabel(tc.toolName);
+                showToast("🔧 调用: " + tLabel);
                 if (callback != null) callback.onToolCall(tc.toolName, tc.args.toString());
                 AIToolResult result;
                 if (parResults[i] instanceof AIToolResult) {
@@ -591,6 +613,7 @@ public class AgentLoopEngine {
                 }
                 boolean success = result.isSuccess();
                 String resultStr = success ? String.valueOf(result.getResult()) : result.getErrorMessage();
+                showToast(success ? "✅ " + tLabel + " 完成" : "❌ " + tLabel + " 失败: " + truncate(resultStr, 40));
                 if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
                 AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")
@@ -2101,6 +2124,7 @@ public class AgentLoopEngine {
             } catch (Exception ignored) {
             }
             AILogger.i(TAG, "Intent chain: executing " + tool + " args=" + args);
+            showToast("⚙️ " + toolLabel(tool));
             AIToolResult r = executeToolSafely(tool, args);
             if (r != null) {
                 results.append(formatToolBlock(tool,
