@@ -40,6 +40,7 @@ docs/
 │   ├── FUNCTIONALITY_DETECTION_REPORT.md  # 功能检测报告
 │   ├── FIX_RECORD_AUDIO_PERMISSION.md     # 录音权限修复记录
 │   ├── OPENAI_TOOL_CALLING_DESIGN.md      # OpenAI 工具调用设计
+│   ├── AI_COMPONENT_LAYOUT_DESIGN.md      # AI 组件与布局控件系统设计
 │   ├── RESOURCE_REFACTORING_GUIDE.md      # 资源重构指南
 │   ├── TBS_SDK_INTEGRATION_GUIDE.md       # TBS SDK 集成指南
 │   ├── local_library_inference_engine_design.md  # 本地库推理引擎设计
@@ -82,7 +83,8 @@ docs/
 5. **Agent 软硬件** → [AGENT_HARDWARE_SOFTWARE_DESIGN.md](development/AGENT_HARDWARE_SOFTWARE_DESIGN.md)
 6. **LLM 服务** → [llm_service_design.md](development/ai_modules/llm_service_design.md)
 7. **AI-UI 交互** → [ai_ui_interaction_design.md](development/ai_ui_interaction_design.md)
-8. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
+8. **AI 组件与布局控件** → [AI_COMPONENT_LAYOUT_DESIGN.md](development/AI_COMPONENT_LAYOUT_DESIGN.md)
+9. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
 
 ### 语音与天气
 
