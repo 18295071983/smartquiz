@@ -40,16 +40,18 @@ public class ResourceConfig {
     // ========== 上下文大小 ==========
     /** 上下文大小下限（保证单次推理） */
     private static final int MIN_CONTEXT_SIZE = 2048;
-    /** 上下文大小上限（内存充足时允许大上下文，长对话更久才触发裁剪/超限；匹配 Qwen3-4B 的 32k 窗口） */
-    private static final int MAX_CONTEXT_SIZE = 32768;
+    /** 上下文大小上限（手机端封顶 16K：Qwen3-4B KV≈90KB/token，32K 纯 KV≈2.9GB，
+     *  叠加权重后 6~8GB 设备加载即被杀进程；16K KV≈1.4GB 才是设备可承受的量级） */
+    private static final int MAX_CONTEXT_SIZE = 16384;
     /** 默认上下文大小 */
     private static final int DEFAULT_CONTEXT_SIZE = 4096;
     /** 推理预留 token 数（输入 + 输出） */
     private static final int INFERENCE_RESERVE_TOKENS = 512;
 
     // ========== 内存限制 ==========
-    /** 内存池大小上限（MB）（放宽到 4GB，供 32k 上下文的 KV 缓存使用） */
-    private static final int MAX_MEMORY_POOL_MB = 4096;
+    /** 内存池大小上限（MB）（16K 上下文封顶后 KV≈1.4GB，2GB 池子足够并留余量；
+     *  4GB 池会让 native 在低内存设备上按此预算分配 KV，反而推高峰值内存） */
+    private static final int MAX_MEMORY_POOL_MB = 2048;
     /** 内存池大小下限（MB） */
     private static final int MIN_MEMORY_POOL_MB = 256;
     /** 系统内存保留比例（45%：内存池最多占可用内存 45%，仍留 55% 给系统；用户明确要求大上下文时放宽） */
@@ -264,19 +266,19 @@ public class ResourceConfig {
         int gpuLayers;
 
         if (gpuMemoryMB <= 0) {
-            // GPU 显存未知，根据系统内存估算
+            // GPU 显存未知：保守估算。不能按系统总内存拍高层数——系统内存≠GPU显存，
+            // 大内存+小显存设备按内存估 30 层会让 GPU 驱动过载（Vulkan/OpenCL 崩溃高危）。
+            // 档位整体下调：8GB+→20、6-8GB→16、4-6GB→12、<4GB→8。
             if (totalMemoryMB >= 8192) {
-                gpuLayers = 30;
-            } else if (totalMemoryMB >= 6144) {
-                gpuLayers = 25;
-            } else if (totalMemoryMB >= 4096) {
                 gpuLayers = 20;
-            } else if (totalMemoryMB >= 3072) {
-                gpuLayers = 15;
+            } else if (totalMemoryMB >= 6144) {
+                gpuLayers = 16;
+            } else if (totalMemoryMB >= 4096) {
+                gpuLayers = 12;
             } else {
-                gpuLayers = 10;
+                gpuLayers = 8;
             }
-            AILogger.i(TAG, "GPU memory unknown, estimated " + gpuLayers + " layers based on system memory (" + totalMemoryMB + "MB)");
+            AILogger.i(TAG, "GPU memory unknown, conservative estimate " + gpuLayers + " layers based on system memory (" + totalMemoryMB + "MB)");
         } else {
             // 根据可用 GPU 内存计算
             if (usableGpuMemoryMB <= 0 || actualLayerSizeMB <= 0) {
@@ -347,23 +349,25 @@ public class ResourceConfig {
         int minRequired = MIN_CONTEXT_SIZE;
         int maxAllowed = MAX_CONTEXT_SIZE;
 
-        // 根据可用内存调整上限（档位按用户"内存够用、上下文要大"的要求整体上调，
-        // 上限仍受 MAX_CONTEXT_SIZE=32768 约束）
-        if (availableMemoryMB < 1024) {
-            // 内存极低：4096-8192
+        // 按设备总内存定档（用 totalMemory 而非瞬时 availableMemory：可用内存随后台
+        // 应用大幅波动，会导致同一设备上下文跳变；且 KV 缓存是常驻内存，必须按总内存规划）。
+        // KV 成本参考（Qwen3-4B ≈ 90KB/token）：4K≈0.4GB、8K≈0.7GB、12K≈1.1GB、16K≈1.4GB。
+        if (totalMemoryMB < 4096) {
+            // 极小内存（<4GB）：4K
+            maxAllowed = 4096;
+            AILogger.i(TAG, "Very small device (<4GB total), max context=4096");
+        } else if (totalMemoryMB < 6144) {
+            // 小内存（4-6GB）：8K
             maxAllowed = 8192;
-            AILogger.i(TAG, "Very low available memory (<1GB), max context=8192");
-        } else if (availableMemoryMB < 2048) {
-            // 内存较低：8192-12288
+            AILogger.i(TAG, "Small device (4-6GB total), max context=8192");
+        } else if (totalMemoryMB < 8192) {
+            // 中内存（6-8GB）：12K
             maxAllowed = 12288;
-            AILogger.i(TAG, "Low available memory (<2GB), max context=12288");
-        } else if (availableMemoryMB < 4096) {
-            // 内存一般：12288-16384
-            maxAllowed = 16384;
-            AILogger.i(TAG, "Moderate available memory (<4GB), max context=16384");
+            AILogger.i(TAG, "Mid device (6-8GB total), max context=12288");
         } else {
-            // 内存充足：使用上限（32768），"越过"小上下文限制
+            // 大内存（≥8GB）：16K 封顶（不再放行 32K）
             maxAllowed = MAX_CONTEXT_SIZE;
+            AILogger.i(TAG, "Large device (≥8GB total), max context=" + MAX_CONTEXT_SIZE);
         }
 
         // 确保上下文大小满足单次推理需求
