@@ -1683,6 +1683,9 @@ public class PythonToolManager {
                         } catch (Exception ignored) {
                         }
                         showCustomFormDialog(fAct, rt, id, title, message, fProps, autoCloseSeconds, rounds);
+                    } else if ("layout_canvas".equals(fType)) {
+                        // 常驻布局画布：渲染 layout 树，Agent 可用 layout_editor 工具动态编辑(set/add/patch/get)
+                        showLayoutCanvasDialog(fAct, rt, id, title, fProps, fType, autoCloseSeconds);
                     } else if ("file_picker".equals(fType) || "image_picker".equals(fType)
                             || "contact_picker".equals(fType)) {
                         // 系统级选择器：文件/图片/联系人
@@ -3318,6 +3321,146 @@ public class PythonToolManager {
             return (int) android.util.TypedValue.applyDimension(
                     android.util.TypedValue.COMPLEX_UNIT_DIP, dp,
                     android.content.res.Resources.getSystem().getDisplayMetrics());
+        }
+
+        /**
+         * 常驻布局画布（type=layout_canvas）：渲染 layout 树到弹窗，注册 LayoutCanvasSession，
+         * 供 layout_editor 工具动态编辑（set/add/patch/get）。每次编辑后重渲染弹窗内容，
+         * 并把上一轮的输入控件值回填（保留用户输入）。关闭时移除会话、返回 cancelled/closed。
+         *
+         * props 内可取：
+         * - layout: 初始布局树（{"root":{...}} 或单节点）
+         * - 顶层 layout 参数（经 createComponent 传入 fProps）
+         */
+        private void showLayoutCanvasDialog(final android.app.Activity act, final ComponentRuntime rt,
+                                            final String componentId, final String title,
+                                            final String propsJson, final String pluginName,
+                                            final int autoCloseSeconds) {
+            final float density = act.getResources().getDisplayMetrics().density;
+            // 解析初始 layout + props
+            final org.json.JSONObject propsObj = new org.json.JSONObject();
+            org.json.JSONObject initLayout = null;
+            try {
+                if (propsJson != null && !propsJson.isEmpty()) {
+                    org.json.JSONObject pj = new org.json.JSONObject(propsJson);
+                    java.util.Iterator<String> pk = pj.keys();
+                    while (pk.hasNext()) {
+                        String k = pk.next();
+                        propsObj.put(k, pj.get(k));
+                    }
+                    Object lo = pj.opt("layout");
+                    if (lo == null) lo = pj.opt("root");
+                    if (lo instanceof org.json.JSONObject) {
+                        initLayout = (org.json.JSONObject) lo;
+                    } else if (lo != null) {
+                        initLayout = new org.json.JSONObject(String.valueOf(lo));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (initLayout == null) {
+                // 默认空画布：column 容器
+                initLayout = new org.json.JSONObject();
+                try {
+                    org.json.JSONObject root = new org.json.JSONObject();
+                    root.put("type", "column");
+                    root.put("children", new org.json.JSONArray());
+                    initLayout.put("root", root);
+                } catch (Exception ignored) {
+                }
+            }
+            final org.json.JSONObject fInitLayout = initLayout;
+
+            // 画布内容容器：整体重渲染时替换内部 view
+            final android.widget.ScrollView canvasScroll = new android.widget.ScrollView(act);
+            final android.widget.LinearLayout canvasColumn = new android.widget.LinearLayout(act);
+            canvasColumn.setOrientation(android.widget.LinearLayout.VERTICAL);
+            canvasScroll.addView(canvasColumn, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            setupScrollViewForInput(canvasScroll);
+
+            // 会话：当前布局 + 重渲染回调 + 当前值收集
+            final com.oilquiz.app.ai.chat.component.LayoutCanvasManager.LayoutCanvasSession session =
+                    new com.oilquiz.app.ai.chat.component.LayoutCanvasManager.LayoutCanvasSession();
+            session.layout = fInitLayout;
+            session.props = propsObj;
+            // 当前渲染的 viewRefs（重渲染时替换）
+            final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> curRefs =
+                    new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
+            // 上一轮收集的值（回填）
+            final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> prevValues =
+                    new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
+
+            // 重渲染：用 session.layout 重新 render，回填旧值
+            final Runnable renderCanvas = () -> {
+                try {
+                    java.util.Map<String, Object> refs = new java.util.HashMap<>();
+                    curRefs.set(refs);
+                    if (fInitLayout != null) {
+                        // 先收集上一轮值（若已渲染过）
+                        if (!prevValues.get().isEmpty()) {
+                            // 已有旧值——先 collect 当前（避免覆盖用户在编辑时的输入）
+                            Map<String, Object> live = com.oilquiz.app.ai.python.NativeLayoutRenderer
+                                    .collectValues(curRefs.get());
+                            if (!live.isEmpty()) prevValues.set(live);
+                        }
+                    }
+                    org.json.JSONObject layout = session.layout;
+                    if (layout == null) layout = fInitLayout;
+                    android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
+                            act, layout, propsObj, refs);
+                    if (v == null) {
+                        android.widget.TextView tvErr = new android.widget.TextView(act);
+                        tvErr.setText("⚠ 画布渲染失败");
+                        tvErr.setTextSize(12);
+                        v = tvErr;
+                    }
+                    // 回填上一轮值
+                    if (!prevValues.get().isEmpty()) {
+                        com.oilquiz.app.ai.python.NativeLayoutRenderer.applyValues(refs, prevValues.get());
+                    }
+                    canvasColumn.removeAllViews();
+                    canvasColumn.addView(v, new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                } catch (Throwable t) {
+                    Log.w(TAG, "画布重渲染失败: " + t.getMessage());
+                }
+            };
+            session.applyLayout = s -> {
+                // layout_editor 工具可能在后台线程调用：切回主线程再重渲染（View 操作必须主线程）
+                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                mainHandler.post(() -> renderCanvas.run());
+            };
+            session.collectCurrentValues = () -> com.oilquiz.app.ai.python.NativeLayoutRenderer
+                    .collectValues(curRefs.get());
+
+            // 注册会话
+            com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
+                    .register(componentId, session);
+
+            // 弹窗
+            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+                    .setTitle(title != null && !title.isEmpty() ? title : "布局画布")
+                    .setView(canvasScroll)
+                    .setCancelable(true)
+                    .setOnCancelListener(d -> {
+                        rt.result.compareAndSet("pending", "cancelled");
+                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                    })
+                    .create();
+            rt.dialog = dialog;
+            dialog.setOnDismissListener(d -> {
+                com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
+                        .unregister(componentId);
+                rt.result.compareAndSet("pending", "closed");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
+            configureDialogInput(dialog);
+            renderCanvas.run();
+            dialog.show();
+            Log.i(TAG, "[Python component] layout canvas created: " + componentId);
         }
 
         /** 自动关闭调度：autoCloseSeconds>0 且组件已显示时，N 秒后 dismiss 并置 result=closed。

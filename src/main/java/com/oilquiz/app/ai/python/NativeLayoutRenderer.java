@@ -3865,6 +3865,53 @@ return attachLabel(context, node, props, srWrap, density);
         return out;
     }
 
+    /**
+     * 把旧控件值回填到新渲染的控件（画布重渲染时保留用户输入）。
+     * 按 key 匹配 viewRefs 中的控件，写回 oldValues[key]。
+     * 仅覆盖最常见的可写控件（EditText/Spinner/Switch/CheckBox/RatingBar），
+     * 其余（日期/取色/标签等）重建后由用户重新选择。
+     */
+    public static void applyValues(Map<String, Object> viewRefs, Map<String, Object> oldValues) {
+        if (viewRefs == null || oldValues == null) return;
+        for (Map.Entry<String, Object> e : viewRefs.entrySet()) {
+            String key = e.getKey();
+            if (key.startsWith("text_") || key.startsWith("_")) continue;
+            Object v = e.getValue();
+            if (!oldValues.containsKey(key)) continue;
+            Object oldVal = oldValues.get(key);
+            String s = oldVal == null ? "" : String.valueOf(oldVal);
+            try {
+                if (v instanceof EditText) {
+                    ((EditText) v).setText(s);
+                } else if (v instanceof Spinner) {
+                    Spinner sp = (Spinner) v;
+                    for (int i = 0; i < sp.getAdapter().getCount(); i++) {
+                        Object item = sp.getAdapter().getItem(i);
+                        if (item != null && s.equals(String.valueOf(item))) {
+                            sp.setSelection(i);
+                            break;
+                        }
+                    }
+                } else if (v instanceof android.widget.Switch) {
+                    ((android.widget.Switch) v).setChecked(Boolean.parseBoolean(s));
+                } else if (v instanceof android.widget.CheckBox) {
+                    ((android.widget.CheckBox) v).setChecked(Boolean.parseBoolean(s));
+                } else if (v instanceof android.widget.RatingBar) {
+                    try {
+                        ((android.widget.RatingBar) v).setRating(Float.parseFloat(s));
+                    } catch (Exception ignored) {
+                    }
+                } else if (v instanceof android.widget.SeekBar) {
+                    try {
+                        ((android.widget.SeekBar) v).setProgress((int) Float.parseFloat(s));
+                    } catch (Exception ignored) {
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     /** 取色器值引用（key → 当前选中色 #RRGGBB） */
     static class ColorRef {
         private final String[] picked;

@@ -225,6 +225,7 @@ public class AIToolManager {
         registerToolFactory("dashscope_media", DashscopeMediaTool.class, DashscopeMediaTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
         registerToolFactory("ui_component_plugin", UIComponentPluginTool.class, UIComponentPluginTool::new);
+        registerToolFactory("layout_editor", LayoutEditorTool.class, LayoutEditorTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
         registerToolFactory("update_models_profile", UpdateModelsProfileTool.class, UpdateModelsProfileTool::new);
         registerToolFactory("get_models_profile", GetModelsProfileTool.class, GetModelsProfileTool::new);
@@ -1146,6 +1147,20 @@ public class AIToolManager {
             case "ui_control":
                 // 遗留工具名 → ui_component（系统UI组件控制：对话框/提示条/进度条/输入等）
                 return getToolDefinition("ui_component");
+            case "layout_editor":
+                return ToolDefinition.builder("layout_editor", "布局画布编辑器：动态编辑常驻布局画布(layout_canvas组件)的控件树。动作: set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。前置: 先用 ui_component(action=create, component_type=layout_canvas) 创建空画布拿到 component_id (可先不传layout)。用法示例: ①add加标题 layout_editor(action=add, component_id=画布id, node={\"type\":\"text\",\"text\":\"标题\",\"bold\":true})；②add加输入框 layout_editor(action=add, component_id=画布id, node={\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"})；③整体替换 layout_editor(action=set, component_id=画布id, layout={\"root\":{\"type\":\"column\",\"children\":[...]}})；④查看 layout_editor(action=get, component_id=画布id)。每次编辑后画布即时刷新,输入控件值自动回填。**推荐逐个add控件而非一次生成超大layout**。")
+                        .addParameter("action", "string", "操作: set/add/patch/get/rebuild", true)
+                        .addParameter("component_id", "string", "画布组件ID(layout_canvas创建返回的component_id),必填", true)
+                        .addParameter("layout", "object", "set用: 完整布局JSON(如{\"root\":{\"type\":\"column\",\"children\":[...]}}或单节点{\"type\":\"column\"})；add用也可传单节点", false)
+                        .addParameter("node", "object", "add用: 追加的子节点JSON(如{\"type\":\"text\",\"text\":\"标题\"}或{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入\"})；也兼容layout/item/child参数名", false)
+                        .addParameter("container", "string", "add用: 目标容器路径(如'root'或'root/children/0'),默认'root'", false)
+                        .addParameter("index", "integer", "add用: 插入位置(0为开头,省略则追加到末尾)", false)
+                        .addParameter("key", "string", "patch用: 节点key(容器/节点带key时用key定位)", false)
+                        .addParameter("path", "string", "patch用: 节点路径(如'root/children/0');与key二选一", false)
+                        .addParameter("props", "object", "patch用: 要合并到节点的属性(替换text/key/value等)", false)
+                        .addParameter("remove", "boolean", "patch用: true删除该节点(默认false)", false)
+                        .category("system")
+                        .build();
             case "tool_registry":
                 return ToolDefinition.builder("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。")
                     .addParameter("action", "string", "操作: list(列出)/search(搜索)/get(取schema)", true)
