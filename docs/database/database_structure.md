@@ -1,6 +1,6 @@
 # 数据库结构设计
 
-> 版本: v20 | 更新日期: 2026-07-18 | ORM: Room 2.5.2
+> 版本: v24 | 更新日期: 2026-08-28 | ORM: Room 2.5.2
 
 ## 一、数据库概览
 
@@ -8,9 +8,19 @@
 |------|-----|
 | **数据库名称** | `smartquiz_database` |
 | **ORM 框架** | Room 2.5.2 |
-| **当前版本** | **v20** |
+| **当前版本** | **v24**（`AppDatabase.DATABASE_VERSION = 24`） |
 | **导出支持** | 可选 JSON 备份 |
 | **加密** | SecurityCrypto（密钥加密存储） |
+| **迁移策略** | 显式 Migration 链（v17→v24）+ `fallbackToDestructiveMigration` 兜底 |
+
+## 1bis. v21 ~ v24 迁移摘要（v24 新增章节）
+
+| 迁移 | 内容 | 来源提交 |
+|------|------|---------|
+| **v20 → v21** | `question` 表新增 `answerText`（填空/简答标准答案）、`imageUri`（题目配图）、`audioUri`（听力题音频）、`parentId`（子题关联）、`sortOrder`（排序权重）+ parent/sort 索引 | 听力题/组题支持 |
+| **v21 → v22** | `optionE~optionL` 8 个独立列替代 `extraOptions` JSON；迁移时将旧 JSON 数据拆写入新列 | 7d383e5（2026-08-07） |
+| **v22 → v23** | `questionType` 单列索引 + `(questionType, status)` 复合索引（index_question_questionType[_status]，命名与 Room @Index 自动生成一致） | 查询性能优化 |
+| **v23 → v24** | P0 修复：重建 `question` 表为 14 个 NOT NULL 字段补 DEFAULT（外部 INSERT 只填业务字段即可）；`score_history`/`wrong_question`/`favorite_question` 补 `userId` 索引 | 2026-08 外部写入修复 |
 
 ## 二、核心表结构
 
@@ -47,7 +57,13 @@
 | `isPublic` | INTEGER | 是否公开（0-私有，1-公开） | **v20 新增** |
 | `author` | TEXT | 作者 | **v20 新增** |
 | `comment` | TEXT | 备注 | **v20 新增** |
-| `extraOptions` | TEXT | 扩展选项（JSON格式） | **v20 新增** |
+| `extraOptions` | TEXT | 扩展选项（JSON格式，**v22 起弃用，数据已拆至 optionE~L**） | v20 |
+| `optionE` ~ `optionL` | TEXT | 选项 E~L 独立列 | **v22 新增** |
+| `answerText` | TEXT | 标准答案文本（填空题/简答题） | **v21 新增** |
+| `imageUri` | TEXT | 题目配图路径 | **v21 新增** |
+| `audioUri` | TEXT | 听力题音频路径 | **v21 新增** |
+| `parentId` | INTEGER | 母题ID（子题关联，默认 0） | **v21 新增** |
+| `sortOrder` | INTEGER | 排序权重（默认 0） | **v21 新增** |
 | `createdAt` | INTEGER | 创建时间 | **v20 新增** |
 | `updatedAt` | INTEGER | 更新时间 | **v20 新增** |
 
@@ -58,6 +74,12 @@
 - `idx_question_category_difficulty`
 - `idx_questions_created` (v20)
 - `idx_questions_updated` (v20)
+- `idx_questions_parent` (v21)
+- `idx_questions_sort` (v21)
+- `index_question_questionType` (v23)
+- `index_question_questionType_status` (v23)
+
+> v24 起 `question` 表 14 个 NOT NULL 字段均带 DEFAULT，重建表迁移保证与 Room Entity 定义完全一致。
 - `idx_questions_status` (v20)
 - `idx_questions_points` (v20)
 

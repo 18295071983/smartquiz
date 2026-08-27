@@ -1,15 +1,16 @@
 # 技术栈文档
 
-> 版本: 2.2 | 更新日期: 2026-07-18 | 构建: Gradle 8.13 + AGP 8.4.0
+> 版本: 2.3 | 更新日期: 2026-08-28 | 构建: Gradle 8.13 + AGP 8.4.0
 
 ## 一、编程语言
 
 | 语言 | 版本 | 用途 |
 |------|------|------|
-| **Java** | 17 | 主要业务逻辑（~95% 代码） |
-| **Kotlin** | 1.8.22 | Compose UI 组件，扩展函数 |
+| **Java** | 17 | 全部业务逻辑（app 源码 720 个 Java 文件，无 .kt 文件） |
+| **Kotlin** | 1.8.22 | **早期预留**（build.gradle 保留 Compose 依赖，当前源码未使用） |
 | **C/C++** | C++17 | AI 推理引擎 (llama.cpp JNI) |
-| **HTML/JS/CSS** | - | WebView 混合界面 |
+| **Python** | 3.x (Chaquopy) | AI 工具链内嵌脚本（pandas/numpy/bs4/jieba） |
+| **HTML/JS/CSS** | - | WebView 混合界面、Mermaid/KaTeX 本地渲染 |
 
 ## 二、Android 平台
 
@@ -55,7 +56,7 @@
 | **LiveData** | 2.7.0 | 可观察数据 |
 | **Lifecycle Compose** | 2.7.0 | Compose 生命周期 |
 | **Hilt (Dagger)** | 2.48 | 依赖注入 |
-| **Room** | 2.5.2 | 本地数据库 (v20) |
+| **Room** | 2.5.2 | 本地数据库 (**v24**) |
 | **DataStore** | 内置 | 键值存储 |
 | **WorkManager** | 2.9.0 | 后台任务 |
 
@@ -74,7 +75,7 @@
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **llama.cpp** | (C++ JNI) | 本地 LLM 推理 |
+| **llama.cpp** | (C++ JNI) | 本地 LLM 推理（**Vulkan 唯一 GPU 后端**，统一 JSON 协议 v1.11） |
 | **TensorFlow Lite** | 2.15.0 | 轻量级 ML 推理 |
 | **TFLite GPU** | 2.15.0 | GPU 加速推理 |
 | **TFLite Support** | 0.4.4 | TFLite 辅助库 |
@@ -86,8 +87,8 @@
 | **ML Kit Image Labeling** | 17.0.7 | 图像标注 |
 | **ML Kit Object Detection** | 17.0.0 | 目标检测 |
 | **Easy Rules** | 4.1.0 | 规则引擎 |
-| **Chaquopy** | 16.1.0 | Python 集成 |
-| **OpenCL** | (系统库) | GPU 并行计算加速 |
+| **Chaquopy** | 16.1.0 | Python 集成（内嵌 pandas/numpy/bs4/jieba/requests 等离线轮子，供 AI 工具与布局渲染调用） |
+| **mtmd** | (随 llama.cpp) | 多模态图像编码（Qwen2.5-VL 类视觉模型） |
 
 ## 八、文件处理
 
@@ -118,10 +119,28 @@
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | **Markwon** | 4.6.2 | Markdown 渲染 |
+| **Prism4j** | 2.0.0 | 代码语法高亮（bundler 注解处理器） |
+| **Mermaid.js** | 本地 assets/js | 图形化渲染（WebView） |
+| **KaTeX** | 本地 assets/js | 数学公式渲染（WebView） |
 | **ZXing** | 4.3.0 | 二维码扫描 |
 | **Guava** | 32.1.2 | 实用工具集 |
 
-## 十一、安全
+## 十一、语音
+
+| 技术 | 说明 |
+|------|------|
+| **在线 ASR** | OpenAI 兼容 `/audio/transcriptions`（ai/speech/asr） |
+| **在线 TTS** | OpenAI 兼容 `/audio/speech` 或 DashScope 原生（策略切换） |
+| **系统 TTS** | Android TextToSpeech 兜底（含并发/回调防护） |
+| **门面** | `SpeechManager`（ai/speech/core） |
+
+## 十二、天气
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| **QWeather SDK** | 5.2.2 (libs jar) | 和风天气（SDK → REST API → APISpace 三级回退） |
+
+## 十三、安全
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
@@ -129,7 +148,7 @@
 | **Bouncy Castle** | 1.76 | X.509 证书 / 密码学 |
 | **ProGuard** | AGP 内置 | 代码混淆 |
 
-## 十二、其他
+## 十四、其他
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
@@ -144,7 +163,7 @@
 | **Legacy Support** | 1.0.0 | 兼容旧 support 库 |
 | **MultiDex** | 2.0.1 | 方法数超过 64K |
 
-## 十三、测试
+## 十五、测试
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
@@ -155,13 +174,17 @@
 | **AndroidX JUnit** | 1.1.5 | Android JUnit 扩展 |
 | **Mockito Android** | 4.8.1 | Android Mock 支持 |
 
-## 十四、数据库迁移历史
+## 十六、数据库迁移历史
 
 | 迁移 | 变更 |
 |------|------|
 | v18 → v19 | 新增 `ocr_history`、`question_images`、`ai_usage_log` 表 |
 | v19 → v20 | `question` 表新增 18 个字段（createdAt, updatedAt, source, tags, points, timeLimit, hint, analysis, knowledgePoint, subCategory, usageCount, correctCount, incorrectCount, lastUsedAt, status, isPublic, author, comment, extraOptions）；新增 4 个索引 |
-| 当前 | v20 |
+| v20 → v21 | `question` 新增 answerText/imageUri/audioUri/parentId/sortOrder（听力题、组题支持） |
+| v21 → v22 | `optionE~L` 独立列替代 extraOptions JSON（含数据迁移） |
+| v22 → v23 | questionType 索引 + (questionType,status) 复合索引 |
+| v23 → v24 | 重建 question 表补 NOT NULL DEFAULT；score_history/wrong_question/favorite_question 补 userId 索引 |
+| 当前 | **v24** |
 
 ---
 
