@@ -179,6 +179,8 @@ public class AgentLoopEngine {
         this.toolManager = AIToolManager.getInstance(context);
         this.aiConfig = new AIConfig(context);
         this.uiInteractor = new UiInteractor(toolManager);
+        // 意图引擎带 Context：从 assets/agent_intents.json 加载意图定义（失败回退内置表）
+        this.intentEngine = new IntentEngine(this.appContext);
     }
 
     public void setCallback(LoopCallback callback) {
@@ -296,15 +298,23 @@ public class AgentLoopEngine {
         // 缺必填槽位 → UI 组件/文本追问用户（挂起，下一轮补）；
         // 无意图命中 → 转普通对话（模型直接回答，不进入工具循环）。
         // 统一用 handled 标志分流（避免 return 后死代码，FC 循环保留在下方 if 内）
+        // 注意：编排可由开关关闭（intent_recognition_enabled=false）——此时模型全自主
+        // 走 FC 循环，不再被确定性流程"管住"（适合 FC 能力足够时提升灵活性）；
+        // 关闭后 outcome 为 null，以下分支全部跳过，直接进入 FC/普通对话。
         boolean handled = false;
         String finalAnswer = null;
 
-        IntentOutcome outcome = runIntentOrchestration(userMessage, history);
-        if (outcome.answered) {
+        IntentOutcome outcome = null;
+        if (aiConfig == null || aiConfig.isIntentRecognitionEnabled()) {
+            outcome = runIntentOrchestration(userMessage, history);
+        } else {
+            AILogger.i(TAG, "Intent orchestration disabled (intent_recognition_enabled=false), model autonomous");
+        }
+        if (outcome != null && outcome.answered) {
             // 追问/提示已作为本轮回答输出
             finalAnswer = outcome.reply;
             handled = true;
-        } else if (outcome.directReply != null && !outcome.directReply.isEmpty()) {
+        } else if (outcome != null && outcome.directReply != null && !outcome.directReply.isEmpty()) {
             if (aiConfig != null && aiConfig.isLocalAgentEnabled()) {
                 // 本地 Agent 模式：工具结果注入上下文，由模型总结为自然回答
                 // （修复"直接返回工具结果无总结"：意图编排执行完工具后调用模型总结，
@@ -1654,7 +1664,7 @@ public class AgentLoopEngine {
 
     // ==================== 程序化意图编排 ====================
 
-    private final IntentEngine intentEngine = new IntentEngine();
+    private IntentEngine intentEngine;
     /** 追问挂起状态：上一轮缺槽位时记录意图与已收集槽位，下一轮消息补全 */
     private IntentEngine.Intent pendingIntent;
     private java.util.Map<String, String> pendingSlots;

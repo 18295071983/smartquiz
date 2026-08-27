@@ -1,5 +1,12 @@
 package com.oilquiz.app.ai.agent.software.engine;
 
+import android.content.Context;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import com.oilquiz.app.util.AILogger;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -73,9 +80,121 @@ public class IntentEngine {
         return m;
     }
 
-    // ========== 意图定义表（覆盖全部常用注册工具） ==========
+    // ========== 意图定义（数据驱动：assets/agent_intents.json 优先，内置表兜底） ==========
 
-    private static final List<Intent> INTENTS = Arrays.asList(
+    /** 实例数据：JSON 加载成功则替换为 JSON 定义，失败保留内置表 */
+    private List<Intent> intents = BUILTIN_INTENTS;
+    private String[][] keywords = BUILTIN_KEYWORDS;
+
+    public IntentEngine() {
+    }
+
+    /** 带 Context 构造：尝试从 assets/agent_intents.json 加载意图定义（失败静默回退内置表） */
+    public IntentEngine(Context context) {
+        if (context != null) loadFromAssets(context.getApplicationContext());
+    }
+
+    /** 从 assets/agent_intents.json 加载意图定义（含关键词、工具链/两步流程、槽位） */
+    public void loadFromAssets(Context context) {
+        try {
+            String json = readAsset(context, "agent_intents.json");
+            if (json == null) {
+                AILogger.w(TAG, "agent_intents.json 未找到，使用内置意图表");
+                return;
+            }
+            JSONObject root = new JSONObject(json);
+            JSONArray arr = root.optJSONArray("intents");
+            if (arr == null || arr.length() == 0) {
+                AILogger.w(TAG, "agent_intents.json 无 intents 数组，使用内置意图表");
+                return;
+            }
+            List<Intent> loaded = new ArrayList<>();
+            List<String[]> loadedKw = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.getJSONObject(i);
+                String name = o.optString("name", "");
+                if (name.isEmpty()) continue;
+                String desc = o.optString("description", "");
+                List<String> chain = jsonStrList(o.optJSONArray("toolChain"));
+                List<FlowStep> flow = jsonFlow(o.optJSONArray("flow"));
+                List<String> required = jsonStrList(o.optJSONArray("requiredSlots"));
+                List<String> optional = jsonStrList(o.optJSONArray("optionalSlots"));
+                Map<String, String> questions = jsonStrMap(o.optJSONObject("slotQuestions"));
+                Map<String, String> defaults = jsonStrMap(o.optJSONObject("defaultSlots"));
+                if (chain.isEmpty() && flow.isEmpty()) continue; // 至少一条执行路径
+                loaded.add(new Intent(name, desc, chain, flow, required, optional, questions, defaults));
+                String kws = o.optString("keywords", "");
+                if (!kws.isEmpty()) loadedKw.add(new String[]{name, kws});
+            }
+            if (!loaded.isEmpty() && !loadedKw.isEmpty()) {
+                intents = loaded;
+                keywords = loadedKw.toArray(new String[0][]);
+                AILogger.i(TAG, "从 agent_intents.json 加载意图 " + intents.size() + " 个");
+            } else {
+                AILogger.w(TAG, "agent_intents.json 解析结果为空，使用内置意图表");
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "agent_intents.json 加载失败，使用内置意图表: " + t.getMessage());
+        }
+    }
+
+    private static String readAsset(Context context, String name) {
+        try {
+            java.io.InputStream is = context.getAssets().open(name);
+            try {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+                return new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+            } finally {
+                is.close();
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static List<String> jsonStrList(JSONArray arr) {
+        List<String> list = new ArrayList<>();
+        if (arr == null) return list;
+        for (int i = 0; i < arr.length(); i++) list.add(arr.optString(i, ""));
+        return list;
+    }
+
+    private static Map<String, String> jsonStrMap(JSONObject obj) {
+        Map<String, String> map = new HashMap<>();
+        if (obj == null) return map;
+        JSONArray names = obj.names();
+        if (names == null) return map;
+        for (int i = 0; i < names.length(); i++) {
+            String k = names.optString(i);
+            map.put(k, obj.optString(k, ""));
+        }
+        return map;
+    }
+
+    private static List<FlowStep> jsonFlow(JSONArray arr) {
+        List<FlowStep> flow = new ArrayList<>();
+        if (arr == null) return flow;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String tool = o.optString("tool", "");
+            if (tool.isEmpty()) continue;
+            String action = o.has("action") ? o.optString("action", "") : null;
+            Map<String, String> params = jsonStrMap(o.optJSONObject("params"));
+            boolean optional = o.optBoolean("optional", false);
+            flow.add(new FlowStep(tool, action, params, optional));
+        }
+        return flow;
+    }
+
+    private static final String TAG = "IntentEngine";
+
+    // ========== 内置意图定义表（兜底，JSON 加载失败时使用） ==========
+
+    private static final List<Intent> BUILTIN_INTENTS = Arrays.asList(
         // ---- 信息查询类 ----
         new Intent("weather", "天气查询：查任意城市当前天气/预报（缺城市自动定位）",
                 Arrays.asList("ai_weather"), Arrays.asList(), Arrays.asList("city"),
@@ -211,8 +330,8 @@ public class IntentEngine {
                 d(), d("action", "list"))
     );
 
-    /** 意图关键词表：意图名 → 触发关键词（逗号分隔） */
-    private static final String[][] KEYWORDS = {
+    /** 意图关键词表：意图名 → 触发关键词（逗号分隔）。内置兜底，JSON 加载后不再使用 */
+    private static final String[][] BUILTIN_KEYWORDS = {
             {"weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风,热不热,冷不冷,天气怎么样"},
             {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市,去哪里,在哪"},
             {"search", "搜索,搜一下,查一下,查询,新闻,资讯,热点,最新,油价,百度,谷歌"},
@@ -255,14 +374,14 @@ public class IntentEngine {
             "哈尔滨", "长春", "沈阳", "石家庄", "太原", "兰州", "昆明", "贵阳", "南宁", "海口"
     };
 
-    /** 匹配意图：按关键词规则返回第一个命中的意图 */
+    /** 匹配意图：按关键词规则返回第一个命中的意图（JSON/内置表顺序即优先级） */
     public Intent match(String message) {
         if (message == null) return null;
         String msg = message.toLowerCase();
-        for (String[] kw : KEYWORDS) {
+        for (String[] kw : keywords) {
             for (String k : kw[1].split(",")) {
                 if (!k.isEmpty() && msg.contains(k.toLowerCase())) {
-                    for (Intent it : INTENTS) {
+                    for (Intent it : intents) {
                         if (it.name.equals(kw[0])) return it;
                     }
                 }
@@ -529,10 +648,10 @@ public class IntentEngine {
     }
 
     /** 去掉意图关键词后的剩余文本（query/expression/path/prompt 等槽位） */
-    private static String stripKeywords(String message, String intentName) {
+    private String stripKeywords(String message, String intentName) {
         if (message == null) return "";
         String result = message;
-        for (String[] kw : KEYWORDS) {
+        for (String[] kw : keywords) {
             if (!kw[0].equals(intentName)) continue;
             for (String k : kw[1].split(",")) {
                 if (k.isEmpty()) continue;
