@@ -240,8 +240,12 @@ public class ResourceConfig {
         double quantFactor = getQuantizationFactor(modelPath);
         long layerSizeMB = estimateLayerSizeMB(modelSizeMB, totalLayers);
 
-        // 考虑量化后的实际每层大小
-        long actualLayerSizeMB = (long) (layerSizeMB * quantFactor);
+        // 每层实际大小：直接取 文件大小/层数，不再乘量化因子。
+        // 关键：modelSizeMB 是 modelFile.length() 即量化后的真实文件大小（如 Q4 的 4.4GB），
+        // 每层大小 = 文件/层数 已是"实际值"。若再乘 getQuantizationFactor()（Q4=0.25），
+        // 会把 Q4 文件按 FP16 摊薄 4 倍 → 层数高估 4 倍 → 误判"4.4GB 模型可全量塞进
+        // 4GB 显存"，实际 VRAM 溢出导致 GPU 驱动崩溃（Vulkan/OpenCL SIGABRT 高危）。
+        long actualLayerSizeMB = layerSizeMB;
 
         AILogger.i(TAG, "Model estimation:");
         AILogger.i(TAG, "  totalLayers=" + totalLayers);
