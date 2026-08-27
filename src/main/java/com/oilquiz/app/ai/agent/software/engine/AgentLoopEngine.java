@@ -260,7 +260,7 @@ public class AgentLoopEngine {
                 List<ChatMessage> summaryHistory = new ArrayList<>(history);
                 summaryHistory.add(new ChatMessage("user",
                         "工具已执行完成，结果如下：\n"
-                                + truncate(outcome.directReply, MAX_TOOL_RESULT_LENGTH * 2)));
+                                + truncate(outcome.directReply, toolResultInjectionLimitChars())));
                 GenerateResult summary = generateFinalAnswer(summaryHistory, enableThinking);
                 if (summary != null && summary.content != null && !summary.content.trim().isEmpty()) {
                     String clean = cleanResponse(summary.content);
@@ -1047,6 +1047,25 @@ public class AgentLoopEngine {
             AILogger.w(TAG, "computePromptBudget failed: " + t.getMessage());
         }
         return 4000;
+    }
+
+    /**
+     * 工具结果注入总结请求的最大字符数（token 感知，防超 n_ctx）。
+     * 预算 = prompt 预算 - 输出预留(1000) - 固定预留(512：system+用户问题+总结指令)；
+     * 中文≈1 token/字符，故字符数直接取可用 token 数（保守上限）；
+     * 至少保留 128 token 给工具结果，失败回退 MAX_TOOL_RESULT_LENGTH。
+     * 注：注入的是 user 消息（绕过 trim 对 tool 消息的 400 字符压缩），
+     * 因此必须在注入时就按预算截断，否则 4K/8K 上下文下会撞预算。
+     */
+    private int toolResultInjectionLimitChars() {
+        try {
+            int budget = computePromptBudget();
+            int availableTokens = budget - FINAL_RESPONSE_MAX_TOKENS - 512;
+            if (availableTokens < 128) availableTokens = 128;
+            return availableTokens;
+        } catch (Throwable t) {
+            return MAX_TOOL_RESULT_LENGTH;
+        }
     }
 
     /**
