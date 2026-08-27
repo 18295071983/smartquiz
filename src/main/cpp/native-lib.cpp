@@ -1231,10 +1231,11 @@ public:
         LOGI("OpenCL loaded: %s, ggml GPU detected: %s", 
              s_openclLoaded ? "true" : "false", hasGPU ? "true" : "false");
         
-        // ========== Vulkan GPU 加速 ==========
-        // OpenCL 在 Adreno 840 上不兼容，已切换到 Vulkan 后端
-        // ggml-vulkan 会自动检测 Vulkan 设备
-        // 支持 GPU+CPU 混合推理：部分层在 GPU 计算，剩余层在 CPU 计算
+        // ========== GPU 加速 ==========
+        // GPU 后端：OpenCL（GGML_OPENCL=ON，Adreno 专用驱动 libOpenCL_adreno.so +
+        // Adreno 优化 kernel；llama-adreno 实测 Adreno 830 663 t/s prefill）。
+        // 日志文案沿用 "Vulkan GPU detected" 为历史遗留，实际为 ggml 后端检测
+        // （OpenCL/Vulkan 任一可用即 hasGPU=true），不影响后端选择。
         bool gpuAvailable = hasGPU;
         if (gpuAvailable && this->gpuLayers < 0) {
             // 仅当 Java 端传入负数（"未指定/自动"哨兵）时才自动使用安全上限。
