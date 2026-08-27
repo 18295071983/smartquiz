@@ -598,9 +598,55 @@ public class OnlineToolManager {
             }
             return params;
         } catch (JSONException e) {
+            // 容错：模型生成的 arguments 可能括号不配对/含非法字符，尝试宽松解析。
+            // 场景：构造较大 layout/嵌套 JSON 时工具调用参数易出格式错误。
+            Map<String, Object> relaxed = tryRelaxedParse(arguments);
+            if (relaxed != null) {
+                AILogger.d(TAG, "arguments 严格解析失败，已用宽松解析恢复: " + e.getMessage());
+                return relaxed;
+            }
             AILogger.w(TAG, "Failed to parse arguments: " + arguments + " - " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 宽松解析工具参数：当严格 JSON 解析失败时尝试恢复。
+     * 策略：① 用 Gson 宽松模式（容忍部分不严格语法）；② 去除尾部可见的残缺片段后逐段解析。
+     * 若仍失败返回 null（调用方降级为明确错误）。
+     */
+    private Map<String, Object> tryRelaxedParse(String arguments) {
+        try {
+            // 策略1：Gson 宽松模式（容忍单引号/未闭合末端等常见模型错误）
+            com.google.gson.JsonObject gsonObj = com.google.gson.JsonParser.parseString(arguments).getAsJsonObject();
+            Map<String, Object> params = new HashMap<>();
+            for (Map.Entry<String, com.google.gson.JsonElement> en : gsonObj.entrySet()) {
+                params.put(en.getKey(), en.getValue().toString());
+            }
+            return params;
+        } catch (Throwable t1) {
+            // 策略2：尝试从外层配对中提取每个顶层键值，容忍单个值内部的残缺
+            try {
+                // 找到最外层的 { ... } 区间
+                int start = arguments.indexOf('{');
+                int end = arguments.lastIndexOf('}');
+                if (start >= 0 && end > start) {
+                    String outer = arguments.substring(start, end + 1);
+                    JSONObject obj = new JSONObject(outer);
+                    Map<String, Object> params = new HashMap<>();
+                    Iterator<String> keys = obj.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        Object value = obj.get(key);
+                        params.put(key, value instanceof JSONObject || value instanceof JSONArray
+                                ? value.toString() : value);
+                    }
+                    return params;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     private String formatResult(AIToolResult result) {
