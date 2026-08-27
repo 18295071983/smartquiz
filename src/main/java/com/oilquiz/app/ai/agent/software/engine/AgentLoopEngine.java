@@ -131,6 +131,8 @@ public class AgentLoopEngine {
             {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
             {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
             {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
+            {"text_tools", "json格式化,json校验,base64,url编码,url解码,正则提取,转大写,转小写,去空白,字数统计,文本处理,编码解码"},
+            {"unit_converter", "换算,单位转换,单位换算,厘米,公斤,磅,华氏,摄氏,千米,英里,英寸,英尺,加仑,公顷"},
             {"ui_component", "对话框,弹窗,toast,提示条,提示框,进度条,进度显示,进度汇报,弹个框,提示一下,弹窗显示"},
             {"ui_component_plugin", "组件插件,插件系统,创建插件,注册插件,自定义组件,原生ui插件,ui插件,新建组件类型,自定义ui,原生控件,布局框架"},
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
@@ -214,9 +216,19 @@ public class AgentLoopEngine {
 
         // 智能工具选择：只注入与本次问题相关的工具，不再全量加载（旧版全量注入会塞满上下文导致 decode 崩溃）
         List<String> selectedTools = selectRelevantTools(userMessage);
+        if (aiConfig != null && aiConfig.isFcEnabled()) {
+            // FC 模式：模型自主选择工具 → 注入全工具池（buildToolsJson 按
+            // MAX_SCHEMA_TOKENS=2500 裁剪，超预算自动丢弃；n_ctx 守卫兜底防 decode 崩溃）。
+            // 关键词收窄会让模型够不到池中大部分工具，违背"模型自主"的设计。
+            List<String> allTools = toolManager.getRegisteredToolNames();
+            if (allTools.size() > selectedTools.size()) {
+                selectedTools = allTools;
+                AILogger.i(TAG, "FC mode: injecting full tool pool (" + allTools.size() + " tools)");
+            }
+        }
         String toolsJson = buildToolsJson(selectedTools);
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
-        AILogger.i(TAG, "Selected tools: " + selectedTools + ", schema len: " + toolsJson.length());
+        AILogger.i(TAG, "Selected tools: " + selectedTools.size() + " tools, schema len: " + toolsJson.length());
 
         // 单次推理的 prompt token 预算（结合配置上下文容量）
         final int promptBudget = computePromptBudget();

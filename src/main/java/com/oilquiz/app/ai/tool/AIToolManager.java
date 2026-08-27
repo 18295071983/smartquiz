@@ -236,6 +236,9 @@ public class AIToolManager {
         registerToolFactory("ocr_recognize", OCRRecognizeTool.class, OCRRecognizeTool::new);
         registerToolFactory("video_to_player", VideoToPlayerTool.class, VideoToPlayerTool::new);
         registerToolFactory("system_connect", SystemConnectTool.class, SystemConnectTool::new);
+        // 纯本地工具：文本处理（JSON/编码/正则）与单位换算（零网络依赖）
+        registerToolFactory("text_tools", TextToolsTool.class, TextToolsTool::new);
+        registerToolFactory("unit_converter", UnitConverterTool.class, UnitConverterTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
