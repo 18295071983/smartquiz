@@ -251,11 +251,39 @@ public class AgentLoopEngine {
             finalAnswer = outcome.reply;
             handled = true;
         } else if (outcome.directReply != null && !outcome.directReply.isEmpty()) {
-            // 意图编排程序化输出：不调用模型总结，直接输出工具结果
-            AILogger.i(TAG, "Intent orchestration direct output (no model summary), len="
-                    + outcome.directReply.length());
-            finalAnswer = outcome.directReply;
-            handled = true;
+            if (aiConfig != null && aiConfig.isLocalAgentEnabled()) {
+                // 本地 Agent 模式：工具结果注入上下文，由模型总结为自然回答
+                // （修复"直接返回工具结果无总结"：意图编排执行完工具后调用模型总结，
+                //   与 FC 循环的最终回答生成复用同一路径 generateFinalAnswer）
+                AILogger.i(TAG, "Local agent mode: summarizing tool results via model, len="
+                        + outcome.directReply.length());
+                List<ChatMessage> summaryHistory = new ArrayList<>(history);
+                summaryHistory.add(new ChatMessage("user",
+                        "工具已执行完成，结果如下：\n"
+                                + truncate(outcome.directReply, MAX_TOOL_RESULT_LENGTH * 2)));
+                GenerateResult summary = generateFinalAnswer(summaryHistory, enableThinking);
+                if (summary != null && summary.content != null && !summary.content.trim().isEmpty()) {
+                    String clean = cleanResponse(summary.content);
+                    totalTokens += summary.content.length();
+                    if (!clean.isEmpty() && !isPromptLeakage(clean)) {
+                        AILogger.i(TAG, "Tool summary: " + truncate(clean, 80));
+                        finalAnswer = clean;
+                        handled = true;
+                    }
+                }
+                if (!handled) {
+                    // 总结失败 → 回退直接输出工具结果（保证有答复）
+                    AILogger.w(TAG, "Tool summary failed, falling back to raw tool result");
+                    finalAnswer = outcome.directReply;
+                    handled = true;
+                }
+            } else {
+                // 非本地 Agent 模式：程序化输出（原有行为，确定性优先）
+                AILogger.i(TAG, "Intent orchestration direct output (no model summary), len="
+                        + outcome.directReply.length());
+                finalAnswer = outcome.directReply;
+                handled = true;
+            }
         } else if (aiConfig != null && aiConfig.isFcEnabled()) {
             // ===== 意图未命中 + FC 开关开启 → 交给下方模型自主 FC 循环 =====
             // handled 保持 false，不在此处理：模型自主决定是否调用工具（Qwen 原生格式）。
