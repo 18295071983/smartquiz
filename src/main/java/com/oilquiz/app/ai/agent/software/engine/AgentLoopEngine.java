@@ -136,8 +136,6 @@ public class AgentLoopEngine {
             {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
             {"text_tools", "json格式化,json校验,base64,url编码,url解码,正则提取,转大写,转小写,去空白,字数统计,文本处理,编码解码"},
             {"unit_converter", "换算,单位转换,单位换算,厘米,公斤,磅,华氏,摄氏,千米,英里,英寸,英尺,加仑,公顷"},
-            {"ui_component", "对话框,弹窗,toast,提示条,提示框,进度条,进度显示,进度汇报,弹个框,提示一下,弹窗显示"},
-            {"ui_component_plugin", "组件插件,插件系统,创建插件,注册插件,自定义组件,原生ui插件,ui插件,新建组件类型,自定义ui,原生控件,布局框架"},
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
     /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
@@ -243,6 +241,11 @@ public class AgentLoopEngine {
                 selectedTools.add(0, metaTool);
             }
         }
+        // 不注入大 schema 的 UI 工具：ui_component(5464字符)/ui_component_plugin(1382字符)
+        // 光这两个就超 1500 token 预算，会挤掉其他工具并拖慢思考。
+        // 执行不受影响（toolManager.executeTool 直接可用），模型需要时经
+        // tool_registry(get=ui_component) 或 control_lookup 按需获取参数定义。
+        selectedTools.removeIf(n -> "ui_component".equals(n) || "ui_component_plugin".equals(n));
         String toolsJson = buildToolsJson(selectedTools);
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Selected tools: " + selectedTools.size() + " tools, schema len: " + toolsJson.length());
@@ -1265,7 +1268,7 @@ public class AgentLoopEngine {
         sb.append("5. 如果无需调用工具即可回答，直接回答用户即可，严禁输出 tool_call 标签。\n");
         sb.append("6. 需要的工具不在上方列表中时，先调用 tool_registry 工具（list 列出全部工具 / search 按关键词检索 / get 获取单个工具的参数），找到后再调用对应工具。\n");
         sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
-        sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，调用 ui_component 创建原生组件（action=create，component_type 支持 dialog/snackbar/progress/choice/multi_choice/input/date/time/list/notification 等）；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
+        sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，可调用 ui_component 创建原生组件。ui_component 及其插件因参数定义庞大未注入本列表——需要时先调 tool_registry(get=ui_component) 获取参数定义，或用 control_lookup 查询控件参数，再调用；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
         sb.append("9. 涉及当前时间/日期/星期的问题，先调用 time_date 或 dynamic_clock 工具获取；涉及当前位置/附近的问题，先调用 location 工具获取。禁止编造时间、日期或位置。\n");
         sb.append("10. 生成图片/图表（python_chart/image_gen 等）后，必须调用 ui_component（action=create，component_type=image，default_value=返回的图片文件路径或 URL）展示给用户，不能只返回路径文字。\n");
         sb.append("\n");
