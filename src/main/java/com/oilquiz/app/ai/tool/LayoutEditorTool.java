@@ -48,9 +48,12 @@ public class LayoutEditorTool implements AITool {
     public String getDescription() {
         return "布局画布编辑器：动态编辑常驻布局画布（layout_canvas 组件）的控件树。"
                 + "动作:set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。"
-                + "前置:先用 ui_component(action=create, component_type=layout_canvas, layout={...}) 创建画布拿到 component_id。"
-                + "每次编辑后画布即时刷新，输入控件值自动回填。适合 Agent 逐步搭建/调整 UI：先 create 空画布，再 add 一个个控件，"
-                + "或用 set 一次替换整树；用 get 查看当前结构避免重复添加。";
+                + "前置:先用 ui_component(action=create, component_type=layout_canvas, layout={完整含输入控件的布局}) 创建画布拿到 component_id。"
+                + "**注意:create 时就要带完整 layout（含带 key 的 input/select/switch、带 action 的 button），不要只创建空画布**。"
+                + "**重要**:①每个输入控件必须带 key（input/select/switch/checkbox_group/date/number 都要），否则值无法收集;"
+                + "②button 必须带 action;③全程用同一个 component_id，不要反复重建画布;"
+                + "④set 一次性放完整布局，add 放**单个控件节点**（勿传含 children 的容器）。"
+                + "每次编辑后画布即时刷新，控件值自动回填。";
     }
 
     @Override

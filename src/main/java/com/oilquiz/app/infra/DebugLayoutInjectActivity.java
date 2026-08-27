@@ -55,6 +55,15 @@ public class DebugLayoutInjectActivity extends Activity {
                 // （createBuiltinChatComponent → 聊天流卡片渲染）。延迟到 AIChatActivity resume 后执行。
                 String cardType = getIntent().getStringExtra("card_type");
                 String propsJson = getIntent().getStringExtra("props");
+                // 支持 base64 props（shell 传 JSON 转义易错）：props_b64 优先生效
+                String propsB64 = getIntent().getStringExtra("props_b64");
+                if ((propsJson == null || propsJson.isEmpty()) && propsB64 != null && !propsB64.isEmpty()) {
+                    try {
+                        propsJson = new String(android.util.Base64.decode(propsB64, android.util.Base64.DEFAULT), "UTF-8");
+                    } catch (Exception e) {
+                        Log.w(TAG, "props base64 解码失败: " + e.getMessage());
+                    }
+                }
                 final String fType = cardType;
                 final String fProps = propsJson;
                 finish();

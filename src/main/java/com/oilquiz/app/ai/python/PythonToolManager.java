@@ -3371,13 +3371,8 @@ public class PythonToolManager {
             }
             final org.json.JSONObject fInitLayout = initLayout;
 
-            // 画布内容容器：整体重渲染时替换内部 view
+            // 画布内容容器：整体重渲染时替换内部 view（只用一层 ScrollView，避免多层包裹影响输入法）
             final android.widget.ScrollView canvasScroll = new android.widget.ScrollView(act);
-            final android.widget.LinearLayout canvasColumn = new android.widget.LinearLayout(act);
-            canvasColumn.setOrientation(android.widget.LinearLayout.VERTICAL);
-            canvasScroll.addView(canvasColumn, new android.widget.ScrollView.LayoutParams(
-                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
-                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
             setupScrollViewForInput(canvasScroll);
 
             // 会话：当前布局 + 重渲染回调 + 当前值收集
@@ -3395,17 +3390,15 @@ public class PythonToolManager {
             // 重渲染：用 session.layout 重新 render，回填旧值
             final Runnable renderCanvas = () -> {
                 try {
+                    // 1) 先收集当前已渲染控件的值（保留用户输入）——此时 curRefs 是上一个 render 的结果
+                    Map<String, Object> live = com.oilquiz.app.ai.python.NativeLayoutRenderer
+                            .collectValues(curRefs.get());
+                    if (!live.isEmpty()) {
+                        prevValues.set(live);
+                    }
+                    // 2) 重新渲染画布（新 refs）
                     java.util.Map<String, Object> refs = new java.util.HashMap<>();
                     curRefs.set(refs);
-                    if (fInitLayout != null) {
-                        // 先收集上一轮值（若已渲染过）
-                        if (!prevValues.get().isEmpty()) {
-                            // 已有旧值——先 collect 当前（避免覆盖用户在编辑时的输入）
-                            Map<String, Object> live = com.oilquiz.app.ai.python.NativeLayoutRenderer
-                                    .collectValues(curRefs.get());
-                            if (!live.isEmpty()) prevValues.set(live);
-                        }
-                    }
                     org.json.JSONObject layout = session.layout;
                     if (layout == null) layout = fInitLayout;
                     android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
@@ -3416,14 +3409,53 @@ public class PythonToolManager {
                         tvErr.setTextSize(12);
                         v = tvErr;
                     }
-                    // 回填上一轮值
-                    if (!prevValues.get().isEmpty()) {
-                        com.oilquiz.app.ai.python.NativeLayoutRenderer.applyValues(refs, prevValues.get());
+                    // 3) 把上一轮值回填到新控件（保留用户输入）
+                    Map<String, Object> prev = prevValues.get();
+                    if (prev != null && !prev.isEmpty()) {
+                        com.oilquiz.app.ai.python.NativeLayoutRenderer.applyValues(refs, prev);
                     }
-                    canvasColumn.removeAllViews();
-                    canvasColumn.addView(v, new android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                    canvasScroll.removeAllViews();
+                    canvasScroll.addView(v, new android.widget.ScrollView.LayoutParams(
+                            android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                            android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+                    // 重渲染后为新 EditText 注入"点击弹键盘"：layout_editor 编辑画布会重建控件，
+                    // 需重新绑定 IME（仅加 OnClickListener，不覆盖 setupInputView 的 OnTouchListener）
+                    final android.view.View iv = v;
+                    canvasScroll.postDelayed(() -> {
+                        injectEditTextIme(iv, 0);
+                        // 绑定画布内按钮：点击收集全部带 key 控件值并回传 result（与插件弹窗一致）
+                        try {
+                            java.util.List<android.widget.Button> btns = new java.util.ArrayList<>();
+                            collectButtons(iv, btns);
+                            for (final android.widget.Button lb : btns) {
+                                final String btnTag = lb.getTag() != null ? lb.getTag().toString() : "";
+                                lb.setOnClickListener(btnV -> {
+                                    if (rt.result != null && rt.result.get() != null
+                                            && !"pending".equals(rt.result.get())) return;
+                                    Map<String, Object> values = com.oilquiz.app.ai.python.NativeLayoutRenderer
+                                            .collectValues(curRefs.get());
+                                    org.json.JSONObject res = new org.json.JSONObject();
+                                    try {
+                                        res.put("action", btnTag.isEmpty() ? "click" : btnTag);
+                                        res.put("values", new org.json.JSONObject(
+                                                new com.google.gson.Gson().toJson(values)));
+                                    } catch (Exception ex) {
+                                        try {
+                                            res.put("action", btnTag.isEmpty() ? "click" : btnTag);
+                                            res.put("values", values);
+                                        } catch (Exception ignored) {
+                                        }
+                                    }
+                                    Log.i(TAG, "[canvas] button clicked: " + btnTag + " → " + res);
+                                    if (rt.result != null) {
+                                        rt.result.set(res.toString());
+                                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                                    }
+                                });
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }, 200);
                 } catch (Throwable t) {
                     Log.w(TAG, "画布重渲染失败: " + t.getMessage());
                 }
@@ -3451,6 +3483,8 @@ public class PythonToolManager {
                     })
                     .create();
             rt.dialog = dialog;
+            // 画布弹窗统一走 configureDialogInput 的 IME 配置（与 custom 表单一致，保证输入框可弹键盘）；
+            // 不额外设置 FLAG_DIM_BEHIND/setCanceledOnTouchOutside，避免干扰 window 输入焦点链。
             dialog.setOnDismissListener(d -> {
                 com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
                         .unregister(componentId);
