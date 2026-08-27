@@ -377,6 +377,27 @@ typedef void (*PFN_vkDestroyInstance)(VkInstance, const VkAllocationCallbacks*);
 typedef VkResult (*PFN_vkEnumeratePhysicalDevices)(VkInstance, uint32_t*, VkPhysicalDevice*);
 typedef void (*PFN_vkGetPhysicalDeviceProperties)(VkPhysicalDevice, VkPhysicalDeviceProperties*);
 
+/**
+ * 读取系统属性布尔开关（用于 Vulkan 特性门控的真机回归测试）。
+ * 属性置 "1"/"true"（不区分大小写）→ true；其他/缺失 → 默认值。
+ */
+static bool getPropEnabled(const char* name, bool def) {
+    char buf[16] = {0};
+    if (__system_property_get(name, buf) > 0) {
+        // 手动小写比较（避免依赖 <strings.h> 的 strcasecmp）
+        if (strcmp(buf, "1") == 0) return true;
+        char lower[16] = {0};
+        size_t n = strlen(buf);
+        if (n >= sizeof(lower)) n = sizeof(lower) - 1;
+        for (size_t i = 0; i < n; i++) {
+            char c = buf[i];
+            lower[i] = (c >= 'A' && c <= 'Z') ? (char)(c + ('a' - 'A')) : c;
+        }
+        return strcmp(lower, "true") == 0;
+    }
+    return def;
+}
+
 static std::string detectVulkanVersionViaAPI() {
     if (s_vulkanVersionDetected) {
         return s_detectedVulkanVersion;
@@ -722,25 +743,43 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
         }
         
         if (isAdreno) {
-            // Adreno GPU: 多个 Vulkan 特性驱动实现有 bug，全部禁用以保证计算正确性（乱码预防）
-            // coopmat: 矩阵乘法计算结果错误
-            // fusion: shader 融合导致计算异常
-            // graph_optimize: 图形优化导致输出乱码
-            // bfloat16/dot/integer_dot/e2m1/e4m3: Adreno 驱动宣称支持但实现不兼容，实测输出乱码
-            //   （D6：曾对 Adreno 840 豁免 bfloat16/dot 启用，真机输出乱码，回退全禁用）
-            setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);
-            setenv("GGML_VK_DISABLE_COOPMAT2", "1", 1);
-            setenv("GGML_VK_DISABLE_COOPMAT2_DECODE_VECTOR", "1", 1);
-            setenv("GGML_VK_DISABLE_FUSION", "1", 1);
-            setenv("GGML_VK_DISABLE_GRAPH_OPTIMIZE", "1", 1);
-            setenv("GGML_VK_DISABLE_BFLOAT16", "1", 1);
-            setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 1);
-            setenv("GGML_VK_DISABLE_DOT2", "1", 1);
-            // 新 glslc 生成 e2m1/e4m3 变体，Adreno 驱动不兼容（乱码），一并禁用
-            // 注：GGML_VK_DISABLE_F16 不设置——F16 是基础路径，保留
-            __android_log_print(ANDROID_LOG_INFO, "LlamaJNI",
-                "Vulkan: Adreno GPU detected (platform=%s, egl=%s), disabled coopmat+fusion+graph_opt+bfloat16+dot+e4m3+e2m1 (compat safe)",
-                platform, egl_renderer);
+            // Adreno GPU: 多个 Vulkan 特性驱动实现有 bug，默认全部禁用（乱码预防）。
+            // 历史：D6 曾对 Adreno 840 豁免 bfloat16/dot 启用，真机输出乱码，回退全禁用。
+            //
+            // 运行时特性门控（用于真机回归测试，无需重新编译）：
+            //   每个特性对应一个系统属性，置 1 表示"启用该特性"（即不设禁用 env）：
+            //     setprop persist.ggml.vk.coopmat 1    # 矩阵乘法加速（已知 Adreno 结果错误，默认禁）
+            //     setprop persist.ggml.vk.coopmat2 1
+            //     setprop persist.ggml.vk.coopmat2dv 1 # coopmat2_decode_vector
+            //     setprop persist.ggml.vk.fusion 1     # shader 融合（曾致计算异常，默认禁）
+            //     setprop persist.ggml.vk.graphopt 1   # 图形优化（曾致乱码，默认禁）
+            //     setprop persist.ggml.vk.bfloat16 1   # bfloat16 变体（D6 乱码，新驱动可复测）
+            //     setprop persist.ggml.vk.dot 1        # integer dot product（D6 乱码，可复测）
+            //     setprop persist.ggml.vk.dot2 1
+            //   一键全部启用（仅测试，勿在生产使用）：
+            //     setprop persist.ggml.vk.safe 0
+            // 注意：bfloat16/e4m3/dot 的加速变体还依赖构建期的 glslc/shaderc——
+            //   当前用 NDK glslc 2022.3 不生成这些变体，需换新版 shaderc 重新构建后才有效。
+            //   重启 app 后属性生效（setenv 在 JNI_OnLoad 执行）。
+            bool safeMode = getPropEnabled("persist.ggml.vk.safe", true);
+            if (!safeMode) {
+                // 测试用：全部启用（不设任何禁用 env）
+                __android_log_print(ANDROID_LOG_WARN, "LlamaJNI",
+                    "Vulkan: OVERRIDE persist.ggml.vk.safe=0 -> ALL features enabled (TEST ONLY, garbled/crash risk)");
+            } else {
+                if (!getPropEnabled("persist.ggml.vk.coopmat", false))  setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.coopmat2", false)) setenv("GGML_VK_DISABLE_COOPMAT2", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.coopmat2dv", false)) setenv("GGML_VK_DISABLE_COOPMAT2_DECODE_VECTOR", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.fusion", false))    setenv("GGML_VK_DISABLE_FUSION", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.graphopt", false))  setenv("GGML_VK_DISABLE_GRAPH_OPTIMIZE", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.bfloat16", false))  setenv("GGML_VK_DISABLE_BFLOAT16", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.dot", false))       setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 1);
+                if (!getPropEnabled("persist.ggml.vk.dot2", false))      setenv("GGML_VK_DISABLE_DOT2", "1", 1);
+                // 注：GGML_VK_DISABLE_F16 不设置——F16 是基础路径，保留
+                __android_log_print(ANDROID_LOG_INFO, "LlamaJNI",
+                    "Vulkan: Adreno GPU detected (platform=%s, egl=%s), default features disabled (overridable via persist.ggml.vk.*)",
+                    platform, egl_renderer);
+            }
         } else {
             // 非 Adreno GPU (Mali/其他): 不禁用任何特性
             __android_log_print(ANDROID_LOG_INFO, "LlamaJNI", 
