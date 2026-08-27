@@ -522,23 +522,73 @@ public class AgentLoopEngine {
                 break;
             }
 
-            // 执行所有新工具调用，结果以 tool role 追加到历史（P1-3：本地 toolManager，R4-1：带 tool_call_id）
-            for (ToolCall tc : freshCalls) {
+            // ===== 并行执行所有新工具调用（结果按调用顺序回填，保证 tool_call_id 配对）=====
+            // 每个工具一个线程执行（executeToolSafely 内部已带工具级超时），
+            // 全部完成后按 freshCalls 原顺序逐个追加到历史——
+            // Qwen 模板按 assistant.tool_calls 的 id 与 tool 消息的 tool_call_id 配对，
+            // 回填顺序必须与调用顺序一致，否则模板解析错乱。
+            // 单工具场景退化为等价串行（多一层线程，无行为差异）。
+            int callCount = freshCalls.size();
+            final Object[] parResults = new Object[callCount]; // AIToolResult 或 Throwable
+            final boolean[] parDone = new boolean[callCount];
+            Thread[] parWorkers = new Thread[callCount];
+            for (int i = 0; i < callCount; i++) {
+                final ToolCall tc = freshCalls.get(i);
+                final int idx = i;
+                Thread t = new Thread(() -> {
+                    try {
+                        parResults[idx] = executeToolSafely(tc.toolName, tc.args);
+                    } catch (Throwable th) {
+                        parResults[idx] = th;
+                    } finally {
+                        synchronized (parDone) {
+                            parDone[idx] = true;
+                            parDone.notifyAll();
+                        }
+                    }
+                }, "agent-tool-par-" + idx);
+                t.setDaemon(true);
+                parWorkers[idx] = t;
+                t.start();
+            }
+            // 等待全部完成（总超时 = TOOL_TIMEOUT_MS，单个工具卡死不拖住整轮）
+            long parDeadline = System.currentTimeMillis() + TOOL_TIMEOUT_MS;
+            synchronized (parDone) {
+                while (System.currentTimeMillis() < parDeadline) {
+                    boolean allDone = true;
+                    for (boolean f : parDone) {
+                        if (!f) {
+                            allDone = false;
+                            break;
+                        }
+                    }
+                    if (allDone) break;
+                    try {
+                        parDone.wait(500);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            // 按原顺序回填（onToolCall/onToolResult 回调保持有序，UI 展示不乱）
+            for (int i = 0; i < callCount; i++) {
+                ToolCall tc = freshCalls.get(i);
                 toolCallCount++;
-                String toolName = tc.toolName;
-                String argsStr = tc.args.toString();
-
-                if (callback != null) callback.onToolCall(toolName, argsStr);
-
-                // 本地工具执行（spec §7.2.2.1：AIToolResult 适配）
-                AIToolResult result = executeToolSafely(toolName, tc.args);
+                if (callback != null) callback.onToolCall(tc.toolName, tc.args.toString());
+                AIToolResult result;
+                if (parResults[i] instanceof AIToolResult) {
+                    result = (AIToolResult) parResults[i];
+                } else if (parResults[i] instanceof Throwable) {
+                    result = AIToolResult.fail("工具异常: " + ((Throwable) parResults[i]).getMessage());
+                } else {
+                    result = AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
+                }
                 boolean success = result.isSuccess();
                 String resultStr = success ? String.valueOf(result.getResult()) : result.getErrorMessage();
-
-                if (callback != null) callback.onToolResult(toolName, success, resultStr);
-
+                if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
-                AILogger.i(TAG, "Tool " + toolName + (success ? " OK" : " FAIL")
+                AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")
                         + ": " + truncate(resultStr, 100));
             }
 
