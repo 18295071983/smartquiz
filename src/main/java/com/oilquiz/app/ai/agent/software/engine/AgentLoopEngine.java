@@ -76,10 +76,10 @@ public class AgentLoopEngine {
     private static final int ITER_MAX_TOKENS = 500;
     /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
     private static final int MAX_TOOLS_PER_RUN = 5;
-    /** 工具 schema 的 token 预算：1500 ≈ 20-25 个工具定义。
-     *  关键词命中工具优先注入，超预算的长尾工具经 tool_registry（list/search/get）
-     *  按需检索，为多轮对话历史留出更多上下文空间 */
-    private static final int MAX_SCHEMA_TOKENS = 1500;
+    /** 工具 schema 的 token 预算：描述已截断为精简版（≤150 字符/工具），
+     *  2000 token 可容纳全部 ~40 个工具注入——模型一眼看全工具池，
+     *  减少 tool_registry 检索跳数；关键词命中工具仍排最前优先注入 */
+    private static final int MAX_SCHEMA_TOKENS = 2000;
     /** 注入的工具描述最大字符数：超过则截断为精简版（完整描述经
      *  tool_registry(get=工具名) 按需获取），缩小注入 schema 让更多工具进预算 */
     private static final int MAX_TOOL_DESC_CHARS = 150;
