@@ -80,6 +80,9 @@ public class AgentLoopEngine {
      *  关键词命中工具优先注入，超预算的长尾工具经 tool_registry（list/search/get）
      *  按需检索，为多轮对话历史留出更多上下文空间 */
     private static final int MAX_SCHEMA_TOKENS = 1500;
+    /** 注入的工具描述最大字符数：超过则截断为精简版（完整描述经
+     *  tool_registry(get=工具名) 按需获取），缩小注入 schema 让更多工具进预算 */
+    private static final int MAX_TOOL_DESC_CHARS = 150;
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
@@ -1237,7 +1240,7 @@ public class AgentLoopEngine {
 
         sb.append("【规则】\n");
         sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。\n");
-        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索；UI控件参数→control_lookup；建UI→ui_component（参数庞大未注入，先 tool_registry(get=ui_component) 取定义）；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
+        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
         sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。\n");
         sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
         sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
@@ -1360,7 +1363,14 @@ public class AgentLoopEngine {
                 tool.put("type", "function");
                 JSONObject function = new JSONObject();
                 function.put("name", def.getName());
-                function.put("description", def.getDescription());
+                // 结构优化：注入的 description 只保留精简版（≤150 字符）。
+                // 完整描述/参数仍经 tool_registry(get=工具名) 按需获取——
+                // 大幅缩小注入 schema，让更多工具挤进预算，模型需要细节时检索。
+                String desc = def.getDescription();
+                if (desc != null && desc.length() > MAX_TOOL_DESC_CHARS) {
+                    desc = desc.substring(0, MAX_TOOL_DESC_CHARS) + "…";
+                }
+                function.put("description", desc);
                 JSONObject params = new JSONObject();
                 params.put("type", "object");
                 JSONObject props = new JSONObject();
