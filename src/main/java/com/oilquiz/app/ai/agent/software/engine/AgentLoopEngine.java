@@ -133,14 +133,32 @@ public class AgentLoopEngine {
         }
     }
 
-    /** 关键词路由表：3 个工具（时间已由环境上下文注入，无需工具） */
+    /** 关键词路由表：零 decode 的意图识别——消息命中关键词即把对应工具注入首轮集，
+     *  常见请求单跳直达（省 tool_registry 两跳 decode），并给模型"用户要什么"的提示 */
     private static final String[][] TOOL_ROUTES = {
             {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
             {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
             {"time_date", "时间,日期,几点,今天几号,星期几,现在几点,当前时间,几月几号"},
-            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价"},
+            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价,百度,谷歌"},
             {"text_tools", "json格式化,json校验,base64,url编码,url解码,正则提取,转大写,转小写,去空白,字数统计,文本处理,编码解码"},
             {"unit_converter", "换算,单位转换,单位换算,厘米,公斤,磅,华氏,摄氏,千米,英里,英寸,英尺,加仑,公顷"},
+            {"calculator", "计算,算一下,算算,数学,求和,平均,等于多少,多少钱"},
+            {"image_gen", "画图,画一张,生成图片,生成图像,画个,画一只,画一幅,ai绘图"},
+            {"python_chart", "柱状图,折线图,饼图,散点图,数据可视化,生成图表,图表,画个图,画图表"},
+            {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我,记忆"},
+            {"speech_synthesis", "朗读,读出来,念出来,播报,语音播报,语音朗读,帮我读"},
+            {"voice_input", "语音输入,听写,录音识别,语音转文字,语音打字"},
+            {"excel_tool", "excel,表格文件,xlsx,xls,电子表格"},
+            {"file_reader", "读文件,读取文件,打开文件,文件内容,查看文件,读一下,看看文件"},
+            {"workspace", "工作区,保存的文件,生成的文件,工作区文件,看看我生成的文件"},
+            {"database", "题库,查题,题目,知识点,刷题,考题"},
+            {"system_resource", "内存,cpu,电量,存储空间,系统信息,手机信息,运行内存"},
+            {"app_operation", "打开应用,打开app,启动应用,打开微信,打开浏览器,打开设置"},
+            {"tool_registry", "工具列表,有哪些工具,工具介绍,会什么,可用工具,工具箱,你能做什么"},
+            {"get_models_profile", "模型列表,有哪些模型,模型信息,支持什么模型,模型上下文"},
+            {"permission_manager", "权限,授权,权限设置,开启权限,权限管理,权限检查"},
+            {"webpage_reader", "网页,链接,网址,url,http,打开网页,看网页,读网页"},
+            {"file_generator", "生成文件,写文件,创建文件,保存为,导出文档,生成md,写markdown"},
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
     /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
@@ -1240,7 +1258,7 @@ public class AgentLoopEngine {
         // FC 模式不注入环境上下文：时间/位置经工具获取（见规则 3）
 
         sb.append("【规则】\n");
-        sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。\n");
+        sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。已注入的工具即本次最相关工具，优先直接用，勿为了凑数调用无关工具。\n");
         sb.append("2. 工具不在列表→tool_registry(list/search/get)检索；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
         sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。\n");
         sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
