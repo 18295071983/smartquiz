@@ -237,42 +237,28 @@ public class AgentLoopEngine {
             userMessage = userMessage.substring(0, MAX_USER_MESSAGE_CHARS) + "…";
         }
 
-        // 智能工具选择：只注入与本次问题相关的工具，不再全量加载（旧版全量注入会塞满上下文导致 decode 崩溃）
+        // 按需动态注入：初始只注入与本次问题相关（关键词命中）的工具 + 检索入口，
+        // 不一股脑全量注入。FC 循环中模型实际调用/检索到的工具，会按需加入注入集
+        // （见 FC 循环内 activeTools 增长逻辑），需要哪个工具注入哪个。
         List<String> selectedTools = selectRelevantTools(userMessage);
-        if (aiConfig != null && aiConfig.isFcEnabled()) {
-            // FC 模式：关键词命中工具优先注入（最相关，预算内必保），
-            // 其余全池按注册序补齐；超 MAX_SCHEMA_TOKENS=1500 的长尾工具
-            // 被 buildToolsJson 裁剪，模型可经 tool_registry（list/search/get）检索。
-            // 给多轮历史留出上下文，同时保证核心工具单跳可用。
-            List<String> allTools = toolManager.getRegisteredToolNames();
-            List<String> expanded = new ArrayList<>(selectedTools);
-            for (String t : allTools) {
-                if (!expanded.contains(t)) expanded.add(t);
-            }
-            if (expanded.size() > selectedTools.size()) {
-                selectedTools = expanded;
-                AILogger.i(TAG, "FC mode: keyword tools first + pool tail (" + expanded.size() + " tools)");
-            }
-        }
         // 检索型工具始终注入（逃生口）：
-        // - tool_registry：工具发现（list/search/get），超预算工具/意图外工具的入口
-        // - control_lookup：低频 UI 控件参数查询（视频/图表/二维码等），
-        //   系统提示词只列高频控件，建 UI 时需按关键词查精确参数字段
+        // - tool_registry：工具发现（list/search/get），模型主动查询需要的工具
+        // - control_lookup：低频 UI 控件参数查询
         for (String metaTool : new String[]{"tool_registry", "control_lookup"}) {
             if (!selectedTools.contains(metaTool)) {
                 selectedTools.add(0, metaTool);
             }
         }
-        // 不注入大 schema 的 UI 工具：ui_component(5464字符)/ui_component_plugin(1382字符)
-        // 光这两个就超 1500 token 预算，会挤掉其他工具并拖慢思考。
-        // 执行不受影响（toolManager.executeTool 直接可用），模型需要时经
-        // tool_registry(get=ui_component) 或 control_lookup 按需获取参数定义。
+        // 不注入大 schema 的 UI 工具：执行不受影响（toolManager.executeTool 直接可用），
+        // 模型需要时经 tool_registry(get=ui_component) 或 control_lookup 按需获取参数定义。
         selectedTools.removeIf(n -> "ui_component".equals(n) || "ui_component_plugin".equals(n));
-        String toolsJson = buildToolsJson(selectedTools);
+        // 动态注入集合：初始 = 关键词命中 + 检索入口；FC 循环按模型实际使用增长
+        final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(selectedTools);
+        String toolsJson = buildToolsJson(new ArrayList<>(activeTools));
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
-        AILogger.i(TAG, "Selected tools: " + selectedTools.size() + " tools, schema len: " + toolsJson.length());
+        AILogger.i(TAG, "Initial tools: " + activeTools.size() + " tools, schema len: " + toolsJson.length());
         if (aiConfig != null && aiConfig.isFcEnabled()) {
-            showToast("🤖 本地Agent就绪: " + selectedTools.size() + " 个工具（关键词优先，其余可检索）");
+            showToast("🤖 本地Agent就绪: " + activeTools.size() + " 个核心工具（按需可查询更多）");
         }
 
         // 单次推理的 prompt token 预算（结合配置上下文容量）
@@ -357,6 +343,12 @@ public class AgentLoopEngine {
                 callback.onIterationStart(iteration, "第 " + iteration + " 轮推理");
             }
 
+            // 动态注入：每轮从 activeTools 重建 schema——模型已调用/检索过的工具
+            // 按需加入注入集（需要哪个注入哪个，不一股脑全量），
+            // 初始集外的工具经 tool_registry 查询后由模型调用时自动注入。
+            toolsJson = buildToolsJson(new ArrayList<>(activeTools));
+            toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
+
             // 每轮推理前裁剪历史，确保单次推理 prompt 不超预算（防截断/decode崩溃）
             history = trimHistoryToFit(history, toolsJson, promptBudget);
 
@@ -430,6 +422,15 @@ public class AgentLoopEngine {
                     ? genResult.toolCalls : new ArrayList<>();
             if (toolCalls.isEmpty() && response != null) {
                 toolCalls = parseToolCallsTag(response);
+            }
+
+            // 按需动态注入：模型本轮调用/检索到的工具加入注入集，下轮起注入其 schema
+            // （tool_registry 查到的工具由模型实际调用后自动注入，无需手动全量）
+            for (ToolCall tc : toolCalls) {
+                if (tc.toolName != null && !tc.toolName.isEmpty() && !activeTools.contains(tc.toolName)) {
+                    activeTools.add(tc.toolName);
+                    AILogger.i(TAG, "Dynamic injection: added tool " + tc.toolName + " to active set");
+                }
             }
 
             // R4-1：执行工具前补齐 tool_call id（assistant 消息与 tool 消息共用同一 id）
