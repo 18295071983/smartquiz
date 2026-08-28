@@ -1225,60 +1225,35 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词：对齐 Qwen-Agent nous_fncall_prompt 约定。
-     * 仅当 local_fc_enabled 开启、模型需要自主调用工具时使用。
-     * 核心：明确工具调用输出格式（<tool_call> JSON 标签，Qwen3 原生格式）、
-     * 支持一轮多个工具调用、工具结果以 tool 消息返回、无需工具时直接回答。
-     * 说明：llama.cpp 的 Qwen chat 模板在注入 tools 后也会附加工具指令，
-     * 此段为模板之外的兜底强化（覆盖模板未覆盖的旧模板/自定义模板场景）。
+     * FC 模式的 system 提示词（精简版，控制 prompt 体积→推理速度）。
+     * 要点：llama.cpp 的 Qwen chat 模板注入 tools 后自带工具调用指令与格式，
+     * 此处只保留模板不覆盖的关键行为（检索/UI/时间/展示/记忆），
+     * 删掉重复的格式长文与示例（省 ~1200 token/轮）。
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是答题宝AI助手，一个可以使用工具完成任务的智能助手。请用中文简洁回答。\n\n");
-        // 注意：FC 模式下不注入环境上下文（时间/位置）——模型需要时通过
-        // time_date / dynamic_clock / location 工具自行获取（见规则 9），
-        // 节省 prompt token 且行为与"agent 按需取数"设计一致。
+        sb.append("你是答题宝AI助手，可用工具完成任务，中文简洁回答。\n\n");
+        // FC 模式不注入环境上下文：时间/位置经工具获取（见规则 3）
 
+        sb.append("【规则】\n");
+        sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。\n");
+        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索；UI控件参数→control_lookup；建UI→ui_component（参数庞大未注入，先 tool_registry(get=ui_component) 取定义）；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
+        sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。\n");
+        sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
+        sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
         sb.append("\n");
-        sb.append("【工具使用规则】\n");
-        sb.append("1. 你可以调用下方提供的工具来完成用户请求；工具的执行结果会以 tool 消息返回给你。\n");
-        sb.append("2. 需要调用工具时，必须严格使用以下格式（arguments 为合法的 JSON 对象，参数名与工具定义一致）：\n");
-        sb.append("<tool_call>{\"name\":\"工具名\",\"arguments\":{\"参数名\":\"参数值\"}}</tool_call>\n");
-        sb.append("3. 一轮可以输出多个工具调用（并行），每个调用独立成块，例如：\n");
-        sb.append("<tool_call>{\"name\":\"ai_weather\",\"arguments\":{\"city\":\"北京\"}}</tool_call>\n");
-        sb.append("<tool_call>{\"name\":\"calculator\",\"arguments\":{\"expression\":\"127*3\"}}</tool_call>\n");
-        sb.append("4. 收到工具结果后，基于结果继续推理；所有必要信息齐备后，直接给出最终回答，不再输出 tool_call。\n");
-        sb.append("5. 如果无需调用工具即可回答，直接回答用户即可，严禁输出 tool_call 标签。\n");
-        sb.append("6. 需要的工具不在上方列表中时，先调用 tool_registry 工具（list 列出全部工具 / search 按关键词检索 / get 获取单个工具的参数），找到后再调用对应工具。\n");
-        sb.append("7. 需要创建含低频 UI 控件（视频/音频/图表/二维码/日期/轮播等）的界面时，先用 control_lookup 工具（search/list）查询该控件的精确参数字段，再调用 ui_component 创建。\n");
-        sb.append("8. 用户要求弹窗/对话框/提示条/进度条/选择项/输入框/日期时间/列表/通知等 UI 交互时，可调用 ui_component 创建原生组件。ui_component 及其插件因参数定义庞大未注入本列表——需要时先调 tool_registry(get=ui_component) 获取参数定义，或用 control_lookup 查询控件参数，再调用；choice/input 组件可向用户收集信息，收到用户选择后继续完成任务。\n");
-        sb.append("9. 涉及当前时间/日期/星期的问题，先调用 time_date 或 dynamic_clock 工具获取；涉及当前位置/附近的问题，先调用 location 工具获取。禁止编造时间、日期或位置。\n");
-        sb.append("10. 生成图片/图表（python_chart/image_gen 等）后，必须调用 ui_component（action=create，component_type=image，default_value=返回的图片文件路径或 URL）展示给用户，不能只返回路径文字。\n");
-        sb.append("\n");
-        sb.append("【图片生成】\n");
-        sb.append("- 用户要求生成/绘制图片时，优先调用 image_gen 工具生成（生成后按规则 10 展示），图表数据可视化用 python_chart；不要用 python_execute 绕路。\n");
-        sb.append("\n");
-        sb.append("【输出要求】\n");
-        sb.append("- 用中文自然回答，先给结论再补关键细节，简洁有条理。\n");
-        sb.append("- 结构信息（列表/表格/指标/步骤/待办/天气/文件等）优先用 ui_component 创建卡片展示，而不是纯文本或 Markdown 表格。\n");
-        sb.append("- 使用了工具就在回答中自然融入工具结果并说明来源；工具失败时说明原因并给出替代建议。\n");
-        sb.append("\n");
-        sb.append("【推理与完成】\n");
-        sb.append("- 可以多轮推理和调用工具，每轮工具结果返回后继续思考。\n");
-        sb.append("- 每次执行后判断是否完成任务：已完成则给出最终结论；未完成则继续调用工具或补充分析，不要重复已执行的调用。\n");
-        sb.append("- 需要用户提供信息/选择/确认时，用 ui_component 创建 choice/input/dialog 等交互组件询问（get_result 取结果），不要干等或只问文字。\n");
-        sb.append("\n");
-        sb.append("【长期记忆】\n");
-        sb.append("你拥有跨会话记忆能力（memory 工具），可记住用户信息并在后续对话中运用：\n");
-        sb.append("- 保存：用户明确要求记住、或主动告知个人信息/偏好（如名字、地址、喜好、习惯）时，调用 memory save（key 用英文短词如 user_name/preference_city，value 为内容）；不要擅自把普通聊天内容存为记忆。\n");
-        sb.append("- 读取：需要回忆用户历史信息时调用 memory recall 或 memory list。\n");
-        sb.append("- 删除：用户要求忘记某条记忆时调用 memory delete。\n");
+        sb.append("【记忆】\n");
+        sb.append("跨会话记忆（memory 工具）：用户要求记住或主动告知个人信息/偏好时 save（key 用英文短词）；回忆用 recall/list；忘记用 delete。\n");
         if (appContext != null) {
             try {
                 String memorySummary = com.oilquiz.app.ai.agent.online.AgentMemoryStore
                         .getInstance(appContext).buildMemorySummary();
                 if (memorySummary != null && !memorySummary.isEmpty()) {
-                    sb.append("【已保存的记忆（回答时可自然运用）】\n").append(memorySummary).append("\n");
+                    // 摘要超 800 字符截断，控制 prompt 体积
+                    if (memorySummary.length() > 800) {
+                        memorySummary = memorySummary.substring(0, 800) + "…";
+                    }
+                    sb.append("【已存记忆】").append(memorySummary).append("\n");
                 }
             } catch (Throwable t) {
                 AILogger.w(TAG, "Memory summary injection failed: " + t.getMessage());
