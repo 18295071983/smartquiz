@@ -62,16 +62,16 @@ public class AgentLoopEngine {
     private static final double PROMPT_BUDGET_RATIO = 0.8;
     /** 工具结果最大字符数（超长时截断，节省上下文） */
     private static final int MAX_TOOL_RESULT_LENGTH = 2000;
-    /** 最终回复最大生成 token（与预算计算保持一致） */
-    private static final int FINAL_RESPONSE_MAX_TOKENS = 1000;
+    /** 最终回复最大生成 token：1000→2000，长回答（多工具总结/长文输出）不再被截断 */
+    private static final int FINAL_RESPONSE_MAX_TOKENS = 2000;
     /** 普通对话（意图未命中）最大生成 token：小模型生成慢，500 足够普通回答 */
     private static final int PLAIN_CHAT_MAX_TOKENS = 500;
     /** 工具执行超时（毫秒） */
     private static final long TOOL_TIMEOUT_MS = 15000;
     /** 工具失败重试次数 */
     private static final int MAX_RETRIES = 1;
-    /** 同步调用超时（毫秒） */
-    private static final long SYNC_TIMEOUT_MS = 60000;
+    /** 同步调用超时（毫秒）：必须大于 C++ 生成超时(300s)，否则 Java 先放弃导致回答被掐断 */
+    private static final long SYNC_TIMEOUT_MS = 320000;
     /** 单轮推理最大生成 token（与预算计算保持一致） */
     private static final int ITER_MAX_TOKENS = 500;
     /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
@@ -181,6 +181,8 @@ public class AgentLoopEngine {
     /** UI 交互辅助：程序直接用 ui_component 组件与用户交互（追问/确认/进度/卡片） */
     private final UiInteractor uiInteractor;
     private LoopCallback callback;
+    /** 最近一次 chatJson 生成是否已有正文 token 流式输出到 UI（防重复回复，见 run()） */
+    private volatile boolean lastStreamed = false;
 
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
@@ -349,6 +351,12 @@ public class AgentLoopEngine {
         String lastMeaningfulResponse = null;
         boolean forcedByLoopGuard = false;
 
+        // 最近一次 chatJson 生成是否已有正文 token 流式输出到 UI：
+        // - 迭代内直接回答路径：token 已流式 → 迭代结束不重复 streamDirectAnswer
+        // - 统一退出路径：generateFinalAnswer 也走 chatJson 流式 → 同样不重复推
+        // 每轮迭代开始重置，退出路径读最后一次状态
+        lastStreamed = false;
+
         for (int iteration = 1; iteration <= getAgentMaxIterations(); iteration++) {
             // 总时长预算：超时直接收尾，避免长时间卡死
             if (System.currentTimeMillis() - startTime > TOTAL_TIME_BUDGET_MS) {
@@ -360,6 +368,12 @@ public class AgentLoopEngine {
             if (callback != null) {
                 callback.onIterationStart(iteration, "第 " + iteration + " 轮推理");
             }
+
+            // 本轮是否已有正文 token 流式输出到 UI：
+            // 若 chatJson 的 onToken 已推送过正文（模型直接回答路径），
+            // 迭代结束就不再 streamDirectAnswer 重推一遍（防重复回复）
+            final boolean[] streamedThisIteration = {false};
+            lastStreamed = false;
 
             // 动态注入：每轮从 activeTools 重建 schema——模型已调用/检索过的工具
             // 按需加入注入集（需要哪个注入哪个，不一股脑全量），
@@ -388,7 +402,7 @@ public class AgentLoopEngine {
             try {
                 if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
                     // 新协议：chatJson → 统一 onJson 事件
-                    genResult = generateWithChatJsonSync(requestJson);
+                    genResult = generateWithChatJsonSync(requestJson, streamedThisIteration);
                 } else {
                     // 回退开关：旧 generateWithTools 路径
                     genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
@@ -493,7 +507,13 @@ public class AgentLoopEngine {
                 // ===== 降级重试结束 =====
 
                 // 模型的回答即最终答案：直接流式输出，不再二次生成
-                streamDirectAnswer(cleanResponse);
+                // 防重复：若本轮 token 已流式输出到 UI（onToken 推送过正文），
+                // 只发 onComplete 收尾，不重复 streamDirectAnswer
+                if (!streamedThisIteration[0]) {
+                    streamDirectAnswer(cleanResponse);
+                } else {
+                    AILogger.i(TAG, "Answer already streamed via tokens, skipping re-stream");
+                }
                 if (callback != null) callback.onComplete(cleanResponse);
                 return buildResponse(cleanResponse, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, iteration);
             }
@@ -638,7 +658,13 @@ public class AgentLoopEngine {
         }
         if (!clean.isEmpty() && !isPromptLeakage(clean)) {
             AILogger.i(TAG, "Using final answer: " + truncate(clean, 80));
-            streamDirectAnswer(clean);
+            // 防重复：generateFinalAnswer 已通过 chatJson onToken 流式输出正文时，
+            // 不重复 streamDirectAnswer（lastStreamed 记录最近一次生成是否流式过）
+            if (!lastStreamed) {
+                streamDirectAnswer(clean);
+            } else {
+                AILogger.i(TAG, "Final answer already streamed via tokens, skipping re-stream");
+            }
             if (callback != null) callback.onComplete(clean);
             return buildResponse(clean, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
         }
@@ -681,7 +707,8 @@ public class AgentLoopEngine {
             if (requestJson == null) return null;
 
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
-                return generateWithChatJsonSync(requestJson);
+                // 传 null：不重置本轮标志；onToken 内部仍会更新 lastStreamed 记录流式状态
+                return generateWithChatJsonSync(requestJson, null);
             }
             // 旧路径：不带工具生成（native 层 tools 为空 → tool_choice=NONE）
             return generateWithToolsSync(summaryHistory, new byte[0],
@@ -708,7 +735,7 @@ public class AgentLoopEngine {
                     PLAIN_CHAT_MAX_TOKENS, enableThinking);
             if (requestJson == null) return null;
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
-                return generateWithChatJsonSync(requestJson);
+                return generateWithChatJsonSync(requestJson, null);
             }
             return generateWithToolsSync(trimmed, new byte[0],
                     PLAIN_CHAT_MAX_TOKENS, 0.6f, enableThinking);
@@ -841,7 +868,7 @@ public class AgentLoopEngine {
      * LlamaHelper.chatJson → C++ chatJson → 统一 onJson 事件。
      * onJson 状态机：token(流式) / tool_call(收集) / reasoning(思考) / complete(本轮结束) / error(终止)
      */
-    private GenerateResult generateWithChatJsonSync(String requestJson) {
+    private GenerateResult generateWithChatJsonSync(String requestJson, final boolean[] streamedFlag) {
         CountDownLatch latch = new CountDownLatch(1);
         final List<ToolCall> toolCallsHolder = new ArrayList<>();
         final StringBuilder reasoningBuf = new StringBuilder();
@@ -861,8 +888,14 @@ public class AgentLoopEngine {
                             // is_tool_call=true 的 token（tool_call JSON 片段）吞掉不渲染（§5.2）
                             if (!event.optBoolean("is_tool_call", false)) {
                                 String token = event.optString("content", "");
-                                if (!token.isEmpty() && callback != null) {
-                                    callback.onToken(token);
+                                if (!token.isEmpty()) {
+                                    if (streamedFlag != null) {
+                                        streamedFlag[0] = true;      // 正文已流式输出（本轮）
+                                    }
+                                    lastStreamed = true;             // 最近一次生成有正文流式输出
+                                    if (callback != null) {
+                                        callback.onToken(token);
+                                    }
                                 }
                             }
                             break;
@@ -1268,7 +1301,7 @@ public class AgentLoopEngine {
         sb.append("【规则】\n");
         sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。已注入的工具即本次最相关工具，优先直接用，勿为了凑数调用无关工具。\n");
         sb.append("2. 工具不在列表→tool_registry(list/search/get)检索，name 必须用列表或检索结果中的准确工具名，勿猜测缩写；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
-        sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。\n");
+        sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。查天气时缺城市/经纬度就不要传 city，程序会自动补当前位置（勿猜北京/上海等默认城市）；若用户明确说了城市则用用户说的。\n");
         sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
         sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
         sb.append("\n");
@@ -1472,6 +1505,10 @@ public class AgentLoopEngine {
                 .replaceAll("(?s)<thought>.*?</thought>", "")
                 .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
+                // 剥 tool_call 标签（模型输出 tool_call 后未闭合/残留，防 TTS 朗读标签文本）
+                .replaceAll("(?s)<tool_call>.*?</tool_call>", "")
+                .replaceAll("(?s)<tool_call[^>]*>", "")
+                .replaceAll("(?s)</tool_call[^>]*>", "")
                 // 剥 ChatML 标记（模型偶尔输出模板前缀 <|im_start|>assistant / <|im_end|>）
                 .replaceAll("<\\|im_start\\|>\\s*assistant", "")
                 .replaceAll("<\\|im_start\\|>", "")

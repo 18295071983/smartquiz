@@ -283,6 +283,17 @@ static std::string stripThinkTags(const std::string& input) {
     replaceAll("<|im_start|>", "");
     replaceAll("<|im_end|>", "");
     replaceAll("<|im_start|>assistant", "");
+    // 清理 tool_call 标签（完整块 + 残留碎片）：
+    // 模型偶尔输出 tool_call 后未闭合/直接结束，标签会残留在正文里被 TTS 朗读
+    // （实测 "<toolcall" / "</toolcall" 泄漏）。整块剥除 + 碎片标签剔除。
+    replaceAll("<tool_call>", "");
+    replaceAll("</tool_call>", "");
+    replaceAll("<tool_call", "");
+    replaceAll("</tool_call", "");
+    replaceAll("<toolcall", "");
+    replaceAll("</toolcall", "");
+    // 工具调用残留的 JSON 头（如 {"name":"location","arguments": 后无闭合）无法可靠剥离，
+    // 但标签剥掉后剩余散件由 Java cleanResponse 兜底。
     return cleaned;
 }
 
@@ -1471,11 +1482,16 @@ public:
         endTime = std::chrono::steady_clock::now();
         elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
 
-        // GPU 预热：Vulkan shader pipeline 在首次计算图执行时才惰性编译。
+        // GPU 预热：Vulkan/OpenCL shader pipeline 在首次计算图执行时才惰性编译。
         // 驱动不兼容（如 Adreno 750 上 createComputePipeline: ErrorUnknown）会在
         // 首次推理时抛未捕获 vk::SystemError 直接 SIGABRT 崩进程。
         // 这里用 1 个 token 解码预热，强制编译 shader；异常被接住后置 ctx=nullptr，
         // 走下方已有的 GPU->CPU 回退链路自动降级。
+        // 2026-08 增强：OpenCL kernel 按 batch shape 惰性编译，1-token 只编译了
+        // 1-token 路径；真实 prefill 是 256-token batch（n_batch=256），首次执行时
+        // 仍要现场编译 → 首轮全量 eval 实测慢到 14s/1193 tokens。
+        // 故追加一个 256-token 的 warmup decode（与真实 batch 同 shape），
+        // 把 prefill 用 kernel 全部预编译，首轮即可满速。
         if (ctx != nullptr && this->gpuLayers > 0) {
             try {
                 const char warmText[] = " ";
@@ -1499,6 +1515,32 @@ public:
                             ctx = nullptr;
                         } else {
                             LOGI("GPU warmup decode OK (shader pipelines compiled)");
+                            // 追加 batch-shape 预热：256 tokens 与真实 prefill 同 shape，
+                            // 预编译 batch kernel，消除首轮全量 eval 的现场编译延迟
+                            if (ctx != nullptr) {
+                                int warmupBatch = 256;
+                                // 用重复 token 构造 256-token 序列（不依赖词表内容）
+                                std::vector<llama_token> batchTokens(warmupBatch, warmTokens[0]);
+                                llama_batch wb2 = llama_batch_init(warmupBatch, 0, 1);
+                                for (int i = 0; i < warmupBatch; i++) {
+                                    wb2.token[i] = batchTokens[i];
+                                    wb2.pos[i] = i;
+                                    wb2.n_seq_id[i] = 1;
+                                    wb2.seq_id[i][0] = 0;
+                                }
+                                wb2.n_tokens = warmupBatch;
+                                auto wstart = std::chrono::steady_clock::now();
+                                int drc2 = llama_decode(ctx, wb2);
+                                llama_batch_free(wb2);
+                                llama_memory_clear(llama_get_memory(ctx), true);
+                                auto wend = std::chrono::steady_clock::now();
+                                double ws = std::chrono::duration<double>(wend - wstart).count();
+                                if (drc2 != 0) {
+                                    LOGW("GPU warmup batch decode failed (rc=%d), batch kernels may compile lazily", drc2);
+                                } else {
+                                    LOGI("GPU warmup batch decode OK: %d tokens in %.2fs (batch kernels precompiled)", warmupBatch, ws);
+                                }
+                            }
                         }
                     }
                 }
@@ -2436,6 +2478,9 @@ public:
 
         shouldStop = false;   // R4-3：每次进入复位，防上一次取消导致本次立即终止
 
+        // 首 token 总延迟计时：函数入口（tokenize 前）→ 首个正文/思考 token 回调
+        auto entryTime = std::chrono::steady_clock::now();
+
         // 创建 sampler chain（与 generateStream 一致）
         auto sparams = llama_sampler_chain_default_params();
         struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
@@ -2556,7 +2601,9 @@ public:
         int n_decode = 0;
         int n_past = (int)tokens_list.size();
         std::vector<llama_token> generatedTokens;   // 记录生成输出 token，供 KV 增量记账
-        const int TIMEOUT_SECONDS = 120;
+        // 生成超时 120→300s：长上下文/慢速生成时 120s 会掐断本可完整输出的回答
+        // （实测 146 tokens 因 121s 超时被截断）；Agent 总时长另有 TOTAL_TIME_BUDGET_MS 兜底
+        const int TIMEOUT_SECONDS = 300;
         const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
         std::string fullText;
         std::string thinkingText;
@@ -2567,6 +2614,10 @@ public:
         std::string stopReason = "normal";
 
         auto start = std::chrono::steady_clock::now();
+        // 首次 token 计时（诊断首轮 prefill 预热效果）：首个正文 token 回调时记录
+        bool firstTokenLogged = false;
+        auto firstTokenTime = start;
+        bool firstTokenWasThinking = false;
 
         while (n_remain > 0 && !shouldStop) {
             if (n_past >= n_ctx - 4) {
@@ -2613,6 +2664,11 @@ public:
             if (inThinking && !thinkingEnded) {
                 thinkingTokens++;
                 thinkingPending += token;
+                if (!firstTokenLogged) {
+                    firstTokenLogged = true;
+                    firstTokenTime = std::chrono::steady_clock::now();
+                    firstTokenWasThinking = true;
+                }
                 int markerLen = 0;
                 int markerPos = findThinkingEndMarker(thinkingPending, markerLen);
                 if (markerPos >= 0) {
@@ -2647,6 +2703,11 @@ public:
                     }
                 }
             } else {
+                if (!firstTokenLogged) {
+                    firstTokenLogged = true;
+                    firstTokenTime = std::chrono::steady_clock::now();
+                    firstTokenWasThinking = false;
+                }
                 fullText += token;
                 callback(token, false, "");
             }
@@ -2666,6 +2727,16 @@ public:
         }
 
         llama_sampler_free(smpl);
+
+        // 首次 token 时间日志（诊断首轮 prefill 预热效果）
+        if (firstTokenLogged) {
+            auto ftElapsed = std::chrono::duration<double>(firstTokenTime - start).count();
+            auto totalElapsed = std::chrono::duration<double>(firstTokenTime - entryTime).count();
+            LOGI("[PERF] First token in %.3fs (from gen loop start; thinking=%d); total entry->first=%.3fs",
+                 ftElapsed, (int)firstTokenWasThinking, totalElapsed);
+        } else {
+            LOGI("[PERF] No token produced (stop=%s)", stopReason.c_str());
+        }
 
         if (!thinkingEnded) {
             if (n_remain <= 0) stopReason = "max_tokens";
@@ -3073,7 +3144,7 @@ public:
         bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
         // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
         // 检测到后锁定 is_tool_call=true，减少 UI 短暂闪烁（已发出的前几个 token 无法撤回）
-        const int PARTIAL_PARSE_INTERVAL = 16;   // 每收 N 个 token 检测一次
+        const int PARTIAL_PARSE_INTERVAL = 4;   // 每收 N 个 token 检测一次（16→4：缩短泄漏窗口）
         int partialParseCounter = 0;
 
         auto tokenCallback = [&](const std::string& text, bool isComplete, const std::string& error) {
@@ -3085,7 +3156,16 @@ public:
                 collectedText += text;
                 // 第二阶段增量检测：仅 auto/none 且尚未进入 tool_call 时启用
                 if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
-                    if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
+                    // 快速路径：collectedText 出现 tool_call 标签特征立即锁定，
+                    // 不等 PARTIAL_PARSE_INTERVAL——避免 `<tool_call>` 前几个 token
+                    // 以 is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）
+                    if (collectedText.find("<tool_call>") != std::string::npos
+                            || collectedText.find("<tool_call") != std::string::npos
+                            || collectedText.find("<toolcall") != std::string::npos
+                            || collectedText.find("tool_call") != std::string::npos) {
+                        isInToolCall = true;
+                        LOGI("chatJson: fast-path detected tool_call output");
+                    } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
                         partialParseCounter = 0;
                         try {
                             common_chat_parser_params pp(chat_params);
