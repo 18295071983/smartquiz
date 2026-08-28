@@ -1886,6 +1886,11 @@ public:
             llama_memory_clear(mem, false);
         }
 
+        // 同步增量记账：KV 已被本路径清空，防止下次 chatJson 误判 seq_pos_mismatch
+        cachedTokens.clear();
+        cachedNPast = 0;
+        kvCacheValid = false;
+
         // 重置 token 计数
         currentTokenCount = 0;
 
@@ -2510,6 +2515,17 @@ public:
             } else {
                 LOGW("KV seq_pos_max mismatch: expected >=%d, got %lld; invalidating cache", matchedLen - 1, (long long)seqMax);
             }
+        }
+        // MISS 原因细分日志：判定全量重 eval 是"该清的"还是"意外清掉的"，
+        // 便于确认缓存没有被无关路径无故清除
+        const char* missReason = "unknown";
+        if (!incremental && !partialIncremental) {
+            if (!kvCacheValid) missReason = "first_call_or_invalidated";
+            else if (matchedLen == 0) missReason = "no_prefix_match";
+            else if (mem == nullptr) missReason = "memory_null";
+            else missReason = "seq_pos_mismatch";
+            LOGI("KV cache FULL EVAL reason: %s (valid=%d, cached=%zu, matched=%d, new=%zu, cachedNPast=%d)",
+                 missReason, (int)kvCacheValid, cachedTokens.size(), matchedLen, tokens_list.size(), cachedNPast);
         }
         if (!incremental && !partialIncremental && mem != nullptr) {
             // 首次调用 / 前缀失配 / KV 外部改动 → 全量重 eval（软清除）
