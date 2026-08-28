@@ -19,6 +19,7 @@
 #include "chat.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "agent_kv_cache.h"
 #include <nlohmann/json.hpp>
 #include <vulkan/vulkan.h>
 
@@ -1005,10 +1006,9 @@ private:
     std::string chatTemplate;
     
     // ===== KV cache 增量解码状态（P0-2 / §5.6）=====
-    // generateStreamIncremental 专用：上一轮已 eval 的完整 token 与 KV 记账
-    std::vector<llama_token> cachedTokens;   // 上一轮已 eval 的完整 token
-    int cachedNPast = 0;                     // 已 eval 位置
-    bool kvCacheValid = false;               // KV cache 是否有效（未被清除/外部改动）
+    // generateStreamIncremental 专用：Agent 增量缓存独立封装于 agent_kv_cache.h，
+    // 记账/判定/失效逻辑全部收敛在该类，避免散落成员导致"记账与实际KV脱节"类 bug。
+    AgentKvCache kvCache;
     
 public:
     // 函数前向声明
@@ -1019,8 +1019,7 @@ public:
                          memoryPoolSize(0), batchSize(32), kvCacheType(1), shouldStop(false),
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
-                         modelType("unknown"), chatTemplate(""),
-                         cachedNPast(0), kvCacheValid(false) {
+                         modelType("unknown"), chatTemplate("") {
         LOGI("InferenceContext created");
         
         setupGGMLBackendPath();
@@ -1887,9 +1886,7 @@ public:
         }
 
         // 同步增量记账：KV 已被本路径清空，防止下次 chatJson 误判 seq_pos_mismatch
-        cachedTokens.clear();
-        cachedNPast = 0;
-        kvCacheValid = false;
+        kvCache.invalidate();
 
         // 重置 token 计数
         currentTokenCount = 0;
@@ -1906,9 +1903,7 @@ public:
         LOGI("Releasing resources");
         
         // R3-4：释放前失效增量缓存记账
-        cachedTokens.clear();
-        cachedNPast = 0;
-        kvCacheValid = false;
+        kvCache.invalidate();
         
         releaseContext();
         
@@ -1969,9 +1964,7 @@ public:
             }
         }
         // R3-4：清 KV 后失效增量缓存记账（seq_pos_max 校验为兜底，此处显式失效）
-        cachedTokens.clear();
-        cachedNPast = 0;
-        kvCacheValid = false;
+        kvCache.invalidate();
     }
     
     std::string getModelInfo() {
@@ -2490,73 +2483,34 @@ public:
         llama_memory_t mem = llama_get_memory(ctx);
 
         // ===== KV 增量判定（§5.6）=====
-        // 三级策略：
-        // 1. 完全超集（matchedLen == cachedNPast 且 KV 位置一致）→ 只 eval 增量（最省）
-        // 2. 部分前缀匹配（0 < matchedLen < cachedNPast）→ llama_memory_seq_rm 截断
-        //    失配点之后，只 eval 增量；如 tools JSON 增长/历史变化导致局部失配也能复用前缀
-        // 3. 前缀为空 / KV 外部改动 → 全量重 eval
-        int matchedLen = 0;
-        if (kvCacheValid && mem != nullptr && !cachedTokens.empty()) {
-            size_t minLen = std::min(tokens_list.size(), cachedTokens.size());
-            size_t m = 0;
-            while (m < minLen && tokens_list[m] == cachedTokens[m]) m++;
-            matchedLen = (int)m;
-        }
-        bool incremental = false;        // 完全超集
-        bool partialIncremental = false; // 部分前缀复用
-        if (kvCacheValid && matchedLen > 0 && mem != nullptr) {
-            llama_pos seqMax = llama_memory_seq_pos_max(mem, 0);
-            if (seqMax >= matchedLen - 1) {
-                if (matchedLen == cachedNPast && seqMax == cachedNPast - 1) {
-                    incremental = true;  // 严格超集 + 位置一致
-                } else if (matchedLen < (int)tokens_list.size()) {
-                    partialIncremental = true;  // 前缀可复用，截断后增量
-                }
-            } else {
-                LOGW("KV seq_pos_max mismatch: expected >=%d, got %lld; invalidating cache", matchedLen - 1, (long long)seqMax);
-            }
-        }
-        // MISS 原因细分日志：判定全量重 eval 是"该清的"还是"意外清掉的"，
-        // 便于确认缓存没有被无关路径无故清除
-        const char* missReason = "unknown";
-        if (!incremental && !partialIncremental) {
-            if (!kvCacheValid) missReason = "first_call_or_invalidated";
-            else if (matchedLen == 0) missReason = "no_prefix_match";
-            else if (mem == nullptr) missReason = "memory_null";
-            else missReason = "seq_pos_mismatch";
-            LOGI("KV cache FULL EVAL reason: %s (valid=%d, cached=%zu, matched=%d, new=%zu, cachedNPast=%d)",
-                 missReason, (int)kvCacheValid, cachedTokens.size(), matchedLen, tokens_list.size(), cachedNPast);
-        }
-        if (!incremental && !partialIncremental && mem != nullptr) {
-            // 首次调用 / 前缀失配 / KV 外部改动 → 全量重 eval（软清除）
+        // 三级策略封装于 AgentKvCache（agent_kv_cache.cpp，Agent 专用独立文件）：
+        //   1. 完全超集 → 只 eval 增量（最省）
+        //   2. 部分前缀匹配（tools JSON 增长/历史变化）→ seq_rm 截断复用前缀
+        //   3. 前缀为空 / KV 外部改动 → 全量重 eval
+        kvCache.plan(tokens_list, mem);
+
+        // 全量路径：软清除 KV（首次调用 / 前缀失配 / 外部改动）
+        if (kvCache.isFull() && mem != nullptr) {
             llama_memory_clear(mem, false);
         }
 
+        // PARTIAL 路径：截断失配点之后的 KV；失败回退全量
+        bool useIncremental = !kvCache.isFull();
+        if (kvCache.isPartial()) {
+            if (kvCache.truncate(mem)) {
+                // 截断成功，增量 eval
+            } else {
+                useIncremental = false;
+                llama_memory_clear(mem, false);
+                AGENT_KV_LOGI("PARTIAL truncate failed, full eval %zu tokens", tokens_list.size());
+            }
+        }
+
         std::vector<llama_token> evalTokens;
-        if (incremental || partialIncremental) {
-            if (partialIncremental) {
-                // 删除 [matchedLen, ∞) 的 KV（只保留前缀），失败则回退全量
-                if (llama_memory_seq_rm(mem, 0, matchedLen, -1)) {
-                    LOGI("KV incremental PARTIAL: matched %d/%d tokens, truncated, delta eval %zu tokens",
-                         matchedLen, cachedNPast, tokens_list.size() - matchedLen);
-                } else {
-                    partialIncremental = false;
-                    incremental = false;
-                    llama_memory_clear(mem, false);
-                    LOGI("KV incremental PARTIAL rm failed, full eval %zu tokens", tokens_list.size());
-                }
-            } else {
-                LOGI("KV incremental HIT: matched %d tokens, delta eval %zu tokens", matchedLen, tokens_list.size() - matchedLen);
-            }
-            if (incremental || partialIncremental) {
-                evalTokens.assign(tokens_list.begin() + matchedLen, tokens_list.end());
-            } else {
-                evalTokens = tokens_list;
-            }
+        if (useIncremental) {
+            evalTokens.assign(tokens_list.begin() + kvCache.matchedLen(), tokens_list.end());
         } else {
             evalTokens = tokens_list;
-            LOGI("KV incremental MISS (cached=%zu, matched=%d, valid=%d): full eval %zu tokens",
-                 cachedTokens.size(), matchedLen, (int)kvCacheValid, evalTokens.size());
         }
 
         int n_ctx = llama_n_ctx(ctx);
@@ -2594,10 +2548,8 @@ public:
             return false;
         }
 
-        // 更新缓存记账（本轮 prompt 部分先记账；生成输出在循环结束后并入）
-        cachedTokens = tokens_list;
-        cachedNPast = (int)tokens_list.size();
-        kvCacheValid = true;
+        // 记账统一在生成结束后由 kvCache.record() 完成（prompt + 输出），
+        // 中途失败时缓存保持上一轮状态，由下轮 seq_pos_max 校验兜底为全量。
 
         // ===== 生成循环（与 generateStream 一致）=====
         int n_remain = maxTokens;
@@ -2730,18 +2682,15 @@ public:
 
         callback(fullText, true, "");
 
-        // 生成结束后并入输出 token 到 KV 记账：
+        // 生成结束后并入输出 token 到 KV 记账（AgentKvCache.record）：
         // 下一轮新 prompt 通常是"本轮 prompt + 输出 + 追加消息"的超集，只有记账包含输出 token，
         // 前缀匹配（matchedLen == cachedNPast）与 seq_pos_max 校验（== cachedNPast-1）才能命中增量。
-        cachedTokens.insert(cachedTokens.end(), generatedTokens.begin(), generatedTokens.end());
-        cachedNPast = (int)cachedTokens.size();
-        kvCacheValid = true;
-        LOGI("KV cache bookkeeping updated: cachedNPast=%d (prompt=%zu + generated=%zu)", cachedNPast, tokens_list.size(), generatedTokens.size());
+        kvCache.record(tokens_list, generatedTokens);
 
         auto end = std::chrono::steady_clock::now();
         auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
         LOGI("=== STREAM GENERATE INCREMENTAL END ===");
-        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d)", n_decode, elapsedTotal, stopReason.c_str(), (int)incremental);
+        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental());
 
         return true;
         } catch (const std::exception& e) {
@@ -3062,9 +3011,7 @@ public:
         } catch (const std::exception& e) {
             // R3-5：fallback 后失效 KV 增量缓存（generateStreamFromMessages 内部会清 KV）
             LOGW("chatJson: template apply failed (%s), falling back to flat messages", e.what());
-            kvCacheValid = false;
-            cachedTokens.clear();
-            cachedNPast = 0;
+            kvCache.invalidate();
 
             // 扁平化降级：结构化消息 → pair<role,content>（tool_calls/tool_call_id 拼进 content）
             std::vector<std::pair<std::string, std::string>> flat;

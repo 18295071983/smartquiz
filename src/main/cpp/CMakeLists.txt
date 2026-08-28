@@ -198,6 +198,7 @@ add_library(
     SHARED
     native-lib.cpp
     llama-bridge.cpp
+    agent_kv_cache.cpp
 )
 
 target_link_libraries(
