@@ -2485,6 +2485,11 @@ public:
         llama_memory_t mem = llama_get_memory(ctx);
 
         // ===== KV 增量判定（§5.6）=====
+        // 三级策略：
+        // 1. 完全超集（matchedLen == cachedNPast 且 KV 位置一致）→ 只 eval 增量（最省）
+        // 2. 部分前缀匹配（0 < matchedLen < cachedNPast）→ llama_memory_seq_rm 截断
+        //    失配点之后，只 eval 增量；如 tools JSON 增长/历史变化导致局部失配也能复用前缀
+        // 3. 前缀为空 / KV 外部改动 → 全量重 eval
         int matchedLen = 0;
         if (kvCacheValid && mem != nullptr && !cachedTokens.empty()) {
             size_t minLen = std::min(tokens_list.size(), cachedTokens.size());
@@ -2492,25 +2497,46 @@ public:
             while (m < minLen && tokens_list[m] == cachedTokens[m]) m++;
             matchedLen = (int)m;
         }
-        bool incremental = false;
-        if (kvCacheValid && matchedLen == cachedNPast && matchedLen > 0 && mem != nullptr) {
-            // 严格超集 + KV 实际位置与记账一致（R3-4：未被任何并行路径清除/移动）
+        bool incremental = false;        // 完全超集
+        bool partialIncremental = false; // 部分前缀复用
+        if (kvCacheValid && matchedLen > 0 && mem != nullptr) {
             llama_pos seqMax = llama_memory_seq_pos_max(mem, 0);
-            if (seqMax == cachedNPast - 1) {
-                incremental = true;
+            if (seqMax >= matchedLen - 1) {
+                if (matchedLen == cachedNPast && seqMax == cachedNPast - 1) {
+                    incremental = true;  // 严格超集 + 位置一致
+                } else if (matchedLen < (int)tokens_list.size()) {
+                    partialIncremental = true;  // 前缀可复用，截断后增量
+                }
             } else {
-                LOGW("KV seq_pos_max mismatch: expected %d, got %lld; invalidating cache", cachedNPast - 1, (long long)seqMax);
+                LOGW("KV seq_pos_max mismatch: expected >=%d, got %lld; invalidating cache", matchedLen - 1, (long long)seqMax);
             }
         }
-        if (!incremental && mem != nullptr) {
+        if (!incremental && !partialIncremental && mem != nullptr) {
             // 首次调用 / 前缀失配 / KV 外部改动 → 全量重 eval（软清除）
             llama_memory_clear(mem, false);
         }
 
         std::vector<llama_token> evalTokens;
-        if (incremental) {
-            evalTokens.assign(tokens_list.begin() + matchedLen, tokens_list.end());
-            LOGI("KV incremental HIT: matched %d tokens, delta eval %zu tokens", matchedLen, evalTokens.size());
+        if (incremental || partialIncremental) {
+            if (partialIncremental) {
+                // 删除 [matchedLen, ∞) 的 KV（只保留前缀），失败则回退全量
+                if (llama_memory_seq_rm(mem, 0, matchedLen, -1)) {
+                    LOGI("KV incremental PARTIAL: matched %d/%d tokens, truncated, delta eval %zu tokens",
+                         matchedLen, cachedNPast, tokens_list.size() - matchedLen);
+                } else {
+                    partialIncremental = false;
+                    incremental = false;
+                    llama_memory_clear(mem, false);
+                    LOGI("KV incremental PARTIAL rm failed, full eval %zu tokens", tokens_list.size());
+                }
+            } else {
+                LOGI("KV incremental HIT: matched %d tokens, delta eval %zu tokens", matchedLen, tokens_list.size() - matchedLen);
+            }
+            if (incremental || partialIncremental) {
+                evalTokens.assign(tokens_list.begin() + matchedLen, tokens_list.end());
+            } else {
+                evalTokens = tokens_list;
+            }
         } else {
             evalTokens = tokens_list;
             LOGI("KV incremental MISS (cached=%zu, matched=%d, valid=%d): full eval %zu tokens",
@@ -2552,7 +2578,7 @@ public:
             return false;
         }
 
-        // 更新缓存记账
+        // 更新缓存记账（本轮 prompt 部分先记账；生成输出在循环结束后并入）
         cachedTokens = tokens_list;
         cachedNPast = (int)tokens_list.size();
         kvCacheValid = true;
@@ -2561,6 +2587,7 @@ public:
         int n_remain = maxTokens;
         int n_decode = 0;
         int n_past = (int)tokens_list.size();
+        std::vector<llama_token> generatedTokens;   // 记录生成输出 token，供 KV 增量记账
         const int TIMEOUT_SECONDS = 120;
         const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
         std::string fullText;
@@ -2664,6 +2691,7 @@ public:
                 LOGE("llama_decode failed with code: %d", ret);
                 break;
             }
+            generatedTokens.push_back(new_token_id);   // KV 增量记账：记录已 decode 进 KV 的输出 token
             n_remain--;
             n_decode++;
             currentTokenCount++;
@@ -2685,6 +2713,14 @@ public:
         }
 
         callback(fullText, true, "");
+
+        // 生成结束后并入输出 token 到 KV 记账：
+        // 下一轮新 prompt 通常是"本轮 prompt + 输出 + 追加消息"的超集，只有记账包含输出 token，
+        // 前缀匹配（matchedLen == cachedNPast）与 seq_pos_max 校验（== cachedNPast-1）才能命中增量。
+        cachedTokens.insert(cachedTokens.end(), generatedTokens.begin(), generatedTokens.end());
+        cachedNPast = (int)cachedTokens.size();
+        kvCacheValid = true;
+        LOGI("KV cache bookkeeping updated: cachedNPast=%d (prompt=%zu + generated=%zu)", cachedNPast, tokens_list.size(), generatedTokens.size());
 
         auto end = std::chrono::steady_clock::now();
         auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();

@@ -364,7 +364,14 @@ public class AIToolManager {
      * @return 执行结果
      */
     public AIToolResult executeTool(String toolName, Map<String, Object> parameters) {
-        AITool tool = getOrCreateTool(toolName);
+        // 模糊解析：模型可能把工具名猜错（weather→ai_weather 等），先归一化再执行
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved == null) {
+            Map<String, Object> additionalInfo = new HashMap<>();
+            additionalInfo.put("toolName", toolName);
+            return new AIToolResult("工具不存在: " + toolName + "（可用 tool_registry(list) 查看全部工具）", additionalInfo);
+        }
+        AITool tool = getOrCreateTool(resolved);
         if (tool == null) {
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", toolName);
@@ -534,7 +541,9 @@ public class AIToolManager {
     public boolean hasTool(String toolName) {
         // 用户动态工具优先（别名不劫持同名动态工具）
         if (dynamicTools.containsKey(toolName)) return true;
-        toolName = resolveToolAlias(toolName);
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved == null) return false;
+        toolName = resolveToolAlias(resolved);
         return toolFactories.containsKey(toolName) || dynamicTools.containsKey(toolName);
     }
 
@@ -548,6 +557,115 @@ public class AIToolManager {
             return "ui_component";
         }
         return name;
+    }
+
+    /**
+     * 模糊工具名解析：本地 4B 模型经常把工具名猜错（缩写/中文/漏前缀/大小写/连字符），
+     * 例如 "weather"→ai_weather、"text-tools"→text_tools、"画图"→image_gen、"python 画图"→python_chart。
+     * 匹配优先级：精确(含别名) > 规范化相等 > 唯一包含 > 唯一描述关键词。
+     * @return 真实注册名；无唯一匹配返回 null（调用方提示候选）
+     */
+    public String resolveToolNameFuzzy(String input) {
+        if (input == null) return null;
+        String trimmed = input.trim();
+        if (trimmed.isEmpty()) return null;
+
+        // 1) 精确 + 别名（动态工具优先，别名为 ui_component 之类）
+        String alias = resolveToolAlias(trimmed);
+        if (toolFactories.containsKey(alias) || dynamicTools.containsKey(alias)) {
+            return alias;
+        }
+
+        // 2) 规范化相等：小写 + 去下划线/连字符/空格，整体相等
+        String norm = normalizeToolName(trimmed);
+        if (!norm.isEmpty()) {
+            for (String name : toolFactories.keySet()) {
+                if (normalizeToolName(name).equals(norm)) return name;
+            }
+            for (String name : dynamicTools.keySet()) {
+                if (normalizeToolName(name).equals(norm)) return name;
+            }
+        }
+
+        // 3) 唯一包含匹配：输入是某工具名的子串，或反之（规范化后）
+        if (norm.length() >= 3) {
+            List<String> candidates = new ArrayList<>();
+            java.util.Set<String> all = new java.util.LinkedHashSet<>();
+            all.addAll(toolFactories.keySet());
+            all.addAll(dynamicTools.keySet());
+            for (String name : all) {
+                String n = normalizeToolName(name);
+                if (n.isEmpty()) continue;
+                if (n.contains(norm) || norm.contains(n)) {
+                    candidates.add(name);
+                }
+            }
+            if (candidates.size() == 1) return candidates.get(0);
+            // 多个候选：优先最短名（最可能是"本体"而非描述词）
+            if (candidates.size() > 1) {
+                candidates.sort((a, b) -> a.length() - b.length());
+                // 长度差显著（最短明显更短）才判定唯一，避免 ai_weather/network_search 同时命中"天气"这类
+                if (candidates.get(0).length() < candidates.get(1).length() - 2) {
+                    return candidates.get(0);
+                }
+            }
+        }
+
+        // 4) 描述关键词匹配（唯一）：模型用中文功能词猜测（"画图"/"换算"/"朗读"）
+        if (trimmed.length() >= 2) {
+            List<String> descMatches = new ArrayList<>();
+            java.util.Set<String> all = new java.util.LinkedHashSet<>();
+            all.addAll(toolFactories.keySet());
+            all.addAll(dynamicTools.keySet());
+            for (String name : all) {
+                ToolDefinition def = getToolDefinition(name);
+                if (def == null || def.getDescription() == null) continue;
+                String d = def.getDescription();
+                if (d.contains(trimmed) || normalizeToolName(d).contains(norm)) {
+                    descMatches.add(name);
+                }
+            }
+            if (descMatches.size() == 1) return descMatches.get(0);
+        }
+        return null;
+    }
+
+    /** 工具名规范化：小写 + 去下划线/连字符/空格/点 */
+    private static String normalizeToolName(String s) {
+        if (s == null) return "";
+        return s.toLowerCase()
+                .replace("_", "").replace("-", "").replace(" ", "")
+                .replace(".", "").replace("/", "");
+    }
+
+    /**
+     * 按关键词搜索工具名（供 tool_registry 未命中时提示候选/修正）。
+     * 匹配：名称规范化包含 / 描述包含。
+     * @return 匹配的工具名列表（最多 limit 个）
+     */
+    public java.util.List<String> searchToolNamesByKeyword(String keyword, int limit) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        if (keyword == null || keyword.isEmpty()) return result;
+        String kw = keyword.trim().toLowerCase();
+        String normKw = normalizeToolName(keyword);
+        java.util.Set<String> all = new java.util.LinkedHashSet<>();
+        all.addAll(toolFactories.keySet());
+        all.addAll(dynamicTools.keySet());
+        for (String name : all) {
+            if (result.size() >= limit) break;
+            String norm = normalizeToolName(name);
+            if (norm.contains(normKw) || normKw.contains(norm)) {
+                result.add(name);
+                continue;
+            }
+            ToolDefinition def = getToolDefinition(name);
+            if (def != null && def.getDescription() != null
+                    && (def.getDescription().toLowerCase().contains(kw)
+                        || normalizeToolName(def.getDescription()).contains(normKw))) {
+                result.add(name);
+            }
+        }
+        return result;
     }
     
     /**
@@ -774,6 +892,9 @@ public class AIToolManager {
      * 修复本地 Agent 无法调用动态工具的问题（getToolDefinition 对动态工具返回 null）。
      */
     public ToolDefinition resolveToolDefinition(String toolName) {
+        // 模糊解析：模型可能拿猜测名（weather 等）请求 schema，先归一化
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved != null) toolName = resolved;
         // 用户动态工具优先（避免与内置 switch 定义/别名冲突，如用户自建 system_ui_control）
         AITool dyn = dynamicTools.get(toolName);
         if (dyn != null) {

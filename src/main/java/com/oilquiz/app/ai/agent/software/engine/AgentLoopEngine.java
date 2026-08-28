@@ -445,9 +445,17 @@ public class AgentLoopEngine {
             // 按需动态注入：模型本轮调用/检索到的工具加入注入集，下轮起注入其 schema
             // （tool_registry 查到的工具由模型实际调用后自动注入，无需手动全量）
             for (ToolCall tc : toolCalls) {
-                if (tc.toolName != null && !tc.toolName.isEmpty() && !activeTools.contains(tc.toolName)) {
-                    activeTools.add(tc.toolName);
-                    AILogger.i(TAG, "Dynamic injection: added tool " + tc.toolName + " to active set");
+                if (tc.toolName != null && !tc.toolName.isEmpty()) {
+                    // 模糊归一：模型可能用猜测名（weather→ai_weather），注入真实名避免重复/无效
+                    String resolved = toolManager.resolveToolNameFuzzy(tc.toolName);
+                    String real = resolved != null ? resolved : tc.toolName;
+                    if (!activeTools.contains(real)) {
+                        activeTools.add(real);
+                        AILogger.i(TAG, "Dynamic injection: added tool " + real
+                                + (resolved != null && !resolved.equals(tc.toolName)
+                                   ? " (resolved from '" + tc.toolName + "')" : "")
+                                + " to active set");
+                    }
                 }
             }
 
@@ -1259,7 +1267,7 @@ public class AgentLoopEngine {
 
         sb.append("【规则】\n");
         sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。已注入的工具即本次最相关工具，优先直接用，勿为了凑数调用无关工具。\n");
-        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
+        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索，name 必须用列表或检索结果中的准确工具名，勿猜测缩写；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
         sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。\n");
         sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
         sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
