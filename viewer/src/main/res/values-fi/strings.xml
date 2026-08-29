@@ -13,9 +13,9 @@
     <string name="new_drawing">Uusi piirros</string>
     <string name="default_document_name">nimetön</string>
     <string name="select_file_to_open">Valitse avattava tiedosto</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="app_description">LibreOffice Viewer on LibreOfficeen perustuva asiakirjojen katseluohjelma.</string>
-    <string name="app_version">Versio: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Versio: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="no_camera_found">Kameraa ei löytynyt</string>
     <string name="compress_photo_smallest_size">Pienin koko</string>
     <string name="compress_photo_medium_size">Keskikoko</string>
@@ -61,7 +61,7 @@
     <string name="name_already_used">Tämä nimi on jo käytössä.</string>
     <string name="action_print">Tulosta</string>
     <string name="unable_to_save">Tiedoston tallentaminen ei onnistu</string>
-    <string name="error">Virhe</string>
+    <string name="lo_error">Virhe</string>
     <string name="page">Sivu</string>
     <string name="pref_developer_mode_summary">Ota käyttöön kehittäjätila, jossa voit käyttää UNO-komentoja sovelluksessa. Käytä omalla vastuulla.</string>
     <string name="pref_experimental_editing">Kokeellinen tila</string>

@@ -21,9 +21,9 @@
     <string name="pref_category_general">ئادەتتىكى</string>
     <string name="pref_experimental_editing">سىناق ھالىتى</string>
     <string name="pref_developer_mode">ئىجادكار ھالىتى</string>
-    <string name="app_version">نەشرى: %1$s&lt;br&gt;قۇرۇش كىملىكى: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">نەشرى: %1$s&lt;br&gt;قۇرۇش كىملىكى: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="default_document_name">ماۋزۇسىز</string>
-    <string name="app_name">LibreOffice كۆرگۈچ</string>
+    <string name="lo_app_name">LibreOffice كۆرگۈچ</string>
     <string name="about_privacy_policy">شەخسىيەت تۈزۈمى</string>
     <string name="file_icon_desc">ھۆججەت سىنبەلگىسى</string>
     <string name="pref_developer_mode_summary">ئىجادكار ھالىتى قوزغىتىلسا ئەپتە UNO بۇيرۇقىنى ئىجرا قىلالايسىز. ئىشلەتكەندىكى خەتەرنى ئۆز ئۈستىڭىزگە ئالىسىز.</string>
@@ -101,7 +101,7 @@
     <string name="pdf_export_finished">PDF چىقىرىش تامام</string>
     <string name="unable_to_export_pdf">PDF كە چىقىرالمايدۇ</string>
     <string name="unable_to_save">ھۆججەتنى ساقلىيالمايدۇ</string>
-    <string name="error">خاتالىق</string>
+    <string name="lo_error">خاتالىق</string>
     <string name="bmp_null">Bmp بوش!</string>
     <string name="page">بەت</string>
     <string name="sheet">ۋاراق</string>

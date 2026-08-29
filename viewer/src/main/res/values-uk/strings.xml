@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Оглядач LibreOffice</string>
+    <string name="lo_app_name">Оглядач LibreOffice</string>
     <string name="app_description">Оглядач LibreOffice - це програма, яка може відкривати документи LibreOffice.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Цей випуск постачає $VENDOR.</string>
@@ -85,7 +85,7 @@
     <string name="pdf_export_finished">Експорт до PDF завершено</string>
     <string name="unable_to_export_pdf">Неможливо експортувати в PDF</string>
     <string name="unable_to_save">Неможливо зберегти файл</string>
-    <string name="error">Помилка</string>
+    <string name="lo_error">Помилка</string>
     <string name="enter_part_name">Введіть частину назви</string>
     <string name="page">Сторінка</string>
     <string name="sheet">Аркуш</string>
@@ -95,7 +95,7 @@
     <string name="font_color">Колір шрифта</string>
     <string name="action_rename_slide">Перейменувати слайд</string>
     <string name="automatic">Автоматично</string>
-    <string name="app_version">Версія: %1$s&lt;br&gt;ID збірки: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Версія: %1$s&lt;br&gt;ID збірки: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_name_settings">Налаштування Оглядача LibreOffice</string>
     <string name="new_textdocument">Новий текстовий документ</string>
     <string name="title_recents">Попередні файли</string>

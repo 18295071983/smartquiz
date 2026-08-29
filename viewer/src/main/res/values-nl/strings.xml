@@ -89,7 +89,7 @@
     <string name="pdf_export_finished">PDF-export voltooit</string>
     <string name="unable_to_export_pdf">Kan niet exporteren naar PDF</string>
     <string name="unable_to_save">Kan bestand niet opslaan</string>
-    <string name="error">Fout</string>
+    <string name="lo_error">Fout</string>
     <string name="enter_part_name">Voer de sectienaam in</string>
     <string name="bmp_null">Bmp is ongeldig</string>
     <string name="sheet">Blad</string>
@@ -99,10 +99,10 @@
     <string name="action_rename_slide">Dia hernoemen</string>
     <string name="automatic">Automatisch</string>
     <string name="action_UNO_commands">UNO-opdracht sturen</string>
-    <string name="app_version">Versie: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Versie: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="new_textdocument">Volgend tekstdocument</string>
     <string name="app_description">LibreOffice Viewer is een documentviewer gebaseerd op LibreOffice.</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="pref_experimental_editing">Experimentele modus</string>
     <string name="pref_developer_mode_summary">Schakel de ontwikkelaarsmodus in, waarin u UNO-opdrachten binnen de app kunt verzenden. Gebruik op eigen risico.</string>
     <string name="action_save_as">Opslaan als…</string>

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Penampil LibreOffice</string>
+    <string name="lo_app_name">Penampil LibreOffice</string>
     <string name="app_name_settings">Pengaturan Penampil LibreOffice</string>
-    <string name="app_version">Versi: %1$s&lt;br&gt;ID Build: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Versi: %1$s&lt;br&gt;ID Build: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">Penampil LibreOffice adalah suatu penampil dokumen yang berbasis LibreOffice.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Rilis ini disediakan oleh $VENDOR.</string>
@@ -67,7 +67,7 @@
     <string name="pdf_export_finished">Ekspor PDF telah selesai</string>
     <string name="unable_to_export_pdf">Tidak bisa mengekspor ke pdf</string>
     <string name="unable_to_save">Tidak bisa menyimpan berkas</string>
-    <string name="error">Galat</string>
+    <string name="lo_error">Galat</string>
     <string name="enter_part_name">Masukkan suatu nama bagian</string>
     <string name="bmp_null">Bmp adalah null!</string>
     <string name="page">Halaman</string>

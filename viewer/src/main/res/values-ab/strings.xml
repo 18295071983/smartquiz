@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LibreOffice Ахәаԥшыга</string>
-    <string name="app_version">Аверсиа: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice Ахәаԥшыга</string>
+    <string name="lo_app_version">Аверсиа: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="new_textdocument">Атексттә документ ҿыц</string>
     <string name="title_recents">Ааигәатәи афаилқәа</string>
     <string name="calc_optimal_length">Иоптималу аура</string>
@@ -76,7 +76,7 @@
     <string name="alert_cancel">Аҟәыхра</string>
     <string name="unable_to_export_pdf">PDF ахь аекспорт ауам</string>
     <string name="unable_to_save">Иамуӡеит афаил аиқәырхара</string>
-    <string name="error">Агха</string>
+    <string name="lo_error">Агха</string>
     <string name="page">Адаҟьа</string>
     <string name="sheet">Абӷьыц</string>
     <string name="slide">Аслаид</string>

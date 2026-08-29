@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="app_name_settings">LibreOffice-Viewer-Einstellungen</string>
-    <string name="app_version">Version: %1$s&lt;br&gt;Build-ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Version: %1$s&lt;br&gt;Build-ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">LibreOffice Viewer ist ein Dokumentenbetrachter, der auf LibreOffice basiert.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Dieses Release wurde bereitgestellt durch $VENDOR.</string>
@@ -123,7 +123,7 @@
     <string name="pdf_export_finished">PDF-Export abgeschlossen</string>
     <string name="unable_to_export_pdf">PDF-Export nicht möglich</string>
     <string name="unable_to_save">Speichern nicht möglich</string>
-    <string name="error">Fehler</string>
+    <string name="lo_error">Fehler</string>
     <string name="enter_part_name">Name für Abschnitt eingeben</string>
     <string name="bmp_null">Bmp ist null!</string>
     <string name="page">Seite</string>

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LibreOffice-skoðari</string>
+    <string name="lo_app_name">LibreOffice-skoðari</string>
     <string name="app_name_settings">Stillingar LibreOffice-skoðara</string>
-    <string name="app_version">Útgáfa: %1$s&lt;br&gt;Byggingarauðkenni: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Útgáfa: %1$s&lt;br&gt;Byggingarauðkenni: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="about_privacy_policy">Meðferð persónuupplýsinga</string>
     <string name="create_file">Búa til nýja skrá</string>
     <string name="search_find_next">Finna næsta</string>
@@ -112,7 +112,7 @@
     <string name="pdf_export_finished">Útflutningi í PDF er lokið</string>
     <string name="unable_to_export_pdf">Tókst ekki að flytja út í PDF</string>
     <string name="unable_to_save">Get ekki vistað skrá</string>
-    <string name="error">Villa</string>
+    <string name="lo_error">Villa</string>
     <string name="enter_part_name">Settu inn heiti á hluta</string>
     <string name="bmp_null">Bmp er núll!</string>
     <string name="file_icon_desc">skráartákn</string>

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name_settings">Agordaro por LibreOffice-vidigilo</string>
-    <string name="app_name">LibreOffice-vidigilo</string>
-    <string name="app_version">Versio: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice-vidigilo</string>
+    <string name="lo_app_version">Versio: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">LibreOffice-Vidigilo estas dokument-vidigilo bazita sur LibreOffice.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Ĉi tiun eldonon liveris $VENDOR.</string>
@@ -100,7 +100,7 @@
     <string name="pdf_export_finished">PDF-eksporto finiĝis</string>
     <string name="unable_to_export_pdf">Ne povis eksporti al PDF</string>
     <string name="unable_to_save">Ne povis konservi la dosieron</string>
-    <string name="error">Eraro</string>
+    <string name="lo_error">Eraro</string>
     <string name="enter_part_name">Enigi partan nomon</string>
     <string name="bmp_null">Bmp estas nevalida!</string>
     <string name="page">Paĝo</string>

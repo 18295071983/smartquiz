@@ -3,13 +3,13 @@
     <string name="create_file">Δημιουργία νέου αρχείου</string>
     <string name="message_saving_failed">Αποτυχία αποθήκευσης του εγγράφου.</string>
     <string name="action_presentation">Προβολή παρουσίασης</string>
-    <string name="app_name">Προβολή LibreOffice</string>
+    <string name="lo_app_name">Προβολή LibreOffice</string>
     <string name="app_name_settings">Ρυθμίσεις της προβολής του LibreOffice</string>
     <string name="app_description">Η προβολή του LibreOffice είναι ένα πρόγραμμα προβολής εγγράφων που βασίζεται στο LibreOffice.</string>
     <string name="select_file_to_open">Επιλέξτε αρχείο για άνοιγμα</string>
     <string name="pref_experimental_editing">Πειραματική λειτουργία</string>
     <string name="action_keyboard">Εμφάνιση πληκτρολογίου</string>
-    <string name="app_version">Έκδοση: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Έκδοση: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Αυτή η έκδοση παρέχεται από την $VENDOR.</string>
     <string name="readonly_file">Αυτό το αρχείο είναι μόνο για ανάγνωση.</string>
@@ -102,7 +102,7 @@
     <string name="pdf_export_finished">Η εξαγωγή PDF ολοκληρώθηκε</string>
     <string name="unable_to_export_pdf">Αδυναμία εξαγωγής σε pdf</string>
     <string name="unable_to_save">Αδυναμία αποθήκευσης του αρχείου</string>
-    <string name="error">Σφάλμα</string>
+    <string name="lo_error">Σφάλμα</string>
     <string name="bmp_null">Το Bmp είναι null!</string>
     <string name="page">Σελίδα</string>
     <string name="sheet">Φύλλο</string>

@@ -129,7 +129,7 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         PreferenceManager.getDefaultSharedPreferences(getApplicationContext())
             .registerOnSharedPreferenceChangeListener(this);
 
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.lo_activity_main);
 
         toolbarTop = findViewById(R.id.toolbar);
         hideBottomToolbar();
@@ -761,7 +761,7 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
 
         AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(LibreOfficeMainActivity.this);
 
-        alertDialogBuilder.setTitle(R.string.error);
+        alertDialogBuilder.setTitle(R.string.lo_error);
         alertDialogBuilder.setMessage(message);
         alertDialogBuilder.setNeutralButton(R.string.alert_ok, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int id) {

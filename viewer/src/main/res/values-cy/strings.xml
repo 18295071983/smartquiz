@@ -84,7 +84,7 @@
     <string name="current_uno_command">Y gorchymyn UNO cyfredol</string>
     <string name="pdf_export_finished">Allforio PDF wedi gorffen</string>
     <string name="unable_to_export_pdf">Methu allforio i PDF</string>
-    <string name="error">Gwall</string>
+    <string name="lo_error">Gwall</string>
     <string name="enter_part_name">Rho enw rhan</string>
     <string name="bmp_null">Mae bmp yn nwll!</string>
     <string name="page">Tudalen</string>
@@ -96,8 +96,8 @@
     <string name="action_rename_slide">Ailenwi Sleid</string>
     <string name="automatic">Awtomatig</string>
     <string name="new_presentation">Cyflwyniadau Newydd</string>
-    <string name="app_version">Fersiwn: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_version">Fersiwn: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="pref_developer_mode_summary">Galluogi\'r modd datblygwr lle mae modd i chi anfon gorchmynion UNO o fewn yr ap. Gall fod peryglon.</string>
     <string name="file_icon_desc">eiconffeil</string>
     <string name="calc_optimal_length_default_text">Rhoi Hyd Ychwanegol mewn 100fed/mm</string>

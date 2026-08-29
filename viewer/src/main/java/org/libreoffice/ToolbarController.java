@@ -77,7 +77,7 @@ public class ToolbarController implements Toolbar.OnMenuItemClickListener {
                 } else if(mContext.getTileProvider() != null && mContext.getTileProvider().isPresentation()){
                     mMainMenu.setGroupVisible(R.id.group_presentation_options, true);
                 }
-                mToolbarTop.setNavigationIcon(R.drawable.ic_check);
+                mToolbarTop.setNavigationIcon(R.drawable.lo_ic_check);
                 mToolbarTop.setLogo(null);
             }
         });

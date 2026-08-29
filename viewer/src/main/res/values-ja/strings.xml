@@ -31,17 +31,17 @@
     <string name="tabhost_insert">挿入</string>
     <string name="action_search">検索</string>
     <string name="message_saved">保存完了</string>
-    <string name="error">エラー</string>
+    <string name="lo_error">エラー</string>
     <string name="app_name_settings">LibreOffice Viewerの設定</string>
     <string name="action_save">保存</string>
     <string name="UNO_commands_string_hint">UNOコマンド</string>
     <string name="alert_ok">OK</string>
     <string name="action_settings">設定</string>
     <string name="sheet">シート</string>
-    <string name="app_version">バージョン: %1$s&lt;br&gt;ビルドID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">バージョン: %1$s&lt;br&gt;ビルドID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="about_license">ライセンスを表示</string>
     <string name="title_browser">すべてのファイル</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="action_cancel">キャンセル</string>
     <string name="search_find_next">次を検索</string>
     <string name="search_find_previous">前を検索</string>

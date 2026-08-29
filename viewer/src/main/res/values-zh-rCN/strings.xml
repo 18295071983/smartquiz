@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name_settings">LibreOffice 查看器设置</string>
-    <string name="app_name">LibreOffice 查看器</string>
+    <string name="lo_app_name">LibreOffice 查看器</string>
     <string name="app_description">LibreOffice 查看器是一款基于 LibreOffice 的文档查看软件。</string>
     <string name="action_rename_worksheet">重命名工作表</string>
     <string name="select_file_to_open">选择要打开的文件</string>
@@ -15,7 +15,7 @@
     <string name="unable_to_save">无法保存文件</string>
     <string name="UNO_commands_string_hint">UNO 命令</string>
     <string name="action_exportToPDF">导出为 PDF</string>
-    <string name="app_version">版本：%1$s&lt;br&gt;构建识别码：&lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">版本：%1$s&lt;br&gt;构建识别码：&lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://zh-cn.libreoffice.org</string>
     <string name="app_vendor">该版本由 $VENDOR 提供。</string>
     <string name="readonly_file">这个文件有只读属性。</string>
@@ -105,7 +105,7 @@
     <string name="alert_cancel">取消</string>
     <string name="current_uno_command">当前 UNO 命令</string>
     <string name="pdf_export_finished">PDF 导出完毕</string>
-    <string name="error">错误</string>
+    <string name="lo_error">错误</string>
     <string name="enter_part_name">输入部件名称</string>
     <string name="bmp_null">位图图像为空！</string>
     <string name="page">页</string>

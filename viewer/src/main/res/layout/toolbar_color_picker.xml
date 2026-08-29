@@ -11,7 +11,7 @@
     android:orientation="vertical"
     app:popupTheme="@style/LibreOfficeTheme"
     app:theme="@style/LibreOfficeTheme"
-    tools:showIn="@layout/activity_main"
+    tools:showIn="@layout/lo_activity_main"
     app:layout_behavior="@string/bottom_sheet_behavior"
     app:behavior_hideable="true"
     app:behavior_peekHeight="0dp">

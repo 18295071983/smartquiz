@@ -47,10 +47,10 @@
     <string name="app_name_settings">LibreOffice Viewer beállításai</string>
     <string name="action_save">Mentés</string>
     <string name="action_settings">Beállítások</string>
-    <string name="app_version">Verzió: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Verzió: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="about_license">Licenc megjelenítése</string>
     <string name="title_browser">Minden fájl</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="action_add_slide">Dia hozzáadása</string>
     <string name="action_cancel">Mégse</string>
     <string name="calc_adjust_height">Magasság igazítása</string>
@@ -103,7 +103,7 @@
     <string name="action_copy">Másolás</string>
     <string name="tabhost_insert">Beszúrás</string>
     <string name="no_camera_found">Nem található kamera</string>
-    <string name="error">Hiba</string>
+    <string name="lo_error">Hiba</string>
     <string name="name_already_used">Ez a név már használatban van.</string>
     <string name="UNO_commands_string_hint">UNO parancs</string>
     <string name="alert_ok">OK</string>

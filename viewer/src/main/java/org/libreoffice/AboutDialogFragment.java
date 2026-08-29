@@ -45,7 +45,7 @@ public class AboutDialogFragment extends DialogFragment {
         {
             String versionName = getActivity().getPackageManager()
                     .getPackageInfo(getActivity().getPackageName(), 0).versionName;
-            String version = String.format(getString(R.string.app_version), versionName, BuildConfig.BUILD_ID_SHORT);
+            String version = String.format(getString(R.string.lo_app_version), versionName, BuildConfig.BUILD_ID_SHORT);
             @SuppressWarnings("deprecation") // since 24 with additional option parameter
             Spanned versionString = Html.fromHtml(version);
             TextView versionView = messageView.findViewById(R.id.about_version);
@@ -61,7 +61,7 @@ public class AboutDialogFragment extends DialogFragment {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
         builder .setIcon(R.mipmap.ic_launcher)
-                .setTitle(R.string.app_name)
+                .setTitle(R.string.lo_app_name)
                 .setView(messageView)
                 .setNegativeButton(R.string.about_license, new DialogInterface.OnClickListener() {
                     @Override

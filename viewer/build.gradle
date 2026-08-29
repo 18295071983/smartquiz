@@ -1,5 +1,5 @@
 plugins {
-    id "com.android.application"
+    id "com.android.library"
 }
 
 android {
@@ -8,16 +8,15 @@ android {
     buildToolsVersion "34.0.0"
 
     defaultConfig {
-        applicationId "org.libreoffice"
         minSdk 31
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
         multiDexEnabled true
         buildConfigField "String", "BUILD_ID_SHORT", "\"dev\""
         buildConfigField "String", "VENDOR", "\"LibreOffice\""
         buildConfigField "String", "PRIVACY_POLICY_URL", "\"\""
         buildConfigField "boolean", "ALLOW_EDITING", "false"
+        buildConfigField "String", "APPLICATION_ID", "\"com.oilquiz.app\""
+        buildConfigField "int", "VERSION_CODE", "1"
     }
 
     buildFeatures {
@@ -39,6 +38,7 @@ android {
         }
     }
 
+    // 通过定向重命名冲突资源(lo_*)避免与主App资源撞名（不启用resourcePrefix全量前缀）
     packagingOptions {
         pickFirst "**/libc++_shared.so"
         exclude "META-INF/DEPENDENCIES"

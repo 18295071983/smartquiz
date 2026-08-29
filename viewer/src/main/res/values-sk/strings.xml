@@ -13,13 +13,13 @@
     <string name="app_vendor">Dodávateľom tohto produktu je $VENDOR.</string>
     <string name="pref_category_general">Všeobecné</string>
     <string name="app_name_settings">Nastavenia LibreOffice Viewer</string>
-    <string name="app_version">Verzia: %1$s&lt;br&gt;ID zostavenia: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Verzia: %1$s&lt;br&gt;ID zostavenia: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="about_license">Zobraziť licenciu</string>
     <string name="title_browser">Všetky súbory</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="readonly_file">Táto súbor je len na čítanie.</string>
     <string name="about_notice">Zobraziť oznam</string>
-    <string name="error">Chyba</string>
+    <string name="lo_error">Chyba</string>
     <string name="enter_part_name">Zadajte názov časti</string>
     <string name="bmp_null">Bmp je prázdny!</string>
     <string name="page">Strana</string>

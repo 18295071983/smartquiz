@@ -5,8 +5,8 @@
     <string name="action_undo">Desegin</string>
     <string name="action_UNO_commands">Bidali UNO komandoa</string>
     <string name="app_description">LibreOffice ikustailea LibreOffice-n oinarritutako dokumentu-ikustailea da.</string>
-    <string name="app_name">LibreOffice ikustailea</string>
-    <string name="app_version">Bertsioa: %1$s&lt;br&gt;Konpilazioaren IDa: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice ikustailea</string>
+    <string name="lo_app_version">Bertsioa: %1$s&lt;br&gt;Konpilazioaren IDa: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Kaleratze hau $VENDOR hornitzaileak ekarri du.</string>
     <string name="about_license">Erakutsi lizentzia</string>
@@ -91,7 +91,7 @@
     <string name="pdf_export_finished">PDF-a esportatu da</string>
     <string name="unable_to_export_pdf">Ezin izan da esportatu PDF-ra</string>
     <string name="unable_to_save">Ezin izan da gorde fitxategia</string>
-    <string name="error">Errorea</string>
+    <string name="lo_error">Errorea</string>
     <string name="enter_part_name">Sartu zatiaren izena</string>
     <string name="bmp_null">Bmp nulua da.</string>
     <string name="page">Orria</string>

@@ -87,7 +87,7 @@
     <string name="action_search">Pesquisar</string>
     <string name="message_saved">Guardado</string>
     <string name="no_camera_found">Câmara não encontrada</string>
-    <string name="error">Erro</string>
+    <string name="lo_error">Erro</string>
     <string name="app_name_settings">Definições</string>
     <string name="name_already_used">Este nome já está a ser utilizado.</string>
     <string name="action_save">Guardar</string>
@@ -97,12 +97,12 @@
     <string name="action_settings">Definições</string>
     <string name="sheet">Folha</string>
     <string name="compress_photo_title">Deseja comprimir a foto?</string>
-    <string name="app_version">Versão: %1$s&lt;br&gt;ID da compilação: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Versão: %1$s&lt;br&gt;ID da compilação: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="about_license">Mostrar licença</string>
     <string name="title_browser">Todos os ficheiros</string>
     <string name="take_photo">Obter foto</string>
     <string name="unable_to_save">Não foi possível guardar o ficheiro</string>
-    <string name="app_name">Visualizador LibreOffice</string>
+    <string name="lo_app_name">Visualizador LibreOffice</string>
     <string name="insert_table">Inserir tabela</string>
     <string name="action_add_slide">Adicionar diapositivo</string>
     <string name="action_cancel">Cancelar</string>

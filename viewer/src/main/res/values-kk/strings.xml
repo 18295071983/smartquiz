@@ -16,11 +16,11 @@
     <string name="select_file_to_open">Ашу үшін файлды таңдаңыз</string>
     <string name="search_find_previous">Алдыңғыны табу</string>
     <string name="app_vendor">Бұл шығарылымды $VENDOR ұсынды.</string>
-    <string name="app_version">Нұсқа: %1$s&lt;br&gt;Құрастыру ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Нұсқа: %1$s&lt;br&gt;Құрастыру ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="readonly_file">Бұл файл тек оқуға арналған.</string>
     <string name="app_name_settings">LibreOffice Viewer баптаулары</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="app_description">LibreOffice Viewer — LibreOffice негізінде жасалған құжат қарау құралы.</string>
     <string name="pref_developer_mode">Әзірлеуші режимі</string>
     <string name="action_about">Осы туралы</string>
@@ -97,7 +97,7 @@
     <string name="current_uno_command">Ағымдағы UNO командасы</string>
     <string name="pdf_export_finished">PDF экспорты аяқталды</string>
     <string name="unable_to_save">Файлды сақтау мүмкін емес</string>
-    <string name="error">Қате</string>
+    <string name="lo_error">Қате</string>
     <string name="bmp_null">Bmp null болып тұр!</string>
     <string name="page">Бет</string>
     <string name="sheet">Парақ</string>

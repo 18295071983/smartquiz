@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LibreOffice 檢視器</string>
+    <string name="lo_app_name">LibreOffice 檢視器</string>
     <string name="app_name_settings">LibreOffice 檢視器設定</string>
-    <string name="app_version">版本：%1$s&lt;br&gt;建置 ID：&lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">版本：%1$s&lt;br&gt;建置 ID：&lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">LibreOffice 檢視器是以 LibreOffice 為基礎開發的文件檢視器。</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">此版本由 $VENDOR 提供。</string>
@@ -31,7 +31,7 @@
     <string name="part_name_changed">部份名稱已變更。</string>
     <string name="part_deleted">部份已刪除。</string>
     <string name="current_uno_command">目前 UNO 命令</string>
-    <string name="error">錯誤</string>
+    <string name="lo_error">錯誤</string>
     <string name="alert_cancel">取消</string>
     <string name="action_save_as">另存為……</string>
     <string name="about_privacy_policy">隱私權政策</string>

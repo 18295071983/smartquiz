@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_credits">https://www.libreoffice.org</string>
-    <string name="app_name">LibreOffice-ის დამთვალიერებელი</string>
+    <string name="lo_app_name">LibreOffice-ის დამთვალიერებელი</string>
     <string name="app_name_settings">LibreOffice-ის დამთვალიერებლის მორგება</string>
-    <string name="app_version">ვერსია: %1$s&lt;br&gt;აგების ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">ვერსია: %1$s&lt;br&gt;აგების ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">LibreOffice-ის დამთვალიერებელი LibreOffice-ზე დაფუძნებული დოკუმენტების დათვალიერების პროგრამაა.</string>
     <string name="new_presentation">ახალი პრეზენტაცია</string>
     <string name="new_spreadsheet">ახალი ელცხრილი</string>
@@ -82,7 +82,7 @@
     <string name="tabhost_style">სტილი</string>
     <string name="alert_ok">დიახ</string>
     <string name="alert_cancel">გაუქმება</string>
-    <string name="error">შეცდომა</string>
+    <string name="lo_error">შეცდომა</string>
     <string name="insert_table">ცხრილის ჩასმა</string>
     <string name="action_delete_worksheet">სამუშაო ფურცლის წაშლა</string>
     <string name="action_delete_slide">სლაიდის წაშლა</string>

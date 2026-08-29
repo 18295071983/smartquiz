@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_version">Wersija: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Wersija: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Tute wozjewjenje je so wot $VENDOR k dispoziciji stajiło.</string>
     <string name="readonly_file">Tuta dataja je přećiwo pisanju škitana.</string>
@@ -89,7 +89,7 @@
     <string name="pdf_export_finished">Eksport jako PDF dokónčeny</string>
     <string name="unable_to_export_pdf">Eksport jako PDF móžny njeje</string>
     <string name="unable_to_save">Dataja njeda so składować</string>
-    <string name="error">Zmylk</string>
+    <string name="lo_error">Zmylk</string>
     <string name="enter_part_name">Mjeno dźěla zapodać</string>
     <string name="bmp_null">Bmp je nul!</string>
     <string name="page">Strona</string>
@@ -100,7 +100,7 @@
     <string name="font_color">Pismowa barba</string>
     <string name="action_rename_slide">Foliju přemjenować</string>
     <string name="automatic">Awtomatiski</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="app_name_settings">Nastajenja LibreOffice Viewer</string>
     <string name="app_description">LibreOffice Viewer je dokumentowy wobhladowak, kotryž na LibreOffice bazuje.</string>
     <string name="about_license">Licencu pokazać</string>

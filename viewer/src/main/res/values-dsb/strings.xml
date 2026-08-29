@@ -98,7 +98,7 @@
     <string name="pdf_export_finished">Eksport ako PDF dokóńcony</string>
     <string name="unable_to_export_pdf">Eksport ako PDF njejo móžny</string>
     <string name="unable_to_save">Dataja njedajo se składowaś</string>
-    <string name="error">Zmólka</string>
+    <string name="lo_error">Zmólka</string>
     <string name="enter_part_name">Mě źěla zapódaś</string>
     <string name="bmp_null">Bmp jo nul!</string>
     <string name="page">Bok</string>
@@ -109,8 +109,8 @@
     <string name="font_color">Pismowa barwa</string>
     <string name="action_rename_slide">Foliju pśemjeniś</string>
     <string name="automatic">Awtomatiski</string>
-    <string name="app_name">LibreOffice Viewer</string>
-    <string name="app_version">Wersija: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
+    <string name="lo_app_version">Wersija: %1$s&lt;br&gt;Build ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="search_find_next">Dalej pytaś</string>
     <string name="title_browser">Wšykne dataje</string>
     <string name="pref_developer_mode_summary">Wuwijaŕski modus zmóžniś, źož móžośo pśikaze UNO w nałoženju pósłaś. Wužywanje na swójske riziko.</string>

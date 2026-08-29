@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Leitor de LibreOffice</string>
+    <string name="lo_app_name">Leitor de LibreOffice</string>
     <string name="app_name_settings">Configuração do leitor de LibreOffice</string>
     <string name="app_description">Esta aplicação é um leitor de documentos baseado no LibreOffice.</string>
     <string name="app_credits">https://pt-br.libreoffice.org</string>
@@ -19,7 +19,7 @@
     <string name="pref_category_general">Geral</string>
     <string name="pref_experimental_editing">Modo experimental</string>
     <string name="pref_developer_mode">Modo de desenvolvimento</string>
-    <string name="app_version">Versão: %1$s&lt;br&gt;ID da montagem: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Versão: %1$s&lt;br&gt;ID da montagem: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="select_file_to_open">Selecione o arquivo a abrir</string>
     <string name="pref_experimental_editing_summary">Ativar o modo de edição experimental. Use por sua conta e risco.</string>
     <string name="pref_developer_mode_summary">Ativar o modo de desenvolvedor para enviar comandos UNO dentro da aplicação. Use por sua conta e risco.</string>
@@ -103,7 +103,7 @@
     <string name="alert_cancel">Cancelar</string>
     <string name="current_uno_command">Comando UNO atual</string>
     <string name="unable_to_export_pdf">Não foi possível exportar em PDF</string>
-    <string name="error">Erro</string>
+    <string name="lo_error">Erro</string>
     <string name="enter_part_name">Digite um nome para a parte</string>
     <string name="bmp_null">Bmp é nulo!</string>
     <string name="page">Página</string>

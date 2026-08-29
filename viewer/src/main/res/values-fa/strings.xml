@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name_settings">تنظیمات نمایشگر لیبره آفیس</string>
-    <string name="app_name">نمایشگر لیبره آفیس</string>
-    <string name="app_version">نسخه: %1$s&lt;br&gt;شناسه ساخت: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">نمایشگر لیبره آفیس</string>
+    <string name="lo_app_version">نسخه: %1$s&lt;br&gt;شناسه ساخت: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_description">نمایشگر لیبره آفیس یک نمایشگر سند مبتنی بر لیبره آفیس است.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">این نسخه توسط $VENDOR ارائه شده است.</string>
@@ -19,7 +19,7 @@
     <string name="message_saving">ذخیره کردن سند…</string>
     <string name="slideshow_action_back">بازگشت</string>
     <string name="action_delete_slide">حذف اسلاید</string>
-    <string name="error">خطا</string>
+    <string name="lo_error">خطا</string>
     <string name="action_save_as">ذخیره به عنوان…</string>
     <string name="new_textdocument">سند متنی جدید</string>
     <string name="new_presentation">ارائه جدید</string>

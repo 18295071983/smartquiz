@@ -74,7 +74,7 @@
     <string name="default_document_name">ਬਿਨਾਂ-ਨਾਂ</string>
     <string name="select_photo">ਫੋਟੋ ਚੁਣੋ</string>
     <string name="unable_to_export_pdf">PDF ਵਜੋਂ ਐਕਸਪੋਰਟ ਕਰਨ ਲਈ ਅਸਮਰੱਥ</string>
-    <string name="error">ਗਲਤੀ</string>
+    <string name="lo_error">ਗਲਤੀ</string>
     <string name="enter_part_name">ਭਾਗ ਦਾ ਨਾਂ ਦਿਓ</string>
     <string name="page">ਸਫ਼ਾ</string>
     <string name="sheet">ਸ਼ੀਟ</string>
@@ -83,9 +83,9 @@
     <string name="highlight_color">ਉਭਾਰਨ ਲਈ ਰੰਗ</string>
     <string name="font_color">ਫ਼ੋਂਟ ਦਾ ਰੰਗ</string>
     <string name="automatic">ਆਪਣੇ-ਆਪ</string>
-    <string name="app_name">LibreOffice ਦਰਸ਼ਕ</string>
+    <string name="lo_app_name">LibreOffice ਦਰਸ਼ਕ</string>
     <string name="app_name_settings">LibreOffice ਦਰਸ਼ਕ ਸੈਟਿੰਗਾਂ</string>
-    <string name="app_version">ਵਰਜ਼ਨ: %1$s&lt;br&gt;ਬਿਲਡ ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">ਵਰਜ਼ਨ: %1$s&lt;br&gt;ਬਿਲਡ ID: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="search_find_next">ਅੱਗੇ ਲੱਭੋ</string>
     <string name="pref_experimental_editing_summary">ਤਜਰਬੇ ਅਧੀਨ ਸੋਧ ਢੰਗ ਨੂੰ ਸਮਰੱਥ ਕਰੋ। ਇਸ ਨੂੰ ਆਪਣੀ ਜੁੰਮੇਵਾਰੀ ਉੱਤੇ ਵਰਤੋਂ।</string>
     <string name="search_find_previous">ਪਿੱਛੇ ਲੱਭੋ</string>

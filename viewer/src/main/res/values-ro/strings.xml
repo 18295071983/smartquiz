@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name_settings">Setări pentru LibreOffice Viewer</string>
-    <string name="app_name">LibreOffice Viewer</string>
-    <string name="app_version">Versiunea: %1$s&lt;br&gt;ID-ul subversiunii: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
+    <string name="lo_app_version">Versiunea: %1$s&lt;br&gt;ID-ul subversiunii: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="app_vendor">Această versiune a fost furnizată de $VENDOR.</string>
     <string name="readonly_file">Acest fișier este în modul doar citire.</string>
@@ -105,7 +105,7 @@
     <string name="pdf_export_finished">S-a finalizat exportarea PDF-ului</string>
     <string name="unable_to_export_pdf">Nu s-a putut exporta în pdf</string>
     <string name="unable_to_save">Nu s-a putut salva fișierul</string>
-    <string name="error">Eroare</string>
+    <string name="lo_error">Eroare</string>
     <string name="enter_part_name">Introdu numele părții</string>
     <string name="bmp_null">Fișierul BMP e gol!</string>
     <string name="page">Pagină</string>

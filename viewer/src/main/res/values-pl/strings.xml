@@ -4,7 +4,7 @@
     <string name="pref_experimental_editing_summary">Włącz eksperymentalny tryb edycji. Używaj na własne ryzyko.</string>
     <string name="action_rename_slide">Zmień nazwę slajdu</string>
     <string name="calc_optimal_height">Optymalna wysokość</string>
-    <string name="app_name">LibreOffice Viewer</string>
+    <string name="lo_app_name">LibreOffice Viewer</string>
     <string name="app_description">LibreOffice Viewer to przeglądarka dokumentów oparta na LibreOffice.</string>
     <string name="app_credits">https://www.libreoffice.org</string>
     <string name="about_privacy_policy">Polityka prywatności</string>
@@ -88,7 +88,7 @@
     <string name="pdf_export_finished">Zakończono eksport do PDF</string>
     <string name="unable_to_export_pdf">Nie można wyeksportować do PDF</string>
     <string name="unable_to_save">Nie można zapisać pliku</string>
-    <string name="error">Błąd</string>
+    <string name="lo_error">Błąd</string>
     <string name="bmp_null">BMP jest zerowy!</string>
     <string name="page">Strona</string>
     <string name="sheet">Arkusz</string>
@@ -105,7 +105,7 @@
     <string name="enter_part_name">Wpisz nazwę części</string>
     <string name="calc_optimal_width">Optymalna szerokość</string>
     <string name="app_name_settings">Ustawienia LibreOffice Viewer</string>
-    <string name="app_version">Wersja: %1$s&lt;br&gt;Identyfikator kompilacji: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
+    <string name="lo_app_version">Wersja: %1$s&lt;br&gt;Identyfikator kompilacji: &lt;a href=https://hub.libreoffice.org/git-core/%2$s&gt;%2$s&lt;/a&gt;</string>
     <string name="readonly_file">Ten plik jest tylko do odczytu.</string>
     <string name="default_document_name">Bez tytułu</string>
     <string name="search_find_next">Znajdź następne</string>
