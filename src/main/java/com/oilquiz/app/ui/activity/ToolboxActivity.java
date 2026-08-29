@@ -87,13 +87,12 @@ public class ToolboxActivity extends AppCompatActivity {
     }
 
     private void showFilePreviewTools() {
+        // TBS X5 已由腾讯停更且无内核 so，无法使用，故仅保留 Pdfium 文件预览
         String[] toolNames = {
-            "TBS文件预览",
             "Pdfium文件预览"
         };
 
         Class<?>[] activities = {
-            TBSFilePreviewActivity.class,
             PdfiumPreviewActivity.class
         };
 
