@@ -118,9 +118,9 @@ public class ToolboxActivity extends AppCompatActivity {
 
     private void showQuestionTools() {
         showToolDialog("题目工具", new String[]{
-            "题库管理"
+            "题目管理"
         }, new Class<?>[]{
-            QuestionBankActivity.class
+            QuestionActivity.class
         });
     }
 

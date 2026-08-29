@@ -161,9 +161,6 @@
             android:name=".ui.activity.LanguageActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.activity.QuestionBankActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.QuestionDetailActivity"
             android:exported="false" />
         <activity

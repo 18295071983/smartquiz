@@ -2574,7 +2574,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openQuestionBank() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionBankActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionActivity.class);
                 startActivity(intent);
             });
         }
@@ -2793,7 +2793,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openQuestionBrowse() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionBankActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionActivity.class);
                 startActivity(intent);
             });
         }

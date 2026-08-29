@@ -126,8 +126,8 @@ public class ImportResultActivity extends BaseActivity {
         });
 
         btnViewQuestions.setOnClickListener(v -> {
-            // 打开题库管理查看导入的题目
-            Intent intent = new Intent(this, QuestionBankActivity.class);
+            // 打开题目管理查看导入的题目
+            Intent intent = new Intent(this, QuestionActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(intent);
             finish();
