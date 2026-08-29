@@ -164,13 +164,17 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         btnOpenWith.setOnClickListener(v -> useAlternativePreview());
     }
 
-    /** 计算单页渲染尺寸：以屏幕宽度×1.5 渲染，保证放大后文字/图形清晰。 */
+    /** 计算单页渲染尺寸：以屏幕宽度×2 渲染，放大后文字/图形仍清晰。 */
     private void computeRenderSize() {
         if (renderWidth > 0) {
             return;
         }
         int screenW = getResources().getDisplayMetrics().widthPixels;
-        renderWidth = (int) (screenW * 1.5f);
+        renderWidth = (int) (screenW * 2f);
+        // 限制最大宽度，避免超大位图 OOM（当前页仅渲染 1 张 + 邻居 2 张）
+        if (renderWidth > 2560) {
+            renderWidth = 2560;
+        }
         if (renderWidth <= 0) {
             renderWidth = screenW > 0 ? screenW : 1024;
         }
