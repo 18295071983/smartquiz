@@ -53,6 +53,11 @@ android {
     chaquopy {
         defaultConfig {
             version "3.10"
+            // 构建用 Python 解释器:必须与 Android 端运行时(3.10)字节码兼容,
+            // 即 buildPython 只能是 3.10(或 3.9)。3.12/3.14 的字节码 3.10 无法加载,
+            // 会导致 .pyc 预编译失败(Chaquopy 警告,首次启动变慢)。
+            // 故显式指定 3.10,修复 .pyc 预编译警告。
+            buildPython "C:\\Users\\xiaocong\\AppData\\Local\\Programs\\Python\\Python310\\python.exe"
             pip {
                 // 纯Python包从本地wheel/sdist安装，无需联网
                 install "python-wheels/requests-2.34.2-py3-none-any.whl"
