@@ -404,8 +404,10 @@ class LOKitThread extends Thread {
      */
     private void touch(String touchType, PointF documentCoordinate) {
         if (mTileProvider == null || mViewportMetrics == null) {
+            Log.w(LOGTAG, "touch dropped: type=" + touchType + " tileProvider=" + (mTileProvider!=null) + " viewport=" + (mViewportMetrics!=null));
             return;
         }
+        Log.i(LOGTAG, "touch >> type=" + touchType + " doc=" + documentCoordinate);
 
         // to handle hyperlinks, enable single tap even in the Viewer
         boolean editing = LOKitShell.isEditingEnabled();

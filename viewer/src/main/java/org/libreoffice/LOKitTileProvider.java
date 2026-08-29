@@ -494,6 +494,7 @@ class LOKitTileProvider implements TileProvider {
      */
     @Override
     public CairoImage createTile(float x, float y, IntSize tileSize, float zoom) {
+        Log.i(LOGTAG, "createTile >> x=" + x + " y=" + y + " sz=" + tileSize.width + "x" + tileSize.height + " zoom=" + zoom);
         ByteBuffer buffer = DirectBufferAllocator.guardedAllocate(tileSize.width * tileSize.height * 4);
         if (buffer == null)
             return null;
@@ -516,6 +517,7 @@ class LOKitTileProvider implements TileProvider {
             long start = System.currentTimeMillis() - objectCreationTime;
 
             //Log.i(LOGTAG, "paintTile >> @" + start + " (" + tileSize.width + " " + tileSize.height + " " + (int) twipX + " " + (int) twipY + " " + (int) twipWidth + " " + (int) twipHeight + ")");
+            Log.i(LOGTAG, "paintTile >> twip=" + (int) twipX + "x" + (int) twipY + " " + (int) twipWidth + "x" + (int) twipHeight + " sz=" + tileSize.width + "x" + tileSize.height + " zoom=" + zoom);
             mDocument.paintTile(image.getBuffer(), tileSize.width, tileSize.height, (int) twipX, (int) twipY, (int) twipWidth, (int) twipHeight);
 
             long stop = System.currentTimeMillis() - objectCreationTime;
