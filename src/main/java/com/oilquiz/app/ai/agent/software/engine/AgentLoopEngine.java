@@ -60,20 +60,21 @@ public class AgentLoopEngine {
     private static final long TOTAL_TIME_BUDGET_MS = 180000;
     /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
     private static final double PROMPT_BUDGET_RATIO = 0.8;
-    /** 工具结果最大字符数（超长时截断，节省上下文） */
-    private static final int MAX_TOOL_RESULT_LENGTH = 2000;
-    /** 最终回复最大生成 token：1000→2000，长回答（多工具总结/长文输出）不再被截断 */
-    private static final int FINAL_RESPONSE_MAX_TOKENS = 2000;
-    /** 普通对话（意图未命中）最大生成 token：小模型生成慢，500 足够普通回答 */
-    private static final int PLAIN_CHAT_MAX_TOKENS = 500;
+    /** 工具结果最大字符数（超长时截断，节省上下文；2000→1200：network_search 等
+     *  大结果塞满上下文导致 prefill 变慢，12K 上下文下 1200 字符足够模型理解） */
+    private static final int MAX_TOOL_RESULT_LENGTH = 1200;
+    /** 最终回复最大生成 token：放宽到 4000，长回答/长篇输出不被截断 */
+    private static final int FINAL_RESPONSE_MAX_TOKENS = 4000;
+    /** 普通对话（意图未命中）最大生成 token：放宽到 2000 */
+    private static final int PLAIN_CHAT_MAX_TOKENS = 2000;
     /** 工具执行超时（毫秒） */
     private static final long TOOL_TIMEOUT_MS = 15000;
     /** 工具失败重试次数 */
     private static final int MAX_RETRIES = 1;
-    /** 同步调用超时（毫秒）：必须大于 C++ 生成超时(300s)，否则 Java 先放弃导致回答被掐断 */
-    private static final long SYNC_TIMEOUT_MS = 320000;
-    /** 单轮推理最大生成 token（与预算计算保持一致） */
-    private static final int ITER_MAX_TOKENS = 500;
+    /** 同步调用超时（毫秒）：必须大于 C++ 生成超时(400s)，否则 Java 先放弃导致回答被掐断 */
+    private static final long SYNC_TIMEOUT_MS = 420000;
+    /** 单轮推理最大生成 token（工具判断轮）：放宽到 800 */
+    private static final int ITER_MAX_TOKENS = 800;
     /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
     private static final int MAX_TOOLS_PER_RUN = 5;
     /** 工具 schema 的 token 预算：描述已截断为精简版（≤150 字符/工具），
@@ -621,6 +622,14 @@ public class AgentLoopEngine {
                 }
                 boolean success = result.isSuccess();
                 String resultStr = success ? String.valueOf(result.getResult()) : result.getErrorMessage();
+                // 工具失败时附加替代工具提示：引导模型换工具而非放弃（4B 模型需要明确指引）
+                if (!success) {
+                    String alt = getAlternativeTool(tc.toolName);
+                    if (alt != null) {
+                        resultStr = resultStr + "\n[替代方案] 可尝试工具: " + alt;
+                        AILogger.i(TAG, "Tool " + tc.toolName + " failed, suggesting alternative: " + alt);
+                    }
+                }
                 showToast(success ? "✅ " + tLabel + " 完成" : "❌ " + tLabel + " 失败: " + truncate(resultStr, 40));
                 if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
@@ -1298,11 +1307,21 @@ public class AgentLoopEngine {
         sb.append("你是答题宝AI助手，可用工具完成任务，中文简洁回答。\n\n");
         // FC 模式不注入环境上下文：时间/位置经工具获取（见规则 3）
 
+        // 工具能力速查表：让模型知道工具池里有什么（4B 模型不知道工具存在就永远不会调用；
+        // 列表精简，完整工具经 tool_registry(list) 获取）。未注入的工具仍可直接调用，
+        // 调用后程序会自动注入其 schema。
+        sb.append("【可用工具】\n");
+        sb.append("天气→ai_weather；位置→location；时间→time_date；搜索→network_search；\n");
+        sb.append("计算→calculator；换算→unit_converter；文本处理→text_tools；\n");
+        sb.append("画图→image_gen；图表→python_chart；朗读→speech_synthesis；\n");
+        sb.append("Excel→excel_tool；读文件→file_reader；工作区→workspace；题库→database；\n");
+        sb.append("记住→memory；更多工具→tool_registry(list)。\n\n");
+
         sb.append("【规则】\n");
         sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。已注入的工具即本次最相关工具，优先直接用，勿为了凑数调用无关工具。\n");
-        sb.append("2. 工具不在列表→tool_registry(list/search/get)检索，name 必须用列表或检索结果中的准确工具名，勿猜测缩写；工具描述被精简时，需要完整参数/用法也用它（tool_registry(get=工具名)）；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
+        sb.append("2. 上表之外的工具或不确定参数→tool_registry(list/search/get)，name 必须用列表或检索结果中的准确工具名，勿猜测缩写；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
         sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。查天气时缺城市/经纬度就不要传 city，程序会自动补当前位置（勿猜北京/上海等默认城市）；若用户明确说了城市则用用户说的。\n");
-        sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源；工具失败给替代建议。\n");
+        sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源。工具失败/报错时必须换替代方案：先看错误原因，再选【可用工具】表里的替代工具重试（如 ai_weather 失败→network_search 搜天气；file_reader 失败→python_file_ops；calculator 失败→python_calculate），不要直接放弃或重复调用同一失败工具。\n");
         sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
         sb.append("\n");
         sb.append("【记忆】\n");
@@ -1334,6 +1353,10 @@ public class AgentLoopEngine {
 
     private volatile String cachedLocation;
     private volatile long cachedLocationTime;
+    /** 缓存坐标（与 cachedLocation 同 TTL）：ai_weather 缺 city/lat/lon 时用真实经纬度
+     *  直接查询，绕开和风 geo/city lookup（该端点无 JWT 权限时 403，此前错误兜底北京） */
+    private volatile double cachedLat = 0;
+    private volatile double cachedLon = 0;
 
     /**
      * 构建环境上下文：当前日期时间（必含）+ 位置（缓存+短超时+权限检查，失败静默跳过）。
@@ -1357,13 +1380,41 @@ public class AgentLoopEngine {
         return sb.toString();
     }
 
-    /** 获取位置（缓存+超时+权限检查）：无权限/失败/超时返回 null 静默跳过 */
+    /** 获取位置（缓存+超时+权限检查）：无权限/失败/超时返回 null 静默跳过。
+     *  同时缓存经纬度（cachedLat/cachedLon），供 ai_weather 缺坐标时直接按经纬度查询 */
     private String getCachedLocation() {
         long now = System.currentTimeMillis();
         if (cachedLocation != null && now - cachedLocationTime < LOCATION_CACHE_TTL_MS) {
             return cachedLocation;
         }
-        // 无定位权限时不尝试（避免触发权限请求打断对话）
+        // 先读主界面天气组件的定位缓存（weather_location_cache.xml，同源共享）：
+        // 主界面已定位（银川 38.42,106.26），Agent 直接复用，避免重复定位/无权限兜底失败。
+        try {
+            android.content.SharedPreferences locPrefs = appContext.getSharedPreferences(
+                    "weather_location_cache", android.content.Context.MODE_PRIVATE);
+            long ts = locPrefs.getLong("cached_timestamp", 0);
+            long age = ts > 0 ? (now - ts) : Long.MAX_VALUE;
+            if (age < 30 * 60 * 1000L) {
+                double lat = Double.longBitsToDouble(locPrefs.getLong("cached_lat", 0));
+                double lon = Double.longBitsToDouble(locPrefs.getLong("cached_lon", 0));
+                String city = locPrefs.getString("cached_city", "");
+                if (lat != 0 || lon != 0) {
+                    cachedLat = lat;
+                    cachedLon = lon;
+                    AILogger.i(TAG, "ai_weather: using banner location cache lat/lon=" + lat + "," + lon
+                            + (city != null && !city.isEmpty() ? " city=" + city : ""));
+                    if (city != null && !city.isEmpty() && !"当前位置".equals(city)) {
+                        cachedLocation = city;
+                        cachedLocationTime = now;
+                        return city;
+                    }
+                    return "当前位置";
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Banner location cache read failed: " + t.getMessage());
+        }
+        // 无权限时不尝试（避免触发权限请求打断对话）
         try {
             if (appContext == null) return null;
             boolean fine = appContext.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -1378,11 +1429,27 @@ public class AgentLoopEngine {
         final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
         Thread t = new Thread(() -> {
             try {
+                // get_current 返回完整位置（city + latitude + longitude），一次获取全缓存
                 java.util.Map<String, Object> params = new java.util.HashMap<>();
-                params.put("action", "get_city");
+                params.put("action", "get_current");
                 AIToolResult r = toolManager.executeTool("location", params);
                 if (r != null && r.isSuccess() && r.getResult() != null) {
-                    holder.set(String.valueOf(r.getResult()));
+                    String resultStr = String.valueOf(r.getResult());
+                    holder.set(resultStr);
+                    // 从结果中解析 city 与坐标（LocationTool 返回 JSON 格式）
+                    try {
+                        org.json.JSONObject loc = new org.json.JSONObject(resultStr);
+                        if (loc.has("city")) {
+                            holder.set(loc.optString("city", ""));
+                        }
+                        if (loc.has("latitude") && loc.has("longitude")) {
+                            cachedLat = loc.optDouble("latitude", 0);
+                            cachedLon = loc.optDouble("longitude", 0);
+                            AILogger.i(TAG, "Cached location lat/lon: " + cachedLat + "," + cachedLon);
+                        }
+                    } catch (Exception ignored) {
+                        // 非 JSON（兼容旧格式），仅缓存原串
+                    }
                 }
             } catch (Throwable ignored) {
             } finally {
@@ -1688,18 +1755,48 @@ public class AgentLoopEngine {
         }
     }
 
+    /** 工具失败时的替代工具映射：引导模型换工具而非放弃（4B 模型需要明确指引） */
+    private static String getAlternativeTool(String toolName) {
+        if (toolName == null) return null;
+        switch (toolName) {
+            case "ai_weather": return "network_search（搜天气）、location（先定位）";
+            case "network_search": return "smart_research（智能研究）、webpage_reader（读网页）";
+            case "location": return "ai_weather 带 city 参数";
+            case "file_reader": return "python_file_ops、file_analyzer";
+            case "python_file_ops": return "file_reader";
+            case "calculator": return "python_calculate、python_execute";
+            case "python_calculate": return "calculator";
+            case "speech_synthesis": return "voice_input（语音转文字）";
+            case "excel_tool": return "file_reader(parse_excel)、python_file_ops";
+            case "image_gen": return "dashscope_media(image)、python_execute(生成SVG)";
+            case "tool_registry": return "直接查看【可用工具】表";
+            default: return null;
+        }
+    }
+
     private AIToolResult executeToolSafely(String toolName, JSONObject args) {
         Map<String, Object> params = jsonToMap(args);
         if (params == null) return AIToolResult.fail("参数解析失败");
 
-        // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前城市
-        // （环境缓存的位置，10 分钟 TTL；不依赖模型猜城市名）
+        // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前位置。
+        // 优先填经纬度（绕开和风 geo/city lookup）；先用 getCachedLocation 从
+        // 主界面天气缓存加载坐标（banner 已定位可复用），无坐标才用城市名。
         if ("ai_weather".equals(toolName)
                 && !params.containsKey("city") && !params.containsKey("lat") && !params.containsKey("lon")) {
-            String city = getCachedLocation();
-            if (city != null && !city.isEmpty() && !"当前位置".equals(city)) {
-                params.put("city", city);
-                AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
+            // 确保坐标从主界面缓存加载（getCachedLocation 内部会先读 weather_location_cache）
+            if (cachedLat == 0 && cachedLon == 0) {
+                getCachedLocation();
+            }
+            if (cachedLat != 0 || cachedLon != 0) {
+                params.put("lat", cachedLat);
+                params.put("lon", cachedLon);
+                AILogger.i(TAG, "ai_weather: auto-filled lat/lon=" + cachedLat + "," + cachedLon);
+            } else {
+                String city = getCachedLocation();
+                if (city != null && !city.isEmpty() && !"当前位置".equals(city)) {
+                    params.put("city", city);
+                    AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
+                }
             }
         }
 

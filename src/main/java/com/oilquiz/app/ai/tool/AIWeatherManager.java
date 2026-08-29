@@ -897,11 +897,70 @@ public class AIWeatherManager implements AITool {
     }};
 
     private String getHefengLocationId(String city) throws Exception {
+        // 1. 内置常用城市表
         String defaultId = DEFAULT_CITY_IDS.get(city);
         if (defaultId != null) {
             return defaultId;
         }
-        
+
+        // 2. 本地城市 CSV（与天气详情界面同源，免费离线，无需网络）：
+        //    天气详情界面用 QWeatherCityManager 从 assets CSV 查城市 ID，从不调 geo API
+        //    ——这就是详情界面正常而 Agent 403 的原因。这里对齐详情界面。
+        //    注意：模型可能传"银川市/五台县"，CSV 是"银川/五台县"，需去行政后缀模糊匹配。
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            // 1) 精确匹配
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityByName(city);
+            // 2) 去后缀匹配（市/县/区/旗/盟/州/地区/自治州）
+            if (entry == null) {
+                String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
+                if (!stripped.isEmpty() && !stripped.equals(city)) {
+                    entry = cityMgr.getCityByName(stripped);
+                }
+            }
+            // 3) 关键词搜索（含"五台"匹配"五台县"）
+            if (entry == null) {
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
+                        cityMgr.searchCities(city);
+                if (matches != null && !matches.isEmpty()) {
+                    entry = matches.get(0);
+                }
+            }
+            if (entry != null && entry.locationId != null) {
+                Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.locationId
+                        + " (" + entry.nameZh + ")");
+                return entry.locationId;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        // 不依赖和风 geo API（该端点 JWT 403）。返回 "经度,纬度" 格式——
+        // 和风 v7 的 location 参数原生支持该格式，调用方无需区分 ID/坐标。
+        try {
+            if (android.location.Geocoder.isPresent()) {
+                android.location.Geocoder geocoder =
+                        new android.location.Geocoder(context, java.util.Locale.CHINA);
+                java.util.List<android.location.Address> addresses =
+                        geocoder.getFromLocationName(city, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    android.location.Address addr = addresses.get(0);
+                    if (addr.hasLatitude() && addr.hasLongitude()) {
+                        String loc = String.format(java.util.Locale.US, "%.4f,%.4f",
+                                addr.getLongitude(), addr.getLatitude());
+                        Log.i(TAG, "System Geocoder hit: " + city + " -> " + loc);
+                        return loc;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // 3. geo API 兜底（仅在本地 CSV 无此城市时；JWT 认证）
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -910,13 +969,61 @@ public class AIWeatherManager implements AITool {
                 return locationId;
             }
         } catch (Exception e) {
-            Log.w(TAG, "GeoAPI failed for city " + city + ", using default fallback");
+            Log.w(TAG, "GeoAPI failed for city " + city + ": " + e.getMessage());
         }
         
-        return DEFAULT_CITY_IDS.get("北京");
+        throw new Exception("无法定位城市: " + city + "（本地城市表与 geo 查询均无结果）");
     }
 
     private double[] getHefengLatLon(String city) throws Exception {
+        // 本地 CSV 优先：与 getHefengLocationId 一致，离线可用且不依赖 geo API
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityByName(city);
+            if (entry == null) {
+                String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
+                if (!stripped.isEmpty() && !stripped.equals(city)) {
+                    entry = cityMgr.getCityByName(stripped);
+                }
+            }
+            if (entry == null) {
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
+                        cityMgr.searchCities(city);
+                if (matches != null && !matches.isEmpty()) {
+                    entry = matches.get(0);
+                }
+            }
+            if (entry != null) {
+                return new double[]{entry.latitude, entry.longitude};
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        // 不依赖和风 geo API（该端点 JWT 403）。CSV 未覆盖的生僻地名也常能解析。
+        try {
+            if (android.location.Geocoder.isPresent()) {
+                android.location.Geocoder geocoder =
+                        new android.location.Geocoder(context, java.util.Locale.CHINA);
+                java.util.List<android.location.Address> addresses =
+                        geocoder.getFromLocationName(city, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    android.location.Address addr = addresses.get(0);
+                    if (addr.hasLatitude() && addr.hasLongitude()) {
+                        Log.i(TAG, "System Geocoder hit: " + city + " -> "
+                                + addr.getLatitude() + "," + addr.getLongitude()
+                                + " (" + addr.getFeatureName() + ")");
+                        return new double[]{addr.getLatitude(), addr.getLongitude()};
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
+        }
+
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -927,22 +1034,27 @@ public class AIWeatherManager implements AITool {
                 JsonArray locationArray = jsonObject.getAsJsonArray("location");
                 if (locationArray != null && locationArray.size() > 0) {
                     JsonObject location = locationArray.get(0).getAsJsonObject();
-                    double lat = location.has("lat") ? location.get("lat").getAsDouble() : 39.92;
-                    double lon = location.has("lon") ? location.get("lon").getAsDouble() : 116.41;
+                    if (!location.has("lat") || !location.has("lon")) {
+                        throw new Exception("geo 响应缺少坐标字段（" + city + "）");
+                    }
+                    double lat = location.get("lat").getAsDouble();
+                    double lon = location.get("lon").getAsDouble();
                     return new double[]{lat, lon};
                 }
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to get lat/lon from GeoAPI for city " + city, e);
+            throw new Exception("地理编码失败（" + city + "）: " + e.getMessage());
         }
-        return new double[]{39.92, 116.41};
+        throw new Exception("无法定位城市坐标: " + city);
     }
 
     public String getHefengCityNameByLocation(double lat, double lon) {
         try {
             String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
             String urlString = getGeocodeUrl() + "?location=" + location;
-                String response = httpGet(urlString);
+            // geo 端点：与 getHefengLocationFromGeoAPI 一致走 httpGet(JWT)
+            String response = httpGet(urlString);
 
                 JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
             if (jsonObject.has("code") && "200".equals(jsonObject.get("code").getAsString())) {
@@ -1057,6 +1169,8 @@ public class AIWeatherManager implements AITool {
     }
 
     private String getHefengLocationFromGeoAPI(String urlString, boolean returnId) throws Exception {
+        // geo 端点仅作兜底（本地 CSV 已覆盖绝大多数城市）。走 httpGet(JWT)，
+        // 与天气 v7 端点一致；若仍 403，调用方会得到明确错误并提示用坐标。
         String response = httpGet(urlString);
 
         JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
@@ -1810,6 +1924,18 @@ public class AIWeatherManager implements AITool {
     }
 
     private double[] getCoordinatesFromLocationId(String locationId) {
+        // 本地 CSV 优先（与 getHefengLocationId 一致，离线可用）
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityById(locationId);
+            if (entry != null) {
+                return new double[]{entry.latitude, entry.longitude};
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for id " + locationId + ": " + t.getMessage());
+        }
         try {
             String urlString = getGeocodeUrl() + "?location=" + locationId;
                 String response = httpGet(urlString);
@@ -3490,21 +3616,34 @@ public class AIWeatherManager implements AITool {
                 currentFuture = useLocation
                     ? getCurrentWeatherByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
                     : getCurrentWeather(city).exceptionally(e -> "查询失败: " + e.getMessage());
+                // city 为空时不再静默回退"北京"（旧逻辑 6 处硬编码导致"查天气"返回北京天气）
+                String fallbackCity = (city != null && !city.isEmpty()) ? city : null;
+                String noCityMsg = "查询失败: 缺少城市参数(city)或坐标(lat/lon)";
                 forecastFuture = useLocation
                     ? getHefengForecastByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengForecast(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengForecast(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 hourlyFuture = useLocation
                     ? getHefengHourlyByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengHourly(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengHourly(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 airFuture = useLocation
                     ? getHefengAirQualityByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengAirQuality(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengAirQuality(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 alertsFuture = useLocation
                     ? getHefengAlertsByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengAlerts(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengAlerts(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 indicesFuture = useLocation
                     ? getHefengIndicesByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengIndices(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengIndices(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
             }
 
             CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get(30, TimeUnit.SECONDS);

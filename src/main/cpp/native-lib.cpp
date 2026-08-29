@@ -547,6 +547,25 @@ static void setupGGMLBackendPath() {
     if (!libDir.empty()) {
         LOGI("Setting GGML_BACKEND_PATH to: %s", libDir.c_str());
         setenv("GGML_BACKEND_PATH", libDir.c_str(), 1);
+
+        // ===== OpenCL flash attention 运行时开关 =====
+        // 背景：llama.cpp OpenCL FA 的 cluster-parallel (c8) kernel 默认仅对 Adreno
+        // X2E/X1E 启用；A8X(830/840) 的 work-group 上限 128 使 stock kernel(需 256/192)
+        // 注册失败回退普通 attention（长序列 decode 慢）。llama.cpp 已提供 NSG2
+        // 变体（128 WG，适配 Adreno），但 dispatch 需 GGML_OPENCL_FA_C8=1 才走。
+        // OpenCL flash attention cluster-parallel (c8/NSG2) 开关。
+        // 实测(2026-08-29, Adreno 840): 上下文 2400+ tokens 时普通 attention 生成
+        // 0.98s/tok(FA 未触发); NSG2 kernel(128 WG)适配 A8X, dispatch 需
+        // GGML_OPENCL_FA_C8=1 且 n_kv>=2048。当前 12K 上下文已达标, 启用可显著提速。
+        // 风险: A8X 上该路径未经上游充分验证(上游曾因编译器问题禁用 FA),
+        // 如出现乱码/崩溃, 将此值改回 false 并重启 app。
+        bool faC8On = true;
+        if (faC8On) {
+            setenv("GGML_OPENCL_FA_C8", "1", 0);
+            LOGI("OpenCL: GGML_OPENCL_FA_C8=1 -> flash attention cluster-parallel (NSG2) ENABLED");
+        } else {
+            LOGI("OpenCL: flash attention cluster-parallel disabled");
+        }
         
         const char* openclBackends[] = {
             "libggml-opencl.so",
@@ -1385,9 +1404,13 @@ public:
         ctx_params.n_threads_batch = batchThreadCount;
 
         // 批处理大小：GPU 模式下使用更大的 batch
+        // 256→512（12K 上下文重试）：实测 1523 tokens 增量 prefill 用 256 batch=6 批，
+        // 每批 OpenCL 调度开销大 → 31s prefill（49 tok/s）；512 减半批数。
+        // 之前 8K 上下文 512 曾触发 OOM（模型 2.4GB 常驻 + KV buffer），现 12K 上下文
+        // 内存池 2048MB、KV 峰值 1080MB 有余量；如仍 OOM 回退 256。
         int n_batch_actual = batchSize;
-        if (this->gpuLayers > 0 && n_batch_actual < 256) {
-            n_batch_actual = 256; // GPU 模式下至少 256
+        if (this->gpuLayers > 0 && n_batch_actual < 512) {
+            n_batch_actual = 512;
             LOGI("GPU mode: increasing batch size to %d for better throughput", n_batch_actual);
         }
         if (n_batch_actual > MAX_BATCH_SIZE) {
@@ -2601,9 +2624,8 @@ public:
         int n_decode = 0;
         int n_past = (int)tokens_list.size();
         std::vector<llama_token> generatedTokens;   // 记录生成输出 token，供 KV 增量记账
-        // 生成超时 120→300s：长上下文/慢速生成时 120s 会掐断本可完整输出的回答
-        // （实测 146 tokens 因 121s 超时被截断）；Agent 总时长另有 TOTAL_TIME_BUDGET_MS 兜底
-        const int TIMEOUT_SECONDS = 300;
+        // 生成超时：长回答/深度思考时给足时间，不掐断输出（Agent 总时长另有兜底）
+        const int TIMEOUT_SECONDS = 400;
         const int THINKING_TOKEN_LIMIT = std::max(96, maxTokens / 2);
         std::string fullText;
         std::string thinkingText;
@@ -3142,6 +3164,11 @@ public:
         std::string genError;               // 生成失败信息（R7-1）
         // §5.2 第一阶段：required → 所有 token 标记 is_tool_call=true；auto/none → false
         bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
+        // 思考态识别：模板 enable_thinking=true 时模型会输出 <think>...</think>，
+        // 生成循环 thinking=0（思考交给模板），故流式阶段需自行识别思考段——
+        // 思考 token 标记 is_thinking=true（UI 折叠显示、不朗读），标签本身剥离
+        bool isInThinking = false;
+        std::string thinkingAccum;   // 用于检测标签边界（跨 token 的标签片段）
         // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
         // 检测到后锁定 is_tool_call=true，减少 UI 短暂闪烁（已发出的前几个 token 无法撤回）
         const int PARTIAL_PARSE_INTERVAL = 4;   // 每收 N 个 token 检测一次（16→4：缩短泄漏窗口）
@@ -3184,9 +3211,44 @@ public:
                 std::string combined = utf8Buffer + text;
                 std::string completePart;
                 utf8Buffer = splitUtf8Complete(combined, completePart);
+
+                // ===== 思考段流式识别 =====
+                // 处理完整前缀中的 <think>/</think>：进入/退出思考态，标签不发给 UI
                 if (!completePart.empty()) {
-                    nlohmann::ordered_json j = {{"type", "token"}, {"content", completePart}, {"is_tool_call", isInToolCall}};
-                    jsonCallback(j.dump());
+                    std::string filtered;       // 剥离标签后的正文（非思考部分）
+                    filtered.reserve(completePart.size());
+                    size_t pos = 0;
+                    const std::string thinkOpen = "<think>";
+                    const std::string thinkClose = "</think>";
+                    while (pos < completePart.size()) {
+                        if (!isInThinking) {
+                            size_t open = completePart.find(thinkOpen, pos);
+                            if (open == std::string::npos) {
+                                filtered.append(completePart, pos, std::string::npos);
+                                pos = completePart.size();
+                            } else {
+                                filtered.append(completePart, pos, open - pos);
+                                isInThinking = true;
+                                LOGI("chatJson: thinking START detected");
+                                pos = open + thinkOpen.size();
+                            }
+                        } else {
+                            size_t close = completePart.find(thinkClose, pos);
+                            if (close == std::string::npos) {
+                                pos = completePart.size();   // 思考内容不发（折叠显示由 Java 端收集）
+                            } else {
+                                isInThinking = false;
+                                LOGI("chatJson: thinking END detected");
+                                pos = close + thinkClose.size();
+                            }
+                        }
+                    }
+                    // 思考内容本身不发流式 token（Java 端经 complete 的 reasoning 字段获取），
+                    // 只发剥离标签后的正文；思考段用 reasoning 事件另行广播
+                    if (!filtered.empty()) {
+                        nlohmann::ordered_json j = {{"type", "token"}, {"content", filtered}, {"is_tool_call", false}};
+                        jsonCallback(j.dump());
+                    }
                 }
             } else {
                 if (!error.empty()) genError = error;   // R7-1：生成失败（isComplete+error）

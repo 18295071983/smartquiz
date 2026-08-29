@@ -112,7 +112,9 @@ public class ResourceConfig {
             threads = Math.min(3, Math.max(2, (int) (cpuCores * THREAD_CORE_RATIO)));
             AILogger.i(TAG, "Medium memory device (3-6GB), using " + threads + " threads");
         } else {
-            // 大内存设备（>6GB）：3-4 线程
+            // 大内存设备（>6GB）：3-4 线程。
+            // 注意：手机 SoC 8 核 = 2 Prime(高主频) + 6 Perf，全用会让 Prime 满载发热卡顿；
+            // 生成线程 4（2 Prime+2 Perf，留系统余量），prefill 由 n_threads_batch(+2) 承担。
             threads = Math.min(MAX_THREADS, Math.max(3, (int) (cpuCores * THREAD_CORE_RATIO)));
             AILogger.i(TAG, "High memory device (>6GB), using " + threads + " threads");
         }
