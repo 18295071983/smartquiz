@@ -32,8 +32,8 @@ public class SheetTiledView extends View {
         Bitmap renderTile(float offsetX, float offsetY, float tileW, float tileH, int pxW, int pxH);
     }
 
-    private static final int TILE_PX = 512;          // 瓦片像素尺寸
-    private static final int CACHE_MARGIN_TILES = 1; // 可视范围外多缓存一圈
+    private static final int TILE_PX = 256;          // 瓦片像素尺寸（官方 LibreOfficeKit 瓦片即为 256）
+    private static final int CACHE_MARGIN_TILES = 2; // 可视范围外预取一圈/两圈，滚动更顺滑
 
     private TileRenderer renderer;
     private float docW = 1f;   // 文档宽（文档单位）
@@ -220,7 +220,9 @@ public class SheetTiledView extends View {
         }
         inFlight.add(key);
         final int gen = generation;
-        // 该瓦片对应的文档坐标
+        // 该瓦片对应的文档坐标（twip）。
+        // 与官方 LOKitTileProvider 一致：twip = pixelToTwip(tilePixelPos)/zoom，
+        // 而 unitsPerPixel = pixelToTwip(1)/zoom，故 col*TILE_PX*unitsPerPixel 即官方 twipX。
         float tileDocX = col * TILE_PX * unitsPerPixel;
         float tileDocY = row * TILE_PX * unitsPerPixel;
         float tileDocW = TILE_PX * unitsPerPixel;
