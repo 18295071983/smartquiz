@@ -6,22 +6,23 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
-import android.view.MotionEvent;
-import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.webkit.WebView;
+import androidx.annotation.Nullable;
+
+import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
-import android.widget.ImageView;
-import android.widget.ProgressBar;
+import com.github.chrisbanes.photoview.PhotoView;
+
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.util.PreviewRenderBridge;
 import com.oilquiz.app.util.render.FileRenderEngine;
 
@@ -29,19 +30,19 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 
-public class FileRenderActivity extends AppCompatActivity {
+public class FileRenderActivity extends BaseActivity {
 
     private static final String TAG = "FileRenderActivity";
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_FILE_URI = "file_uri";
 
+    private MaterialToolbar toolbar;
     private LinearLayout loadingLayout;
-    private ProgressBar progressBar;
     private ProgressBar progressHorizontal;
     private TextView tvLoading;
     private TextView tvProgress;
     private LinearLayout contentLayout;
-    private ImageView ivImage;
+    private PhotoView ivImage;
     private TextView tvText;
     private WebView wvHtml;
     private LinearLayout errorLayout;
@@ -49,51 +50,23 @@ public class FileRenderActivity extends AppCompatActivity {
     private TextView tvErrorMessage;
     private MaterialButton btnRetry;
     private MaterialButton btnOpenWith;
-    private TextView tvFileName;
     private MaterialButton btnShare;
-    private TextView tvEngineStatus;
-    private TextView tvFileInfo;
 
     private File currentFile;
     private PreviewRenderBridge previewRenderBridge;
-    private ScaleGestureDetector scaleGestureDetector;
-    private float scale = 1.0f;
     private android.widget.VideoView videoView;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_file_render);
-
-        initViews();
-        setupListeners();
-        setupImageZoom();
-        previewRenderBridge = new PreviewRenderBridge(this);
-        handleIntent(getIntent());
+    protected int getLayoutId() {
+        return R.layout.activity_file_render;
     }
 
-    private void setupImageZoom() {
-        scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            @Override
-            public boolean onScale(ScaleGestureDetector detector) {
-                scale *= detector.getScaleFactor();
-                scale = Math.max(0.1f, Math.min(scale, 5.0f));
-                ivImage.setScaleX(scale);
-                ivImage.setScaleY(scale);
-                return true;
-            }
-        });
+    @Override
+    protected void initView() {
+        toolbar = findViewById(R.id.toolbar);
+        setupToolbar("文件预览");
 
-        ivImage.setOnTouchListener((v, event) -> {
-            if (event == null) return false;
-            scaleGestureDetector.onTouchEvent(event);
-            return true;
-        });
-    }
-
-    private void initViews() {
         loadingLayout = findViewById(R.id.loading_layout);
-        progressBar = findViewById(R.id.progress_bar);
         progressHorizontal = findViewById(R.id.progress_horizontal);
         tvLoading = findViewById(R.id.tv_loading);
         tvProgress = findViewById(R.id.tv_progress);
@@ -106,12 +79,25 @@ public class FileRenderActivity extends AppCompatActivity {
         tvErrorMessage = findViewById(R.id.tv_error_message);
         btnRetry = findViewById(R.id.btn_retry);
         btnOpenWith = findViewById(R.id.btn_open_with);
-        tvFileName = findViewById(R.id.tv_file_name);
         btnShare = findViewById(R.id.btn_share);
-        tvEngineStatus = findViewById(R.id.tv_engine_status);
-        tvFileInfo = findViewById(R.id.tv_file_info);
 
         setupWebView();
+        // 图片内容用 PhotoView（焦点缩放/平移/双击），无 setScaleX 抖动
+        ivImage.setZoomable(true);
+        ivImage.setMaximumScale(6f);
+    }
+
+    @Override
+    protected void initData() {
+        previewRenderBridge = new PreviewRenderBridge(this);
+        handleIntent(getIntent());
+    }
+
+    @Override
+    protected void initListener() {
+        btnShare.setOnClickListener(v -> shareFile());
+        btnRetry.setOnClickListener(v -> renderFile(currentFile));
+        btnOpenWith.setOnClickListener(v -> openWithOtherApp(currentFile));
     }
 
     private void setupWebView() {
@@ -128,38 +114,6 @@ public class FileRenderActivity extends AppCompatActivity {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
             }
-
-            wvHtml.setWebViewClient(new android.webkit.WebViewClient() {
-                @Override
-                public void onPageStarted(android.webkit.WebView view, String url, android.graphics.Bitmap favicon) {
-                    super.onPageStarted(view, url, favicon);
-                    Log.d(TAG, "WebView started loading: " + url);
-                }
-
-                @Override
-                public void onPageFinished(android.webkit.WebView view, String url) {
-                    super.onPageFinished(view, url);
-                    Log.d(TAG, "WebView finished loading: " + url);
-                }
-
-                @Override
-                public void onReceivedError(android.webkit.WebView view, int errorCode, String description, String failingUrl) {
-                    super.onReceivedError(view, errorCode, description, failingUrl);
-                    Log.e(TAG, "WebView error: " + description + " (" + errorCode + ")");
-                }
-            });
-        }
-    }
-
-    private void setupListeners() {
-        if (btnShare != null) {
-            btnShare.setOnClickListener(v -> shareFile());
-        }
-        if (btnRetry != null) {
-            btnRetry.setOnClickListener(v -> renderFile(currentFile));
-        }
-        if (btnOpenWith != null) {
-            btnOpenWith.setOnClickListener(v -> openWithOtherApp(currentFile));
         }
     }
 
@@ -191,39 +145,41 @@ public class FileRenderActivity extends AppCompatActivity {
             showError("文件不存在", "无法找到指定的文件");
             return;
         }
+        if (toolbar != null) {
+            toolbar.setSubtitle(file.getName());
+        }
 
-        // Office 文档（Word/Excel/PPT）：优先 LibreOfficeKit（纯离线、最高保真）；
-        // 不可用则优先调起系统 Office 应用（如 WPS）；再不行回退内置引擎（POI→HTML）。
-        if (isOfficeDocument(file)) {
+        // Office 及 LibreOffice 可渲染的文档格式：优先 LibreOfficeKit（纯离线、最高保真）；
+        // 不可用则优先调起系统应用（如 WPS）；再不行回退内置引擎（POI→HTML）。
+        if (isLibreOfficeDocument(file)) {
             if (com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager.getInstance(this).isAvailable()) {
+                // 直接交给 LibreOfficeKit 文档预览，并结束本壳，避免"文件渲染壳 → 文档预览"双层嵌套
                 com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, file.getAbsolutePath());
+                finish();
                 return;
             }
             if (hasExternalViewer(file)) {
                 openWithOtherApp(file);
+                finish();
                 return;
             }
         }
 
-        tvFileName.setText(file.getName());
-        if (tvFileInfo != null) {
-            tvFileInfo.setText("文件大小: " + (file.length() / 1024) + "KB");
-        }
-        tvEngineStatus.setText("引擎状态: 准备中");
+        tvLoading.setText("正在渲染文件…");
         showLoading();
 
         FileRenderEngine engine = PreviewRenderBridge.RenderEngineFactory.getInstance().getEngineForFile(file);
         if (engine != null) {
-            tvEngineStatus.setText("引擎状态: 使用 " + engine.getEngineName());
+            Log.d(TAG, "使用引擎: " + engine.getEngineName());
         } else {
-            tvEngineStatus.setText("引擎状态: 未找到适合的引擎");
+            Log.d(TAG, "未找到适合的引擎");
         }
 
         previewRenderBridge.renderFile(file, new PreviewRenderBridge.PreviewCallback() {
             @Override
             public void onSuccess(Object previewContent) {
                 runOnUiThread(() -> {
-                    tvEngineStatus.setText("引擎状态: 渲染成功");
+                    Log.d(TAG, "渲染成功");
                     hideLoading();
                     displayRenderedContent(previewContent);
                 });
@@ -232,7 +188,7 @@ public class FileRenderActivity extends AppCompatActivity {
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> {
-                    tvEngineStatus.setText("引擎状态: 渲染失败");
+                    Log.e(TAG, "渲染失败: " + error);
                     hideLoading();
                     showError("渲染失败", error);
                 });
@@ -241,8 +197,12 @@ public class FileRenderActivity extends AppCompatActivity {
             @Override
             public void onProgress(int progress) {
                 runOnUiThread(() -> {
-                    tvEngineStatus.setText("引擎状态: 渲染中 " + progress + "%");
-                    updateProgress(progress);
+                    if (progressHorizontal != null) {
+                        progressHorizontal.setProgress(progress);
+                    }
+                    if (tvProgress != null) {
+                        tvProgress.setText(progress + "%");
+                    }
                 });
             }
         });
@@ -252,18 +212,17 @@ public class FileRenderActivity extends AppCompatActivity {
         loadingLayout.setVisibility(View.VISIBLE);
         contentLayout.setVisibility(View.GONE);
         errorLayout.setVisibility(View.GONE);
-        progressHorizontal.setProgress(0);
-        tvProgress.setText("0%");
+        if (progressHorizontal != null) {
+            progressHorizontal.setProgress(0);
+        }
+        if (tvProgress != null) {
+            tvProgress.setText("0%");
+        }
     }
 
     private void hideLoading() {
         loadingLayout.setVisibility(View.GONE);
         contentLayout.setVisibility(View.VISIBLE);
-    }
-
-    private void updateProgress(int progress) {
-        progressHorizontal.setProgress(progress);
-        tvProgress.setText(progress + "%");
     }
 
     private void displayRenderedContent(Object content) {
@@ -273,8 +232,7 @@ public class FileRenderActivity extends AppCompatActivity {
         hideVideoView();
 
         if (content instanceof Bitmap) {
-            ivImage.setImageBitmap((Bitmap) content);
-            ivImage.setVisibility(View.VISIBLE);
+            showImageBitmap(ivImage, (Bitmap) content);
         } else if (content instanceof String) {
             String contentStr = (String) content;
             if (contentStr.startsWith("<html") || contentStr.contains("<html") || contentStr.contains("<body") || contentStr.contains("<div")) {
@@ -290,8 +248,7 @@ public class FileRenderActivity extends AppCompatActivity {
             if (contentMap.containsKey("videoPath")) {
                 showVideo(String.valueOf(contentMap.get("videoPath")));
             } else if (contentMap.containsKey("bitmap")) {
-                ivImage.setImageBitmap((Bitmap) contentMap.get("bitmap"));
-                ivImage.setVisibility(View.VISIBLE);
+                showImageBitmap(ivImage, (Bitmap) contentMap.get("bitmap"));
             } else if (contentMap.containsKey("htmlContent")) {
                 String htmlContent = String.valueOf(contentMap.get("htmlContent"));
                 Log.d(TAG, "Loading HTML content from map, length: " + htmlContent.length());
@@ -305,6 +262,27 @@ public class FileRenderActivity extends AppCompatActivity {
                 tvText.setVisibility(View.VISIBLE);
             }
         }
+    }
+
+    /** 用 PhotoView 展示位图，并按位图/视图尺寸显式回到完整适配，避免缩放错乱。 */
+    private void showImageBitmap(PhotoView pv, Bitmap bmp) {
+        pv.setImageBitmap(bmp);
+        pv.post(() -> {
+            int vw = pv.getWidth();
+            int vh = pv.getHeight();
+            float fs;
+            if (vw > 0 && vh > 0 && bmp != null && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
+                fs = Math.min((float) vw / bmp.getWidth(), (float) vh / bmp.getHeight());
+            } else {
+                fs = pv.getScale();
+            }
+            if (fs > 0f) {
+                pv.setMinimumScale(fs);
+                pv.setMaximumScale(fs * 6f);
+                pv.setScale(fs, false);
+            }
+        });
+        pv.setVisibility(View.VISIBLE);
     }
 
     /** 隐藏/释放已展示的视频（切换渲染内容或退出时调用） */
@@ -328,7 +306,7 @@ public class FileRenderActivity extends AppCompatActivity {
         }
         final android.widget.VideoView vv = new android.widget.VideoView(this);
         videoView = vv;
-        // 插入到文件名下方的正文区（weight=1 撑满剩余空间，与图片/文本一致）
+        // 插入到内容区（weight=1 撑满剩余空间，与图片/文本一致）
         contentLayout.addView(vv, 1, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         vv.setOnPreparedListener(mp -> {
@@ -371,7 +349,7 @@ public class FileRenderActivity extends AppCompatActivity {
 
     private void showError(String title, String message) {
         loadingLayout.setVisibility(View.GONE);
-        contentLayout.setVisibility(View.VISIBLE);
+        contentLayout.setVisibility(View.GONE);
         errorLayout.setVisibility(View.VISIBLE);
         tvErrorTitle.setText(title);
         tvErrorMessage.setText(message);
@@ -408,11 +386,14 @@ public class FileRenderActivity extends AppCompatActivity {
         }
     }
 
-    /** 是否为 Office 文档（Word/Excel/PPT） */
-    private boolean isOfficeDocument(File file) {
+    /** 是否为 LibreOffice 可稳定渲染的文档格式（Word/Excel/PPT + ODF + RTF）。
+     *  说明：csv/txt 由内置文本渲染器处理（更稳、更快）；pdf 由专用 Pdfium 预览处理。 */
+    private boolean isLibreOfficeDocument(File file) {
         String n = file.getName().toLowerCase();
         return n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".xls") ||
-                n.endsWith(".xlsx") || n.endsWith(".ppt") || n.endsWith(".pptx");
+                n.endsWith(".xlsx") || n.endsWith(".ppt") || n.endsWith(".pptx") ||
+                n.endsWith(".odt") || n.endsWith(".ods") || n.endsWith(".odp") ||
+                n.endsWith(".rtf");
     }
 
     /** 获取文件 MIME 类型 */
@@ -425,6 +406,12 @@ public class FileRenderActivity extends AppCompatActivity {
             case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             case "ppt": return "application/vnd.ms-powerpoint";
             case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case "odt": return "application/vnd.oasis.opendocument.text";
+            case "ods": return "application/vnd.oasis.opendocument.spreadsheet";
+            case "odp": return "application/vnd.oasis.opendocument.presentation";
+            case "rtf": return "application/rtf";
+            case "csv": return "text/csv";
+            case "txt": return "text/plain";
             case "pdf": return "application/pdf";
             default: return "*/*";
         }
@@ -490,7 +477,7 @@ public class FileRenderActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 1001 && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();

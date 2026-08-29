@@ -6,9 +6,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="?attr/colorSurface"
-    tools:context=".ui.activity.FileRenderActivity">
+    tools:context=".ui.activity.LibreOfficeKitPreviewActivity">
 
-    <!-- 顶部工具栏：与文档预览一致的 MaterialToolbar + 返回箭头 -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -17,95 +16,66 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="文件预览"
-            app:titleTextColor="?attr/colorOnSurface"
-            app:subtitleTextColor="?attr/colorOnSurfaceVariant"/>
+            app:title="文档预览"
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- 内容区：居中展示渲染内容，加载/错误为叠加层（与文档预览一致） -->
+    <!-- 内容区：单页大图（可缩放） + 加载态 -->
     <FrameLayout
-        android:id="@+id/content_area"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="@color/lo_page_bg">
 
-        <!-- 渲染内容容器（图片/文本/HTML/视频） -->
-        <LinearLayout
-            android:id="@+id/content_layout"
+        <com.github.chrisbanes.photoview.PhotoView
+            android:id="@+id/iv_page"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical">
+            android:contentDescription="文档页面"/>
 
-            <com.github.chrisbanes.photoview.PhotoView
-                android:id="@+id/iv_image"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:contentDescription="渲染内容"
-                android:visibility="gone"/>
+        <!-- 缩放百分比指示器 -->
+        <TextView
+            android:id="@+id/tv_zoom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="16dp"
+            android:background="@drawable/bg_zoom_indicator"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:text="100%"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
-            <TextView
-                android:id="@+id/tv_text"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:padding="16dp"
-                android:text="文本内容"
-                android:textSize="14sp"
-                android:lineSpacingExtra="2dp"
-                android:textColor="?attr/colorOnSurface"
-                android:visibility="gone"/>
-
-            <WebView
-                android:id="@+id/wv_html"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:visibility="gone"/>
-        </LinearLayout>
-
-        <!-- 加载态叠加层 -->
+        <!-- 加载态 -->
         <LinearLayout
             android:id="@+id/loading_layout"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="24dp"
-            android:background="@color/lo_page_bg"
             android:visibility="gone">
 
             <ProgressBar
-                android:id="@+id/progress_horizontal"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:indeterminate="false"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="?attr/colorPrimary"
-                android:layout_marginHorizontal="40dp"
-                android:layout_marginBottom="16dp"/>
+                android:indeterminate="true"
+                android:progressTint="?attr/colorPrimary"/>
 
             <TextView
                 android:id="@+id/tv_loading"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="加载中..."
-                android:textSize="15sp"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="8dp"/>
-
-            <TextView
-                android:id="@+id/tv_progress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0%"
-                android:textSize="13sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+                android:layout_marginTop="12dp"
+                android:text="正在渲染文档…"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="14sp"/>
         </LinearLayout>
 
-        <!-- 错误态叠加层 -->
+        <!-- 错误态 -->
         <LinearLayout
             android:id="@+id/error_layout"
             android:layout_width="match_parent"
@@ -113,7 +83,6 @@
             android:orientation="vertical"
             android:gravity="center"
             android:padding="24dp"
-            android:background="@color/lo_page_bg"
             android:visibility="gone">
 
             <TextView
@@ -123,30 +92,40 @@
                 android:text="预览失败"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="8dp"/>
+                android:textColor="?attr/colorOnSurface"/>
 
             <TextView
                 android:id="@+id/tv_error_message"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="无法预览此文件"
+                android:layout_marginTop="8dp"
+                android:text="无法预览此文档"
                 android:textSize="14sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginBottom="20dp"/>
+                android:textColor="?attr/colorOnSurfaceVariant"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_retry"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
                 android:text="重试"
                 android:textAllCaps="false"
                 app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_open_with"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="用其他应用打开"
+                android:textAllCaps="false"
+                app:backgroundTint="?attr/colorSecondary"
+                app:cornerRadius="12dp"/>
         </LinearLayout>
     </FrameLayout>
 
-    <!-- 底部操作栏：分享 / 用其他应用打开（与文档预览底部按钮风格一致） -->
+    <!-- 底部翻页控件 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -157,23 +136,30 @@
         android:elevation="8dp">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_share"
+            android:id="@+id/btn_prev"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:text="分享"
+            android:text="上一页"
             android:textAllCaps="false"
             app:cornerRadius="12dp"/>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_open_with"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        <TextView
+            android:id="@+id/tv_page_info"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="用其他应用打开"
+            android:gravity="center"
+            android:text="1 / 1"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="14sp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_next"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="下一页"
             android:textAllCaps="false"
             app:cornerRadius="12dp"/>
     </LinearLayout>

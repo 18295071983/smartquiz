@@ -97,6 +97,7 @@
     <color name="info_color">#8B5CF6</color>
     <color name="ai_color">#00BCD4</color>
     <color name="warning_color">#F59E0B</color>
+    <color name="lo_page_bg">#E9ECEF</color>
 
     <color name="green_50">#ECFDF5</color>
     <color name="green_100">#D1FAE5</color>
