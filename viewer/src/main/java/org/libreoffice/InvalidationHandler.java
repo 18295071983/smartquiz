@@ -58,7 +58,11 @@ public class InvalidationHandler implements Document.MessageCallback, Office.Mes
                     && messageID != Document.CALLBACK_SC_FOLLOW_JUMP
                     && messageID != Document.CALLBACK_TEXT_SELECTION
                     && messageID != Document.CALLBACK_TEXT_SELECTION_START
-                    && messageID != Document.CALLBACK_TEXT_SELECTION_END)
+                    && messageID != Document.CALLBACK_TEXT_SELECTION_END
+                    && messageID != Document.CALLBACK_CELL_ADDRESS
+                    && messageID != Document.CALLBACK_CELL_CURSOR
+                    && messageID != Document.CALLBACK_CELL_VIEW_CURSOR
+                    && messageID != Document.CALLBACK_CELL_FORMULA)
                 return;
         }
         switch (messageID) {

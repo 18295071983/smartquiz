@@ -33,6 +33,14 @@ public final class LibreOfficeViewerLauncher {
             if (!file.exists()) {
                 return false;
             }
+
+            // PDF 交给内置 Pdfium 内核：支持连续滚动，LibreOffice 只把 PDF 当 Draw、只能一页一页翻。
+            if (file.getName().toLowerCase().endsWith(".pdf")) {
+                com.oilquiz.app.ui.activity.PdfiumPreviewActivity.start(context, filePath);
+                Log.i(TAG, "PDF 交由 Pdfium 内核连续滚动预览: " + file.getName());
+                return true;
+            }
+
             Uri uri = FileProvider.getUriForFile(context,
                     context.getPackageName() + ".fileprovider", file);
             Intent intent = new Intent();
