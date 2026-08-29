@@ -192,6 +192,13 @@ public class FileRenderActivity extends AppCompatActivity {
             return;
         }
 
+        // Office 文档（Word/Excel/PPT）：优先调起系统已安装的 Office 应用（如 WPS）进行高保真渲染；
+        // 若设备没有可处理的应用，则回退到内置引擎（POI→HTML）。
+        if (isOfficeDocument(file) && hasExternalViewer(file)) {
+            openWithOtherApp(file);
+            return;
+        }
+
         tvFileName.setText(file.getName());
         if (tvFileInfo != null) {
             tvFileInfo.setText("文件大小: " + (file.length() / 1024) + "KB");
@@ -385,13 +392,48 @@ public class FileRenderActivity extends AppCompatActivity {
             try {
                 Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
                 Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri, "*/*");
+                intent.setDataAndType(uri, getMimeType(file.getName()));
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 startActivity(Intent.createChooser(intent, "选择应用打开"));
             } catch (Exception e) {
                 Log.e(TAG, "Error opening file with other app: " + e.getMessage(), e);
                 Toast.makeText(this, "打开失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    /** 是否为 Office 文档（Word/Excel/PPT） */
+    private boolean isOfficeDocument(File file) {
+        String n = file.getName().toLowerCase();
+        return n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".xls") ||
+                n.endsWith(".xlsx") || n.endsWith(".ppt") || n.endsWith(".pptx");
+    }
+
+    /** 获取文件 MIME 类型 */
+    private String getMimeType(String fileName) {
+        String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
+        switch (ext) {
+            case "doc": return "application/msword";
+            case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "xls": return "application/vnd.ms-excel";
+            case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case "ppt": return "application/vnd.ms-powerpoint";
+            case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case "pdf": return "application/pdf";
+            default: return "*/*";
+        }
+    }
+
+    /** 是否存在能打开该文件的外部应用（如 WPS） */
+    private boolean hasExternalViewer(File file) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, getMimeType(file.getName()));
+            return getPackageManager().queryIntentActivities(intent, 0) != null &&
+                    getPackageManager().queryIntentActivities(intent, 0).size() > 0;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
