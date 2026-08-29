@@ -14,7 +14,6 @@ import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.ui.widget.WeatherBannerView;
 
-import com.oilquiz.app.ui.activity.UserActivity;
 import com.oilquiz.app.ui.activity.QuestionActivity;
 import com.oilquiz.app.ui.activity.QuizActivity;
 import com.oilquiz.app.ui.activity.StartQuizActivity;
@@ -23,7 +22,6 @@ import com.oilquiz.app.ui.activity.ImportGuideActivity;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
 import com.oilquiz.app.ui.activity.ExportActivity;
 import com.oilquiz.app.ui.activity.SimpleFilePreviewActivity;
-import com.oilquiz.app.ui.activity.TestActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;

@@ -122,9 +122,6 @@
         </activity>
 
         <activity
-            android:name=".ui.activity.UserActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.QuestionActivity"
             android:exported="false" />
         <activity
@@ -209,9 +206,6 @@
             android:exported="false" />
         <activity
             android:name=".ui.activity.FieldManagementActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.TestActivity"
             android:exported="false" />
         <activity
             android:name=".ui.activity.HistoryActivity"
@@ -357,10 +351,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".ui.activity.TokenizerDemoActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.activity.AIIconDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />
@@ -393,11 +383,6 @@
         <activity
             android:name=".ui.activity.WeatherWebViewActivity"
             android:exported="false"
-            android:theme="@style/Theme.OilQuizApp" />
-
-        <activity
-            android:name=".ui.activity.JwtTestActivity"
-            android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />
 
         <!-- FileProvider配置 -->

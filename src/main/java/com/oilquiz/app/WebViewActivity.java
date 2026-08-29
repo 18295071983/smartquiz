@@ -2695,10 +2695,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openUser() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.UserActivity.class);
-                startActivity(intent);
-            });
+            // 用户页已移除，留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2772,10 +2769,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openTest() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.TestActivity.class);
-                startActivity(intent);
-            });
+            // 测试页已移除，留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
