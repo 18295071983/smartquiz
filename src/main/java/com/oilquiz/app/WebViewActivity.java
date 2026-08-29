@@ -18,7 +18,6 @@ import android.widget.TextView;
 import android.webkit.JavascriptInterface;
 import androidx.annotation.NonNull;
 import com.oilquiz.app.infra.AppLogger;
-import com.oilquiz.app.util.PreviewRenderBridge;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.resource.PermissionResourceProvider;
@@ -51,7 +50,6 @@ public class WebViewActivity extends BaseActivity {
     private Button btnRefresh;
     private Button btnReset;
     private FrameLayout webViewContainer;
-    private PreviewRenderBridge previewRenderBridge;
     private SystemUIResourceAdapter uiAdapter;
     
     // 标签页相关
@@ -367,9 +365,6 @@ public class WebViewActivity extends BaseActivity {
 
     @Override
     protected void initData() {
-        // 初始化PreviewRenderBridge
-        previewRenderBridge = new PreviewRenderBridge(this);
-        
         // 初始化文件预览管理器（包含TBS SDK）
         com.oilquiz.app.util.preview.FilePreviewManager.getInstance().initialize(this);
         
@@ -983,341 +978,16 @@ public class WebViewActivity extends BaseActivity {
      * @param fileUrl 文件URL
      */
     private void loadOfficeFile(File file, String fileUrl) {
-        String fileName = file.getName().toLowerCase();
-        
-        // 检查是否支持 TBS SDK 预览
-        boolean isTbsSupported = isTBSSupportedFile(fileName);
-        boolean isTbsAvailable = com.oilquiz.app.util.preview.FilePreviewManager.getInstance().isX5Available();
-        
-        // 如果 TBS SDK 可用且文件支持，显示选择对话框
-        if (isTbsSupported && isTbsAvailable) {
-            showPreviewOptionDialog(file);
-        } else {
-            // 直接使用内置渲染引擎
-            loadOfficeFileWithInternalEngine(file);
-        }
-    }
-    
-    /**
-     * 检查文件是否支持 TBS SDK 预览
-     */
-    private boolean isTBSSupportedFile(String fileName) {
-        String lowerName = fileName.toLowerCase();
-        return lowerName.endsWith(".doc") || lowerName.endsWith(".docx") ||
-               lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx") ||
-               lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx") ||
-               lowerName.endsWith(".pdf") || lowerName.endsWith(".txt") ||
-               lowerName.endsWith(".epub") || lowerName.endsWith(".chm");
-    }
-    
-    /**
-     * 显示预览选项对话框
-     */
-    private void showPreviewOptionDialog(File file) {
-        runOnUiThread(() -> {
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("选择预览方式")
-                    .setMessage("请选择使用哪种方式预览文件：\n\n" +
-                            "📱 内置引擎 - 使用应用内置的渲染引擎\n" +
-                            "🌐 TBS SDK - 使用腾讯浏览服务（推荐，效果更好）")
-                    .setPositiveButton("TBS SDK", (dialog, which) -> {
-                        loadOfficeFileWithTBS(file);
-                    })
-                    .setNegativeButton("内置引擎", (dialog, which) -> {
-                        loadOfficeFileWithInternalEngine(file);
-                    })
-                    .setCancelable(false)
-                    .show();
-        });
-    }
-    
-    /**
-     * 使用 TBS SDK 加载 Office 文件
-     */
-    private void loadOfficeFileWithTBS(File file) {
-        AppLogger.d(TAG, "使用 TBS SDK 预览文件: " + file.getAbsolutePath());
-        
-        com.oilquiz.app.util.preview.FilePreviewManager previewManager = 
-                com.oilquiz.app.util.preview.FilePreviewManager.getInstance();
-        
-        // 确保 TBS SDK 已初始化
-        if (!previewManager.isX5Initialized()) {
-            previewManager.initializeX5Async((success, errorCode) -> {
-                runOnUiThread(() -> {
-                    if (success) {
-                        AppLogger.d(TAG, "TBS SDK 初始化成功，开始预览");
-                        startTBSPreview(file, previewManager);
-                    } else {
-                        AppLogger.e(TAG, "TBS SDK 初始化失败: " + errorCode);
-                        // 初始化失败，回退到内置引擎
-                        showToast("TBS SDK 初始化失败，使用内置引擎预览");
-                        loadOfficeFileWithInternalEngine(file);
-                    }
-                });
-            });
-        } else {
-            startTBSPreview(file, previewManager);
-        }
-    }
-    
-    /**
-     * 开始 TBS 预览
-     */
-    private void startTBSPreview(File file, com.oilquiz.app.util.preview.FilePreviewManager previewManager) {
-        AppLogger.d(TAG, "启动 TBS 预览 Activity: " + file.getAbsolutePath());
-        
-        // 启动专门的 TBS 预览 Activity
-        com.oilquiz.app.ui.activity.TBSFilePreviewActivity.start(this, file.getAbsolutePath());
-    }
-    
-    /**
-     * 使用内置渲染引擎加载 Office 文件
-     */
-    private void loadOfficeFileWithInternalEngine(File file) {
-        AppLogger.d(TAG, "使用内置引擎渲染文件: " + file.getAbsolutePath());
-        
+        // 方案1：统一使用文件渲染页预览，避免两套渲染管线
         try {
-            previewRenderBridge.renderFile(file, new PreviewRenderBridge.PreviewCallback() {
-                @Override
-                public void onSuccess(Object previewContent) {
-                    runOnUiThread(() -> {
-                        AppLogger.d(TAG, "内置引擎渲染成功");
-                        if (previewContent != null) {
-                            displayRenderedContent(previewContent);
-                        } else {
-                            showOfficeFileError(file, "渲染内容为空");
-                        }
-                    });
-                }
-
-                @Override
-                public void onError(String error) {
-                    runOnUiThread(() -> {
-                        AppLogger.w(TAG, "内置引擎渲染失败: " + error);
-                        // 渲染失败，尝试使用系统应用打开
-                        openWithSystemApp(file);
-                    });
-                }
-
-                @Override
-                public void onProgress(int progress) {
-                    AppLogger.d(TAG, "渲染进度: " + progress + "%");
-                }
-            });
-        } catch (Exception e) {
-            AppLogger.e(TAG, "内置引擎加载异常: " + e.getMessage(), e);
-            openWithSystemApp(file);
-        }
-    }
-    
-    /**
-     * 使用系统应用打开文件
-     * @param file 要打开的文件
-     */
-    private void openWithSystemApp(File file) {
-        try {
-            AppLogger.d(TAG, "使用系统默认应用打开文件: " + file.getAbsolutePath());
-            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-            android.net.Uri uri = android.net.Uri.fromFile(file);
-            intent.setDataAndType(uri, getMimeType(file.getName()));
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent intent = new Intent(this, com.oilquiz.app.ui.activity.FileRenderActivity.class);
+            intent.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH, file.getAbsolutePath());
             startActivity(intent);
         } catch (Exception e) {
-            AppLogger.e(TAG, "系统默认应用打开异常: " + e.getMessage(), e);
-            // 所有方法都失败，显示错误信息
-            showOfficeFileError(file, e.getMessage());
+            AppLogger.e(TAG, "打开文件渲染页失败: " + e.getMessage(), e);
         }
     }
     
-    /**
-     * 显示Office文件加载错误信息
-     * @param file 文件
-     * @param errorMessage 错误信息
-     */
-    private void showOfficeFileError(File file, String errorMessage) {
-        String fileName = file.getName();
-        long fileSize = file.length();
-        
-        StringBuilder errorHtml = new StringBuilder();
-        errorHtml.append("<!DOCTYPE html>");
-        errorHtml.append("<html><head><meta charset='UTF-8'>");
-        errorHtml.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-        errorHtml.append("<style>");
-        errorHtml.append("body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; text-align: center; }");
-        errorHtml.append(".container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-        errorHtml.append("h1 { color: #e74c3c; font-size: 24px; margin-bottom: 20px; }");
-        errorHtml.append(".icon { font-size: 64px; margin-bottom: 20px; }");
-        errorHtml.append(".info { background-color: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: left; }");
-        errorHtml.append(".info p { margin: 8px 0; color: #555; }");
-        errorHtml.append(".error { color: #e74c3c; margin-top: 15px; padding: 10px; background-color: #fdf2f2; border-radius: 6px; }");
-        errorHtml.append("</style></head><body>");
-        errorHtml.append("<div class='container'>");
-        errorHtml.append("<div class='icon'>📄</div>");
-        errorHtml.append("<h1>无法预览文件</h1>");
-        errorHtml.append("<div class='info'>");
-        errorHtml.append("<p><strong>文件名:</strong> ").append(fileName).append("</p>");
-        errorHtml.append("<p><strong>文件大小:</strong> ").append(fileSize / 1024).append(" KB</p>");
-        errorHtml.append("</div>");
-        errorHtml.append("<div class='error'>");
-        errorHtml.append("<p><strong>错误信息:</strong> ").append(errorMessage != null ? errorMessage : "未知错误").append("</p>");
-        errorHtml.append("</div>");
-        errorHtml.append("<p style='margin-top: 20px; color: #7f8c8d;'>请尝试使用其他应用打开此文件</p>");
-        errorHtml.append("</div></body></html>");
-        
-        loadDataWithBaseURL(null, errorHtml.toString(), "text/html", "UTF-8", null);
-    }
-    
-    /**
-     * 显示渲染后的内容
-     * @param content 渲染后的内容
-     */
-    private void displayRenderedContent(Object content) {
-        if (content instanceof android.graphics.Bitmap) {
-            // 图片渲染结果，使用WebView显示
-            android.graphics.Bitmap bitmap = (android.graphics.Bitmap) content;
-            try {
-                // 将Bitmap保存为临时文件
-                File tempFile = File.createTempFile("preview", ".png", getCacheDir());
-                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                }
-                // 加载临时文件
-                loadUrl("file://" + tempFile.getAbsolutePath());
-            } catch (Exception e) {
-                AppLogger.e(TAG, "显示图片失败: " + e.getMessage(), e);
-                loadData("<html><body><h1>加载失败</h1><p>无法显示图片</p></body></html>", "text/html", "UTF-8");
-            }
-        } else if (content instanceof String) {
-            String contentStr = (String) content;
-            // 检查是否是HTML内容（更宽松的检查）
-            String lowerContent = contentStr.toLowerCase().trim();
-            boolean isHtml = lowerContent.startsWith("<!doctype") || 
-                            lowerContent.startsWith("<html") || 
-                            lowerContent.contains("<head") || 
-                            lowerContent.contains("<body") || 
-                            lowerContent.contains("<div") ||
-                            lowerContent.contains("<table") ||
-                            lowerContent.contains("<p>") ||
-                            lowerContent.contains("<h1") ||
-                            lowerContent.contains("<style") ||
-                            lowerContent.contains("<script");
-            
-            if (isHtml) {
-                // HTML渲染结果
-                AppLogger.d(TAG, "Loading HTML content, length: " + contentStr.length());
-                // 使用loadDataWithBaseURL确保正确加载HTML
-                loadDataWithBaseURL(null, contentStr, "text/html", "UTF-8", null);
-            } else {
-                // 文本渲染结果
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + contentStr + "</body></html>";
-                loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null);
-            }
-        } else if (content instanceof java.util.Map) {
-            // 包含额外信息的渲染结果
-            java.util.Map<?, ?> contentMap = (java.util.Map<?, ?>) content;
-            if (contentMap.containsKey("bitmaps")) {
-                // 多页PDF渲染结果
-                java.util.List<?> bitmapsList = (java.util.List<?>) contentMap.get("bitmaps");
-                if (bitmapsList != null && !bitmapsList.isEmpty()) {
-                    try {
-                        // 创建HTML页面来显示所有页
-                        StringBuilder htmlBuilder = new StringBuilder();
-                        htmlBuilder.append("<!DOCTYPE html>");
-                        htmlBuilder.append("<html lang=\"zh-CN\">");
-                        htmlBuilder.append("<head>");
-                        htmlBuilder.append("<meta charset=\"UTF-8\">");
-                        htmlBuilder.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
-                        htmlBuilder.append("<title>PDF预览</title>");
-                        htmlBuilder.append("<style>");
-                        htmlBuilder.append("body { margin: 0; padding: 10px; background-color: #f5f5f5; }");
-                        htmlBuilder.append(".page-container { margin-bottom: 20px; padding: 10px; background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }");
-                        htmlBuilder.append(".page-container img { width: 100%; height: auto; display: block; }");
-                        htmlBuilder.append(".page-info { text-align: center; margin-top: 5px; font-size: 14px; color: #666; }");
-                        htmlBuilder.append("</style>");
-                        htmlBuilder.append("</head>");
-                        htmlBuilder.append("<body>");
-                        
-                        // 处理每一页
-                        for (int i = 0; i < bitmapsList.size(); i++) {
-                            Object item = bitmapsList.get(i);
-                            if (item instanceof android.graphics.Bitmap) {
-                                android.graphics.Bitmap bitmap = (android.graphics.Bitmap) item;
-                                // 将Bitmap保存为临时文件
-                                File tempFile = File.createTempFile("preview_" + i, ".png", getCacheDir());
-                                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                                }
-                                // 添加到HTML
-                                htmlBuilder.append("<div class=\"page-container\">");
-                                htmlBuilder.append("<img src=\"file://").append(tempFile.getAbsolutePath()).append("\" alt=\"第").append(i + 1).append("页\">");
-                                htmlBuilder.append("<div class=\"page-info\">第").append(i + 1).append("页</div>");
-                                htmlBuilder.append("</div>");
-                            }
-                        }
-                        
-                        htmlBuilder.append("</body>");
-                        htmlBuilder.append("</html>");
-                        
-                        // 加载HTML内容
-                        loadData(htmlBuilder.toString(), "text/html", "UTF-8");
-                    } catch (Exception e) {
-                        AppLogger.e(TAG, "显示PDF多页失败: " + e.getMessage(), e);
-                        loadData("<html><body><h1>加载失败</h1><p>无法显示PDF文件</p></body></html>", "text/html", "UTF-8");
-                    }
-                }
-            } else if (contentMap.containsKey("bitmap")) {
-                // 图片渲染结果
-                android.graphics.Bitmap bitmap = (android.graphics.Bitmap) contentMap.get("bitmap");
-                try {
-                    // 将Bitmap保存为临时文件
-                    File tempFile = File.createTempFile("preview", ".png", getCacheDir());
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                    }
-                    // 加载临时文件
-                    loadUrl("file://" + tempFile.getAbsolutePath());
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "显示图片失败: " + e.getMessage(), e);
-                    loadData("<html><body><h1>加载失败</h1><p>无法显示图片</p></body></html>", "text/html", "UTF-8");
-                }
-            } else if (contentMap.containsKey("htmlContent")) {
-                // HTML渲染结果（优先处理）
-                String htmlContent = String.valueOf(contentMap.get("htmlContent"));
-                AppLogger.d(TAG, "Loading HTML content from map, length: " + htmlContent.length());
-                // 使用loadDataWithBaseURL确保相对路径和资源能正确加载
-                loadData(htmlContent, "text/html", "UTF-8");
-            } else if (contentMap.containsKey("content")) {
-                // 文本渲染结果
-                String textContent = String.valueOf(contentMap.get("content"));
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + textContent + "</body></html>";
-                loadData(htmlContent, "text/html", "UTF-8");
-            } else if (contentMap.containsKey("textContent")) {
-                // 文本内容渲染结果
-                String textContent = String.valueOf(contentMap.get("textContent"));
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + textContent + "</body></html>";
-                loadData(htmlContent, "text/html", "UTF-8");
-            }
-        }
-    }
-    
-    /**
-     * 获取文件MIME类型
-     * @param fileName 文件名
-     * @return MIME类型
-     */
-    private String getMimeType(String fileName) {
-        String fileExt = fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
-        java.util.Map<String, String> mimeTypes = new java.util.HashMap<>();
-        // 文档类型
-        mimeTypes.put("doc", "application/msword");
-        mimeTypes.put("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        mimeTypes.put("xls", "application/vnd.ms-excel");
-        mimeTypes.put("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        mimeTypes.put("ppt", "application/vnd.ms-powerpoint");
-        mimeTypes.put("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-        mimeTypes.put("pdf", "application/pdf");
-        return mimeTypes.getOrDefault(fileExt, "application/octet-stream");
-    }
     
     /**
      * 加载图片文件，确保宽度填充，高度可滑动
