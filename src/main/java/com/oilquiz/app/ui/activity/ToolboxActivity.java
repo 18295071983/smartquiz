@@ -1,6 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -17,6 +18,8 @@ import com.oilquiz.app.ui.export.ExportProgressActivity;
 import com.oilquiz.app.ui.export.TemplateSelectionActivity;
 
 public class ToolboxActivity extends AppCompatActivity {
+
+    private static final int REQUEST_OPEN_OFFICE = 2001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,16 +90,62 @@ public class ToolboxActivity extends AppCompatActivity {
     }
 
     private void showFilePreviewTools() {
-        // TBS X5 已由腾讯停更且无内核 so，无法使用，故仅保留 Pdfium 文件预览
-        String[] toolNames = {
-            "Pdfium文件预览"
-        };
+        // Office文档：集成官方 LibreOffice 查看器；Pdfium：PDF；文件渲染：通用渲染
+        String[] toolNames = {"Office文档", "Pdfium文件预览", "文件渲染"};
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("文件预览工具")
+                .setItems(toolNames, (dialog, which) -> {
+                    switch (which) {
+                        case 0: openOfficeDocument(); break;
+                        case 1: startActivity(new Intent(this, PdfiumPreviewActivity.class)); break;
+                        case 2: startActivity(new Intent(this, FileRenderActivity.class)); break;
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
-        Class<?>[] activities = {
-            PdfiumPreviewActivity.class
-        };
+    /** 打开 Office 文档：文件选择后交给集成官方查看器渲染。 */
+    private void openOfficeDocument() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                "application/msword",
+                "application/vnd.ms-excel",
+                "application/vnd.ms-powerpoint",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "application/vnd.oasis.opendocument.text",
+                "application/vnd.oasis.opendocument.spreadsheet",
+                "application/vnd.oasis.opendocument.presentation",
+                "text/csv",
+                "application/rtf"
+            });
+            startActivityForResult(intent, REQUEST_OPEN_OFFICE);
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "打开文件选择失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
 
-        showToolDialog("文件预览工具", toolNames, activities);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_OPEN_OFFICE && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                try {
+                    Intent intent = new Intent();
+                    intent.setClassName(getPackageName(), "org.libreoffice.LibreOfficeMainActivity");
+                    intent.setDataAndType(uri, data.getType() != null ? data.getType() : "*/*");
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    android.widget.Toast.makeText(this, "打开Office文档失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
     }
 
     private void showAITools() {
@@ -148,16 +197,15 @@ public class ToolboxActivity extends AppCompatActivity {
     }
 
     private void showOtherTools() {
-        String[] names = {"API配置", "文件渲染", "环境检查", "系统日志", "天气详情"};
+        String[] names = {"API配置", "环境检查", "系统日志", "天气详情"};
         new android.app.AlertDialog.Builder(this)
                 .setTitle("其他工具")
                 .setItems(names, (dialog, which) -> {
                     switch (which) {
                         case 0: startActivity(new Intent(this, ApiConfigActivity.class)); break;
-                        case 1: startActivity(new Intent(this, FileRenderActivity.class)); break;
-                        case 2: startActivity(new Intent(this, EnvironmentCheckActivity.class)); break;
-                        case 3: startActivity(new Intent(this, LogsActivity.class)); break;
-                        case 4: openWeatherDetail(); break;
+                        case 1: startActivity(new Intent(this, EnvironmentCheckActivity.class)); break;
+                        case 2: startActivity(new Intent(this, LogsActivity.class)); break;
+                        case 3: openWeatherDetail(); break;
                     }
                 })
                 .setNegativeButton("取消", null)
