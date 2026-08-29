@@ -1,7 +1,7 @@
 # 工具系统设计
 
 > 版本: 1.0 | 更新日期: 2026-08-29 | 分支: feature/agent-local
-> 本文件描述 AI 工具系统：AIToolManager、AITool 接口、BaseAITool 抽象类，以及 ~30 个真实工具。
+> 本文件描述 AI 工具系统：AIToolManager、AITool 接口、BaseAITool 抽象类，以及 37 个实现 `AITool` 接口的工具类（含抽象骨架与非对话型工具）。
 
 ## 一、工具系统架构
 

@@ -19,7 +19,13 @@ docs/
 │   ├── 07-hardware-performance.md         # 硬件与性能
 │   ├── 08-module-inventory.md             # 模块清单
 │   ├── 09-development-guide.md            # 开发规范
-│   └── 10-database-design.md              # 数据库设计
+│   ├── 10-database-design.md              # 数据库设计
+│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计
+│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计
+│   ├── 13-inference-engine.md             # 推理库与推理引擎设计
+│   ├── 14-cmake-build.md                  # CMake 构建设计
+│   ├── 15-question-import.md              # 题库文件导入功能设计
+│   └── 16-ai-coding-conventions.md        # AI 工具编码约定
 ├── database/
 │   └── database_structure.md              # 数据库结构（保留参考）
 └── system/
@@ -44,6 +50,8 @@ docs/
 3. **AI 服务与推理** → [development/04-ai-service-inference.md](development/04-ai-service-inference.md)
 4. **工具系统** → [development/05-tool-system.md](development/05-tool-system.md)
 5. **模块清单** → [development/08-module-inventory.md](development/08-module-inventory.md)
+6. **端侧大模型部署** → [development/11-edge-model-deployment.md](development/11-edge-model-deployment.md)
+7. **llama.cpp 功能** → [development/12-llama-cpp.md](development/12-llama-cpp.md)
 
 ### 功能模块
 
@@ -58,6 +66,6 @@ docs/
 ## 文档维护
 
 - 文档与 `feature/agent-local` 分支的源码同步，确保准确性。
-- 设计文档集中在 `docs/development`，按编号组织（01~10）。
+- 设计文档集中在 `docs/development`，按编号组织（01~16）。
 - 重大功能变更时同步更新对应文档。
 - `docs/AGENT_ARCHITECTURE.md`、`AGENT_LOCAL_MODEL_ONLINE_ROUTING.md`、`ONLINE_*` 等早期文档已删除（内容过时或与新文档重复）。
