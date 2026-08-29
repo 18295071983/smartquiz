@@ -1,6 +1,8 @@
 package com.oilquiz.app.ui.activity;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -149,9 +151,13 @@ public class FileRenderActivity extends BaseActivity {
             toolbar.setSubtitle(file.getName());
         }
 
-        // Office 及 LibreOffice 可渲染的文档格式：优先 LibreOfficeKit（纯离线、最高保真）；
-        // 不可用则优先调起系统应用（如 WPS）；再不行回退内置引擎（POI→HTML）。
+        // Office 及 LibreOffice 可渲染的文档格式：优先交独立官方查看器(org.libreoffice)；
+        // 未装则用内置 LibreOfficeKit；再不行回退内置引擎（POI→HTML）。
         if (isLibreOfficeDocument(file)) {
+            if (launchOfficialViewer(file)) {
+                finish();
+                return;
+            }
             if (com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager.getInstance(this).isAvailable()) {
                 // 直接交给 LibreOfficeKit 文档预览，并结束本壳，避免"文件渲染壳 → 文档预览"双层嵌套
                 com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, file.getAbsolutePath());
@@ -414,6 +420,36 @@ public class FileRenderActivity extends BaseActivity {
             case "txt": return "text/plain";
             case "pdf": return "application/pdf";
             default: return "*/*";
+        }
+    }
+
+    /** 是否有独立官方查看器(org.libreoffice)已安装。 */
+    private boolean isOfficialViewerInstalled() {
+        try {
+            getPackageManager().getPackageInfo("org.libreoffice", 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    /** 用独立官方查看器(org.libreoffice)打开文档；未装或失败返回 false。 */
+    private boolean launchOfficialViewer(File file) {
+        try {
+            if (!isOfficialViewerInstalled() || file == null || !file.exists()) {
+                return false;
+            }
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, getMimeType(file.getName()));
+            intent.setPackage("org.libreoffice");   // 显式指定独立官方查看器
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(intent);
+            Log.i(TAG, "已交由独立官方查看器打开: " + file.getName());
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "启动官方查看器失败: " + e.getMessage(), e);
+            return false;
         }
     }
 
