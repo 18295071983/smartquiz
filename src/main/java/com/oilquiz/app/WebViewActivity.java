@@ -2638,7 +2638,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openFilePreview() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.FileRenderActivity.class);
                 startActivity(intent);
             });
         }

@@ -201,9 +201,9 @@ public class SimpleWebViewActivity extends BaseActivity {
                 try {
                     android.content.Intent intent = new android.content.Intent(
                             SimpleWebViewActivity.this,
-                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                            com.oilquiz.app.ui.activity.FileRenderActivity.class);
                     intent.putExtra(
-                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.EXTRA_FILE_PATH, path);
+                            com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH, path);
                     startActivity(intent);
                 } catch (Exception e) {
                     Log.w(TAG, "通用预览打开失败: " + e.getMessage());

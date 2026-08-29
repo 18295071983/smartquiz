@@ -89,14 +89,12 @@ public class ToolboxActivity extends AppCompatActivity {
     private void showFilePreviewTools() {
         String[] toolNames = {
             "TBS文件预览",
-            "Pdfium文件预览",
-            "通用文件预览"
+            "Pdfium文件预览"
         };
 
         Class<?>[] activities = {
             TBSFilePreviewActivity.class,
-            PdfiumPreviewActivity.class,
-            SimpleFilePreviewActivity.class
+            PdfiumPreviewActivity.class
         };
 
         showToolDialog("文件预览工具", toolNames, activities);

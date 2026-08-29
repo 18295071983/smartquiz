@@ -21,7 +21,6 @@ import com.oilquiz.app.ui.activity.ImportActivity;
 import com.oilquiz.app.ui.activity.ImportGuideActivity;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
 import com.oilquiz.app.ui.activity.ExportActivity;
-import com.oilquiz.app.ui.activity.SimpleFilePreviewActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;

@@ -218,9 +218,6 @@
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
         <activity
-            android:name=".ui.activity.SimpleFilePreviewActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.SmartMappingActivity"
             android:exported="false" />
         <activity
