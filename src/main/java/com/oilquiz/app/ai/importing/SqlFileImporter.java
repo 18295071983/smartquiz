@@ -51,6 +51,10 @@ public final class SqlFileImporter {
         public int skippedRows;
         /** 批内去重剔除的行数 */
         public int dedupedRows;
+        /** 因单表行数上限（MAX_ROWS）被截断未处理的行数 */
+        public int truncatedRows;
+        /** 是否因 SQL 脚本体积超限（30MB）被截断（可能丢数据） */
+        public boolean truncatedBySize;
         /** 实际使用的表名 */
         public String tableUsed = "";
         /** 映射描述（标准字段 ← 源列名） */
@@ -104,8 +108,13 @@ public final class SqlFileImporter {
             result.messages.add("SQL导入失败: " + e.getMessage());
         }
         result.importTimeMs = System.currentTimeMillis() - start;
+        if (result.truncatedRows > 0) {
+            result.messages.add("因单表 " + MAX_ROWS + " 行上限，有 " + result.truncatedRows
+                    + " 行数据未导入，请拆分文件或精简数据后重新导入");
+        }
         Log.i(TAG, "SQL导入完成: 表=" + result.tableUsed + " 有效=" + result.validQuestions.size()
-                + " 跳过=" + result.skippedRows + " 耗时=" + result.importTimeMs + "ms");
+                + " 跳过=" + result.skippedRows + " 截断=" + result.truncatedRows
+                + " 耗时=" + result.importTimeMs + "ms");
         return result;
     }
 
@@ -135,7 +144,7 @@ public final class SqlFileImporter {
             // 读取所有表的列与数据，挑最优表
             List<TableData> tables = new ArrayList<>();
             for (String tn : tableNames) {
-                TableData td = readTable(db, tn);
+                TableData td = readTable(db, tn, result);
                 if (td != null && !td.columns.isEmpty()) {
                     tables.add(td);
                     result.totalRows += td.rows.size();
@@ -152,7 +161,7 @@ public final class SqlFileImporter {
         }
     }
 
-    private static TableData readTable(SQLiteDatabase db, String tableName) {
+    private static TableData readTable(SQLiteDatabase db, String tableName, SqlImportResult result) {
         TableData td = new TableData(tableName);
         Cursor cc = null;
         try {
@@ -169,7 +178,11 @@ public final class SqlFileImporter {
         try {
             rc = db.rawQuery("SELECT * FROM \"" + tableName.replace("\"", "\"\"") + "\"", null);
             int colCount = rc.getColumnCount();
-            while (rc.moveToNext() && td.rows.size() < MAX_ROWS) {
+            while (rc.moveToNext()) {
+                if (td.rows.size() >= MAX_ROWS) {
+                    result.truncatedRows++;
+                    continue;
+                }
                 List<String> row = new ArrayList<>(colCount);
                 for (int i = 0; i < colCount; i++) {
                     if (rc.isNull(i)) {
@@ -199,7 +212,14 @@ public final class SqlFileImporter {
             int n;
             while ((n = reader.read(buf)) != -1) {
                 sb.append(buf, 0, n);
-                if (sb.length() > 30_000_000) break; // 30MB 保护
+                if (sb.length() > 30_000_000) {
+                    // 体积超限：不静默丢数据，明确标记并告警（前端可见）
+                    result.truncatedBySize = true;
+                    result.messages.add("SQL 脚本超过 30MB，已截断解析。位于第 "
+                            + (sb.length() / 8192 + 1) + " 个缓冲区之后的 INSERT 语句可能未处理，"
+                            + "建议拆分文件后分别导入，以免丢失题目");
+                    break;
+                }
             }
         } finally {
             try {
@@ -280,6 +300,8 @@ public final class SqlFileImporter {
                 if (row != null) {
                     if (td.rows.size() < MAX_ROWS) {
                         td.rows.add(row);
+                    } else {
+                        result.truncatedRows++;
                     }
                 }
                 i = skipWhitespace(sql, i);

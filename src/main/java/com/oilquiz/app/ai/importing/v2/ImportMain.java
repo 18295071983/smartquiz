@@ -607,7 +607,35 @@ public class ImportMain {
                 }
             } else {
                 emitLog(listener, "AI 表头识别失败(" + (hr == null ? "无结果" : hr.failReason)
-                        + ")，按原逻辑处理");
+                        + ")，尝试纯规则识别（离线可用）...");
+                RuleHeaderResult ruleHr = ruleBasedHeaderInfer(rawRows);
+                if (ruleHr != null && ruleHr.valid && ruleHr.mergedHeaders != null
+                        && !ruleHr.mergedHeaders.isEmpty()) {
+                    headers = ruleHr.mergedHeaders;
+                    pythonHeaderRow = ruleHr.headerRow;
+                    Map<String, String> newMapping = new LinkedHashMap<>();
+                    for (Map.Entry<String, Integer> e : ruleHr.mapping.entrySet()) {
+                        int idx = e.getValue();
+                        if (idx >= 0 && idx < headers.size()) {
+                            newMapping.put(e.getKey(), headers.get(idx));
+                        }
+                    }
+                    newMapping = ensureCombinedOptionsMapping(newMapping, headers);
+                    if (newMapping.containsKey("questionText")) {
+                        mapping = newMapping;
+                        headerFinger = ImportMapCache.headerFingerprint(headers);
+                        cacheKey = ImportMapCache.buildCacheKey(tableFinger, headerFinger);
+                        summary.mappingSource = "rules";
+                        emitLog(listener, "纯规则表头识别成功: header_row=" + ruleHr.headerRow
+                                + ", 映射=" + new JSONObject(mapping));
+                    } else {
+                        emitLog(listener, "纯规则表头识别缺少题干列，按原逻辑处理");
+                        pythonHeaderRow = -2;
+                        headers = toStringList(headersArr);
+                    }
+                } else {
+                    emitLog(listener, "纯规则表头识别亦失败，按原逻辑处理");
+                }
             }
         }
 
@@ -2157,5 +2185,66 @@ public class ImportMain {
     private void emitError(ImportListener l, String msg) {
         Log.e(TAG, msg);
         if (l != null) mainHandler.post(() -> l.onError(msg));
+    }
+
+    // ==================== 纯规则表头识别（离线兜底，零 LLM） ====================
+
+    /** 纯规则表头识别结果（LLM 不可用时离线兜底） */
+    private static class RuleHeaderResult {
+        boolean valid;
+        /** 真实表头行号（0-based） */
+        int headerRow = -2;
+        /** 该行内容作为表头列名（与 Python 按 header_row 取行一致，保证列对位） */
+        List<String> mergedHeaders;
+        /** 标准字段 → 列索引（基于 mergedHeaders，由别名词典生成） */
+        Map<String, Integer> mapping;
+    }
+
+    /**
+     * 纯规则表头识别（离线无模型兜底）：
+     * 扫描前 12 行原始内容，用 {@link FieldMappingRegistry} 别名词典对每行打分
+     * （该行能映射出多少个标准字段），取"题干+答案齐全且映射字段最多"的行为表头行。
+     * <p>
+     * 零 LLM 依赖，列名以该行原文为准，与 Python 侧按 header_row 取行完全一致，
+     * 保证后续解析列对位不偏移。双子行模板（子表头 A/B/C/D）由 Python
+     * {@code _detect_header} 自动合并处理，此处不做合并（那种表头含中文关键词，
+     * 不会走到本兜底）。
+     */
+    private RuleHeaderResult ruleBasedHeaderInfer(JSONArray rawRows) {
+        RuleHeaderResult result = new RuleHeaderResult();
+        if (rawRows == null || rawRows.length() == 0) return result;
+
+        int n = Math.min(rawRows.length(), 30);
+        int bestRow = -1;
+        List<String> bestHeaders = null;
+        Map<String, Integer> bestMapping = null;
+        int bestScore = -1;
+
+        for (int i = 0; i < n; i++) {
+            JSONArray rowArr = rawRows.optJSONArray(i);
+            if (rowArr == null) continue;
+            List<String> cells = new ArrayList<>();
+            for (int j = 0; j < rowArr.length(); j++) {
+                String v = rowArr.optString(j, "");
+                cells.add(v == null ? "" : v.trim());
+            }
+            Map<String, Integer> m = FieldMappingRegistry.buildMappingFromHeaders(cells);
+            int score = m.size();
+            // 必须同时识别出题干与答案，否则不是有效表头行
+            if (m.containsKey("questionText") && m.containsKey("correctAnswer")
+                    && score > bestScore) {
+                bestScore = score;
+                bestRow = i;
+                bestHeaders = cells;
+                bestMapping = m;
+            }
+        }
+
+        if (bestRow < 0 || bestHeaders == null || bestMapping == null) return result;
+        result.valid = true;
+        result.headerRow = bestRow;
+        result.mergedHeaders = bestHeaders;
+        result.mapping = bestMapping;
+        return result;
     }
 }

@@ -39,6 +39,10 @@ public final class ImportBreakpointStore {
         public int headerRow = -2;
         /** 断点对应的工作表索引（-1=自动扫全部），多工作表导入时按 sheet 隔离断点 */
         public int sheetIndex = -1;
+        /** 断点对应源文件大小（字节），-1=未记录（旧断点兼容）；恢复前校验源文件未被改动 */
+        public long sourceFileSize = -1;
+        /** 断点对应源文件最后修改时间（毫秒），-1=未记录（旧断点兼容） */
+        public long sourceFileMtime = -1;
         /** 入库阶段：CSV 分片文件路径列表（逗号分隔） */
         public String csvChunks;
         /** 入库阶段：已入库的 CSV 数据行偏移量 */
@@ -54,6 +58,8 @@ public final class ImportBreakpointStore {
             o.put("parseRowIndex", parseRowIndex);
             o.put("headerRow", headerRow);
             o.put("sheetIndex", sheetIndex);
+            o.put("sourceFileSize", sourceFileSize);
+            o.put("sourceFileMtime", sourceFileMtime);
             o.put("csvChunks", csvChunks == null ? "" : csvChunks);
             o.put("ingestOffset", ingestOffset);
             o.put("updatedAt", System.currentTimeMillis());
@@ -69,6 +75,8 @@ public final class ImportBreakpointStore {
             s.parseRowIndex = o.optLong("parseRowIndex", 0);
             s.headerRow = o.optInt("headerRow", -2);
             s.sheetIndex = o.optInt("sheetIndex", -1);
+            s.sourceFileSize = o.optLong("sourceFileSize", -1);
+            s.sourceFileMtime = o.optLong("sourceFileMtime", -1);
             s.csvChunks = o.optString("csvChunks");
             s.ingestOffset = o.optLong("ingestOffset", 0);
             s.updatedAt = o.optLong("updatedAt", 0);
@@ -101,6 +109,18 @@ public final class ImportBreakpointStore {
                 Log.i(TAG, "断点源文件不存在，忽略断点: " + s.sourceFile);
                 return null;
             }
+            // 断点恢复前校验源文件未被改动（大小或修改时间不一致 → 断点失效，全量重导）
+            File src = new File(s.sourceFile);
+            if (s.sourceFileSize > 0 && src.length() != s.sourceFileSize) {
+                Log.w(TAG, "断点源文件大小已变化(记录=" + s.sourceFileSize + ", 实际=" + src.length()
+                        + ")，断点失效，全量重导");
+                return null;
+            }
+            if (s.sourceFileMtime > 0 && src.lastModified() != s.sourceFileMtime) {
+                Log.w(TAG, "断点源文件修改时间已变化(记录=" + s.sourceFileMtime + ", 实际="
+                        + src.lastModified() + ")，断点失效，全量重导");
+                return null;
+            }
             return s;
         } catch (Exception e) {
             Log.w(TAG, "读取断点失败: " + e.getMessage());
@@ -110,9 +130,16 @@ public final class ImportBreakpointStore {
         }
     }
 
-    /** 保存断点（原子写：先写临时文件再改名） */
+    /** 保存断点（原子写：先写临时文件再改名）；自动记录源文件大小与修改时间供恢复校验 */
     public static void save(State state) {
         if (state == null) return;
+        if (state.sourceFile != null && !state.sourceFile.isEmpty()) {
+            File src = new File(state.sourceFile);
+            if (src.exists()) {
+                state.sourceFileSize = src.length();
+                state.sourceFileMtime = src.lastModified();
+            }
+        }
         File f = ImportDirs.breakpointFile();
         File tmp = new File(f.getAbsolutePath() + ".tmp");
         FileOutputStream fos = null;

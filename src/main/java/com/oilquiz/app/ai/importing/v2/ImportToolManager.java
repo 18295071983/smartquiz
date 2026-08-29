@@ -63,7 +63,7 @@ public class ImportToolManager {
         toolList.add(new ToolDef(TOOL_GET_SAMPLE_FILE_DATA,
                 "读取待导入文件的表头与前15行样例数据，参数file_path"));
         toolList.add(new ToolDef(TOOL_SAVE_MAPPING_CACHE,
-                "保存字段映射缓存，参数table_finger/mapping_json"));
+                "保存字段映射缓存，参数table_finger/header_finger/mapping_json（三者齐全，与主流程缓存 key 一致）"));
     }
 
     public List<ToolDef> getToolList() {
@@ -196,9 +196,15 @@ public class ImportToolManager {
 
     private String execSaveMappingCache(JSONObject params) throws Exception {
         String tableFinger = params.optString("table_finger", "");
+        String headerFinger = params.optString("header_finger", "");
         String mappingJson = params.optString("mapping_json", "");
         if (tableFinger.isEmpty() || mappingJson.isEmpty()) {
             return "{\"error\":\"缺少参数 table_finger 或 mapping_json\"}";
+        }
+        // 缓存 key 必须与主流程 ImportMain 完全一致（表结构指纹 + 表头指纹）。
+        // 缺 header_finger 时无法生成安全 key，放弃保存，防止脏 key 污染 map_cache.json。
+        if (headerFinger.isEmpty()) {
+            return "{\"error\":\"缺少参数 header_finger，无法生成与主流程一致的缓存 key，已放弃保存\"}";
         }
         JSONObject m = new JSONObject(ImportOutputSanitizer.trimToJsonBlock(mappingJson) != null
                 ? ImportOutputSanitizer.trimToJsonBlock(mappingJson) : mappingJson);
@@ -208,7 +214,7 @@ public class ImportToolManager {
             String k = it.next();
             map.put(k, m.optString(k, ""));
         }
-        ImportMapCache.save(tableFinger, map);
+        ImportMapCache.save(ImportMapCache.buildCacheKey(tableFinger, headerFinger), map);
         return "{\"status\":\"saved\"}";
     }
 

@@ -196,14 +196,23 @@ def _strip_option_prefixes(parts):
 
 
 def _detect_header(rows):
-    """在前 12 行内定位真实表头行，兼容标题行/说明行置顶与选项字母双子行模板。
+    """在前 50 行内定位真实表头行，兼容标题行/说明行置顶与多层子表头模板。
 
     返回 (header_list, data_start_row, header_hits)；
     header_hits 为命中表头关键词的单元格数，0/1 视为表头可疑（交由 LLM 识别）；
     无法识别时兜底第 0 行（hits=0）。
+
+    多层子表头合并：表头行之后连续出现的"子表头型"行
+    （单元格为选项字母 A~L / 空N 填空位 / 表头词如 正确答案/解析说明/选择项），
+    逐层合并到主表头，直到遇到数据行。典型三级表头：
+      行4: 序号 | 题型 | 题目 | 备选答案 |      | 答案与解析 |
+      行5:      |      |      | 选择项   |      | 正确答案 | 解析说明
+      行6:      |      |      | A | B | C | D |          |
+    合并 → 序号 | 题型 | 题目 | 备选答案A | B | C | D | 正确答案 | 解析说明
     """
     n = len(rows)
-    limit = min(n, 12)
+    # 说明/标题干扰可能长达十几行（表头在第 15 行之后的文件），扫描上限放宽到 50
+    limit = min(n, 50)
     best_i, best_hits = 0, 0
     for i in range(limit):
         hits = 0
@@ -216,11 +225,14 @@ def _detect_header(rows):
         return (rows[0] if n else []), (1 if n else 0), 0
     header = list(rows[best_i])
     data_start = best_i + 1
-    # 双子行模板：表头下一行是连续选项字母 A/B/C... 或 填空位 空1/空2/空3... → 合并。
-    # 若不合并，子表头行（A/B/C 或 空1/空2）会被当成数据行，导致选项列错位/多出垃圾题。
-    if data_start < n:
+
+    # 子表头词：中文列名（覆盖/补充主表头），选项聚合标记（保留主表头名）
+    _SUB_HEADER_WORDS = ("正确答案", "解析说明", "答案解析", "答案", "解析",
+                         "选择项", "备选答案", "选项", "难度", "分类", "题型")
+    while data_start < n:
         nxt = rows[data_start]
         letters = []
+        ok = True
         for c in nxt:
             s = str(c).strip().upper() if c is not None else ""
             if s == "":
@@ -229,23 +241,40 @@ def _detect_header(rows):
                 letters.append(s)
             elif re.match(r"^空\d+$", s):
                 letters.append(s)
+            elif s in _SUB_HEADER_WORDS:
+                letters.append(s)
             else:
-                letters = []
+                ok = False
                 break
-        if len([x for x in letters if x]) >= 3:
-            for j in range(min(len(header), len(letters))):
-                if not letters[j]:
-                    continue
-                if re.match(r"^空\d+$", letters[j]):
-                    # 填空位：第一个填空位保留主表头原列名（"填空项"），
-                    # 后续加序号（"填空项2/填空项3"）——保留原列名保证
-                    # optionsCombined/correctAnswer 等按"填空项"映射仍能命中。
-                    prefix = str(header[j]).strip() if j < len(header) and header[j] else "填空项"
-                    header[j] = prefix if letters[j] == "空1" else prefix + letters[j][1:]
+        if not ok:
+            break
+        non_empty = [x for x in letters if x]
+        if len(non_empty) < 2:
+            break
+        for j in range(min(len(header), len(letters))):
+            v = letters[j]
+            if not v:
+                continue
+            base = str(header[j]).strip() if j < len(header) and header[j] else ""
+            if re.match(r"^空\d+$", v):
+                # 填空位：空1 保留主表头原列名，空2+ 加序号
+                header[j] = base if v == "空1" else base + v[1:]
+            elif len(v) == 1 and "A" <= v <= "L":
+                # 选项字母：主表头名 + 字母；主表头为空/已含字母时用"选项"+字母
+                if base and not base.endswith(v):
+                    header[j] = base + v
                 else:
-                    prefix = str(header[j]).strip() if j < len(header) and header[j] else "选项"
-                    header[j] = prefix + letters[j]
-            data_start += 1
+                    header[j] = "选项" + v
+            else:
+                # 中文子表头词：
+                # - 具体列名（正确答案/解析说明等）→ 直接覆盖主表头
+                # - 聚合标记（选择项/备选答案/选项）→ 保留主表头名（等字母行具体化）
+                if v in ("选择项", "备选答案", "选项"):
+                    if not base:
+                        header[j] = v
+                else:
+                    header[j] = v
+        data_start += 1
     return header, data_start, best_hits
 
 
@@ -302,8 +331,10 @@ def _kind_of(path):
     ext = os.path.splitext(path)[1].lower()
     if ext == ".xlsx":
         return "xlsx"
-    if ext in (".csv", ".txt"):
+    if ext == ".csv":
         return "csv"
+    if ext == ".txt":
+        return "txt"
     if ext in (".md", ".markdown"):
         return "md"
     if ext == ".json":
@@ -374,7 +405,7 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
         head_rows = []
         for r in it:
             head_rows.append([_norm_cell(c) for c in r])
-            if len(head_rows) >= 12:
+            if len(head_rows) >= 50:
                 break
         head_rows = [r for r in head_rows if any(x != "" for x in r)]
         return head_rows, it
@@ -456,7 +487,7 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
                 head_rows = []
                 for r in it:
                     head_rows.append([_norm_cell(c) for c in r])
-                    if len(head_rows) >= 12:
+                    if len(head_rows) >= 50:
                         break
                 head_rows = [r for r in head_rows if any(x != "" for x in r)]
                 _h, start, _hits = _detect_header(head_rows) if head_rows else (None, 0, 0)
@@ -473,7 +504,7 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
         return _trim_trailing_empties(h), gen_single()
 
     # 未指定 sheet：自动扫全部（原有逻辑）
-    # 第一遍：定位首个有效 sheet 的表头
+    # 第一遍：定位首个有效 sheet 的表头（跳过封面/说明等无表头 sheet）
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     main_header = None
     try:
@@ -482,7 +513,7 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
             if not head_rows:
                 continue
             h, _start, _hits = _detect_header(head_rows)
-            if h:
+            if h and _hits > 0:  # hits=0 表示该 sheet 无表头（封面/说明页），跳过继续找
                 main_header = h
                 break
     finally:
@@ -499,13 +530,13 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
                 head_rows = []
                 for r in it:
                     head_rows.append([_norm_cell(c) for c in r])
-                    if len(head_rows) >= 12:
+                    if len(head_rows) >= 50:
                         break
                 head_rows = [r for r in head_rows if any(x != "" for x in r)]
                 if not head_rows:
                     continue
                 h, start, _hits = _detect_header(head_rows)
-                if not h:
+                if not h or _hits == 0:
                     continue
                 # 表头一致性校验（列数与列名），不一致的 sheet 跳过。
                 # 比较前去掉尾部空列：避免某 sheet 因 Excel 格式残留多出的
@@ -528,7 +559,7 @@ def _iter_xlsx(path, sheet_index=None, header_row=None):
     return _trim_trailing_empties(main_header), gen()
 
 
-def _raw_head_rows(path, sheet_index=None, max_rows=12):
+def _raw_head_rows(path, sheet_index=None, max_rows=30):
     """读取 Excel 前 max_rows 行原始内容（含空行，行号与工作表一致），
     供表头可疑判断与 LLM 表头识别使用。sheet_index=None 时取首个非空 sheet。"""
     try:
@@ -579,6 +610,123 @@ def _open_text(path):
         except (UnicodeDecodeError, UnicodeError):
             continue
     return open(path, "r", encoding="utf-8", errors="replace")
+
+
+def _parse_plain_text(text):
+    """纯文本题目规则解析（零 LLM，离线可用）。
+
+    支持格式：
+    - 编号选择题：1. 题干 / A. 选项A / B. 选项B / 答案：A
+    - 判断题：题干行 + √/×（或无选项 + 答案"对/错"）
+    - Aiken 格式：ANSWER: A
+
+    返回 (headers, rows_list)。headers 用中文字段名（与 Java 侧
+    FieldMappingRegistry 主名一致），保证字段映射词典直接命中。
+    """
+    headers = ["题干", "选项A", "选项B", "选项C", "选项D", "选项E", "选项F",
+               "选项G", "选项H", "选项I", "选项J", "选项K", "选项L",
+               "正确答案", "解析", "题型"]
+    qnum = re.compile(r'^\s*(\d{1,4})\s*[.、)）:：]\s*(.+)$')
+    opt = re.compile(r'^\s*([A-L])\s*[.、)）:：]\s*(.+)$')
+    ans = re.compile(r'^\s*(?:答案|正确答案|参考答案)\s*[:：]\s*(.+)$', re.IGNORECASE)
+    expl = re.compile(r'^\s*(?:解析|答案解析|题目解析|说明)\s*[:：]\s*(.+)$', re.IGNORECASE)
+    aiken = re.compile(r'^\s*ANSWER\s*:\s*([A-La-l])\s*$')
+    tf_mark = re.compile(r'^\s*[√×✓✗]\s*$')
+
+    questions = []
+    cur = None
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        m = qnum.match(s)
+        if m:
+            # 题干可能内联答案："1. xxx 答案:A"
+            body = m.group(2).strip()
+            inline = re.search(r'(?:答案|正确答案)\s*[:：]\s*([A-L对错正确错误√×✓✗TF]+)',
+                               body, re.IGNORECASE)
+            ans_val = ""
+            if inline:
+                ans_val = inline.group(1).strip()
+                body = body[:inline.start()].strip()
+            cur = {"题干": body, "opts": {}, "正确答案": ans_val, "解析": "", "题型": ""}
+            questions.append(cur)
+            continue
+        if cur is None:
+            continue  # 题目前的标题/说明行忽略
+        m = opt.match(s)
+        if m:
+            cur["opts"][m.group(1)] = m.group(2).strip()
+            continue
+        m = ans.match(s)
+        if m:
+            cur["正确答案"] = m.group(1).strip()
+            continue
+        m = expl.match(s)
+        if m:
+            cur["解析"] = m.group(1).strip()
+            continue
+        m = aiken.match(s)
+        if m:
+            cur["正确答案"] = m.group(1).strip()
+            continue
+        if tf_mark.match(s) and not cur["opts"]:
+            cur["正确答案"] = s
+            continue
+        # 未识别行 → 追加到题干（支持多行题干）
+        cur["题干"] = (cur["题干"] + " " + s).strip()
+
+    # 组装行 + 题型推断
+    rows = []
+    for q in questions:
+        opts = q["opts"]
+        n_opts = len(opts)
+        ans_up = (q["正确答案"] or "").strip().upper()
+        if n_opts == 0 and ans_up in ("对", "错", "正确", "错误", "√", "×", "✓", "✗",
+                                      "T", "F", "TRUE", "FALSE"):
+            qtype = "判断题"
+        elif n_opts > 0:
+            letters = re.sub(r'[^A-L]', '', ans_up)
+            qtype = "多选题" if len(letters) > 1 else "单选题"
+        else:
+            qtype = ""
+        q["题型"] = qtype
+        row = [q["题干"]]
+        for letter in "ABCDEFGHIJKL":
+            row.append(opts.get(letter, ""))
+        row.append(q["正确答案"])
+        row.append(q["解析"])
+        row.append(q["题型"])
+        rows.append(row)
+    return headers, rows
+
+
+def _looks_like_table_header(first_lines):
+    """txt 嗅探：前几行是否有表头特征（命中表头关键词），有则按 CSV 表头型处理。"""
+    kws = ("题干", "题目", "答案", "选项", "题型", "question", "answer", "option")
+    hits = 0
+    for ln in first_lines[:5]:
+        low = ln.lower()
+        for k in kws:
+            if k in low:
+                hits += 1
+    return hits >= 2
+
+
+def _iter_txt(path):
+    """txt 分流：返回 (is_plain, headers, rows_iter)。
+
+    is_plain=True：纯文本题目格式（规则解析，表头为标准字段名，零 LLM）；
+    is_plain=False：表头型文本（走 CSV 逻辑）。
+    """
+    text = _read_text(path)
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        return False, [], iter(())
+    if _looks_like_table_header(lines):
+        return False, _iter_csv(path)
+    headers, rows = _parse_plain_text(text)
+    return True, headers, iter(rows)
 
 
 def _iter_csv(path):
@@ -869,6 +1017,28 @@ def sample_file(path, max_rows=15, sheet_index=None):
             except Exception:
                 raw = None
                 hits = 0
+        elif kind == "txt":
+            is_plain, headers, rows = _iter_txt(path)
+            sampled = list(itertools.islice(rows, max_rows))
+            if is_plain:
+                # 纯文本规则解析：表头是标准字段名，天然可信，不触发 LLM 表头识别
+                suspicious = False
+                hits = 3
+                raw = None
+            else:
+                # 表头型 txt：沿用 CSV 的可信度检测
+                try:
+                    raw = []
+                    with _open_text(path) as f:
+                        for _ in range(12):
+                            line = f.readline()
+                            if not line:
+                                break
+                            raw.append([c.strip() for c in line.rstrip("\r\n").split(",")])
+                    _h, _start, hits = _detect_header(raw) if raw else (None, 0, 0)
+                except Exception:
+                    raw = None
+                    hits = 0
         elif kind == "md":
             headers, rows = _iter_md(path)
             sampled = list(itertools.islice(rows, max_rows))
@@ -1023,6 +1193,8 @@ def parse_file(path, mapping_json, out_dir, resume_row=0, chunk_rows=3000,
             headers, rows = _iter_xlsx(path, sheet_index, header_row)
         elif kind in ("csv",):
             headers, rows = _iter_csv(path)
+        elif kind == "txt":
+            _, headers, rows = _iter_txt(path)
         elif kind == "md":
             headers, rows = _iter_md(path)
         elif kind == "json":

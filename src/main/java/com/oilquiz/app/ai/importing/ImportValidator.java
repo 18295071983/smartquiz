@@ -487,22 +487,21 @@ public class ImportValidator {
 
     /**
      * 将 questionType 归一化为内部标识。
-     * 兼容中文(单选/多选/判断/填空/简答)及常见英文(single/multiple/truefalse/fill/short)。
-     * 无法识别时返回 null(按通用规则宽松处理,不强制报错)。
+     * <p>
+     * 先经 {@link QuestionSchemaDictionary#normalizeQuestionType} 统一收口为标准 5 种题型
+     * （英文/缩写/案例分析/计算/综合等扩展写法均先归并），再映射内部标识 single/multiple/truefalse/fill/shortanswer。
+     * 无法识别时返回 null（按通用规则宽松处理,不强制报错）。
      */
     private static String normalizeType(String raw) {
         if (raw == null) return null;
-        String t = raw.trim().toLowerCase();
-        if (t.isEmpty()) return null;
-        if (t.contains("单选") || t.contains("single")) return "single";
-        if (t.contains("多选") || t.contains("multiple")) return "multiple";
-        if (t.contains("判断") || t.contains("truefalse") || t.contains("true/false") || t.contains("judge")) {
-            return "truefalse";
-        }
-        if (t.contains("填空") || t.contains("fill")) return "fill";
-        if (t.contains("简答") || t.contains("short")) return "shortanswer";
-        // 泛指"选择题"按单选处理
-        if (t.contains("选择")) return "single";
+        String std = QuestionSchemaDictionary.normalizeQuestionType(raw);
+        if (std == null) return null;
+        String t = std.toLowerCase();
+        if (t.contains("单选")) return "single";
+        if (t.contains("多选")) return "multiple";
+        if (t.contains("判断")) return "truefalse";
+        if (t.contains("填空")) return "fill";
+        if (t.contains("简答")) return "shortanswer";
         return null;
     }
 }

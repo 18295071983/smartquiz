@@ -198,14 +198,17 @@ public class ExcelSheetPicker {
             }
             List<String> finalHeader;
             int firstDataLocalIndex; // rawRows 中的数据起始下标
+            // 子表头在 rawRows 中的局部下标（rawRows 从 headerRowIndex 起读，故为绝对行号差）
+            int subHeaderLocalIndex = (subHeaderRowIndex >= 0)
+                    ? (subHeaderRowIndex - headerRowIndex) : -1;
             if (subHeaderRowIndex >= 0
-                    && rawRows.size() >= 2
-                    && isSubHeaderRow(rawRows.get(1))) {
-                // 有子表头：主表头 rawRows[0] + 子表头 rawRows[1]
-                int realCols = Math.max(rawRows.get(0).size(), rawRows.get(1).size());
-                firstDataLocalIndex = 2;
+                    && subHeaderLocalIndex >= 0 && subHeaderLocalIndex < rawRows.size()
+                    && isSubHeaderRow(rawRows.get(subHeaderLocalIndex))) {
+                // 有子表头：主表头 rawRows[0] + 子表头 rawRows[subHeaderLocalIndex]
+                int realCols = Math.max(rawRows.get(0).size(), rawRows.get(subHeaderLocalIndex).size());
+                firstDataLocalIndex = subHeaderLocalIndex + 1;
                 List<String> mainSpread = spreadGroupHeader(rawRows.get(0));
-                finalHeader = mergeHeaderWithSubHeader(mainSpread, rawRows.get(1), realCols);
+                finalHeader = mergeHeaderWithSubHeader(mainSpread, rawRows.get(subHeaderLocalIndex), realCols);
             } else {
                 firstDataLocalIndex = 1;
                 List<String> h0 = rawRows.get(0);
@@ -472,17 +475,15 @@ public class ExcelSheetPicker {
     }
 
     /**
-     * 从 Sheet 名 / 章节名 推断题型（返回标准中文题型名）
+     * 从 Sheet 名 / 章节名 推断题型（统一返回标准中文题型名，见 QuestionSchemaDictionary）
      * 支持：
      *   - 单选 / 单选题 / 一、单选题 / single(choice) / SC  → "单选题"
      *   - 多选 / 多选题 / multiple(choice) / MC             → "多选题"
      *   - 判断 / 判断题 / 对错 / 判断正误 / T/F / judge     → "判断题"
      *   - 填空 / 填空题 / blank / fill                      → "填空题"
      *   - 简答 / 简答题 / 问答 / 问答题 / short / answer     → "简答题"
-     *   - 案例 / 案例分析 / 论述 / 分析题                   → "案例分析题"
-     *   - 匹配 / 配对 / match                               → "匹配题"
-     *   - 计算 / 计算题                                     → "计算题"
-     *   - 综合 / 综合题                                     → "综合题"
+     *   - 案例 / 案例分析 / 论述 / 分析题 / 计算 / 综合      → "简答题"（扩展主观题归并）
+     *   - 匹配 / 配对 / match                               → "未分类"（无标准对应题型）
      */
     public static String inferQuestionTypeFromName(String name) {
         if (name == null) return "未分类";
@@ -490,20 +491,20 @@ public class ExcelSheetPicker {
         if (n.isEmpty()) return "未分类";
 
         // 中文关键词（按长度从长到短匹配，避免"单选"先于"单选题"命中导致不标准）
+        // 统一收敛到标准 5 种题型（与 QuestionSchemaDictionary / Question 模型一致）：
+        // 案例分析/论述/计算/综合 等扩展题型按主观题归并为"简答题"；匹配无对应标准题型归"未分类"。
         String[][] cnRules = new String[][] {
-                {"单选题", "单项选择", "singlechoice", "single choice", "单选"},
-                {"多选题", "多项选择", "multiplechoice", "multiple choice", "多选"},
-                {"判断题", "判断正误", "判断对错", "是非题", "判断"},
-                {"填空题", "完形填空", "填空"},
-                {"简答题", "问答题", "问答", "简答"},
-                {"案例分析题", "案例分析", "案例题", "论述题", "分析题", "论述"},
-                {"匹配题", "配对题", "匹配", "配对"},
-                {"计算题", "计算"},
-                {"综合题", "综合"},
+                {QuestionSchemaDictionary.TYPE_SINGLE, "单项选择", "singlechoice", "single choice", "单选"},
+                {QuestionSchemaDictionary.TYPE_MULTIPLE, "多项选择", "multiplechoice", "multiple choice", "多选"},
+                {QuestionSchemaDictionary.TYPE_TRUE_FALSE, "判断正误", "判断对错", "是非题", "判断"},
+                {QuestionSchemaDictionary.TYPE_FILL, "完形填空", "填空"},
+                {QuestionSchemaDictionary.TYPE_SHORT_ANSWER, "问答题", "问答", "简答",
+                        "案例分析", "案例题", "论述题", "分析题", "论述", "计算", "综合"},
         };
         String[] cnStandard = new String[] {
-                "单选题", "多选题", "判断题", "填空题",
-                "简答题", "案例分析题", "匹配题", "计算题", "综合题"
+                QuestionSchemaDictionary.TYPE_SINGLE, QuestionSchemaDictionary.TYPE_MULTIPLE,
+                QuestionSchemaDictionary.TYPE_TRUE_FALSE, QuestionSchemaDictionary.TYPE_FILL,
+                QuestionSchemaDictionary.TYPE_SHORT_ANSWER
         };
         for (int i = 0; i < cnRules.length; i++) {
             for (String kw : cnRules[i]) {
