@@ -165,29 +165,44 @@ public class LibreOfficeKitPreviewManager {
             // 设置页面
             Method setPartMethod = documentClass.getMethod("setPart", int.class);
             setPartMethod.invoke(document, pageIndex);
-            
-            // 创建 ByteBuffer
-            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocateDirect(width * height * 4);
-            if (buffer == null) {
-                AppLogger.e(TAG, "创建缓冲区失败");
-                return null;
-            }
-            
-            // 获取文档宽度和高度
+
+            // 获取文档页面真实尺寸（文档坐标）
             Method getDocumentWidthMethod = documentClass.getMethod("getDocumentWidth");
             long documentWidth = (Long) getDocumentWidthMethod.invoke(document);
             Method getDocumentHeightMethod = documentClass.getMethod("getDocumentHeight");
             long documentHeight = (Long) getDocumentHeightMethod.invoke(document);
-            
-            // 渲染页面
+
+            // 按页面真实纵横比计算渲染尺寸，避免整页被拉伸/压缩变形
+            float pageAspect = (documentWidth > 0) ? (float) documentHeight / documentWidth : 1f;
+            int renderW, renderH;
+            if (width * pageAspect <= height) {
+                renderW = width;
+                renderH = (int) Math.round(width * pageAspect);
+            } else {
+                renderH = height;
+                renderW = (int) Math.round(height / pageAspect);
+            }
+            if (renderW <= 0 || renderH <= 0) {
+                renderW = width;
+                renderH = height;
+            }
+
+            // 创建 ByteBuffer
+            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocateDirect(renderW * renderH * 4);
+            if (buffer == null) {
+                AppLogger.e(TAG, "创建缓冲区失败");
+                return null;
+            }
+
+            // 渲染页面（整页映射到 aspect-correct 的缓冲区）
             Method paintTileMethod = documentClass.getMethod("paintTile", java.nio.ByteBuffer.class, int.class, int.class, int.class, int.class, int.class, int.class);
-            paintTileMethod.invoke(document, buffer, width, height, 0, 0, (int) documentWidth, (int) documentHeight);
-            
+            paintTileMethod.invoke(document, buffer, renderW, renderH, 0, 0, (int) documentWidth, (int) documentHeight);
+
             // 创建 Bitmap
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            Bitmap bitmap = Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888);
             bitmap.copyPixelsFromBuffer(buffer);
-            
-            AppLogger.d(TAG, "页面渲染成功: " + pageIndex);
+
+            AppLogger.d(TAG, "页面渲染成功: " + pageIndex + " (" + renderW + "x" + renderH + ")");
             return bitmap;
         } catch (Exception e) {
             AppLogger.e(TAG, "渲染页面错误: " + e.getMessage(), e);
