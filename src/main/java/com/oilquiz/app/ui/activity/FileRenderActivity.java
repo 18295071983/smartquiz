@@ -2,7 +2,6 @@ package com.oilquiz.app.ui.activity;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -53,6 +52,7 @@ public class FileRenderActivity extends BaseActivity {
     private MaterialButton btnRetry;
     private MaterialButton btnOpenWith;
     private MaterialButton btnShare;
+    private LinearLayout bottomBar;
 
     private File currentFile;
     private PreviewRenderBridge previewRenderBridge;
@@ -82,6 +82,7 @@ public class FileRenderActivity extends BaseActivity {
         btnRetry = findViewById(R.id.btn_retry);
         btnOpenWith = findViewById(R.id.btn_open_with);
         btnShare = findViewById(R.id.btn_share);
+        bottomBar = findViewById(R.id.bottom_bar);
 
         setupWebView();
         // 图片内容用 PhotoView（焦点缩放/平移/双击），无 setScaleX 抖动
@@ -211,6 +212,9 @@ public class FileRenderActivity extends BaseActivity {
         loadingLayout.setVisibility(View.VISIBLE);
         contentLayout.setVisibility(View.GONE);
         errorLayout.setVisibility(View.GONE);
+        if (bottomBar != null) {
+            bottomBar.setVisibility(View.GONE);
+        }
         if (progressHorizontal != null) {
             progressHorizontal.setProgress(0);
         }
@@ -222,6 +226,9 @@ public class FileRenderActivity extends BaseActivity {
     private void hideLoading() {
         loadingLayout.setVisibility(View.GONE);
         contentLayout.setVisibility(View.VISIBLE);
+        if (bottomBar != null) {
+            bottomBar.setVisibility(View.VISIBLE);
+        }
     }
 
     private void displayRenderedContent(Object content) {
@@ -350,6 +357,9 @@ public class FileRenderActivity extends BaseActivity {
         loadingLayout.setVisibility(View.GONE);
         contentLayout.setVisibility(View.GONE);
         errorLayout.setVisibility(View.VISIBLE);
+        if (bottomBar != null) {
+            bottomBar.setVisibility(View.GONE);
+        }
         tvErrorTitle.setText(title);
         tvErrorMessage.setText(message);
     }

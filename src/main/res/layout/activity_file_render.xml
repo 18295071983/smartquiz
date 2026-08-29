@@ -148,6 +148,7 @@
 
     <!-- 底部操作栏：分享 / 用其他应用打开（与文档预览底部按钮风格一致） -->
     <LinearLayout
+        android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
