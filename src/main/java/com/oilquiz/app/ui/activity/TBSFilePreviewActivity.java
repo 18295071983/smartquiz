@@ -213,11 +213,8 @@ public class TBSFilePreviewActivity extends Activity {
                 .setItems(new String[]{"LibreOffice (开源免费)", "OnlyOffice (开源免费)", "Pdfium (仅PDF)", "WebView (仅表格文件)"}, (dialog, which) -> {
                     switch (which) {
                         case 0:
-                            // 使用 LibreOfficeKit 预览
-                            AppLogger.d(TAG, "使用 LibreOfficeKitPreviewActivity 预览文件");
-                            Intent libreOfficeIntent = new Intent(this, LibreOfficeKitPreviewActivity.class);
-                            libreOfficeIntent.putExtra("file_path", filePath);
-                            startActivity(libreOfficeIntent);
+                            // 使用官方 LibreOffice 查看器预览
+                            com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, filePath);
                             break;
                         case 1:
                             // 使用 OnlyOffice 预览

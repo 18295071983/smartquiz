@@ -199,7 +199,7 @@ public class FilePreviewManager {
      * @param filePath 文件路径
      */
     public void previewWithLibreOffice(Context context, String filePath) {
-        com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(context, filePath);
+        com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(context, filePath);
     }
     
     /**

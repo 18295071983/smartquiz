@@ -625,7 +625,7 @@ public class MainActivity extends BaseActivity {
                         switch (requestCode) {
                             case 1004:
                                 // LibreOffice 预览
-                                com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, path);
+                                com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, path);
                                 break;
                             case 1005:
                                 // OnlyOffice 预览

@@ -151,16 +151,9 @@ public class FileRenderActivity extends BaseActivity {
             toolbar.setSubtitle(file.getName());
         }
 
-        // Office 及 LibreOffice 可渲染的文档格式：优先交独立官方查看器(org.libreoffice)；
-        // 未装则用内置 LibreOfficeKit；再不行回退内置引擎（POI→HTML）。
+        // Office 及 LibreOffice 可渲染的文档格式：优先交官方查看器(集成)；未装则回退内置引擎/系统应用。
         if (isLibreOfficeDocument(file)) {
-            if (launchOfficialViewer(file)) {
-                finish();
-                return;
-            }
-            if (com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager.getInstance(this).isAvailable()) {
-                // 直接交给 LibreOfficeKit 文档预览，并结束本壳，避免"文件渲染壳 → 文档预览"双层嵌套
-                com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, file.getAbsolutePath());
+            if (com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, file.getAbsolutePath())) {
                 finish();
                 return;
             }
@@ -420,27 +413,6 @@ public class FileRenderActivity extends BaseActivity {
             case "txt": return "text/plain";
             case "pdf": return "application/pdf";
             default: return "*/*";
-        }
-    }
-
-    /** 用集成在 APP 内的官方查看器(org.libreoffice)打开文档。 */
-    private boolean launchOfficialViewer(File file) {
-        try {
-            if (file == null || !file.exists()) {
-                return false;
-            }
-            // 集成后：进程内启动官方查看器，传 content URI（LibreOfficeMainActivity 用 getData() 读取）
-            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
-            Intent intent = new Intent();
-            intent.setClassName(getPackageName(), "org.libreoffice.LibreOfficeMainActivity");
-            intent.setDataAndType(uri, getMimeType(file.getName()));
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(intent);
-            Log.i(TAG, "已交由集成官方查看器打开: " + file.getName());
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "启动官方查看器失败: " + e.getMessage(), e);
-            return false;
         }
     }
 

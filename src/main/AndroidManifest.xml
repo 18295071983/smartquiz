@@ -271,13 +271,6 @@
             android:theme="@style/Theme.OilQuizApp"
             android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
 
-        <!-- LibreOfficeKit 文档预览 Activity -->
-        <activity
-            android:name=".ui.activity.LibreOfficeKitPreviewActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OilQuizApp"
-            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
-
         <!-- OnlyOffice 文档预览 Activity -->
         <activity
             android:name=".ui.activity.OnlyOfficePreviewActivity"
