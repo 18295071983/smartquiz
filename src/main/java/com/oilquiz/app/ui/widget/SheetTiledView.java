@@ -119,6 +119,18 @@ public class SheetTiledView extends View {
         setDocument(docW, docH);
     }
 
+    /** 释放资源：回收所有瓦片位图并关闭渲染线程。 */
+    public void release() {
+        tileExecutor.shutdownNow();
+        for (Bitmap b : cache.values()) {
+            if (b != null && !b.isRecycled()) {
+                b.recycle();
+            }
+        }
+        cache.clear();
+        inFlight.clear();
+    }
+
     // ---------------------------------------------------------------------------------
     // 手势
     // ---------------------------------------------------------------------------------

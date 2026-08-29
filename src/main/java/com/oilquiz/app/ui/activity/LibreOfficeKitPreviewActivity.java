@@ -57,6 +57,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     private TextView tvErrorMessage;
     private MaterialButton btnRetry;
     private MaterialButton btnOpenWith;
+    private LinearLayout bottomBar;
 
     private int currentPage = 0;
     private int totalPages = 0;
@@ -94,7 +95,6 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
 
     @Override
     protected void initView() {
-        MaterialToolbar toolbar = findViewById(R.id.toolbar);
         toolbar = findViewById(R.id.toolbar);
         setupToolbar("文档预览");
 
@@ -113,6 +113,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         tvErrorMessage = findViewById(R.id.tv_error_message);
         btnRetry = findViewById(R.id.btn_retry);
         btnOpenWith = findViewById(R.id.btn_open_with);
+        bottomBar = findViewById(R.id.bottom_bar);
 
         setupZoomListener();
         showLoading();
@@ -208,6 +209,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             btnNext.setVisibility(View.GONE);
             tvPageInfo.setVisibility(View.GONE);
             tvPartSelector.setVisibility(View.GONE);
+            bottomBar.setVisibility(View.GONE);
             // 用 getPartPageRectangles 获取 Word 连续文档的页码数（供分页参考/诊断）
             int pageCount = loKitManager.getPartPageCount();
             AppLogger.i(TAG, "Word 文档通过 getPartPageRectangles 得到页码数: " + pageCount);
@@ -216,11 +218,13 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             // Calc(Excel)：工作表导航
             isSheetMode = true;
             isContinuousMode = false;
+            bottomBar.setVisibility(View.GONE);
             setupSheetNav();
         } else {
             // Impress/Drawing：分页
             isContinuousMode = false;
             isSheetMode = false;
+            bottomBar.setVisibility(View.VISIBLE);
             svContinuous.setVisibility(View.GONE);
             ivPage.setVisibility(View.VISIBLE);
             btnPrev.setVisibility(View.VISIBLE);
@@ -520,12 +524,18 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         btnPrev.setVisibility(View.GONE);
         btnNext.setVisibility(View.GONE);
         tvPageInfo.setVisibility(View.GONE);
+        if (bottomBar != null) {
+            bottomBar.setVisibility(View.GONE);
+        }
     }
 
     private void showPageControls() {
         btnPrev.setVisibility(View.VISIBLE);
         btnNext.setVisibility(View.VISIBLE);
         tvPageInfo.setVisibility(View.VISIBLE);
+        if (bottomBar != null) {
+            bottomBar.setVisibility(View.VISIBLE);
+        }
     }
 
     private void showError(String message) {
@@ -546,6 +556,25 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             }
         }
         pageCache.clear();
+        // 回收连续滚动条带位图
+        if (stripsContainer != null) {
+            for (int i = 0; i < stripsContainer.getChildCount(); i++) {
+                View child = stripsContainer.getChildAt(i);
+                if (child instanceof android.widget.ImageView) {
+                    android.graphics.drawable.Drawable d = ((android.widget.ImageView) child).getDrawable();
+                    if (d instanceof android.graphics.drawable.BitmapDrawable) {
+                        Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+                        if (b != null && !b.isRecycled()) {
+                            b.recycle();
+                        }
+                    }
+                }
+            }
+        }
+        // 释放瓦片式视图（回收瓦片位图 + 关闭渲染线程）
+        if (sheetTiled != null) {
+            sheetTiled.release();
+        }
         // 释放 LibreOfficeKit：销毁当前文档 + LO 运行时，释放后端占用的内存
         if (loKitManager != null) {
             loKitManager.release();

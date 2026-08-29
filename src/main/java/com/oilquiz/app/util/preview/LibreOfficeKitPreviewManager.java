@@ -318,64 +318,6 @@ public class LibreOfficeKitPreviewManager {
     }
 
     /**
-     * 按整表真实纵横比渲染整个 part（工作表/页），并受高度与像素上限约束，避免压缩变形。
-     * @param pageIndex    part 索引
-     * @param desiredWidth 期望渲染宽度(px)
-     * @param maxHeight    最大高度(px)
-     * @param maxPixels    最大像素数（内存约束）
-     * @return 渲染出的 Bitmap（纵横比=版面真实比例），失败返回 null
-     */
-    public Bitmap renderPartBounded(int pageIndex, int desiredWidth, int maxHeight, long maxPixels) {
-        if (!isInitialized || document == null) {
-            return null;
-        }
-        try {
-            // 切换 part
-            Method setPartMethod = documentClass.getMethod("setPart", int.class);
-            setPartMethod.invoke(document, pageIndex);
-
-            int docW = getDocumentWidth();
-            int docH = getDocumentHeight();
-            if (docW <= 0) docW = 1;
-            if (docH <= 0) docH = 1;
-            float aspect = (float) docH / docW;
-
-            int rw = Math.max(desiredWidth, 400);
-            int rh = (int) Math.round(rw * aspect);
-            if (rh > maxHeight) {
-                rh = maxHeight;
-                rw = Math.max((int) Math.round(rh / aspect), 300);
-            }
-            // 像素上限约束：超出则逐步降分辨率
-            while ((long) rw * rh > maxPixels && rw > 300) {
-                rw = (int) (rw * 0.8f);
-                rh = (int) Math.round(rw * aspect);
-            }
-            if (rw < 300) {
-                rw = 300;
-                rh = (int) Math.round(rw * aspect);
-            }
-
-            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocateDirect(rw * rh * 4);
-            if (buffer == null) {
-                AppLogger.e(TAG, "创建缓冲区失败");
-                return null;
-            }
-            Method paintTileMethod = documentClass.getMethod("paintTile",
-                    java.nio.ByteBuffer.class, int.class, int.class, int.class, int.class, int.class, int.class);
-            paintTileMethod.invoke(document, buffer, rw, rh, 0, 0, docW, docH);
-
-            Bitmap bitmap = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888);
-            bitmap.copyPixelsFromBuffer(buffer);
-            AppLogger.d(TAG, "整表part渲染成功: " + pageIndex + " (" + rw + "x" + rh + ")");
-            return bitmap;
-        } catch (Exception e) {
-            AppLogger.e(TAG, "整表part渲染错误: " + e.getMessage(), e);
-            return null;
-        }
-    }
-
-    /**
      * 渲染指定区域（用于连续文档的条带渲染）。
      * @param width  目标位图宽度(px)
      * @param height 目标位图高度(px)
