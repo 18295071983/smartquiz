@@ -10,6 +10,7 @@
             android:name=".LibreOfficeMainActivity"
             android:configChanges="orientation|keyboard|keyboardHidden|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:windowSoftInputMode="adjustResize"
+            android:theme="@style/LibreOfficeTheme"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -24,11 +25,11 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".SettingsActivity" android:label="@string/app_name_settings" />
+        <activity android:name=".SettingsActivity" android:label="@string/app_name_settings" android:theme="@style/LibreOfficeTheme" />
 
-        <activity android:name="org.libreoffice.ui.LibreOfficeUIActivity" android:exported="true" />
+        <activity android:name="org.libreoffice.ui.LibreOfficeUIActivity" android:exported="true" android:theme="@style/LibreOfficeTheme" />
 
-        <activity android:name=".PresentationActivity" android:screenOrientation="landscape" />
+        <activity android:name=".PresentationActivity" android:screenOrientation="landscape" android:theme="@style/LibreOfficeTheme" />
 
     </application>
 </manifest>
