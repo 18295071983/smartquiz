@@ -1494,6 +1494,10 @@ public class AIService implements ComponentCallbacks2 {
                 if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
                     try { inferenceWakeLock.release(); } catch (Throwable t) { AILogger.w(TAG, "WakeLock release failed: " + t.getMessage()); }
                 }
+                // 推理结束，标记 AI 空闲（供 AICrashHandler 挂起检测判断）
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
+                }
             }
         });
         
@@ -1668,7 +1672,12 @@ public class AIService implements ComponentCallbacks2 {
                 }
                 throw new RuntimeException("生成失败，可能是内存或模型问题", t);
             }
-        }, executorService);
+        }, executorService).whenComplete((result, ex) -> {
+            // 无论成功或失败（含提前抛出的初始化异常），结束后都标记 AI 空闲
+            if (crashHandler != null) {
+                crashHandler.markIdle();
+            }
+        });
     }
 
     /**
@@ -3830,6 +3839,9 @@ public class AIService implements ComponentCallbacks2 {
                     AILogger.w(TAG, "onComplete called multiple times, ignoring duplicate call");
                     return;
                 }
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
+                }
                 synchronized (chatContextLock) {
                     activeChatGenerationCount = Math.max(0, activeChatGenerationCount - 1);
                     chatContextLock.notifyAll();
@@ -3849,6 +3861,9 @@ public class AIService implements ComponentCallbacks2 {
                 if (!completed.compareAndSet(false, true)) {
                     AILogger.w(TAG, "onError called after completion, ignoring duplicate: " + error);
                     return;
+                }
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
                 }
                 synchronized (chatContextLock) {
                     activeChatGenerationCount = Math.max(0, activeChatGenerationCount - 1);

@@ -18,29 +18,12 @@ import com.oilquiz.app.ui.activity.UserActivity;
 import com.oilquiz.app.ui.activity.QuestionActivity;
 import com.oilquiz.app.ui.activity.QuizActivity;
 import com.oilquiz.app.ui.activity.StartQuizActivity;
-import com.oilquiz.app.ui.activity.StudyPlanActivity;
-import com.oilquiz.app.ui.activity.WrongQuestionActivity;
-import com.oilquiz.app.ui.activity.NoteActivity;
-import com.oilquiz.app.ui.activity.OCRActivity;
 import com.oilquiz.app.ui.activity.ImportActivity;
 import com.oilquiz.app.ui.activity.ImportGuideActivity;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
-import com.oilquiz.app.ui.activity.EnvironmentCheckActivity;
 import com.oilquiz.app.ui.activity.ExportActivity;
-import com.oilquiz.app.ui.activity.BackupActivity;
-import com.oilquiz.app.ui.activity.ThemeActivity;
-import com.oilquiz.app.ui.activity.LanguageActivity;
 import com.oilquiz.app.ui.activity.SimpleFilePreviewActivity;
 import com.oilquiz.app.ui.activity.TestActivity;
-import com.oilquiz.app.ui.activity.LogsActivity;
-import com.oilquiz.app.ui.activity.AboutActivity;
-import com.oilquiz.app.ui.activity.HistoryActivity;
-import com.oilquiz.app.ui.activity.StatisticsActivity;
-import com.oilquiz.app.ui.activity.DatabaseManagementActivity;
-import com.oilquiz.app.ui.activity.AICenterActivity;
-import com.oilquiz.app.ui.activity.ModelImportActivity;
-import com.oilquiz.app.ui.activity.ModelSelectorActivity;
-import com.oilquiz.app.ui.activity.AIServiceStatusActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;
@@ -392,37 +375,11 @@ public class MainActivity extends BaseActivity {
 
         setupButton(R.id.btn_question, QuestionActivity.class);
         setupButton(R.id.btn_quiz, StartQuizActivity.class);
-        setupButton(R.id.btn_study_plan, StudyPlanActivity.class);
-        setupButton(R.id.btn_wrong_question, WrongQuestionActivity.class);
-        setupButton(R.id.btn_note, NoteActivity.class);
-        setupButton(R.id.btn_backup, BackupActivity.class);
-        setupButton(R.id.btn_theme, ThemeActivity.class);
-        setupButton(R.id.btn_history, HistoryActivity.class);
-        setupButton(R.id.btn_about, AboutActivity.class);
+        // 学习计划/错题集/学习笔记/数据备份/主题设置/语言设置/学习历史 已移至工具集
         
 
         
-        // 设置前端题目渲染界面按钮
-        View btnFrontendView = findViewById(R.id.btn_frontend_view);
-        if (btnFrontendView != null) {
-            btnFrontendView.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    openQuestionRenderer();
-                }
-            });
-        }
-        
-        // 设置AI功能中心按钮
-        View btnAiCenter = findViewById(R.id.btn_ai_center);
-        if (btnAiCenter != null) {
-            btnAiCenter.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, AICenterActivity.class));
-                }
-            });
-        }
+        // 天气详情 已移至工具集
         
         // 设置导入导出按钮
         View btnImportExport = findViewById(R.id.btn_import_export);
@@ -447,16 +404,7 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置语言设置按钮
-        View btnLanguage = findViewById(R.id.btn_language);
-        if (btnLanguage != null) {
-            btnLanguage.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, LanguageActivity.class));
-                }
-            });
-        }
+        // 语言设置已移至工具集
         
         // 设置AI聊天按钮
         View btnQuestionGenerate = findViewById(R.id.btn_question_generate);
@@ -469,49 +417,11 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置OCR按钮
-        View btnOcr = findViewById(R.id.btn_ocr);
-        if (btnOcr != null) {
-            btnOcr.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, OCRActivity.class));
-                }
-            });
-        }
+        // 文字识别 已移至工具集
         
-        // 设置模型管理按钮
-        View btnModelImport = findViewById(R.id.btn_model_import);
-        if (btnModelImport != null) {
-            btnModelImport.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, ModelSelectorActivity.class));
-                }
-            });
-        }
+        // 模型管理/AI服务状态 已移至工具集
         
-        // 设置AI服务状态按钮
-        View btnAiService = findViewById(R.id.btn_ai_service);
-        if (btnAiService != null) {
-            btnAiService.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, AIServiceStatusActivity.class));
-                }
-            });
-        }
-        
-        // 设置系统日志按钮
-        View btnLogs = findViewById(R.id.btn_logs);
-        if (btnLogs != null) {
-            btnLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, LogsActivity.class));
-                }
-            });
-        }
+        // 系统日志 已移至工具集
         
         // 设置工具集按钮
         View btnToolbox = findViewById(R.id.btn_toolbox);
@@ -524,37 +434,11 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置数据库管理按钮
-        View btnDatabaseManagement = findViewById(R.id.btn_database_management);
-        if (btnDatabaseManagement != null) {
-            btnDatabaseManagement.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, DatabaseManagementActivity.class));
-                }
-            });
-        }
+        // 数据库管理 已移至工具集
         
-        // 设置原生检测按钮
-        View btnSystemCheck = findViewById(R.id.btn_system_check);
-        if (btnSystemCheck != null) {
-            btnSystemCheck.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, EnvironmentCheckActivity.class));
-                }
-            });
-        }
+        // 原生检测已移动到工具箱中
         
 
-    }
-    
-    // 打开前端题目渲染界面
-    private void openQuestionRenderer() {
-        Intent intent = new Intent(this, WebViewActivity.class);
-        intent.putExtra("url", "https://www.qweather.com");
-        intent.putExtra("title", getString(R.string.weather_detail_title));
-        startActivity(intent);
     }
 
     private void setupButton(int buttonId, final Class<?> activityClass) {

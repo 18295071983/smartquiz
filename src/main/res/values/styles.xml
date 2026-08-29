@@ -79,6 +79,8 @@
         <item name="colorOnError">@color/on_error</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOutline">@color/outline</item>
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
         <item name="android:colorBackground">@color/background</item>
         <item name="colorOnBackground">@color/on_background</item>
@@ -101,6 +103,8 @@
         <item name="colorOnError">@color/on_error</item>
         <item name="colorSurface">@color/surface_dark_theme</item>
         <item name="colorOnSurface">@color/text_primary_dark_theme</item>
+        <item name="colorSurfaceVariant">@color/surface_variant_dark_theme</item>
+        <item name="colorOutline">@color/outline_dark_theme</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary_dark_theme</item>
         <item name="android:colorBackground">@color/background_dark_theme</item>
         <item name="colorOnBackground">@color/text_primary_dark_theme</item>

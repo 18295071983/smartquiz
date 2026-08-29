@@ -161,9 +161,6 @@
             android:name=".ui.activity.DeviceInfoActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.activity.StatisticsActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.LanguageActivity"
             android:exported="false" />
         <activity
@@ -301,11 +298,6 @@
             android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
 
         <activity
-            android:name=".ui.activity.AboutActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OilQuizApp" />
-
-        <activity
             android:name=".ui.activity.ModelImportActivity"
             android:exported="false" />
 
@@ -383,7 +375,7 @@
             android:exported="false" />
 
         <activity
-            android:name=".ui.activity.ThemeSwitcherActivity"
+            android:name=".ui.ThemeSwitcherActivity"
             android:exported="false"
             android:label="色系切换"
             android:theme="@style/Theme.OilQuizApp" />

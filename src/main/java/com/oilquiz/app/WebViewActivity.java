@@ -2669,10 +2669,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openStatistics() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.StatisticsActivity.class);
-                startActivity(intent);
-            });
+            // 学习统计页面已移除，此处留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2685,10 +2682,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openAbout() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.AboutActivity.class);
-                startActivity(intent);
-            });
+            // 关于页面已移除（深色适配问题），此处留空避免 JS 调用抛错
         }
         
         @JavascriptInterface

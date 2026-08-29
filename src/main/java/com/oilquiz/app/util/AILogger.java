@@ -39,6 +39,42 @@ public class AILogger {
     private static File logFile;
     private static ReentrantLock logLock = new ReentrantLock();
     private static Context appContext;
+
+    // ========== 文件日志监听器（供统一日志中心实时刷新） ==========
+
+    /**
+     * 文件日志监听器：每次写入新日志后回调（主线程）
+     */
+    public interface OnLogListener {
+        void onNewLog(LogEntry entry);
+    }
+
+    private static final CopyOnWriteArrayList<OnLogListener> logListeners = new CopyOnWriteArrayList<>();
+    private static final Handler logMainHandler = new Handler(Looper.getMainLooper());
+
+    public static void addLogListener(OnLogListener listener) {
+        if (listener != null && !logListeners.contains(listener)) {
+            logListeners.add(listener);
+        }
+    }
+
+    public static void removeLogListener(OnLogListener listener) {
+        logListeners.remove(listener);
+    }
+
+    private static void notifyLogListeners(final LogEntry entry) {
+        logMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                for (OnLogListener listener : logListeners) {
+                    try {
+                        listener.onNewLog(entry);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        });
+    }
     
     // ========== 可视化日志系统（从AILogger2迁移）==========
     private static volatile AILogger visualInstance;
@@ -385,12 +421,14 @@ public class AILogger {
                 return;
             }
         }
-        
+
+        LogEntry notifyEntry = buildEntryFromMessage(message);
+
         logLock.lock();
         try {
             // 检查日志文件大小
             checkLogFileSize();
-            
+
             try (FileWriter writer = new FileWriter(logFile, true)) {
                 writer.write(message + "\n\n");
                 writer.flush();
@@ -400,6 +438,38 @@ public class AILogger {
         } finally {
             logLock.unlock();
         }
+
+        // 通知监听器（实时日志流）
+        notifyLogListeners(notifyEntry);
+    }
+
+    /**
+     * 从格式化的日志消息中解析出结构化条目（消息格式：[ts] [LEVEL] [tag] message）
+     */
+    private static LogEntry buildEntryFromMessage(String message) {
+        String timestamp = "";
+        String level = "";
+        String tag = "";
+        String msg = "";
+        if (message != null && message.startsWith("[")) {
+            String firstLine = message.split("\n", 2)[0];
+            int a = firstLine.indexOf("] [");
+            if (a > 0) {
+                timestamp = firstLine.substring(1, a).trim();
+                int b = firstLine.indexOf("] [", a + 3);
+                if (b > 0) {
+                    level = firstLine.substring(a + 3, b).trim();
+                    int c = firstLine.indexOf("] ", b + 3);
+                    if (c > 0) {
+                        tag = firstLine.substring(b + 3, c).trim();
+                        msg = firstLine.substring(c + 2);
+                    } else {
+                        tag = firstLine.substring(b + 3).trim();
+                    }
+                }
+            }
+        }
+        return new LogEntry(timestamp, level, tag, msg, message != null ? message : "");
     }
     
     /**
@@ -506,12 +576,10 @@ public class AILogger {
                 String message = "";
 
                 while ((line = reader.readLine()) != null) {
-                    fullText.append(line).append("\n");
-
                     // 解析日志行
                     // 格式: [timestamp] [level] [tag] message
                     if (line.startsWith("[") && line.contains("] [")) {
-                        // 如果有之前的完整条目，先保存
+                        // 如果有之前的完整条目，先保存（其 fullText 已收集完毕，不含本行）
                         if (!timestamp.isEmpty()) {
                             entries.add(new LogEntry(timestamp, level, tag, message, fullText.toString()));
                             fullText = new StringBuilder();
@@ -519,20 +587,24 @@ public class AILogger {
 
                         // 解析新行
                         String remaining = line.substring(1); // 移除开头的[
-                        String[] parts = remaining.split("\\] \\[");
+                        String[] parts = remaining.split("\\] \\[", 3);
                         if (parts.length >= 3) {
                             timestamp = parts[0].trim();
                             level = parts[1].trim();
-                            tag = parts[2].trim();
-                            // 消息部分是剩余的所有内容
-                            int tagEnd = line.indexOf("] ", tag.length() + 3);
+                            // 第三段是 "tag] message" 形式：按 "] " 切出 tag 与消息
+                            String tagAndMsg = parts[2];
+                            int tagEnd = tagAndMsg.indexOf("] ");
                             if (tagEnd > 0) {
-                                message = line.substring(tagEnd + 2);
+                                tag = tagAndMsg.substring(0, tagEnd).trim();
+                                message = tagAndMsg.substring(tagEnd + 2).trim();
                             } else {
+                                tag = tagAndMsg.trim();
                                 message = "";
                             }
                         }
                     }
+                    // 当前行归入当前条目的完整文本（含首行本身）
+                    fullText.append(line).append("\n");
                 }
 
                 // 添加最后一条

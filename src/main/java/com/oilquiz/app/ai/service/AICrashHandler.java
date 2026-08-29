@@ -53,11 +53,17 @@ public class AICrashHandler {
     /** 是否正在监控 */
     private final AtomicBoolean isMonitoring = new AtomicBoolean(false);
 
+    /** AI 是否处于活跃状态（recordActivity 置忙，markIdle 置空闲） */
+    private final AtomicBoolean aiActive = new AtomicBoolean(false);
+
     /** 最后一次AI活动的时间戳 */
     private final AtomicLong lastActivityTime = new AtomicLong(0);
 
     /** 默认超时时间（毫秒）- 60秒无响应认为挂起 */
     private static final long DEFAULT_TIMEOUT_MS = 60000;
+
+    /** 同一问题两次记录的最小间隔（毫秒），避免连续刷日志 */
+    private static final long REPORT_INTERVAL_MS = 5 * 60 * 1000;
 
     /** 内存监控阈值（百分比）- 超过90%认为内存不足 */
     private static final float MEMORY_THRESHOLD = 0.90f;
@@ -146,7 +152,16 @@ public class AICrashHandler {
      * 记录AI活动（每次AI开始处理时调用）
      */
     public void recordActivity() {
+        aiActive.set(true);
         lastActivityTime.set(System.currentTimeMillis());
+    }
+
+    /**
+     * 标记AI空闲（每次AI处理结束后调用）。
+     * 只有活跃期间才做挂起检测，避免空闲时误报。
+     */
+    public void markIdle() {
+        aiActive.set(false);
     }
 
     /**
@@ -232,82 +247,76 @@ public class AICrashHandler {
 
     /**
      * 检查AI处理线程状态
+     * 仅在 AI 活跃（正在生成）且长时间无新心跳时才判定为可能挂起，
+     * 避免把空闲时的线程池 WAITING 线程、或长时间未活动的正常空闲状态误判。
      */
     private void checkAIThreadStatus() {
-        Thread[] threads = new Thread[Thread.activeCount() * 2];
-        int count = Thread.enumerate(threads);
+        if (!aiActive.get()) {
+            // AI 空闲时不做挂起检测，防止误报
+            return;
+        }
 
         long now = System.currentTimeMillis();
         long lastActivity = lastActivityTime.get();
         long waitTime = now - lastActivity;
 
-        // 查找AI处理线程
-        for (int i = 0; i < count; i++) {
-            Thread thread = threads[i];
-            if (thread != null && thread.getName().contains("pool-")) {
-                Thread.State state = thread.getState();
-
-                // 如果线程处于BLOCKED、WAITING或TIMED_WAITING状态超过阈值
-                if ((state == Thread.State.BLOCKED ||
-                     state == Thread.State.WAITING ||
-                     state == Thread.State.TIMED_WAITING) &&
-                    waitTime > DEFAULT_TIMEOUT_MS) {
-
-                    String key = "thread_hang_" + thread.getName();
-                    if (!recordedIssues.containsKey(key) ||
-                        (now - recordedIssues.get(key)) > 30000) {
-                        recordedIssues.put(key, now);
-
-                        String msg = String.format(
-                            "AI线程挂起检测: 线程=%s, 状态=%s, 等待时间=%d秒",
-                            thread.getName(),
-                            state.name(),
-                            waitTime / 1000
-                        );
-
-                        AILogger.w(TAG, msg);
-                        Log.w(TAG, msg);
-
-                        if (crashCallback != null) {
-                            crashCallback.onAIHang(waitTime);
-                        }
-                    }
-                }
-
-                // 检查线程是否死亡
-                if (!thread.isAlive()) {
-                    String msg = "AI处理线程已死亡: " + thread.getName();
-                    AILogger.e(TAG, msg);
-                    Log.e(TAG, msg);
-
-                    if (crashCallback != null) {
-                        crashCallback.onThreadDead(thread.getName(), "Thread died");
-                    }
-                }
-            }
+        if (waitTime <= DEFAULT_TIMEOUT_MS) {
+            return;
         }
 
-        // 如果超过默认超时的2倍，怀疑线程已挂起
-        if (waitTime > DEFAULT_TIMEOUT_MS * 2) {
-            String key = "possible_hang";
-            long now2 = System.currentTimeMillis();
-            if (!recordedIssues.containsKey(key) ||
-                (now2 - recordedIssues.get(key)) > 30000) {
-                recordedIssues.put(key, now2);
+        // 限频：同一问题 5 分钟内最多记录一次
+        String key = "ai_possible_hang";
+        Long lastReport = recordedIssues.get(key);
+        if (lastReport != null && (now - lastReport) < REPORT_INTERVAL_MS) {
+            return;
+        }
+        recordedIssues.put(key, now);
 
-                String msg = String.format(
-                    "可能的AI处理挂起: 最后活动时间=%d秒前",
-                    waitTime / 1000
-                );
+        String msg = String.format(
+                "AI处理可能挂起: 活跃中但 %d 秒无新心跳",
+                waitTime / 1000
+        ) + "\n" + captureThreadDump();
 
-                AILogger.w(TAG, msg);
-                Log.w(TAG, msg);
-            }
+        AILogger.w(TAG, msg);
+        Log.w(TAG, msg);
+
+        if (crashCallback != null) {
+            crashCallback.onAIHang(waitTime);
         }
     }
 
     /**
+     * 捕获当前线程栈快照，用于挂起诊断（限制长度，避免刷屏）
+     */
+    private String captureThreadDump() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            Thread[] threads = new Thread[Thread.activeCount() * 2];
+            int count = Thread.enumerate(threads);
+            int shown = 0;
+            for (int i = 0; i < count && shown < 12; i++) {
+                Thread thread = threads[i];
+                if (thread == null) {
+                    continue;
+                }
+                sb.append("· ").append(thread.getName())
+                        .append(" [").append(thread.getState().name()).append("]");
+                StackTraceElement[] stack = thread.getStackTrace();
+                if (stack != null && stack.length > 0) {
+                    sb.append("\n      ").append(stack[0].toString());
+                }
+                sb.append("\n");
+                shown++;
+            }
+        } catch (Throwable t) {
+            sb.append("[线程快照获取失败: ").append(t.getMessage()).append("]");
+        }
+        return sb.toString();
+    }
+
+    /**
      * 检查系统资源
+     * 仅在进程驻留内存出现明显增长时才记录，避免每个 watchdog 节拍都刷一条日志。
      */
     private void checkSystemResources() {
         BufferedReader reader = null;
@@ -326,11 +335,16 @@ public class AICrashHandler {
                         long size = Long.parseLong(parts[0]) * 4096; // 页大小通常是4KB
                         long resident = Long.parseLong(parts[1]) * 4096;
 
-                        AILogger.i(TAG, String.format(
-                            "进程内存: resident=%s, size=%s",
-                            formatMemory(resident),
-                            formatMemory(size)
-                        ));
+                        // 仅在驻留内存相对上次记录显著增长时记录（默认 +64MB），避免刷屏
+                        Long lastResident = recordedIssues.get("last_resident");
+                        if (lastResident == null || (resident - lastResident) > 64L * 1024 * 1024) {
+                            recordedIssues.put("last_resident", resident);
+                            AILogger.w(TAG, String.format(
+                                    "进程内存增长明显: resident=%s, size=%s",
+                                    formatMemory(resident),
+                                    formatMemory(size)
+                            ));
+                        }
                     }
                 }
             }

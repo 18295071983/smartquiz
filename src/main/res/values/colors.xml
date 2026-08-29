@@ -95,6 +95,7 @@
     <color name="background_color">#F8FAFC</color>
     <color name="error_color">#EF4444</color>
     <color name="info_color">#8B5CF6</color>
+    <color name="ai_color">#00BCD4</color>
     <color name="warning_color">#F59E0B</color>
 
     <color name="green_50">#ECFDF5</color>
@@ -156,6 +157,8 @@
 
     <color name="background_dark_theme">#121212</color>
     <color name="surface_dark_theme">#1E1E1E</color>
+    <color name="surface_variant_dark_theme">#2A2A2A</color>
+    <color name="outline_dark_theme">#3A3A3A</color>
     <color name="text_primary_dark_theme">#FFFFFF</color>
     <color name="text_secondary_dark_theme">#B0B0B0</color>
 

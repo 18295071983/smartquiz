@@ -78,12 +78,8 @@ public class AppOperationTool implements AITool {
             PAGE_MAP.put("测试", Class.forName("com.oilquiz.app.ui.activity.TestActivity"));
             PAGE_MAP.put("logs", Class.forName("com.oilquiz.app.ui.activity.LogsActivity"));
             PAGE_MAP.put("日志", Class.forName("com.oilquiz.app.ui.activity.LogsActivity"));
-            PAGE_MAP.put("about", Class.forName("com.oilquiz.app.ui.activity.AboutActivity"));
-            PAGE_MAP.put("关于", Class.forName("com.oilquiz.app.ui.activity.AboutActivity"));
             PAGE_MAP.put("history", Class.forName("com.oilquiz.app.ui.activity.HistoryActivity"));
             PAGE_MAP.put("历史", Class.forName("com.oilquiz.app.ui.activity.HistoryActivity"));
-            PAGE_MAP.put("statistics", Class.forName("com.oilquiz.app.ui.activity.StatisticsActivity"));
-            PAGE_MAP.put("统计", Class.forName("com.oilquiz.app.ui.activity.StatisticsActivity"));
             PAGE_MAP.put("database", Class.forName("com.oilquiz.app.ui.activity.DatabaseManagementActivity"));
             PAGE_MAP.put("数据库管理", Class.forName("com.oilquiz.app.ui.activity.DatabaseManagementActivity"));
             PAGE_MAP.put("ai_center", Class.forName("com.oilquiz.app.ui.activity.AICenterActivity"));

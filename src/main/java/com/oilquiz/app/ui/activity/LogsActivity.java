@@ -1,67 +1,115 @@
 package com.oilquiz.app.ui.activity;
 
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.LinearLayout;
+import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.tabs.TabLayout;
 
-import com.oilquiz.app.ui.base.BaseActivity;
-
 import com.oilquiz.app.R;
+import com.oilquiz.app.database.AppDatabase;
+import com.oilquiz.app.infra.AppLogger;
+import com.oilquiz.app.ui.base.BaseActivity;
+import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
+/**
+ * 统一日志中心
+ * - 合并四大日志源：应用日志(AppLogger)、AI服务日志(AILogger)、崩溃报告、操作记录(Room)
+ * - 实时日志流：新增日志自动出现、自动滚动、可暂停/恢复
+ * - 关键字搜索 + 级别过滤(V/D/I/W/E)
+ * - 点击条目查看完整多行详情
+ */
 public class LogsActivity extends BaseActivity {
+
+    // 日志来源
+    private static final String SOURCE_APP = "应用";
+    private static final String SOURCE_AI = "AI服务";
+    private static final String SOURCE_CRASH = "崩溃";
+    private static final String SOURCE_OP = "操作";
+
+    // Tab 类型
+    private static final int TAB_ALL = 0;
+    private static final int TAB_APP = 1;
+    private static final int TAB_AI = 2;
+    private static final int TAB_CRASH = 3;
+    private static final int TAB_OP = 4;
+
+    private static final int MAX_ITEMS = 3000;      // 列表最大条目数（防内存膨胀）
+    private static final int INITIAL_VISIBLE = 200; // 初始显示条数
+    private static final int LOAD_MORE_STEP = 200;  // 每次"加载更多"条数
 
     // UI组件
     private RecyclerView rvLogs;
+    private EditText etSearch;
+    private Chip chipLive;
+    private ChipGroup chipGroupLevels;
     private MaterialButton btnRefreshLogs;
     private MaterialButton btnClearLogs;
     private MaterialButton btnCopyLogs;
     private MaterialButton btnExportLogs;
     private MaterialButton btnShareLogs;
+    private MaterialButton btnLoadMore;
+    private TextView tvLogCount;
     private TabLayout tabLayout;
-    
-    // 分页组件
-    private LinearLayout llPagination;
-    private MaterialButton btnPrevPage;
-    private MaterialButton btnNextPage;
-    private TextView tvPageInfo;
-    
-    // 分页参数
-    private static final int PAGE_SIZE = 20;
-    private int currentPage = 1;
-    private int totalPages = 1;
-    private int totalLogs = 0;
-    
-    // 日志数据
-    private List<LogEntry> allLogs = new ArrayList<>();
-    private LogAdapter logAdapter;
-    
-    // 日志类型
-    private static final String LOG_TYPE_AI = "ai";
-    private static final String LOG_TYPE_CRASH = "crash";
-    private static final String LOG_TYPE_AI_LOGGER = "ai_logger";
-    private String currentLogType = LOG_TYPE_AI_LOGGER;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-    }
+    // 数据
+    private final List<LogItem> allItems = new ArrayList<>();      // 当前Tab全部数据（含实时追加）
+    private final List<LogItem> filteredItems = new ArrayList<>(); // 过滤后数据
+    private final LogAdapter logAdapter = new LogAdapter();
+    private final Object listLock = new Object();
+
+    private int currentTab = TAB_ALL;
+    private String currentLevelFilter = "ALL"; // ALL / V / D / I / W / E
+    private String currentSearchQuery = "";
+    private boolean livePaused = false;
+    private int pendingLiveCount = 0;
+    private int visibleCount = INITIAL_VISIBLE;
+    private boolean destroyed = false;
+
+    private final AppLogger.LogListener appLogListener = new AppLogger.LogListener() {
+        @Override
+        public void onLogAdded(AppLogger.LogRecord record) {
+            if (record == null) return;
+            addLiveItem(new LogItem(record.timestamp, normalizeLevel(record.level), record.tag,
+                    record.message, record.message, SOURCE_APP), SOURCE_APP);
+        }
+    };
+
+    private final AILogger.OnLogListener aiLogListener = new AILogger.OnLogListener() {
+        @Override
+        public void onNewLog(AILogger.LogEntry entry) {
+            if (entry == null) return;
+            addLiveItem(new LogItem(parseTimestamp(entry.timestamp), normalizeLevel(entry.level),
+                    entry.tag, entry.message,
+                    entry.fullText != null ? entry.fullText : entry.message, SOURCE_AI), SOURCE_AI);
+        }
+    };
 
     @Override
     protected int getLayoutId() {
@@ -70,152 +118,525 @@ public class LogsActivity extends BaseActivity {
 
     @Override
     protected void initView() {
-        // 初始化UI组件
         rvLogs = findViewById(R.id.rv_logs);
+        etSearch = findViewById(R.id.et_search);
+        chipLive = findViewById(R.id.chip_live);
+        chipGroupLevels = findViewById(R.id.chip_group_levels);
         btnRefreshLogs = findViewById(R.id.btn_refresh_logs);
         btnClearLogs = findViewById(R.id.btn_clear_logs);
         btnCopyLogs = findViewById(R.id.btn_copy_logs);
         btnExportLogs = findViewById(R.id.btn_export_logs);
         btnShareLogs = findViewById(R.id.btn_share_logs);
+        btnLoadMore = findViewById(R.id.btn_load_more);
+        tvLogCount = findViewById(R.id.tv_log_count);
         tabLayout = findViewById(R.id.tab_layout);
-        
-        // 初始化分页组件
-        llPagination = findViewById(R.id.ll_pagination);
-        btnPrevPage = findViewById(R.id.btn_prev_page);
-        tvPageInfo = findViewById(R.id.tv_page_info);
-        btnNextPage = findViewById(R.id.btn_next_page);
-        
-        // 初始化适配器
-        logAdapter = new LogAdapter();
+
+        rvLogs.setLayoutManager(new LinearLayoutManager(this));
         rvLogs.setAdapter(logAdapter);
-        // 设置LayoutManager
-        rvLogs.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
-        
-        // 初始化选项卡
+
         initTabs();
     }
-    
-    // 初始化选项卡
+
     private void initTabs() {
-        if (tabLayout != null) {
-            // 清除现有选项卡
-            tabLayout.removeAllTabs();
-            
-            // 添加AI Logger选项卡（默认）
-            tabLayout.addTab(tabLayout.newTab().setText("AI服务日志").setTag(LOG_TYPE_AI_LOGGER));
-            // 添加AI日志选项卡
-            tabLayout.addTab(tabLayout.newTab().setText("系统AI日志").setTag(LOG_TYPE_AI));
-            // 添加崩溃日志选项卡
-            tabLayout.addTab(tabLayout.newTab().setText("崩溃").setTag(LOG_TYPE_CRASH));
-            
-            // 设置选项卡点击监听器
-            tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-                @Override
-                public void onTabSelected(TabLayout.Tab tab) {
-                    currentLogType = (String) tab.getTag();
-                    loadLogData();
+        if (tabLayout == null) return;
+        tabLayout.removeAllTabs();
+        tabLayout.addTab(tabLayout.newTab().setText("全部").setTag(TAB_ALL));
+        tabLayout.addTab(tabLayout.newTab().setText("应用日志").setTag(TAB_APP));
+        tabLayout.addTab(tabLayout.newTab().setText("AI服务").setTag(TAB_AI));
+        tabLayout.addTab(tabLayout.newTab().setText("崩溃").setTag(TAB_CRASH));
+        tabLayout.addTab(tabLayout.newTab().setText("操作记录").setTag(TAB_OP));
+
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                Object tag = tab.getTag();
+                if (tag instanceof Integer) {
+                    currentTab = (Integer) tag;
+                    loadData();
                 }
-                
-                @Override
-                public void onTabUnselected(TabLayout.Tab tab) {}
-                
-                @Override
-                public void onTabReselected(TabLayout.Tab tab) {}
-            });
-        }
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {}
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {}
+        });
     }
 
     @Override
     protected void initData() {
+        // 初始化日志基础设施
         try {
-            // 初始化AppLogger
-            com.oilquiz.app.infra.AppLogger.init(this);
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            finish();
-            return;
+            AppLogger.init(this);
+        } catch (Exception ignored) {
         }
-        
-        // 加载日志数据
-        loadLogData();
+        try {
+            AILogger.init(this);
+        } catch (Exception ignored) {
+        }
+
+        // 注册实时监听器
+        AppLogger.addLogListener(appLogListener);
+        AILogger.addLogListener(aiLogListener);
+
+        loadData();
     }
 
     @Override
     protected void initListener() {
-        // 设置点击事件
-        if (btnRefreshLogs != null) {
-            btnRefreshLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    loadLogData();
-                }
-            });
-        }
+        // 搜索：实时过滤
+        etSearch.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 
-        if (btnClearLogs != null) {
-            btnClearLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clearLogs();
-                }
-            });
-        }
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                currentSearchQuery = s == null ? "" : s.toString().trim();
+                applyFilter();
+            }
 
-        if (btnCopyLogs != null) {
-            btnCopyLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    copyLogs();
-                }
-            });
-        }
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
 
-        if (btnExportLogs != null) {
-            btnExportLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    exportLogs();
-                }
-            });
-        }
+        // 级别过滤
+        bindLevelChip(R.id.chip_level_all, "ALL");
+        bindLevelChip(R.id.chip_level_v, "V");
+        bindLevelChip(R.id.chip_level_d, "D");
+        bindLevelChip(R.id.chip_level_i, "I");
+        bindLevelChip(R.id.chip_level_w, "W");
+        bindLevelChip(R.id.chip_level_e, "E");
 
-        if (btnShareLogs != null) {
-            btnShareLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    shareLogs();
-                }
-            });
+        // 实时开关
+        chipLive.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            livePaused = !isChecked;
+            if (!livePaused) {
+                pendingLiveCount = 0;
+                applyFilter();
+                updateLiveChip();
+            }
+        });
+
+        btnRefreshLogs.setOnClickListener(v -> loadData());
+        btnClearLogs.setOnClickListener(v -> confirmClearLogs());
+        btnCopyLogs.setOnClickListener(v -> copyLogs());
+        btnExportLogs.setOnClickListener(v -> exportLogs());
+        btnShareLogs.setOnClickListener(v -> shareLogs());
+        btnLoadMore.setOnClickListener(v -> {
+            visibleCount += LOAD_MORE_STEP;
+            updateList();
+        });
+    }
+
+    private void bindLevelChip(int chipId, final String level) {
+        Chip chip = findViewById(chipId);
+        if (chip == null) return;
+        chip.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                currentLevelFilter = level;
+                applyFilter();
+            }
+        });
+    }
+
+    private void updateLiveChip() {
+        if (chipLive == null) return;
+        if (livePaused && pendingLiveCount > 0) {
+            chipLive.setText("实时(+" + pendingLiveCount + ")");
+        } else {
+            chipLive.setText("实时");
         }
-        
-        // 分页按钮
-        if (btnPrevPage != null) {
-            btnPrevPage.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (currentPage > 1) {
-                        currentPage--;
-                        updatePagination();
-                        updateLogList();
+    }
+
+    // ==================== 数据加载 ====================
+
+    private void loadData() {
+        showToast("正在加载日志...");
+        new Thread(() -> {
+            try {
+                final List<LogItem> newItems = new ArrayList<>();
+                switch (currentTab) {
+                    case TAB_ALL:
+                        newItems.addAll(loadAppItems());
+                        newItems.addAll(loadAiItems());
+                        newItems.addAll(loadCrashItems());
+                        newItems.addAll(loadOpItems());
+                        break;
+                    case TAB_APP:
+                        newItems.addAll(loadAppItems());
+                        break;
+                    case TAB_AI:
+                        newItems.addAll(loadAiItems());
+                        break;
+                    case TAB_CRASH:
+                        newItems.addAll(loadCrashItems());
+                        break;
+                    case TAB_OP:
+                        newItems.addAll(loadOpItems());
+                        break;
+                }
+
+                Collections.sort(newItems, (a, b) -> Long.compare(b.timestamp, a.timestamp));
+                if (newItems.size() > MAX_ITEMS) {
+                    newItems.subList(MAX_ITEMS, newItems.size()).clear();
+                }
+
+                runOnUiThread(() -> {
+                    if (destroyed) return;
+                    synchronized (listLock) {
+                        allItems.clear();
+                        allItems.addAll(newItems);
                     }
-                }
-            });
-        }
-        
-        if (btnNextPage != null) {
-            btnNextPage.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (currentPage < totalPages) {
-                        currentPage++;
-                        updatePagination();
-                        updateLogList();
+                    pendingLiveCount = 0;
+                    visibleCount = INITIAL_VISIBLE;
+                    applyFilter();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (!destroyed) {
+                        showToast("加载日志失败: " + e.getMessage());
                     }
+                });
+            }
+        }).start();
+    }
+
+    private List<LogItem> loadAppItems() {
+        List<LogItem> items = new ArrayList<>();
+        for (AppLogger.LogRecord record : AppLogger.getStructuredLogs()) {
+            items.add(new LogItem(record.timestamp, normalizeLevel(record.level),
+                    record.tag, record.message, record.message, SOURCE_APP));
+        }
+        return items;
+    }
+
+    private List<LogItem> loadAiItems() {
+        List<LogItem> items = new ArrayList<>();
+        for (AILogger.LogEntry entry : AILogger.getAllLogs()) {
+            items.add(new LogItem(parseTimestamp(entry.timestamp), normalizeLevel(entry.level),
+                    entry.tag, entry.message,
+                    entry.fullText != null ? entry.fullText : entry.message, SOURCE_AI));
+        }
+        return items;
+    }
+
+    private List<LogItem> loadCrashItems() {
+        List<LogItem> items = new ArrayList<>();
+        for (AppLogger.LogRecord report : AppLogger.getCrashReports()) {
+            items.add(new LogItem(report.timestamp, "E", report.tag, report.message, report.message, SOURCE_CRASH));
+        }
+        return items;
+    }
+
+    private List<LogItem> loadOpItems() {
+        List<LogItem> items = new ArrayList<>();
+        try {
+            List<com.oilquiz.app.model.LogEntry> entries =
+                    AppDatabase.getDatabase(this).logEntryDao().getRecentLogEntries(1000);
+            for (com.oilquiz.app.model.LogEntry entry : entries) {
+                items.add(new LogItem(entry.getTimestamp(), normalizeLevel(entry.getLevel()),
+                        entry.getAction(), entry.getDetail(), entry.getDetail(), SOURCE_OP));
+            }
+        } catch (Exception e) {
+            items.add(new LogItem(System.currentTimeMillis(), "E", "操作记录",
+                    "读取操作记录失败: " + e.getMessage(), "读取操作记录失败: " + e.getMessage(), SOURCE_OP));
+        }
+        return items;
+    }
+
+    // ==================== 实时日志流 ====================
+
+    /**
+     * 实时追加一条日志。数据始终写入 allItems（暂停时只计数不刷 UI），
+     * 恢复实时后统一重建过滤列表。
+     */
+    private void addLiveItem(LogItem item, String source) {
+        boolean tabAccepts = currentTab == TAB_ALL || tabSourceMatches(currentTab, source);
+        synchronized (listLock) {
+            allItems.add(0, item);
+            if (allItems.size() > MAX_ITEMS) {
+                allItems.subList(MAX_ITEMS, allItems.size()).clear();
+            }
+        }
+
+        if (destroyed || !tabAccepts) return;
+
+        if (livePaused) {
+            pendingLiveCount++;
+            runOnUiThread(this::updateLiveChip);
+            return;
+        }
+
+        if (matchesFilter(item)) {
+            runOnUiThread(() -> {
+                if (destroyed) return;
+                synchronized (listLock) {
+                    filteredItems.add(0, item);
                 }
+                logAdapter.notifyItemInserted(0);
+                // 用户位于顶部附近时自动滚动到最新
+                LinearLayoutManager lm = (LinearLayoutManager) rvLogs.getLayoutManager();
+                if (lm != null && lm.findFirstVisibleItemPosition() <= 1) {
+                    rvLogs.scrollToPosition(0);
+                }
+                updateCountText();
             });
         }
     }
+
+    private boolean tabSourceMatches(int tab, String source) {
+        switch (tab) {
+            case TAB_APP: return SOURCE_APP.equals(source);
+            case TAB_AI: return SOURCE_AI.equals(source);
+            case TAB_CRASH: return SOURCE_CRASH.equals(source);
+            case TAB_OP: return SOURCE_OP.equals(source);
+            default: return false;
+        }
+    }
+
+    // ==================== 过滤与展示 ====================
+
+    private boolean matchesFilter(LogItem item) {
+        if (!"ALL".equals(currentLevelFilter) && !currentLevelFilter.equals(item.level)) {
+            return false;
+        }
+        if (!currentSearchQuery.isEmpty()) {
+            String tag = item.tag == null ? "" : item.tag.toLowerCase(Locale.getDefault());
+            String msg = item.message == null ? "" : item.message.toLowerCase(Locale.getDefault());
+            String detail = item.detail == null ? "" : item.detail.toLowerCase(Locale.getDefault());
+            String query = currentSearchQuery.toLowerCase(Locale.getDefault());
+            if (!tag.contains(query) && !msg.contains(query) && !detail.contains(query)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void applyFilter() {
+        synchronized (listLock) {
+            filteredItems.clear();
+            for (LogItem item : allItems) {
+                if (matchesFilter(item)) {
+                    filteredItems.add(item);
+                }
+            }
+        }
+        updateList();
+    }
+
+    private void updateList() {
+        List<LogItem> visible = new ArrayList<>();
+        synchronized (listLock) {
+            int end = Math.min(visibleCount, filteredItems.size());
+            visible.addAll(filteredItems.subList(0, end));
+        }
+        logAdapter.setItems(visible);
+        updateCountText();
+    }
+
+    private void updateCountText() {
+        if (tvLogCount == null) return;
+        int total;
+        synchronized (listLock) {
+            total = filteredItems.size();
+        }
+        int shown = Math.min(visibleCount, total);
+        tvLogCount.setText("显示 " + shown + " / 共 " + total + " 条");
+        if (btnLoadMore != null) {
+            btnLoadMore.setEnabled(total > visibleCount);
+        }
+    }
+
+    // ==================== 操作：清空/复制/导出/分享 ====================
+
+    private void confirmClearLogs() {
+        new AlertDialog.Builder(this)
+                .setTitle("清空日志")
+                .setMessage("确定要清空当前选项卡（" + currentTabName() + "）的日志吗？此操作不可撤销。")
+                .setPositiveButton("清空", (dialog, which) -> clearLogs())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String currentTabName() {
+        switch (currentTab) {
+            case TAB_APP: return "应用日志";
+            case TAB_AI: return "AI服务日志";
+            case TAB_CRASH: return "崩溃日志";
+            case TAB_OP: return "操作记录";
+            default: return "全部日志";
+        }
+    }
+
+    private void clearLogs() {
+        showToast("正在清空日志...");
+        new Thread(() -> {
+            boolean ok = false;
+            try {
+                switch (currentTab) {
+                    case TAB_ALL:
+                        AppLogger.clearAppLogs();
+                        AppLogger.clearCrashLogs();
+                        AILogger.clearLogs();
+                        AppDatabase.getDatabase(this).logEntryDao().deleteAll();
+                        ok = true;
+                        break;
+                    case TAB_APP:
+                        ok = AppLogger.clearAppLogs();
+                        break;
+                    case TAB_AI:
+                        ok = AILogger.clearLogs();
+                        break;
+                    case TAB_CRASH:
+                        ok = AppLogger.clearCrashLogs();
+                        break;
+                    case TAB_OP:
+                        AppDatabase.getDatabase(this).logEntryDao().deleteAll();
+                        ok = true;
+                        break;
+                }
+            } catch (Exception e) {
+                ok = false;
+            }
+            final boolean finalOk = ok;
+            runOnUiThread(() -> {
+                if (destroyed) return;
+                showToast(finalOk ? currentTabName() + "已清空" : "清空" + currentTabName() + "失败");
+                loadData();
+            });
+        }).start();
+    }
+
+    private void copyLogs() {
+        List<LogItem> items = snapshotFiltered();
+        if (items.isEmpty()) {
+            showToast("没有可复制的日志");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                StringBuilder sb = new StringBuilder();
+                for (LogItem item : items) {
+                    sb.append(formatItem(item)).append("\n");
+                }
+                final String text = sb.toString();
+                runOnUiThread(() -> {
+                    android.content.ClipboardManager clipboard =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("日志", text);
+                    clipboard.setPrimaryClip(clip);
+                    showToast("日志已复制到剪贴板");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("复制日志失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private void exportLogs() {
+        List<LogItem> items = snapshotFiltered();
+        if (items.isEmpty()) {
+            showToast("没有可导出的日志");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File exportDir = new File(getExternalFilesDir(null), "exported_logs");
+                if (!exportDir.exists() && !exportDir.mkdirs()) {
+                    throw new java.io.IOException("创建导出目录失败");
+                }
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
+                File exportFile = new File(exportDir, "logs_" + sdf.format(new Date()) + ".txt");
+                StringBuilder sb = new StringBuilder();
+                for (LogItem item : items) {
+                    sb.append(formatItem(item)).append("\n");
+                }
+                try (FileWriter writer = new FileWriter(exportFile)) {
+                    writer.write(sb.toString());
+                }
+                runOnUiThread(() -> showToast("日志已导出到: " + exportFile.getAbsolutePath()));
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("导出日志失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private void shareLogs() {
+        List<LogItem> items = snapshotFiltered();
+        if (items.isEmpty()) {
+            showToast("没有可分享的日志");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File exportDir = new File(getExternalFilesDir(null), "exported_logs");
+                if (!exportDir.exists() && !exportDir.mkdirs()) {
+                    throw new java.io.IOException("创建导出目录失败");
+                }
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
+                File exportFile = new File(exportDir, "logs_" + sdf.format(new Date()) + ".txt");
+                StringBuilder sb = new StringBuilder();
+                for (LogItem item : items) {
+                    sb.append(formatItem(item)).append("\n");
+                }
+                try (FileWriter writer = new FileWriter(exportFile)) {
+                    writer.write(sb.toString());
+                }
+                runOnUiThread(() -> {
+                    android.net.Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
+                            LogsActivity.this, getPackageName() + ".fileprovider", exportFile);
+                    android.content.Intent shareIntent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                    shareIntent.setType("text/plain");
+                    shareIntent.putExtra(android.content.Intent.EXTRA_STREAM, fileUri);
+                    shareIntent.putExtra(android.content.Intent.EXTRA_SUBJECT, "应用日志");
+                    shareIntent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(android.content.Intent.createChooser(shareIntent, "分享日志"));
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("分享日志失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private List<LogItem> snapshotFiltered() {
+        synchronized (listLock) {
+            return new ArrayList<>(filteredItems);
+        }
+    }
+
+    private String formatItem(LogItem item) {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+        return sdf.format(new Date(item.timestamp)) + " | " + item.level + " | [" + item.source + "] "
+                + (item.tag == null ? "" : item.tag) + " | " + (item.message == null ? "" : item.message);
+    }
+
+    // ==================== 工具方法 ====================
+
+    private static String normalizeLevel(String level) {
+        if (level == null) return "I";
+        String l = level.trim().toUpperCase(Locale.getDefault());
+        if (l.startsWith("V")) return "V";
+        if (l.startsWith("D")) return "D";
+        if (l.startsWith("W")) return "W";
+        if (l.startsWith("E") || l.startsWith("C") || l.startsWith("F")) return "E";
+        return "I";
+    }
+
+    private static long parseTimestamp(String timestampStr) {
+        if (timestampStr == null || timestampStr.isEmpty()) {
+            return System.currentTimeMillis();
+        }
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+            Date date = sdf.parse(timestampStr);
+            return date != null ? date.getTime() : System.currentTimeMillis();
+        } catch (ParseException e) {
+            return System.currentTimeMillis();
+        }
+    }
+
+    // ==================== 菜单 ====================
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -227,9 +648,8 @@ public class LogsActivity extends BaseActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
-        
         if (id == R.id.action_clear_logs) {
-            clearLogs();
+            confirmClearLogs();
             return true;
         } else if (id == R.id.action_copy_logs) {
             copyLogs();
@@ -241,838 +661,150 @@ public class LogsActivity extends BaseActivity {
             shareLogs();
             return true;
         }
-        
         return super.onOptionsItemSelected(item);
     }
-    
-    // 加载日志数据
-    private void loadLogData() {
-        try {
-            // 显示加载中提示
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(LogsActivity.this, "正在加载日志...", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            // 检查AppLogger是否初始化
-            checkAppLoggerInitialized();
-            
-            // 在后台线程中加载日志
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        // 限制日志加载时间，避免长时间阻塞
-                        long startTime = System.currentTimeMillis();
-                        
-                        // 创建一个新的列表，避免并发访问问题
-                        List<LogEntry> newLogs = new ArrayList<>();
-                        
-                        // 根据当前日志类型加载不同的日志
-                        if (LOG_TYPE_AI.equals(currentLogType)) {
-                            loadAILogsToList(newLogs);
-                        } else if (LOG_TYPE_CRASH.equals(currentLogType)) {
-                            loadCrashLogsToList(newLogs);
-                        } else if (LOG_TYPE_AI_LOGGER.equals(currentLogType)) {
-                            loadAILoggerLogsToList(newLogs);
-                        }
-                        
-                        // 过滤掉null日志条目
-                        final List<LogEntry> validLogs = new ArrayList<>();
-                        for (LogEntry entry : newLogs) {
-                            if (entry != null) {
-                                validLogs.add(entry);
-                            }
-                        }
-                        
-                        // 限制日志条目数量，避免内存溢出
-                        final int MAX_LOG_ENTRIES = 1000;
-                        if (validLogs.size() > MAX_LOG_ENTRIES) {
-                            // 创建新的列表来存储截断后的日志
-                            final List<LogEntry> truncatedLogs = new ArrayList<>(validLogs.subList(0, MAX_LOG_ENTRIES));
-                            // 清空原列表并添加截断后的日志
-                            validLogs.clear();
-                            validLogs.addAll(truncatedLogs);
-                        }
-                        
-                        // 按时间戳降序排序，新日志优先显示
-                        validLogs.sort((log1, log2) -> {
-                            try {
-                                if (log1 == null || log2 == null) {
-                                    return 0;
-                                }
-                                return Long.compare(log2.getTimestamp(), log1.getTimestamp());
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                return 0;
-                            }
-                        });
-                        
-                        // 限制处理时间，避免ANR
-                        if (System.currentTimeMillis() - startTime > 10000) {
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Toast.makeText(LogsActivity.this, "日志加载超时，部分日志可能未显示", Toast.LENGTH_SHORT).show();
-                                }
-                            });
-                        }
-                        
-                        // 在主线程中更新UI
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    // 更新allLogs的引用
-                                    allLogs.clear();
-                                    allLogs.addAll(validLogs);
-                                    
-                                    // 更新分页信息
-                                    totalLogs = validLogs.size();
-                                    totalPages = (totalLogs + PAGE_SIZE - 1) / PAGE_SIZE;
-                                    if (totalPages < 1) totalPages = 1;
-                                    currentPage = 1;
-                                    
-                                    // 更新UI
-                                    updatePagination();
-                                    updateLogList();
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                    Toast.makeText(LogsActivity.this, "更新UI失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        });
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "加载日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    }
-                }
-            }).start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "加载日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-    
-    // 加载AI Logger日志到指定列表
-    private void loadAILoggerLogsToList(List<LogEntry> targetList) {
-        if (targetList == null) {
-            return;
-        }
-        
-        try {
-            // 确保AILogger已初始化
-            if (com.oilquiz.app.util.AILogger.getLogFilePath().equals("Log file not initialized")) {
-                com.oilquiz.app.util.AILogger.init(this);
-            }
-            
-            List<com.oilquiz.app.util.AILogger.LogEntry> aiLoggerEntries = com.oilquiz.app.util.AILogger.getAllLogs();
-            
-            if (aiLoggerEntries != null && !aiLoggerEntries.isEmpty()) {
-                for (com.oilquiz.app.util.AILogger.LogEntry aiEntry : aiLoggerEntries) {
-                    LogEntry entry = new LogEntry();
-                    
-                    // 解析时间戳
-                    try {
-                        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                        java.util.Date date = sdf.parse(aiEntry.timestamp);
-                        entry.setTimestamp(date != null ? date.getTime() : System.currentTimeMillis());
-                    } catch (Exception e) {
-                        entry.setTimestamp(System.currentTimeMillis());
-                    }
-                    
-                    // 设置日志级别
-                    String level = aiEntry.level;
-                    if ("INFO".equals(level)) {
-                        entry.setLevel("I");
-                    } else if ("WARN".equals(level)) {
-                        entry.setLevel("W");
-                    } else if ("ERROR".equals(level)) {
-                        entry.setLevel("E");
-                    } else {
-                        entry.setLevel("I");
-                    }
-                    
-                    // 设置标签和详情
-                    entry.setAction(aiEntry.tag);
-                    entry.setDetail(aiEntry.message);
-                    
-                    targetList.add(entry);
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            // 添加错误信息条目
-            LogEntry errorEntry = new LogEntry();
-            errorEntry.setTimestamp(System.currentTimeMillis());
-            errorEntry.setLevel("E");
-            errorEntry.setAction("LogsActivity");
-            errorEntry.setDetail("加载AILogger日志失败: " + e.getMessage());
-            targetList.add(errorEntry);
-        }
-    }
-    
-    // 加载AI日志到指定列表
-    private void loadAILogsToList(List<LogEntry> targetList) {
-        if (targetList == null) {
-            return;
-        }
-        
-        String aiLogs = com.oilquiz.app.infra.AppLogger.getAILogs();
-        if (aiLogs == null || aiLogs.isEmpty()) {
-            return;
-        }
-        
-        // 检查是否是特殊信息（如日志文件不存在等）
-        if (aiLogs.startsWith("[")) {
-            // 创建一个特殊的日志条目来显示这些信息
-            LogEntry entry = new LogEntry();
-            entry.setTimestamp(System.currentTimeMillis());
-            entry.setLevel("I");
-            entry.setAction("AILogger");
-            entry.setDetail(aiLogs);
-            targetList.add(entry);
-            return;
-        }
-        
-        String[] lines = aiLogs.split("\n");
-        
-        for (String line : lines) {
-            if (line == null || line.trim().isEmpty()) continue;
-            
-            // 检查是否是特殊信息行
-            if (line.startsWith("[")) {
-                // 创建一个特殊的日志条目来显示这些信息
-                LogEntry entry = new LogEntry();
-                entry.setTimestamp(System.currentTimeMillis());
-                entry.setLevel("I");
-                entry.setAction("AILogger");
-                entry.setDetail(line);
-                targetList.add(entry);
-                continue;
-            }
-            
-            // 解析标准日志格式：2026-04-07 11:47:17.835 | I | AppLogger            | [AI] 消息内容
-            try {
-                String[] parts = line.split(Pattern.quote(" | "));
-                if (parts.length >= 4) {
-                    String timestampStr = parts[0].trim();
-                    String level = parts[1].trim();
-                    String action = parts[2].trim();
-                    String detail = parts[3].trim();
-                    
-                    // 移除AI标签
-                    if (detail.startsWith("[AI] ")) {
-                        detail = detail.substring(5);
-                    }
-                    
-                    // 解析时间戳
-                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                    Date date = sdf.parse(timestampStr);
-                    long timestamp = date != null ? date.getTime() : System.currentTimeMillis();
-                    
-                    LogEntry entry = new LogEntry();
-                    entry.setTimestamp(timestamp);
-                    entry.setLevel(level);
-                    entry.setAction(action);
-                    entry.setDetail(detail);
-                    
-                    targetList.add(entry);
-                } else {
-                    // 对于格式不正确的日志行，跳过处理
-                    LogEntry entry = new LogEntry();
-                    entry.setTimestamp(System.currentTimeMillis());
-                    entry.setLevel("I");
-                    entry.setAction("AILogger");
-                    entry.setDetail(line);
-                    targetList.add(entry);
-                }
-            } catch (Exception e) {
-                // 解析失败时跳过
-            }
-        }
-    }
-    
-    // 加载崩溃日志到指定列表
-    private void loadCrashLogsToList(List<LogEntry> targetList) {
-        if (targetList == null) {
-            return;
-        }
-        
-        String crashLogs = com.oilquiz.app.infra.AppLogger.getCrashLogs();
-        if (crashLogs == null || crashLogs.isEmpty()) {
-            return;
-        }
-        
-        // 检查是否是特殊信息（如日志文件不存在等）
-        if (crashLogs.startsWith("[")) {
-            // 创建一个特殊的日志条目来显示这些信息
-            LogEntry entry = new LogEntry();
-            entry.setTimestamp(System.currentTimeMillis());
-            entry.setLevel("I");
-            entry.setAction("AppLogger");
-            entry.setDetail(crashLogs);
-            targetList.add(entry);
-            return;
-        }
-        
-        String[] lines = crashLogs.split("\n");
-        
-        // 处理崩溃报告格式
-        boolean inCrashReport = false;
-        StringBuilder crashReportBuilder = new StringBuilder();
-        
-        for (String line : lines) {
-            if (line == null || line.trim().isEmpty()) continue;
-            
-            // 检查是否是特殊信息行
-            if (line.startsWith("[")) {
-                // 创建一个特殊的日志条目来显示这些信息
-                LogEntry entry = new LogEntry();
-                entry.setTimestamp(System.currentTimeMillis());
-                entry.setLevel("I");
-                entry.setAction("AppLogger");
-                entry.setDetail(line);
-                targetList.add(entry);
-                continue;
-            }
-            
-            // 检查是否是崩溃报告的开始
-            if (line.contains("══════════════════════════════════════════") && !inCrashReport) {
-                inCrashReport = true;
-                crashReportBuilder = new StringBuilder();
-                crashReportBuilder.append(line).append("\n");
-                continue;
-            }
-            
-            // 检查是否是崩溃报告的结束
-            if (inCrashReport && line.contains("══════════════════════════════════════════")) {
-                crashReportBuilder.append(line).append("\n");
-                
-                // 创建崩溃报告日志条目
-                LogEntry entry = new LogEntry();
-                entry.setTimestamp(System.currentTimeMillis());
-                entry.setLevel("E");
-                entry.setAction("崩溃报告");
-                entry.setDetail(crashReportBuilder.toString());
-                targetList.add(entry);
-                
-                inCrashReport = false;
-                continue;
-            }
-            
-            // 如果在崩溃报告中，继续收集内容
-            if (inCrashReport) {
-                crashReportBuilder.append(line).append("\n");
-                continue;
-            }
-            
-            // 解析标准日志格式：2026-04-07 11:47:17.835 | I | AppLogger            | 所有日志已清空
-            try {
-                String[] parts = line.split(Pattern.quote(" | "));
-                if (parts.length >= 4) {
-                    String timestampStr = parts[0].trim();
-                    String level = parts[1].trim();
-                    String action = parts[2].trim();
-                    String detail = parts[3].trim();
-                    
-                    // 解析时间戳
-                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                    Date date = sdf.parse(timestampStr);
-                    long timestamp = date != null ? date.getTime() : System.currentTimeMillis();
-                    
-                    LogEntry entry = new LogEntry();
-                    entry.setTimestamp(timestamp);
-                    entry.setLevel(level);
-                    entry.setAction(action);
-                    entry.setDetail(detail);
-                    
-                    targetList.add(entry);
-                } else {
-                    // 对于格式不正确的日志行，跳过处理，避免生成过多的警告
-                    // 只处理有意义的崩溃相关内容
-                    if (line.contains("崩溃") || line.contains("Crash") || line.contains("Exception") || line.contains("Error")) {
-                        LogEntry entry = new LogEntry();
-                        entry.setTimestamp(System.currentTimeMillis());
-                        entry.setLevel("E");
-                        entry.setAction("崩溃信息");
-                        entry.setDetail(line);
-                        targetList.add(entry);
-                    }
-                }
-            } catch (Exception e) {
-                // 解析失败时跳过，避免生成过多的错误信息
-            }
-        }
-    }
-    
-    /**
-     * 检查AppLogger是否初始化，如果未初始化则尝试初始化
-     */
-    private void checkAppLoggerInitialized() {
-        try {
-            // 检查AppLogger是否已初始化
-            if (!com.oilquiz.app.infra.AppLogger.isInitialized()) {
-                // 如果未初始化，尝试初始化
-                com.oilquiz.app.infra.AppLogger.init(this);
-                com.oilquiz.app.infra.AppLogger.i("AppLogger", "日志系统重新初始化成功");
-            }
-        } catch (Exception e) {
-            com.oilquiz.app.infra.AppLogger.e("AppLogger", "日志系统初始化失败: " + e.getMessage());
-        }
-    }
-    
-    // 更新分页信息
-    private void updatePagination() {
-        if (llPagination != null && tvPageInfo != null) {
-            if (totalPages > 1) {
-                llPagination.setVisibility(View.VISIBLE);
-                tvPageInfo.setText("第 " + currentPage + " 页，共 " + totalPages + " 页");
-                
-                if (btnPrevPage != null) {
-                    btnPrevPage.setEnabled(currentPage > 1);
-                }
-                if (btnNextPage != null) {
-                    btnNextPage.setEnabled(currentPage < totalPages);
-                }
-            } else {
-                llPagination.setVisibility(View.GONE);
-            }
-        }
-    }
-    
-    // 更新日志列表
-    private void updateLogList() {
-        try {
-            // 计算当前页的日志
-            int startIndex = (currentPage - 1) * PAGE_SIZE;
-            int endIndex = Math.min(startIndex + PAGE_SIZE, allLogs.size());
-            List<LogEntry> pageLogs = new ArrayList<>();
-            
-            for (int i = startIndex; i < endIndex; i++) {
-                if (i < allLogs.size()) {
-                    LogEntry entry = allLogs.get(i);
-                    if (entry != null) {
-                        pageLogs.add(entry);
-                    }
-                }
-            }
-            
-            if (logAdapter != null) {
-                logAdapter.setLogs(pageLogs);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "更新日志列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-    
 
-    
-    // 清空日志
-    private void clearLogs() {
-        try {
-            // 显示操作中提示
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(LogsActivity.this, "正在清空日志...", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    boolean logCleared = false;
-                    String logTypeName = "";
-                    
-                    if (LOG_TYPE_AI.equals(currentLogType)) {
-                        logCleared = com.oilquiz.app.infra.AppLogger.clearAILogs();
-                        logTypeName = "AI日志";
-                    } else if (LOG_TYPE_CRASH.equals(currentLogType)) {
-                        logCleared = com.oilquiz.app.infra.AppLogger.clearCrashLogs();
-                        logTypeName = "崩溃日志";
-                    } else if (LOG_TYPE_AI_LOGGER.equals(currentLogType)) {
-                        logCleared = com.oilquiz.app.util.AILogger.clearLogs();
-                        logTypeName = "AI服务日志";
-                    }
-                    
-                    final boolean finalLogCleared = logCleared;
-                    final String finalLogTypeName = logTypeName;
-                    
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                if (finalLogCleared) {
-                                    loadLogData();
-                                    Toast.makeText(LogsActivity.this, finalLogTypeName + "已清空", Toast.LENGTH_SHORT).show();
-                                } else {
-                                    Toast.makeText(LogsActivity.this, "清空" + finalLogTypeName + "失败", Toast.LENGTH_SHORT).show();
-                                }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                Toast.makeText(LogsActivity.this, "清空日志时出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        }
-                    });
-                }
-            }).start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "清空日志时出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        AppLogger.removeLogListener(appLogListener);
+        AILogger.removeLogListener(aiLogListener);
+        super.onDestroy();
     }
 
-    // 复制日志
-    private void copyLogs() {
-        if (allLogs.isEmpty()) {
-            Toast.makeText(this, "没有可复制的日志", Toast.LENGTH_SHORT).show();
-            return;
-        }
+    // ==================== 数据模型与适配器 ====================
 
-        try {
-            // 显示操作中提示
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(LogsActivity.this, "正在复制日志...", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        StringBuilder logs = new StringBuilder();
-                        for (LogEntry entry : allLogs) {
-                            if (entry != null) {
-                                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                                String timestampStr = sdf.format(new Date(entry.getTimestamp()));
-                                logs.append(timestampStr).append(" | ").append(entry.getLevel()).append(" | ")
-                                    .append(entry.getAction()).append(" | ").append(entry.getDetail()).append("\n");
-                            }
-                        }
+    private static class LogItem {
+        final long timestamp;
+        final String level;
+        final String tag;
+        final String message; // 列表展示：单行摘要
+        final String detail;  // 详情弹窗：完整多行内容
+        final String source;
 
-                        // 复制到剪贴板
-                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        android.content.ClipData clip = android.content.ClipData.newPlainText("日志", logs.toString());
-                        clipboard.setPrimaryClip(clip);
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "复制日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    }
-                }
-            }).start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "复制日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // 导出日志到文件
-    private void exportLogs() {
-        if (allLogs.isEmpty()) {
-            Toast.makeText(this, "没有可导出的日志", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        try {
-            // 显示操作中提示
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(LogsActivity.this, "正在导出日志...", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        // 创建导出目录
-                        File exportDir = new File(getExternalFilesDir(null), "exported_logs");
-                        if (!exportDir.exists()) {
-                            exportDir.mkdirs();
-                        }
-
-                        // 创建合并的日志文件
-                        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
-                        String timestamp = sdf.format(new Date());
-                        File exportFile = new File(exportDir, "logs_" + timestamp + ".txt");
-
-                        StringBuilder logs = new StringBuilder();
-                        for (LogEntry entry : allLogs) {
-                            if (entry != null) {
-                                SimpleDateFormat timestampFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                                String timestampStr = timestampFormat.format(new Date(entry.getTimestamp()));
-                                logs.append(timestampStr).append(" | ").append(entry.getLevel()).append(" | ")
-                                    .append(entry.getAction()).append(" | ").append(entry.getDetail()).append("\n");
-                            }
-                        }
-
-                        java.io.FileWriter writer = new java.io.FileWriter(exportFile);
-                        writer.write(logs.toString());
-                        writer.close();
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "日志已导出到: " + exportFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
-                            }
-                        });
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "导出日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    }
-                }
-            }).start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "导出日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // 分享日志
-    private void shareLogs() {
-        if (allLogs.isEmpty()) {
-            Toast.makeText(this, "没有可分享的日志", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        try {
-            // 显示操作中提示
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(LogsActivity.this, "正在准备分享...", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        // 创建导出文件
-                        File exportDir = new File(getExternalFilesDir(null), "exported_logs");
-                        if (!exportDir.exists()) {
-                            exportDir.mkdirs();
-                        }
-
-                        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
-                        String timestamp = sdf.format(new Date());
-                        File exportFile = new File(exportDir, "logs_" + timestamp + ".txt");
-
-                        StringBuilder logs = new StringBuilder();
-                        for (LogEntry entry : allLogs) {
-                            if (entry != null) {
-                                SimpleDateFormat timestampFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                                String timestampStr = timestampFormat.format(new Date(entry.getTimestamp()));
-                                logs.append(timestampStr).append(" | ").append(entry.getLevel()).append(" | ")
-                                    .append(entry.getAction()).append(" | ").append(entry.getDetail()).append("\n");
-                            }
-                        }
-
-                        java.io.FileWriter writer = new java.io.FileWriter(exportFile);
-                        writer.write(logs.toString());
-                        writer.close();
-
-                        // 分享文件
-                        android.net.Uri fileUri = androidx.core.content.FileProvider.getUriForFile(LogsActivity.this, 
-                                getPackageName() + ".fileprovider", exportFile);
-
-                        android.content.Intent shareIntent = new android.content.Intent(android.content.Intent.ACTION_SEND);
-                        shareIntent.setType("text/plain");
-                        shareIntent.putExtra(android.content.Intent.EXTRA_STREAM, fileUri);
-                        shareIntent.putExtra(android.content.Intent.EXTRA_SUBJECT, "应用日志");
-                        shareIntent.putExtra(android.content.Intent.EXTRA_TEXT, "请查看附件中的应用日志");
-                        shareIntent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                android.content.Intent chooser = android.content.Intent.createChooser(shareIntent, "分享日志");
-                                startActivity(chooser);
-                            }
-                        });
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Toast.makeText(LogsActivity.this, "分享日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        });
-                    }
-                }
-            }).start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "分享日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-    
-    // 日志条目类
-    private class LogEntry {
-        private long timestamp;
-        private String level;
-        private String action;
-        private String detail;
-        
-        public long getTimestamp() {
-            return timestamp;
-        }
-        
-        public void setTimestamp(long timestamp) {
+        LogItem(long timestamp, String level, String tag, String message, String detail, String source) {
             this.timestamp = timestamp;
-        }
-        
-        public String getLevel() {
-            return level;
-        }
-        
-        public void setLevel(String level) {
             this.level = level;
-        }
-        
-        public String getAction() {
-            return action;
-        }
-        
-        public void setAction(String action) {
-            this.action = action;
-        }
-        
-        public String getDetail() {
-            return detail;
-        }
-        
-        public void setDetail(String detail) {
+            this.tag = tag;
+            this.message = message;
             this.detail = detail;
+            this.source = source;
         }
     }
-    
-    // 日志适配器
+
     private class LogAdapter extends RecyclerView.Adapter<LogAdapter.LogViewHolder> {
-        private List<LogEntry> logs = new ArrayList<>();
-        
-        public void setLogs(List<LogEntry> logs) {
-            this.logs = logs;
+        private List<LogItem> items = new ArrayList<>();
+
+        void setItems(List<LogItem> items) {
+            this.items = items;
             notifyDataSetChanged();
         }
-        
+
         @Override
         public LogViewHolder onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
             View view = getLayoutInflater().inflate(R.layout.item_log_entry, parent, false);
             return new LogViewHolder(view);
         }
-        
+
         @Override
         public void onBindViewHolder(LogViewHolder holder, int position) {
             try {
-                LogEntry entry = logs.get(position);
-                if (entry == null) return;
-                
-                // 格式化时间戳
+                LogItem item = items.get(position);
+                if (item == null) return;
+
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-                long timestamp = entry.getTimestamp();
-                String timestampStr = sdf.format(new Date(timestamp));
-                if (holder.tvTimestamp != null) {
-                    holder.tvTimestamp.setText(timestampStr);
-                }
-                
-                // 设置级别
-                String levelText = entry.getLevel();
-                if (holder.tvLevel != null) {
-                    holder.tvLevel.setText(levelText != null ? levelText : "");
-                    
-                    // 设置级别颜色
-                    if (levelText != null) {
-                        if (levelText.equals("E")) {
-                            try {
-                                holder.tvLevel.setTextColor(getResources().getColor(R.color.error_color, null));
-                                holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_error);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        } else if (levelText.equals("W")) {
-                            try {
-                                holder.tvLevel.setTextColor(getResources().getColor(R.color.warning_color, null));
-                                holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_warning);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        } else {
-                            try {
-                                holder.tvLevel.setTextColor(getResources().getColor(R.color.primary_color, null));
-                                holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
+                holder.tvTimestamp.setText(sdf.format(new Date(item.timestamp)));
+
+                // 来源标签
+                holder.tvSource.setText(item.source);
+                try {
+                    if (SOURCE_CRASH.equals(item.source)) {
+                        holder.tvSource.setTextColor(getResources().getColor(R.color.error_color, null));
+                    } else if (SOURCE_AI.equals(item.source)) {
+                        holder.tvSource.setTextColor(getResources().getColor(R.color.ai_color, null));
+                    } else {
+                        holder.tvSource.setTextColor(getResources().getColor(R.color.text_secondary, null));
                     }
+                } catch (Exception ignored) {
                 }
-                
-                // 设置操作和详情
-                if (holder.tvAction != null) {
-                    String action = entry.getAction();
-                    holder.tvAction.setText(action != null ? action : "");
-                }
-                if (holder.tvDetail != null) {
-                    String detail = entry.getDetail();
-                    // 限制详情长度，避免UI崩溃
-                    if (detail != null && detail.length() > 1000) {
-                        detail = detail.substring(0, 1000) + "... [内容过长，已截断]";
+
+                // 级别标签
+                holder.tvLevel.setText(item.level);
+                try {
+                    if ("E".equals(item.level)) {
+                        holder.tvLevel.setTextColor(getResources().getColor(R.color.error_color, null));
+                        holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_error);
+                    } else if ("W".equals(item.level)) {
+                        holder.tvLevel.setTextColor(getResources().getColor(R.color.warning_color, null));
+                        holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_warning);
+                    } else {
+                        holder.tvLevel.setTextColor(getResources().getColor(R.color.primary_color, null));
+                        holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag);
                     }
-                    holder.tvDetail.setText(detail != null ? detail : "");
+                } catch (Exception ignored) {
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
+
+                holder.tvAction.setText(item.tag != null ? item.tag : "");
+                String detail = item.message != null ? item.message : "";
+                holder.tvDetail.setText(detail);
+
+                // 点击查看完整详情
+                holder.itemView.setOnClickListener(v -> showDetailDialog(item));
+            } catch (Exception ignored) {
             }
         }
-        
+
         @Override
         public int getItemCount() {
-            return logs.size();
+            return items.size();
         }
-        
+
         class LogViewHolder extends RecyclerView.ViewHolder {
             TextView tvTimestamp;
+            TextView tvSource;
             TextView tvLevel;
             TextView tvAction;
             TextView tvDetail;
-            
-            public LogViewHolder(View itemView) {
+
+            LogViewHolder(View itemView) {
                 super(itemView);
                 tvTimestamp = itemView.findViewById(R.id.tv_log_timestamp);
+                tvSource = itemView.findViewById(R.id.tv_log_source);
                 tvLevel = itemView.findViewById(R.id.tv_log_level);
                 tvAction = itemView.findViewById(R.id.tv_log_action);
                 tvDetail = itemView.findViewById(R.id.tv_log_detail);
             }
         }
+    }
+
+    /**
+     * 展示单条日志的完整多行详情
+     */
+    private void showDetailDialog(LogItem item) {
+        if (item == null) return;
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+        String header = sdf.format(new Date(item.timestamp)) + "  [" + item.source + "]  " + item.level + "  "
+                + (item.tag == null ? "" : item.tag);
+
+        ScrollView scrollView = new ScrollView(this);
+        TextView textView = new TextView(this);
+        textView.setTypeface(Typeface.MONOSPACE);
+        textView.setTextIsSelectable(true);
+        textView.setTextSize(12);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        textView.setPadding(padding, padding, padding, padding);
+        String body = (item.detail != null && !item.detail.isEmpty()) ? item.detail
+                : (item.message != null ? item.message : "");
+        scrollView.addView(textView, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
+        textView.setText(header + "\n\n" + body);
+
+        new AlertDialog.Builder(this)
+                .setTitle("日志详情")
+                .setView(scrollView)
+                .setPositiveButton("关闭", null)
+                .show();
     }
 }
