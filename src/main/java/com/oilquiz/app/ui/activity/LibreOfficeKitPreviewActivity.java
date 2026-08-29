@@ -406,8 +406,16 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         computeRenderSize();
         isRenderingPage = true;
         renderingIndex = index;
+        final boolean sheet = isSheetMode;
         new Thread(() -> {
-            Bitmap bmp = loKitManager.renderPage(index, renderWidth, renderHeight);
+            Bitmap bmp;
+            if (sheet) {
+                // 工作表：按整表真实纵横比渲染（不压缩），并受高度/像素上限约束
+                int screenW = getResources().getDisplayMetrics().widthPixels;
+                bmp = loKitManager.renderPartBounded(index, screenW * 2, screenW * 8, 26_000_000L);
+            } else {
+                bmp = loKitManager.renderPage(index, renderWidth, renderHeight);
+            }
             runOnUiThread(() -> {
                 isRenderingPage = false;
                 if (isFinishing() || isDestroyed()) {
