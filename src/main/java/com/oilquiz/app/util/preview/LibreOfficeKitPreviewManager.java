@@ -257,6 +257,190 @@ public class LibreOfficeKitPreviewManager {
     }
     
     /**
+     * 获取文档类型（DOCTYPE_TEXT=0, DOCTYPE_SPREADSHEET=1, DOCTYPE_PRESENTATION=2, DOCTYPE_DRAWING=3, DOCTYPE_OTHER=4）
+     * @return 文档类型常量，失败返回 -1
+     */
+    public int getDocumentType() {
+        if (!isInitialized || document == null) {
+            return -1;
+        }
+        try {
+            Method m = documentClass.getMethod("getDocumentType");
+            return (Integer) m.invoke(document);
+        } catch (Exception e) {
+            AppLogger.e(TAG, "获取文档类型错误: " + e.getMessage(), e);
+            return -1;
+        }
+    }
+
+    /**
+     * 获取指定 part 的名字（工作表名/幻灯片名/页面名）
+     * @param index part 索引（从 0 开始）
+     * @return part 名，失败返回 null
+     */
+    public String getPartName(int index) {
+        if (!isInitialized || document == null) {
+            return null;
+        }
+        try {
+            Method m = documentClass.getMethod("getPartName", int.class);
+            return (String) m.invoke(document, index);
+        } catch (Exception e) {
+            AppLogger.e(TAG, "获取 part 名错误: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** 获取当前文档宽度（文档单位）。 */
+    public int getDocumentWidth() {
+        if (!isInitialized || document == null) {
+            return 0;
+        }
+        try {
+            Method m = documentClass.getMethod("getDocumentWidth");
+            return ((Long) m.invoke(document)).intValue();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 获取当前文档高度（文档单位）。 */
+    public int getDocumentHeight() {
+        if (!isInitialized || document == null) {
+            return 0;
+        }
+        try {
+            Method m = documentClass.getMethod("getDocumentHeight");
+            return ((Long) m.invoke(document)).intValue();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * 渲染指定区域（用于连续文档的条带渲染）。
+     * @param width  目标位图宽度(px)
+     * @param height 目标位图高度(px)
+     * @param offsetX 文档坐标 X 偏移
+     * @param offsetY 文档坐标 Y 偏移
+     * @param tileWidth  文档坐标区域宽度
+     * @param tileHeight 文档坐标区域高度
+     * @return 渲染出的 Bitmap，失败返回 null
+     */
+    public Bitmap renderRegion(int width, int height, int offsetX, int offsetY, int tileWidth, int tileHeight) {
+        if (!isInitialized || document == null) {
+            AppLogger.e(TAG, "LibreOfficeKit 未初始化或文档未打开");
+            return null;
+        }
+        try {
+            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocateDirect(width * height * 4);
+            if (buffer == null) {
+                AppLogger.e(TAG, "创建缓冲区失败");
+                return null;
+            }
+            Method paintTileMethod = documentClass.getMethod("paintTile",
+                    java.nio.ByteBuffer.class, int.class, int.class, int.class, int.class, int.class, int.class);
+            paintTileMethod.invoke(document, buffer, width, height, offsetX, offsetY, tileWidth, tileHeight);
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap.copyPixelsFromBuffer(buffer);
+            return bitmap;
+        } catch (Exception e) {
+            AppLogger.e(TAG, "渲染区域错误: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 设置 part 模式（PPT：PART_MODE_SLIDE=0 幻灯片 / PART_MODE_NOTES=1 备注）。
+     */
+    public void setPartMode(int mode) {
+        if (!isInitialized || document == null) {
+            return;
+        }
+        try {
+            Method m = documentClass.getMethod("setPartMode", int.class);
+            m.invoke(document, mode);
+            AppLogger.i(TAG, "setPartMode: " + mode);
+        } catch (Exception e) {
+            AppLogger.w(TAG, "setPartMode 失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 设置客户端缩放（影响 LO 渲染尺度，用于清晰度）。
+     */
+    public void setClientZoom(int zoomX, int zoomY, int offsetX, int offsetY) {
+        if (!isInitialized || document == null) {
+            return;
+        }
+        try {
+            Method m = documentClass.getMethod("setClientZoom", int.class, int.class, int.class, int.class);
+            m.invoke(document, zoomX, zoomY, offsetX, offsetY);
+            AppLogger.i(TAG, "setClientZoom: " + zoomX + "x" + zoomY);
+        } catch (Exception e) {
+            AppLogger.w(TAG, "setClientZoom 失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取当前 part 内各页面矩形（返回原始字符串，供分页参考）。失败返回 null。
+     */
+    public String getPartPageRectangles() {
+        if (!isInitialized || document == null) {
+            return null;
+        }
+        try {
+            Method m = documentClass.getMethod("getPartPageRectangles");
+            return (String) m.invoke(document);
+        } catch (Exception e) {
+            AppLogger.w(TAG, "getPartPageRectangles 失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 尝试从页面矩形字符串解析页码数（JSON 数组计数），失败返回 0。 */
+    public int getPartPageCount() {
+        String s = getPartPageRectangles();
+        if (s == null || s.isEmpty()) {
+            return 0;
+        }
+        AppLogger.d(TAG, "getPartPageRectangles: " + s);
+        // LibreOfficeKit 返回 JSON 数组，如 [{"x":..,"y":..,"w":..,"h":..}, ...]
+        int count = 0;
+        int idx = s.indexOf('{');
+        while (idx >= 0) {
+            count++;
+            idx = s.indexOf('{', idx + 1);
+        }
+        return count;
+    }
+
+    /**
+     * 注册文档消息回调（用动态代理实现 Document.MessageCallback，记录 LO 消息，如失效/光标/进度）。
+     */
+    public void setMessageCallback() {
+        if (!isInitialized || document == null) {
+            return;
+        }
+        try {
+            Class<?> cbClass = Class.forName("org.libreoffice.kit.Document$MessageCallback");
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(
+                    cbClass.getClassLoader(), new Class<?>[]{cbClass},
+                    (p, method, args) -> {
+                        if ("message".equals(method.getName()) && args != null && args.length >= 2) {
+                            AppLogger.d(TAG, "LO消息: type=" + args[0] + " data=" + args[1]);
+                        }
+                        return null;
+                    });
+            Method m = documentClass.getMethod("setMessageCallback", cbClass);
+            m.invoke(document, proxy);
+            AppLogger.i(TAG, "文档消息回调已注册");
+        } catch (Exception e) {
+            AppLogger.w(TAG, "setMessageCallback 失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 关闭文档
      */
     public void closeDocument() {

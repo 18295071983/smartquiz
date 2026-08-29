@@ -4,7 +4,11 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -37,6 +41,10 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     private LibreOfficeKitPreviewManager loKitManager;
 
     private PhotoView ivPage;
+    private MaterialToolbar toolbar;
+    private ScrollView svContinuous;
+    private LinearLayout stripsContainer;
+    private TextView tvPartSelector;
     private MaterialButton btnPrev;
     private MaterialButton btnNext;
     private TextView tvPageInfo;
@@ -57,8 +65,19 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     private boolean isRenderingPage = false;
     private int renderingIndex = -1;
 
+    // 文档类型 / 模式
+    private static final int DOCTYPE_TEXT = 0;       // Writer(Word)
+    private static final int DOCTYPE_SPREADSHEET = 1; // Calc(Excel)
+    private static final int DOCTYPE_PRESENTATION = 2;// Impress(PPT)
+    private int docType = -1;
+    private boolean isContinuousMode = false; // Writer 连续滚动
+    private boolean isSheetMode = false;      // Calc 工作表
+    private String[] partNames;               // 工作表/页/幻灯片名
+    private int partCount = 0;
+
     private float fitScale = 1f; // 适配视口时的基准缩放
     private boolean rendered = false;
+    private boolean notesMode = false; // PPT 备注/幻灯片
 
     public static void start(android.content.Context context, String filePath) {
         Intent intent = new Intent(context, LibreOfficeKitPreviewActivity.class);
@@ -74,9 +93,13 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     @Override
     protected void initView() {
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
+        toolbar = findViewById(R.id.toolbar);
         setupToolbar("文档预览");
 
         ivPage = findViewById(R.id.iv_page);
+        svContinuous = findViewById(R.id.sv_continuous);
+        stripsContainer = findViewById(R.id.strips_container);
+        tvPartSelector = findViewById(R.id.tv_part_selector);
         btnPrev = findViewById(R.id.btn_prev);
         btnNext = findViewById(R.id.btn_next);
         tvPageInfo = findViewById(R.id.tv_page_info);
@@ -138,11 +161,16 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
                 }
             }
             if (loKitManager.openDocument(filePath)) {
-                totalPages = loKitManager.getPageCount();
-                AppLogger.d(TAG, "文档打开成功，总页数: " + totalPages);
+                docType = loKitManager.getDocumentType();
+                partCount = loKitManager.getPageCount();
+                totalPages = partCount;
+                AppLogger.d(TAG, "文档打开成功，类型=" + docType + "，part数=" + partCount);
+                // 用上 LibreOfficeKit 的缩放与状态回调：100% 缩放、注册消息回调（进度/失效/光标）
+                loKitManager.setClientZoom(100, 100, 0, 0);
+                loKitManager.setMessageCallback();
                 rendered = true;
-                // 懒渲染：先展示当前页(内部按需渲染 + 缓存邻居页)，不全量渲染整份文档
-                runOnUiThread(() -> showPage(0));
+                // 按文档类型进入对应模式（Word 连续滚动 / Excel 工作表 / PPT 分页）
+                runOnUiThread(this::setupDocMode);
             } else {
                 runOnUiThread(() -> {
                     AppLogger.e(TAG, "打开文档失败");
@@ -162,6 +190,173 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             initData();
         });
         btnOpenWith.setOnClickListener(v -> useAlternativePreview());
+    }
+
+    /** 按文档类型进入对应渲染模式：Word→连续滚动，Excel→工作表，PPT/其他→分页。 */
+    private void setupDocMode() {
+        if (toolbar != null && filePath != null) {
+            toolbar.setSubtitle(new File(filePath).getName());
+        }
+        if (docType == DOCTYPE_TEXT) {
+            // Writer(Word)：LibreOfficeKit 为连续文本视图，整份渲染成条带滚动，避免压缩
+            isContinuousMode = true;
+            isSheetMode = false;
+            btnPrev.setVisibility(View.GONE);
+            btnNext.setVisibility(View.GONE);
+            tvPageInfo.setVisibility(View.GONE);
+            tvPartSelector.setVisibility(View.GONE);
+            // 用 getPartPageRectangles 获取 Word 连续文档的页码数（供分页参考/诊断）
+            int pageCount = loKitManager.getPartPageCount();
+            AppLogger.i(TAG, "Word 文档通过 getPartPageRectangles 得到页码数: " + pageCount);
+            renderContinuous();
+        } else if (docType == DOCTYPE_SPREADSHEET) {
+            // Calc(Excel)：工作表导航
+            isSheetMode = true;
+            isContinuousMode = false;
+            setupSheetNav();
+        } else {
+            // Impress/Drawing：分页
+            isContinuousMode = false;
+            isSheetMode = false;
+            svContinuous.setVisibility(View.GONE);
+            ivPage.setVisibility(View.VISIBLE);
+            btnPrev.setVisibility(View.VISIBLE);
+            btnNext.setVisibility(View.VISIBLE);
+            tvPageInfo.setVisibility(View.VISIBLE);
+            showPage(0);
+        }
+    }
+
+    /** Word 连续滚动：后台渲染整份文档为等宽条带，放入 ScrollView 上下滚动。 */
+    private void renderContinuous() {
+        svContinuous.setVisibility(View.VISIBLE);
+        ivPage.setVisibility(View.GONE);
+        hidePageControls();
+        new Thread(() -> {
+            try {
+                int docW = loKitManager.getDocumentWidth();
+                int docH = loKitManager.getDocumentHeight();
+                int screenW = getResources().getDisplayMetrics().widthPixels;
+                int stripPx = Math.max(screenW, 900);       // 每条高度(px)
+                int renderW = Math.max(screenW, 900);       // 渲染宽度(px)，1x 足够阅读
+                float scale = (docW > 0) ? (float) renderW / docW : 1f;
+                long totalHpx = (long) (docH * scale);
+                if (totalHpx < 1) totalHpx = 1;
+                // 内存约束：总像素不超约 30M（≈120MB），超出则按比例降分辨率
+                long maxPixels = 30_000_000L;
+                if ((long) renderW * totalHpx > maxPixels) {
+                    float reduce = (float) maxPixels / ((long) renderW * totalHpx);
+                    renderW = Math.max((int) (renderW * reduce), 500);
+                    scale = (docW > 0) ? (float) renderW / docW : 1f;
+                    totalHpx = (long) (docH * scale);
+                    if (totalHpx < 1) totalHpx = 1;
+                }
+                float stripDocH = stripPx / scale;          // 每条对应的文档高度
+                int count = Math.max((int) Math.ceil(totalHpx / (float) stripPx), 1);
+                final int fw = renderW;
+                final int fs = stripPx;
+                final java.util.List<Bitmap> strips = new java.util.ArrayList<>();
+                for (int i = 0; i < count; i++) {
+                    int offY = (int) (i * stripDocH);
+                    Bitmap bmp = loKitManager.renderRegion(fw, fs, 0, offY, docW, (int) Math.ceil(stripDocH));
+                    if (bmp != null) {
+                        strips.add(bmp);
+                    }
+                }
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    stripsContainer.removeAllViews();
+                    for (Bitmap b : strips) {
+                        android.widget.ImageView iv = new android.widget.ImageView(this);
+                        iv.setImageBitmap(b);
+                        iv.setAdjustViewBounds(true);
+                        iv.setLayoutParams(new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT));
+                        stripsContainer.addView(iv);
+                    }
+                    hideLoading();
+                });
+            } catch (Throwable t) {
+                AppLogger.e(TAG, "连续渲染错误", t);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        showError("渲染失败：" + t.getMessage());
+                    }
+                });
+            }
+        }, "lokit-continuous").start();
+    }
+
+    /** Excel 工作表导航：用 getPartName 列出工作表，顶部选择器切换。 */
+    private void setupSheetNav() {
+        svContinuous.setVisibility(View.GONE);
+        ivPage.setVisibility(View.VISIBLE);
+        btnPrev.setVisibility(View.GONE);
+        btnNext.setVisibility(View.GONE);
+        tvPageInfo.setVisibility(View.GONE);
+        partNames = new String[partCount];
+        for (int i = 0; i < partCount; i++) {
+            String name = loKitManager.getPartName(i);
+            partNames[i] = (name != null && !name.isEmpty()) ? name : ("工作表 " + (i + 1));
+        }
+        tvPartSelector.setText(partNames[0]);
+        tvPartSelector.setVisibility(View.VISIBLE);
+        tvPartSelector.setOnClickListener(v -> showPartPicker());
+        showPage(0);
+    }
+
+    /** 弹出工作表（或页/幻灯片）选择列表。 */
+    private void showPartPicker() {
+        if (partNames == null || partNames.length == 0) {
+            return;
+        }
+        new android.app.AlertDialog.Builder(this)
+            .setTitle(isSheetMode ? "选择工作表" : "选择页")
+            .setItems(partNames, (dialog, which) -> showPage(which))
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    /** PPT 备注/幻灯片 切换（用 setPartMode，PART_MODE_SLIDE=0/NOTES=1）。 */
+    private void toggleNotesMode() {
+        if (docType != DOCTYPE_PRESENTATION) {
+            return;
+        }
+        notesMode = !notesMode;
+        loKitManager.setPartMode(notesMode ? 1 : 0);
+        partCount = loKitManager.getPageCount();
+        totalPages = partCount;
+        pageCache.clear();
+        currentPage = 0;
+        AppLogger.i(TAG, "切换到 " + (notesMode ? "备注" : "幻灯片") + "，part数=" + partCount);
+        showPage(0);
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_libreoffice_kit_preview, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        MenuItem notes = menu.findItem(R.id.action_toggle_notes);
+        if (notes != null) {
+            notes.setVisible(docType == DOCTYPE_PRESENTATION);
+        }
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_toggle_notes) {
+            toggleNotesMode();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     /** 计算单页渲染尺寸：以屏幕宽度×2 渲染，放大后文字/图形仍清晰。 */
@@ -186,7 +381,14 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             return;
         }
         currentPage = pageIndex;
-        tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
+        if (isSheetMode) {
+            if (tvPartSelector != null) {
+                tvPartSelector.setText(partNames != null && pageIndex < partNames.length
+                        ? partNames[pageIndex] : ("工作表 " + (pageIndex + 1)));
+            }
+        } else {
+            tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
+        }
         btnPrev.setEnabled(currentPage > 0);
         btnNext.setEnabled(currentPage < totalPages - 1);
         ensurePageRendered(pageIndex);
@@ -279,9 +481,14 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
 
     private void hideLoading() {
         loadingLayout.setVisibility(View.GONE);
-        ivPage.setVisibility(View.VISIBLE);
         errorLayout.setVisibility(View.GONE);
-        showPageControls();
+        if (isContinuousMode) {
+            // 连续模式：用滚动条带，不恢复分页控件
+            svContinuous.setVisibility(View.VISIBLE);
+        } else {
+            ivPage.setVisibility(View.VISIBLE);
+            showPageControls();
+        }
     }
 
     private void hidePageControls() {

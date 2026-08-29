@@ -17,7 +17,8 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:title="文档预览"
-            app:titleTextColor="?attr/colorOnSurface"/>
+            app:titleTextColor="?attr/colorOnSurface"
+            app:subtitleTextColor="?attr/colorOnSurfaceVariant"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <!-- 内容区：单页大图（可缩放） + 加载态 -->
@@ -32,6 +33,36 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="文档页面"/>
+
+        <!-- 连续文档(Word)滚动容器：条带图片 -->
+        <ScrollView
+            android:id="@+id/sv_continuous"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:background="@color/lo_page_bg">
+            <LinearLayout
+                android:id="@+id/strips_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"/>
+        </ScrollView>
+
+        <!-- 当前 part(工作表/页)选择器（Calc 用于切换工作表） -->
+        <TextView
+            android:id="@+id/tv_part_selector"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="8dp"
+            android:paddingLeft="14dp"
+            android:paddingRight="14dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_zoom_indicator"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:visibility="gone"/>
 
         <!-- 缩放百分比指示器 -->
         <TextView
