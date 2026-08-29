@@ -34,6 +34,13 @@
             android:layout_height="match_parent"
             android:contentDescription="文档页面"/>
 
+        <!-- Excel 整表 瓦片式 2D 浏览 -->
+        <com.oilquiz.app.ui.widget.SheetTiledView
+            android:id="@+id/sheet_tiled"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
+
         <!-- 连续文档(Word)滚动容器：条带图片 -->
         <ScrollView
             android:id="@+id/sv_continuous"

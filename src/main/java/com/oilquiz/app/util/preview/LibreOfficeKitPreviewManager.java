@@ -498,6 +498,51 @@ public class LibreOfficeKitPreviewManager {
         }
     }
 
+    /** 当前 part 索引。 */
+    public int getPart() {
+        if (!isInitialized || document == null) {
+            return -1;
+        }
+        try {
+            Method m = documentClass.getMethod("getPart");
+            return (Integer) m.invoke(document);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 切换到指定 part（工作表/页/幻灯片）。 */
+    public void setPart(int index) {
+        if (!isInitialized || document == null) {
+            return;
+        }
+        try {
+            Method m = documentClass.getMethod("setPart", int.class);
+            m.invoke(document, index);
+        } catch (Exception e) {
+            AppLogger.w(TAG, "setPart 失败: " + e.getMessage());
+        }
+    }
+
+    /** 获取指定 part 的尺寸（文档单位）。返回 {宽, 高}，失败返回 null。 */
+    public int[] getPartSize(int index) {
+        if (!isInitialized || document == null) {
+            return null;
+        }
+        try {
+            Method setPartMethod = documentClass.getMethod("setPart", int.class);
+            setPartMethod.invoke(document, index);
+            int w = getDocumentWidth();
+            int h = getDocumentHeight();
+            if (w > 0 && h > 0) {
+                return new int[]{w, h};
+            }
+        } catch (Exception e) {
+            AppLogger.w(TAG, "getPartSize 失败: " + e.getMessage());
+        }
+        return null;
+    }
+
     /**
      * 关闭文档
      */

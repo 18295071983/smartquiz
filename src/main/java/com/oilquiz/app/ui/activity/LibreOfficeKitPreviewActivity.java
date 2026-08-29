@@ -20,6 +20,7 @@ import com.github.chrisbanes.photoview.PhotoView;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.infra.AppLogger;
+import com.oilquiz.app.ui.widget.SheetTiledView;
 import com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager;
 
 import java.io.File;
@@ -43,6 +44,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     private PhotoView ivPage;
     private MaterialToolbar toolbar;
     private ScrollView svContinuous;
+    private SheetTiledView sheetTiled;
     private LinearLayout stripsContainer;
     private TextView tvPartSelector;
     private MaterialButton btnPrev;
@@ -98,6 +100,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
 
         ivPage = findViewById(R.id.iv_page);
         svContinuous = findViewById(R.id.sv_continuous);
+        sheetTiled = findViewById(R.id.sheet_tiled);
         stripsContainer = findViewById(R.id.strips_container);
         tvPartSelector = findViewById(R.id.tv_part_selector);
         btnPrev = findViewById(R.id.btn_prev);
@@ -290,10 +293,11 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         }, "lokit-continuous").start();
     }
 
-    /** Excel 工作表导航：用 getPartName 列出工作表，顶部选择器切换。 */
+    /** Excel 工作表导航：用 getPartName 列出工作表，顶部选择器切换；整表瓦片式浏览。 */
     private void setupSheetNav() {
         svContinuous.setVisibility(View.GONE);
-        ivPage.setVisibility(View.VISIBLE);
+        ivPage.setVisibility(View.GONE);
+        sheetTiled.setVisibility(View.VISIBLE);
         btnPrev.setVisibility(View.GONE);
         btnNext.setVisibility(View.GONE);
         tvPageInfo.setVisibility(View.GONE);
@@ -305,7 +309,21 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         tvPartSelector.setText(partNames[0]);
         tvPartSelector.setVisibility(View.VISIBLE);
         tvPartSelector.setOnClickListener(v -> showPartPicker());
-        showPage(0);
+        // 瓦片渲染器：按当前 sheet 的 doc 坐标渲染
+        sheetTiled.setTileRenderer((ox, oy, tw, th, pw, ph) ->
+                loKitManager.renderRegion(pw, ph, (int) ox, (int) oy, (int) tw, (int) th));
+        switchSheetInTiled(0);
+        hideLoading();
+    }
+
+    /** 切换到指定工作表并在瓦片视图展示。 */
+    private void switchSheetInTiled(int index) {
+        int[] sz = loKitManager.getPartSize(index);
+        if (sz != null && sz[0] > 0 && sz[1] > 0) {
+            sheetTiled.setDocument(sz[0], sz[1]);
+        } else {
+            showError("无法获取工作表尺寸");
+        }
     }
 
     /** 弹出工作表（或页/幻灯片）选择列表。 */
@@ -386,9 +404,10 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
                 tvPartSelector.setText(partNames != null && pageIndex < partNames.length
                         ? partNames[pageIndex] : ("工作表 " + (pageIndex + 1)));
             }
-        } else {
-            tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
+            switchSheetInTiled(pageIndex);
+            return;
         }
+        tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
         btnPrev.setEnabled(currentPage > 0);
         btnNext.setEnabled(currentPage < totalPages - 1);
         ensurePageRendered(pageIndex);
@@ -406,16 +425,8 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         computeRenderSize();
         isRenderingPage = true;
         renderingIndex = index;
-        final boolean sheet = isSheetMode;
         new Thread(() -> {
-            Bitmap bmp;
-            if (sheet) {
-                // 工作表：按整表真实纵横比渲染（不压缩），并受高度/像素上限约束
-                int screenW = getResources().getDisplayMetrics().widthPixels;
-                bmp = loKitManager.renderPartBounded(index, screenW * 2, screenW * 8, 26_000_000L);
-            } else {
-                bmp = loKitManager.renderPage(index, renderWidth, renderHeight);
-            }
+            Bitmap bmp = loKitManager.renderPage(index, renderWidth, renderHeight);
             runOnUiThread(() -> {
                 isRenderingPage = false;
                 if (isFinishing() || isDestroyed()) {
@@ -493,6 +504,12 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         if (isContinuousMode) {
             // 连续模式：用滚动条带，不恢复分页控件
             svContinuous.setVisibility(View.VISIBLE);
+        } else if (isSheetMode) {
+            // 工作表模式：瓦片视图，不恢复翻页控件
+            if (sheetTiled != null) {
+                sheetTiled.setVisibility(View.VISIBLE);
+            }
+            ivPage.setVisibility(View.GONE);
         } else {
             ivPage.setVisibility(View.VISIBLE);
             showPageControls();
