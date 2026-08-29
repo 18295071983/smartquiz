@@ -60,9 +60,6 @@ public class ToolboxActivity extends AppCompatActivity {
         // 设置与数据
         findViewById(R.id.card_settings).setOnClickListener(v -> showSettingsDataTools());
 
-        // 开发者工具
-        findViewById(R.id.card_dev).setOnClickListener(v -> showDevTools());
-        
         // 其他功能
         findViewById(R.id.card_other).setOnClickListener(v -> showOtherTools());
     }
@@ -145,25 +142,11 @@ public class ToolboxActivity extends AppCompatActivity {
         showToolDialog("设置与数据", new String[]{
             "主题设置",
             "语言设置",
-            "数据备份",
-            "用户"
+            "数据备份"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
-            BackupActivity.class,
-            UserActivity.class
-        });
-    }
-
-    private void showDevTools() {
-        showToolDialog("开发者工具", new String[]{
-            "测试",
-            "JWT测试",
-            "Tokenizer演示"
-        }, new Class<?>[]{
-            TestActivity.class,
-            JwtTestActivity.class,
-            TokenizerDemoActivity.class
+            BackupActivity.class
         });
     }
 
