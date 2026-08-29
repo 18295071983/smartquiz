@@ -56,13 +56,16 @@ public class UserActivity extends AppCompatActivity {
             userViewModel.login(email, password, new UserViewModel.LoginCallback() {
                 @Override
                 public void onSuccess(com.oilquiz.app.model.User user) {
-                    Toast.makeText(UserActivity.this, "登录成功", Toast.LENGTH_SHORT).show();
-                    finish();
+                    runOnUiThread(() -> {
+                        Toast.makeText(UserActivity.this, "登录成功", Toast.LENGTH_SHORT).show();
+                        finish();
+                    });
                 }
 
                 @Override
                 public void onFailure(String error) {
-                    Toast.makeText(UserActivity.this, "登录失败：" + error, Toast.LENGTH_SHORT).show();
+                    runOnUiThread(() ->
+                        Toast.makeText(UserActivity.this, "登录失败：" + error, Toast.LENGTH_SHORT).show());
                 }
             });
         }
