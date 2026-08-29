@@ -154,6 +154,11 @@ class LOKitThread extends Thread {
      * Invalidate everything + handle the geometry change
      */
     private void refresh(boolean resetZoomAndPosition) {
+        // REFRESH 事件可能在文档加载前触发，此时 mLayerClient 尚未从 Activity 创建出来，需防空指针
+        if (mLayerClient == null) {
+            Log.d(LOGTAG, "refresh called before mLayerClient ready, skip");
+            return;
+        }
         mLayerClient.clearAndResetlayers();
         redraw(resetZoomAndPosition);
         updatePartPageRectangles();
