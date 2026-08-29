@@ -12,13 +12,20 @@ package org.libreoffice;
 
 import android.app.Application;
 import android.os.Handler;
+import android.os.Looper;
 
 public class LibreOfficeApplication extends Application {
 
     private static Handler mainHandler;
 
     public LibreOfficeApplication() {
-        mainHandler = new Handler();
+    }
+
+    /** 由查看器 Activity 在 onCreate 主线程调用，确保 mainHandler 已初始化。 */
+    public static void init() {
+        if (mainHandler == null) {
+            mainHandler = new Handler(Looper.getMainLooper());
+        }
     }
 
     public static Handler getMainHandler() {

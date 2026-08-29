@@ -125,6 +125,9 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         Log.w(LOGTAG, "onCreate..");
         super.onCreate(savedInstanceState);
 
+        // 集成进主App后 LibreOfficeApplication 未作为 Application 运行，需手动初始化其 main handler
+        LibreOfficeApplication.init();
+
         updatePreferences();
         PreferenceManager.getDefaultSharedPreferences(getApplicationContext())
             .registerOnSharedPreferenceChangeListener(this);
