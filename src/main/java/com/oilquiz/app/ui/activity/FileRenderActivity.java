@@ -423,29 +423,20 @@ public class FileRenderActivity extends BaseActivity {
         }
     }
 
-    /** 是否有独立官方查看器(org.libreoffice)已安装。 */
-    private boolean isOfficialViewerInstalled() {
-        try {
-            getPackageManager().getPackageInfo("org.libreoffice", 0);
-            return true;
-        } catch (PackageManager.NameNotFoundException e) {
-            return false;
-        }
-    }
-
-    /** 用独立官方查看器(org.libreoffice)打开文档；未装或失败返回 false。 */
+    /** 用集成在 APP 内的官方查看器(org.libreoffice)打开文档。 */
     private boolean launchOfficialViewer(File file) {
         try {
-            if (!isOfficialViewerInstalled() || file == null || !file.exists()) {
+            if (file == null || !file.exists()) {
                 return false;
             }
+            // 集成后：进程内启动官方查看器，传 content URI（LibreOfficeMainActivity 用 getData() 读取）
             Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
-            Intent intent = new Intent(Intent.ACTION_VIEW);
+            Intent intent = new Intent();
+            intent.setClassName(getPackageName(), "org.libreoffice.LibreOfficeMainActivity");
             intent.setDataAndType(uri, getMimeType(file.getName()));
-            intent.setPackage("org.libreoffice");   // 显式指定独立官方查看器
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(intent);
-            Log.i(TAG, "已交由独立官方查看器打开: " + file.getName());
+            Log.i(TAG, "已交由集成官方查看器打开: " + file.getName());
             return true;
         } catch (Exception e) {
             Log.e(TAG, "启动官方查看器失败: " + e.getMessage(), e);
