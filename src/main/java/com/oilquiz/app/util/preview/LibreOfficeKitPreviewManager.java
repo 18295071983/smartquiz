@@ -79,8 +79,11 @@ public class LibreOfficeKitPreviewManager {
                 AppLogger.e(TAG, "Context is not an Activity");
                 return false;
             }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "LibreOfficeKit 初始化错误: " + e.getMessage(), e);
+        } catch (Throwable t) {
+            // 注意：System.loadLibrary 缺失时抛 UnsatisfiedLinkError（属于 Error 而非 Exception），
+            // 必须捕获 Throwable，否则缺失原生库时 initialize() 会直接崩溃。
+            AppLogger.e(TAG, "LibreOfficeKit 初始化错误: " + t.getMessage(), t);
+            isInitialized = false;
             return false;
         }
     }
@@ -260,8 +263,8 @@ public class LibreOfficeKitPreviewManager {
         try {
             System.loadLibrary("lo-native-code");
             return true;
-        } catch (Exception e) {
-            AppLogger.w(TAG, "LibreOfficeKit 库不可用: " + e.getMessage());
+        } catch (Throwable t) {
+            AppLogger.w(TAG, "LibreOfficeKit 库不可用: " + t.getMessage());
             return false;
         }
     }
