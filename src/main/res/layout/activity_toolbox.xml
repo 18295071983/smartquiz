@@ -154,7 +154,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="AI聊天、AI中心、模型管理、AI服务状态、AI助手、AI生图"
+                        android:text="AI聊天、AI中心、文字识别、AI服务状态"
                         android:textSize="14sp"
                         android:textColor="@color/text_secondary"/>
                 </LinearLayout>
@@ -244,37 +244,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="主题设置、语言设置、数据备份、主题颜色、用户、设备信息"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- 数据与维护 -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/card_maintenance"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="数据与维护"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="8dp"/>
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="数据修复、模型导入、AI导入"
+                        android:text="主题设置、语言设置、数据备份、用户"
                         android:textSize="14sp"
                         android:textColor="@color/text_secondary"/>
                 </LinearLayout>
@@ -304,7 +274,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="测试、JWT测试、Tokenizer演示、AI图标演示"
+                        android:text="测试、JWT测试、Tokenizer演示"
                         android:textSize="14sp"
                         android:textColor="@color/text_secondary"/>
                 </LinearLayout>

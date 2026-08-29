@@ -60,9 +60,6 @@ public class ToolboxActivity extends AppCompatActivity {
         // 设置与数据
         findViewById(R.id.card_settings).setOnClickListener(v -> showSettingsDataTools());
 
-        // 数据与维护
-        findViewById(R.id.card_maintenance).setOnClickListener(v -> showMaintenanceTools());
-
         // 开发者工具
         findViewById(R.id.card_dev).setOnClickListener(v -> showDevTools());
         
@@ -113,28 +110,12 @@ public class ToolboxActivity extends AppCompatActivity {
             "AI聊天",
             "AI中心",
             "文字识别",
-            "模型管理",
-            "AI服务状态",
-            "AI学习助手",
-            "AI翻译",
-            "题目分析",
-            "AI出题",
-            "AI生图/视频",
-            "性能监控",
-            "Agent管理"
+            "AI服务状态"
         }, new Class<?>[]{
             AIChatActivity.class,
             AICenterActivity.class,
             OCRActivity.class,
-            ModelSelectorActivity.class,
-            AIServiceStatusActivity.class,
-            LearningAssistantActivity.class,
-            TranslateActivity.class,
-            QuestionAnalyzeActivity.class,
-            QuestionGenerateActivity.class,
-            MediaGenActivity.class,
-            PerformanceActivity.class,
-            AgentManagerActivity.class
+            AIServiceStatusActivity.class
         });
     }
 
@@ -165,30 +146,12 @@ public class ToolboxActivity extends AppCompatActivity {
             "主题设置",
             "语言设置",
             "数据备份",
-            "主题颜色",
-            "主题切换",
-            "用户",
-            "设备信息"
+            "用户"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
             BackupActivity.class,
-            ThemeColorActivity.class,
-            com.oilquiz.app.ui.ThemeSwitcherActivity.class,
-            UserActivity.class,
-            DeviceInfoActivity.class
-        });
-    }
-
-    private void showMaintenanceTools() {
-        showToolDialog("数据与维护", new String[]{
-            "数据修复",
-            "模型导入",
-            "AI导入"
-        }, new Class<?>[]{
-            DataIssueFixActivity.class,
-            ModelImportActivity.class,
-            AIImportActivity.class
+            UserActivity.class
         });
     }
 
@@ -196,13 +159,11 @@ public class ToolboxActivity extends AppCompatActivity {
         showToolDialog("开发者工具", new String[]{
             "测试",
             "JWT测试",
-            "Tokenizer演示",
-            "AI图标演示"
+            "Tokenizer演示"
         }, new Class<?>[]{
             TestActivity.class,
             JwtTestActivity.class,
-            TokenizerDemoActivity.class,
-            AIIconDemoActivity.class
+            TokenizerDemoActivity.class
         });
     }
 
