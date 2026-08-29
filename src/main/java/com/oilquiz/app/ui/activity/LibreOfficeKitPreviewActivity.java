@@ -20,8 +20,8 @@ import com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * LibreOfficeKit 文档预览 Activity（重新设计壳）
@@ -50,7 +50,12 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
 
     private int currentPage = 0;
     private int totalPages = 0;
-    private final List<Bitmap> pageBitmaps = new ArrayList<>();
+    // 懒渲染：只缓存当前页及前后邻居页，按需渲染，避免整份文档全部渲染占用内存
+    private final Map<Integer, Bitmap> pageCache = new HashMap<>();
+    private int renderWidth = 0;
+    private int renderHeight = 0;
+    private boolean isRenderingPage = false;
+    private int renderingIndex = -1;
 
     private float fitScale = 1f; // 适配视口时的基准缩放
     private boolean rendered = false;
@@ -136,11 +141,8 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
                 totalPages = loKitManager.getPageCount();
                 AppLogger.d(TAG, "文档打开成功，总页数: " + totalPages);
                 rendered = true;
-                runOnUiThread(() -> {
-                    renderAllPages();
-                    hideLoading();   // 先恢复图片区域尺寸(GONE 时宽高为 0)
-                    showPage(0);     // 再显示第 0 页
-                });
+                // 懒渲染：先展示当前页(内部按需渲染 + 缓存邻居页)，不全量渲染整份文档
+                runOnUiThread(() -> showPage(0));
             } else {
                 runOnUiThread(() -> {
                     AppLogger.e(TAG, "打开文档失败");
@@ -162,37 +164,93 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         btnOpenWith.setOnClickListener(v -> useAlternativePreview());
     }
 
-    private void renderAllPages() {
-        pageBitmaps.clear();
-        int width = getResources().getDisplayMetrics().widthPixels - 120;
-        if (width <= 0) width = 1024;
-        for (int i = 0; i < totalPages; i++) {
-            Bitmap bitmap = loKitManager.renderPage(i, width, (int) (width * 1.5));
-            if (bitmap != null) {
-                pageBitmaps.add(bitmap);
-            }
+    /** 计算单页渲染尺寸：以屏幕宽度×1.5 渲染，保证放大后文字/图形清晰。 */
+    private void computeRenderSize() {
+        if (renderWidth > 0) {
+            return;
         }
-        if (totalPages <= 0) {
-            totalPages = Math.max(pageBitmaps.size(), 1);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        renderWidth = (int) (screenW * 1.5f);
+        if (renderWidth <= 0) {
+            renderWidth = screenW > 0 ? screenW : 1024;
         }
+        renderHeight = (int) (renderWidth * 1.5f);
     }
 
     private void showPage(int pageIndex) {
-        if (pageIndex < 0 || pageIndex >= pageBitmaps.size()) {
+        if (pageIndex < 0 || pageIndex >= totalPages) {
             return;
         }
         currentPage = pageIndex;
-        // 关键：必须在视图完成 layout(拿到真实宽高)之后再 setImageBitmap，
-        // 并直接用位图和视图尺寸计算 fit 比例，强制回到完整适配一屏。
+        tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
+        btnPrev.setEnabled(currentPage > 0);
+        btnNext.setEnabled(currentPage < totalPages - 1);
+        ensurePageRendered(pageIndex);
+    }
+
+    /** 懒渲染：目标页已缓存则直接展示，否则在后台线程渲染（当前只渲染一页，内存省）。 */
+    private void ensurePageRendered(int index) {
+        if (pageCache.containsKey(index)) {
+            displayPage(index);
+            return;
+        }
+        if (isRenderingPage && renderingIndex == index) {
+            return; // 正在渲染该页
+        }
+        computeRenderSize();
+        isRenderingPage = true;
+        renderingIndex = index;
+        new Thread(() -> {
+            Bitmap bmp = loKitManager.renderPage(index, renderWidth, renderHeight);
+            runOnUiThread(() -> {
+                isRenderingPage = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (bmp != null) {
+                    pageCache.put(index, bmp);
+                    trimCache();
+                    if (currentPage == index) {
+                        displayPage(index);
+                    }
+                } else if (currentPage == index) {
+                    AppLogger.e(TAG, "渲染第 " + index + " 页失败");
+                    showError("无法渲染第 " + (index + 1) + " 页");
+                }
+            });
+        }, "lokit-page").start();
+    }
+
+    /** 只保留当前页及前后邻居页，其余位图回收，避免长文档占用过多内存。 */
+    private void trimCache() {
+        java.util.Iterator<Map.Entry<Integer, Bitmap>> it = pageCache.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Integer, Bitmap> e = it.next();
+            int idx = e.getKey();
+            if (Math.abs(idx - currentPage) > 1) {
+                Bitmap bmp = e.getValue();
+                if (bmp != null && !bmp.isRecycled()) {
+                    bmp.recycle();
+                }
+                it.remove();
+            }
+        }
+    }
+
+    /** 展示某页：设置图片 + 计算适配比例 + 配置 PhotoView 缩放。 */
+    private void displayPage(int index) {
+        Bitmap bmp = pageCache.get(index);
+        if (bmp == null) {
+            return;
+        }
         ivPage.post(() -> {
-            Bitmap bmp = pageBitmaps.get(pageIndex);
-            if (bmp == null) {
+            if (isFinishing() || isDestroyed()) {
                 return;
             }
             ivPage.setImageBitmap(bmp);
             int vw = ivPage.getWidth();
             int vh = ivPage.getHeight();
-            if (vw > 0 && vh > 0) {
+            if (vw > 0 && vh > 0 && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
                 fitScale = Math.min((float) vw / bmp.getWidth(), (float) vh / bmp.getHeight());
             } else {
                 fitScale = ivPage.getScale();
@@ -200,17 +258,12 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
             if (fitScale > 0f) {
                 ivPage.setMinimumScale(fitScale);
                 ivPage.setMaximumScale(fitScale * 6f);
-                // 强制回到完整适配(100%)，避免被基准矩阵算错导致初始即放大裁剪
+                // 完整适配一屏(100%)
                 ivPage.setScale(fitScale, false);
             }
+            hideLoading();
             updateZoomIndicator();
-            android.util.Log.i(TAG, "page=" + bmp.getWidth() + "x" + bmp.getHeight()
-                    + " view=" + vw + "x" + vh + " fitScale=" + fitScale
-                    + " curScale=" + ivPage.getScale());
         });
-        tvPageInfo.setText(String.format("%d / %d", currentPage + 1, totalPages));
-        btnPrev.setEnabled(currentPage > 0);
-        btnNext.setEnabled(currentPage < totalPages - 1);
     }
 
     private void showLoading() {
@@ -250,12 +303,14 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        for (Bitmap bitmap : pageBitmaps) {
+        // 回收所有懒渲染缓存页位图
+        for (Bitmap bitmap : pageCache.values()) {
             if (bitmap != null && !bitmap.isRecycled()) {
                 bitmap.recycle();
             }
         }
-        pageBitmaps.clear();
+        pageCache.clear();
+        // 释放 LibreOfficeKit：销毁当前文档 + LO 运行时，释放后端占用的内存
         if (loKitManager != null) {
             loKitManager.release();
         }
