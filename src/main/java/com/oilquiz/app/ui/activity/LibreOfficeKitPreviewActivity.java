@@ -150,7 +150,7 @@ public class LibreOfficeKitPreviewActivity extends com.oilquiz.app.ui.base.BaseA
         
         // 初始化 LibreOfficeKit
         if (!loKitManager.isInitialized()) {
-            boolean initialized = loKitManager.initialize();
+            boolean initialized = loKitManager.initialize(this);
             if (!initialized) {
                 AppLogger.e(TAG, "LibreOfficeKit 初始化失败");
                 showErrorAndFinish("LibreOfficeKit 初始化失败，请检查库是否正确集成");

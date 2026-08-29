@@ -1,6 +1,7 @@
 package com.oilquiz.app.util.preview;
 
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -10,6 +11,9 @@ import android.util.Log;
 import com.oilquiz.app.infra.AppLogger;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,6 +63,11 @@ public class LibreOfficeKitPreviewManager {
             officeClass = Class.forName("org.libreoffice.kit.Office");
             documentClass = Class.forName("org.libreoffice.kit.Document");
             
+            // 将 LO 运行资源(program/share/unpack)从 assets 解压到 dataDir，
+            // 供 lo-bootstrap/UNO 读取（与 LO 安卓官方 App 的 Bootstrap 一致，否则报
+            // "Cannot open uno ini file:///assets/program/unorc" / "program/udkapi.rdb: no such file"）
+            extractRuntimeAssets(context);
+
             // 初始化 LibreOfficeKit
             if (context instanceof android.app.Activity) {
                 Method initMethod = libreOfficeKitClass.getMethod("init", android.app.Activity.class);
@@ -86,6 +95,19 @@ public class LibreOfficeKitPreviewManager {
             isInitialized = false;
             return false;
         }
+    }
+
+    /**
+     * 用指定的 Activity 初始化 LibreOfficeKit。
+     * 单例在构造时固化了 application context（导致 initialize() 里 context instanceof Activity 恒为 false），
+     * 本方法用传入的 Activity 重新绑定 context，让 LibreOfficeKit.init() 能拿到真正的 Activity。
+     * 由预览 Activity 调用；之后调用 openDocument/renderPage。
+     */
+    public synchronized boolean initialize(android.app.Activity activity) {
+        if (activity != null) {
+            this.context = activity;
+        }
+        return initialize();
     }
     
     /**
@@ -278,4 +300,73 @@ public class LibreOfficeKitPreviewManager {
     }
     
     // 不再需要原生方法声明，使用反射调用
+
+    /**
+     * 把 LO 运行资源(program/share/unpack)从 assets 解压到 dataDir。
+     * LO 安卓版需要这些文件位于 dataDir 下，UNO/bootstrap 才会启动；
+     * 已解压过(存在 program/udkapi.rdb)则跳过，避免每次重复拷贝 38MB。
+     */
+    private void extractRuntimeAssets(Context context) {
+        if (context == null) {
+            return;
+        }
+        try {
+            File dataDir = new File(context.getApplicationInfo().dataDir);
+            File programFile = new File(dataDir, "program/udkapi.rdb");
+            if (programFile.exists()) {
+                return; // 已解压
+            }
+            AssetManager am = context.getAssets();
+            // LO 安卓版 dataDir 布局为合并式：
+            //   dataDir/program = assets/program/* + assets/unpack/program/*（unorc/services.rdb + offapi/udkapi/sofficerc）
+            //   dataDir/share   = assets/share/*
+            //   dataDir/etc, dataDir/user = assets/unpack/etc, assets/unpack/user
+            copyAssetDir(am, "share", new File(dataDir, "share"));
+            copyAssetDir(am, "unpack", dataDir);            // unpack/{program,etc,user} -> dataDir/{program,etc,user}
+            copyAssetDir(am, "program", new File(dataDir, "program")); // 叠加 unorc/services.rdb 等到 dataDir/program
+            AppLogger.i(TAG, "LibreOffice 运行资源已解压到 " + dataDir.getAbsolutePath());
+        } catch (Throwable t) {
+            AppLogger.e(TAG, "解压 LO 运行资源失败: " + t.getMessage(), t);
+        }
+    }
+
+    private void copyAssetDir(AssetManager am, String assetPath, File destDir) {
+        try {
+            if (!destDir.exists()) {
+                destDir.mkdirs();
+            }
+            String[] children = am.list(assetPath);
+            if (children == null) {
+                return;
+            }
+            for (String child : children) {
+                String childAsset = assetPath.endsWith("/") ? assetPath + child : assetPath + "/" + child;
+                String[] sub = am.list(childAsset);
+                if (sub != null && sub.length > 0) {
+                    copyAssetDir(am, childAsset, new File(destDir, child));
+                } else {
+                    copyAssetFile(am, childAsset, new File(destDir, child));
+                }
+            }
+        } catch (Throwable t) {
+            AppLogger.e(TAG, "拷贝资源目录失败: " + assetPath + " - " + t.getMessage(), t);
+        }
+    }
+
+    private void copyAssetFile(AssetManager am, String assetPath, File out) {
+        try {
+            if (out.getParentFile() != null) {
+                out.getParentFile().mkdirs();
+            }
+            try (InputStream is = am.open(assetPath); OutputStream os = new FileOutputStream(out)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) {
+                    os.write(buf, 0, n);
+                }
+            }
+        } catch (Throwable t) {
+            AppLogger.e(TAG, "拷贝资源文件失败: " + assetPath + " - " + t.getMessage(), t);
+        }
+    }
 }

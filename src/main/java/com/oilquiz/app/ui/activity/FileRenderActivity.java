@@ -192,11 +192,17 @@ public class FileRenderActivity extends AppCompatActivity {
             return;
         }
 
-        // Office 文档（Word/Excel/PPT）：优先调起系统已安装的 Office 应用（如 WPS）进行高保真渲染；
-        // 若设备没有可处理的应用，则回退到内置引擎（POI→HTML）。
-        if (isOfficeDocument(file) && hasExternalViewer(file)) {
-            openWithOtherApp(file);
-            return;
+        // Office 文档（Word/Excel/PPT）：优先 LibreOfficeKit（纯离线、最高保真）；
+        // 不可用则优先调起系统 Office 应用（如 WPS）；再不行回退内置引擎（POI→HTML）。
+        if (isOfficeDocument(file)) {
+            if (com.oilquiz.app.util.preview.LibreOfficeKitPreviewManager.getInstance(this).isAvailable()) {
+                com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, file.getAbsolutePath());
+                return;
+            }
+            if (hasExternalViewer(file)) {
+                openWithOtherApp(file);
+                return;
+            }
         }
 
         tvFileName.setText(file.getName());
