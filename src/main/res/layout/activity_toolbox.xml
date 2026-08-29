@@ -184,7 +184,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="题库管理、题目修复、模板管理、智能映射"
+                        android:text="题库管理"
                         android:textSize="14sp"
                         android:textColor="@color/text_secondary"/>
                 </LinearLayout>

@@ -121,8 +121,7 @@ public class ToolboxActivity extends AppCompatActivity {
             "AI出题",
             "AI生图/视频",
             "性能监控",
-            "Agent管理",
-            "AI日志查看"
+            "Agent管理"
         }, new Class<?>[]{
             AIChatActivity.class,
             AICenterActivity.class,
@@ -135,26 +134,15 @@ public class ToolboxActivity extends AppCompatActivity {
             QuestionGenerateActivity.class,
             MediaGenActivity.class,
             PerformanceActivity.class,
-            AgentManagerActivity.class,
-            LogViewerActivity.class
+            AgentManagerActivity.class
         });
     }
 
     private void showQuestionTools() {
         showToolDialog("题目工具", new String[]{
-            "题库管理",
-            "题目修复",
-            "模板管理",
-            "字段管理",
-            "智能映射",
-            "映射编辑"
+            "题库管理"
         }, new Class<?>[]{
-            QuestionBankActivity.class,
-            QuestionRepairActivity.class,
-            TemplateManagerActivity.class,
-            FieldManagementActivity.class,
-            SmartMappingActivity.class,
-            MappingEditorActivity.class
+            QuestionBankActivity.class
         });
     }
 
