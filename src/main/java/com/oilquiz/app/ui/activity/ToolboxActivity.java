@@ -90,19 +90,31 @@ public class ToolboxActivity extends AppCompatActivity {
     }
 
     private void showFilePreviewTools() {
-        // Office文档：集成官方 LibreOffice 查看器；Pdfium：PDF；文件渲染：通用渲染
-        String[] toolNames = {"Office文档", "Pdfium文件预览", "文件渲染"};
+        // Office文档：选文件用官方查看器；Office界面：官方查看器原始浏览器界面；Pdfium：PDF；文件渲染：通用渲染
+        String[] toolNames = {"Office文档", "Office界面", "Pdfium文件预览", "文件渲染"};
         new android.app.AlertDialog.Builder(this)
                 .setTitle("文件预览工具")
                 .setItems(toolNames, (dialog, which) -> {
                     switch (which) {
                         case 0: openOfficeDocument(); break;
-                        case 1: startActivity(new Intent(this, PdfiumPreviewActivity.class)); break;
-                        case 2: startActivity(new Intent(this, FileRenderActivity.class)); break;
+                        case 1: openOfficialViewerUI(); break;
+                        case 2: startActivity(new Intent(this, PdfiumPreviewActivity.class)); break;
+                        case 3: startActivity(new Intent(this, FileRenderActivity.class)); break;
                     }
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** 打开官方 LibreOffice 查看器的原始界面（文件浏览/最近文件）。 */
+    private void openOfficialViewerUI() {
+        try {
+            Intent intent = new Intent();
+            intent.setClassName(getPackageName(), "org.libreoffice.ui.LibreOfficeUIActivity");
+            startActivity(intent);
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "打开Office界面失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 打开 Office 文档：文件选择后交给集成官方查看器渲染。 */
@@ -110,6 +122,7 @@ public class ToolboxActivity extends AppCompatActivity {
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");   // 需配合 EXTRA_MIME_TYPES 才能按类型过滤
             intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
                 "application/msword",
                 "application/vnd.ms-excel",
