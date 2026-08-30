@@ -21,7 +21,6 @@ import com.oilquiz.app.infra.AppLogger;
 import com.oilquiz.app.util.preview.PdfiumPreviewManager;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,9 +31,12 @@ import java.util.List;
 public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity {
     private static final String TAG = "PdfiumPreviewActivity";
     private static final String EXTRA_FILE_PATH = "file_path";
+    /** SAF 返回的 content:// Uri（Android 10+ 无真实路径，直接用 Uri 打开） */
+    private static final String EXTRA_FILE_URI = "file_uri";
     private static final int REQUEST_CODE_FILE_PICKER = 1001;
     
     private String filePath;
+    private Uri fileUri;
     private PdfiumPreviewManager pdfManager;
     private FrameLayout container;
     private TextView tvPageInfo;
@@ -134,32 +136,35 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
     @Override
     protected void initData() {
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
-        if (filePath == null || filePath.isEmpty()) {
-            AppLogger.i(TAG, "文件路径为空，启动文件选择器");
-            launchFilePicker();
-            return;
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            AppLogger.e(TAG, "文件不存在: " + filePath);
-            launchFilePicker();
-            return;
-        }
-        
+        fileUri = getIntent().getParcelableExtra(EXTRA_FILE_URI);
+
         pdfManager = new PdfiumPreviewManager(this);
-        
-        if (pdfManager.openDocument(filePath)) {
+
+        // 优先用 SAF Uri（content://）直开，其次真实路径；都不可用才进文件选择器
+        if (openFromIntent()) {
             totalPages = pdfManager.getPageCount();
             AppLogger.d(TAG, "PDF 打开成功，总页数: " + totalPages);
-            
             // 渲染所有页面
             renderAllPages();
             showAllPages();
         } else {
-            AppLogger.e(TAG, "打开 PDF 失败");
-            finish();
+            AppLogger.i(TAG, "无有效 PDF 来源，启动文件选择器");
+            launchFilePicker();
         }
+    }
+
+    /** 按来源打开 PDF：优先 SAF Uri，其次真实路径；返回是否成功 */
+    private boolean openFromIntent() {
+        if (fileUri != null) {
+            return pdfManager.openDocument(this, fileUri);
+        }
+        if (filePath != null && !filePath.isEmpty()) {
+            File file = new File(filePath);
+            if (file.exists()) {
+                return pdfManager.openDocument(filePath);
+            }
+        }
+        return false;
     }
     
     @Override
@@ -326,24 +331,13 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         if (requestCode == REQUEST_CODE_FILE_PICKER && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri != null) {
-                try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
-                        AppLogger.i(TAG, "选择的文件路径: " + path);
-                        // 重新启动预览
-                        Intent intent = new Intent(this, PdfiumPreviewActivity.class);
-                        intent.putExtra(EXTRA_FILE_PATH, path);
-                        startActivity(intent);
-                        finish();
-                    } else {
-                        AppLogger.e(TAG, "无法获取文件路径");
-                        finish();
-                    }
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "处理文件选择结果失败", e);
-                    finish();
-                }
+                // SAF（系统文件管理器）返回 content:// Uri，Android 10+ 下没有真实文件路径，
+                // 直接把 Uri 传给 pdfium 用 ContentResolver.openFileDescriptor 打开，无需解析路径。
+                AppLogger.i(TAG, "选择的文件 Uri: " + uri);
+                Intent intent = new Intent(this, PdfiumPreviewActivity.class);
+                intent.putExtra(EXTRA_FILE_URI, uri);
+                startActivity(intent);
+                finish();
             } else {
                 AppLogger.e(TAG, "文件选择返回空 Uri");
                 finish();
@@ -353,95 +347,5 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
             AppLogger.i(TAG, "用户取消了文件选择");
             finish();
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                        AppLogger.w(TAG, "尝试获取文件路径失败: " + e.getMessage());
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 Uri 获取文件路径失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(Uri uri) {
-        try {
-            // 创建临时文件
-            File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 content Uri 创建临时文件失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private File createTempFileFromUri(Uri uri) throws IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "pdf";
-        }
-        
-        // 创建临时文件
-        File tempFile = File.createTempFile("pdfium_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
 }

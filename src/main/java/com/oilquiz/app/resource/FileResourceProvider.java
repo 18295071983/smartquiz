@@ -6,12 +6,10 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
-import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
@@ -215,43 +213,6 @@ public class FileResourceProvider {
      */
     public Uri getFileUri(File file) {
         return FileProvider.getUriForFile(context, AUTHORITY, file);
-    }
-
-    /**
-     * 从URI获取文件路径
-     */
-    @Nullable
-    public String getPathFromUri(Uri uri) {
-        if (uri == null) return null;
-
-        // 处理文件URI
-        if ("file".equalsIgnoreCase(uri.getScheme())) {
-            return uri.getPath();
-        }
-
-        // 处理内容URI
-        if ("content".equalsIgnoreCase(uri.getScheme())) {
-            return getPathFromContentUri(uri);
-        }
-
-        return null;
-    }
-
-    /**
-     * 从内容URI获取路径
-     */
-    @Nullable
-    private String getPathFromContentUri(Uri uri) {
-        String[] projection = {MediaStore.MediaColumns.DATA};
-        try (Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int columnIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA);
-                return cursor.getString(columnIndex);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting path from content URI", e);
-        }
-        return null;
     }
 
     /**

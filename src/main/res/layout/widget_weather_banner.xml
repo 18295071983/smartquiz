@@ -85,6 +85,18 @@
             android:focusableInTouchMode="true" />
     </LinearLayout>
 
+    <!-- 获取定位按钮：未授予定位权限时显示，点击主动请求定位；有权限时隐藏 -->
+    <ImageView
+        android:id="@+id/weather_locate_btn"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_location"
+        android:tint="@color/weather_banner_text_secondary"
+        android:contentDescription="获取定位"
+        android:padding="3dp"
+        android:layout_marginStart="8dp"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/weather_arrow"
         android:layout_width="20dp"

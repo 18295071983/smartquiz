@@ -139,7 +139,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/weather_banner_background"
-                app:autoLoad="true" />
+                app:autoLoad="true"
+                app:defaultCity="银川" />
 
         </com.google.android.material.card.MaterialCardView>
 

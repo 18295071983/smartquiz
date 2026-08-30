@@ -648,8 +648,9 @@ public class WebViewActivity extends BaseActivity {
         try {
             AppLogger.d(TAG, "处理选择的文件URI: " + uri.toString());
             
-            // 获取文件路径
-            String filePath = getPathFromUri(uri);
+            // SAF Uri 统一解析为可直接访问的真实文件（content:// 流复制到缓存；file:// 直接取路径）
+            java.io.File resolved = com.oilquiz.app.util.UriPathResolver.resolveToFile(this, uri.toString());
+            String filePath = resolved != null ? resolved.getAbsolutePath() : null;
             AppLogger.d(TAG, "获取到的文件路径: " + filePath);
             
             if (filePath != null) {
@@ -730,69 +731,6 @@ public class WebViewActivity extends BaseActivity {
                fileName.endsWith(".xls") || fileName.endsWith(".xlsx") ||
                fileName.endsWith(".ppt") || fileName.endsWith(".pptx") ||
                fileName.endsWith(".csv");
-    }
-    
-    /**
-     * 从URI获取文件路径
-     * @param uri 文件URI
-     * @return 文件路径
-     */
-    private String getPathFromUri(android.net.Uri uri) {
-        String path = null;
-        
-        // 获取原始文件名和扩展名
-        String originalFileName = getFileNameFromUri(uri);
-        String extension = "";
-        if (originalFileName != null && originalFileName.contains(".")) {
-            extension = originalFileName.substring(originalFileName.lastIndexOf("."));
-        }
-        
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-            // 处理Android 4.4及以上的URI
-            if ("content".equals(uri.getScheme())) {
-                android.content.ContentResolver resolver = getContentResolver();
-                try (java.io.InputStream inputStream = resolver.openInputStream(uri)) {
-                    // 使用原始文件扩展名创建临时文件
-                    // TBS SDK 需要文件在 App 私有目录下，使用 getExternalFilesDir
-                    java.io.File tempDir = new java.io.File(getExternalFilesDir(null), "temp_files");
-                    if (!tempDir.exists()) {
-                        tempDir.mkdirs();
-                    }
-                    java.io.File tempFile = new java.io.File(tempDir, "temp_" + System.currentTimeMillis() + extension);
-                    try (java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = inputStream.read(buffer)) != -1) {
-                            outputStream.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    path = tempFile.getAbsolutePath();
-                    AppLogger.d(TAG, "Content URI文件已复制到: " + path);
-                    AppLogger.d(TAG, "文件在 App 私有目录下: " + path.startsWith(getExternalFilesDir(null).getAbsolutePath()));
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "从Content URI获取文件路径失败: " + e.getMessage(), e);
-                }
-            } else if ("file".equals(uri.getScheme())) {
-                path = uri.getPath();
-                AppLogger.d(TAG, "File URI路径: " + path);
-            }
-        } else {
-            // 处理Android 4.4以下的URI
-            if ("content".equals(uri.getScheme())) {
-                String[] projection = { android.provider.MediaStore.Images.Media.DATA };
-                try (android.database.Cursor cursor = getContentResolver().query(uri, projection, null, null, null)) {
-                    if (cursor != null && cursor.moveToFirst()) {
-                        int columnIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DATA);
-                        path = cursor.getString(columnIndex);
-                    }
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "从Content URI获取文件路径失败: " + e.getMessage(), e);
-                }
-            } else if ("file".equals(uri.getScheme())) {
-                path = uri.getPath();
-            }
-        }
-        return path;
     }
     
     /**

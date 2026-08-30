@@ -47,6 +47,8 @@ public class AIImportActivity extends BaseActivity {
     private static final int REQUEST_PICK_FILE = 1101;
     /** 导入预览页请求码 */
     private static final int REQUEST_IMPORT_PREVIEW = 1102;
+    /** 存储运行时权限请求码（Android 6~10 使用；Android 11+ 走"所有文件访问"设置页） */
+    private static final int REQUEST_CODE_STORAGE_PERMISSION = 1201;
 
     // 预览页交互等待（onPreviewReady 阻塞等待用户决策）
     private final Object previewWaitLock = new Object();
@@ -225,6 +227,12 @@ public class AIImportActivity extends BaseActivity {
                 showToast("请先选择题库文件");
                 return;
             }
+            // 导入管线 Python 需读写公共目录 /storage/emulated/0/OilQuiz/，
+            // 先主动确认"所有文件访问"权限（不假设已授权），缺失则引导授权后重新导入
+            if (!hasPublicStoragePermission()) {
+                requestPublicStoragePermission();
+                return;
+            }
             startSmartImport();
         });
 
@@ -277,6 +285,74 @@ public class AIImportActivity extends BaseActivity {
     }
 
     // ======================== 模型选择 ========================
+
+    /**
+     * 公共目录权限是否已授予：
+     * - Android 11+（R）：MANAGE_EXTERNAL_STORAGE（"所有文件访问"）
+     * - Android 6~10（M~R）：READ/WRITE_EXTERNAL_STORAGE
+     * 导入管线 Python 需读写公共目录 /storage/emulated/0/OilQuiz/（ImportDirs.publicRoot()），
+     * 缺权限时 Python 打开文件会抛 PermissionError，必须在入口主动检查。
+     */
+    private boolean hasPublicStoragePermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            return android.os.Environment.isExternalStorageManager();
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            return androidx.core.content.ContextCompat.checkSelfPermission(this,
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    && androidx.core.content.ContextCompat.checkSelfPermission(this,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
+    /** 未授权时引导授权：Android 11+ 弹说明框跳"所有文件访问"设置页；Android 6~10 走运行时权限弹窗 */
+    private void requestPublicStoragePermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            new AlertDialog.Builder(this)
+                    .setTitle("需要\"所有文件访问\"权限")
+                    .setMessage("AI 导入通过 Python 在公共目录 /storage/emulated/0/OilQuiz/ 解析题库源文件、生成临时 CSV，\n"
+                            + "未授予时 Python 无法读写该目录。\n"
+                            + "请点击\"去授权\"开启\"所有文件访问\"权限，然后重新开始导入。")
+                    .setPositiveButton("去授权", (d, w) -> openAllFilesAccessSetting())
+                    .setNegativeButton("取消", null)
+                    .show();
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            requestPermissions(new String[]{
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQUEST_CODE_STORAGE_PERMISSION);
+        }
+    }
+
+    /** 跳转系统"所有文件访问"授权页（优先直达本应用，异常时 fallback 通用入口） */
+    private void openAllFilesAccessSetting() {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception ex) {
+                showToast("无法打开权限设置页面: " + ex.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CODE_STORAGE_PERMISSION) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            showToast(granted ? "存储权限已授予，请重新开始导入" : "需要存储权限才能导入题库，请授予后重试");
+        }
+    }
 
     /** 启动智能导入模式（使用 v2 导入管线，支持多文件 + 本地 AI 推理） */
     private void startSmartImport() {

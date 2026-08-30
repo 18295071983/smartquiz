@@ -619,17 +619,15 @@ public class MainActivity extends BaseActivity {
             android.net.Uri uri = data.getData();
             if (uri != null) {
                 try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
+                    // SAF 返回的 content:// Uri 直接用流复制到应用缓存目录
+                    // （Android 10+ 分区存储下无真实路径，不查已废弃的 MediaStore DATA 列）
+                    java.io.File cached = com.oilquiz.app.util.UriPathResolver.copyContentUriToCache(this, uri.toString());
+                    if (cached != null && cached.exists()) {
+                        String path = cached.getAbsolutePath();
                         switch (requestCode) {
                             case 1004:
                                 // LibreOffice 预览
                                 com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, path);
-                                break;
-                            case 1005:
-                                // OnlyOffice 预览
-                                com.oilquiz.app.ui.activity.OnlyOfficePreviewActivity.start(this, path);
                                 break;
                         }
                     }
@@ -639,95 +637,6 @@ public class MainActivity extends BaseActivity {
                 }
             }
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(android.net.Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(android.net.Uri uri) {
-        try {
-            // 创建临时文件
-            java.io.File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private java.io.File createTempFileFromUri(android.net.Uri uri) throws java.io.IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "tmp";
-        }
-        
-        // 创建临时文件
-        java.io.File tempFile = java.io.File.createTempFile("preview_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
     
     @Override

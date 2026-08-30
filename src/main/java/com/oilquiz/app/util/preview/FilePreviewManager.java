@@ -203,16 +203,6 @@ public class FilePreviewManager {
     }
     
     /**
-     * 使用 OnlyOffice 引擎预览文档
-     * 开源免费方案，支持多种 Office 格式
-     * @param context 上下文
-     * @param filePath 文件路径
-     */
-    public void previewWithOnlyOffice(Context context, String filePath) {
-        com.oilquiz.app.ui.activity.OnlyOfficePreviewActivity.start(context, filePath);
-    }
-    
-    /**
      * 预览数据类
      */
     public static class PreviewData {
