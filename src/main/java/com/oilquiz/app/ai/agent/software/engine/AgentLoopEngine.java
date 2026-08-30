@@ -15,6 +15,7 @@ import com.oilquiz.app.ai.tool.openai.ToolDefinition;
 import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
@@ -487,7 +488,12 @@ public class AgentLoopEngine {
                 break;
             }
             if (response != null && !response.trim().isEmpty()) {
-                lastMeaningfulResponse = response;   // 工具轮空内容不覆盖最后有效回复
+                // 存清理版（剥掉 tool_call 标签/思考标签），防止工具循环 break 后
+                // 回退 lastMeaningfulResponse 时把未清理的 tool_call 残留带进最终消息
+                String meaningful = cleanResponse(response);
+                if (!meaningful.isEmpty()) {
+                    lastMeaningfulResponse = meaningful;   // 工具轮空内容不覆盖最后有效回复
+                }
             }
 
             if (toolCalls.isEmpty()) {
@@ -883,6 +889,12 @@ public class AgentLoopEngine {
         final StringBuilder reasoningBuf = new StringBuilder();
         final String[] contentHolder = {null};
         final String[] errorHolder = {null};
+        // Java 侧流式 tool_call 兜底状态：C++ is_tool_call 对 <tool_call> 标签格式失效时，
+        // 用跨 token 缓冲识别并吞掉标签片段（避免 tool_call JSON 流式透传到 UI）
+        final StringBuilder streamFilterBuf = new StringBuilder();
+        final boolean[] streamSwallowing = {false};
+        final boolean[] streamJsonDone = {false};
+        final StringBuilder streamCloseBuf = new StringBuilder();
         final boolean[] done = {false};   // F10：幂等标志，error/complete 后忽略迟到事件
 
         LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
@@ -898,12 +910,17 @@ public class AgentLoopEngine {
                             if (!event.optBoolean("is_tool_call", false)) {
                                 String token = event.optString("content", "");
                                 if (!token.isEmpty()) {
-                                    if (streamedFlag != null) {
-                                        streamedFlag[0] = true;      // 正文已流式输出（本轮）
-                                    }
-                                    lastStreamed = true;             // 最近一次生成有正文流式输出
-                                    if (callback != null) {
-                                        callback.onToken(token);
+                                    // Java 侧兜底：C++ is_tool_call 对 <tool_call> 标签格式失效时，
+                                    // 流式吞掉标签格式的 tool_call 片段（支持跨 token 拆分/漏闭合补壳）
+                                    String emit = filterStreamToken(token, streamFilterBuf, streamSwallowing, streamJsonDone, streamCloseBuf);
+                                    if (!emit.isEmpty()) {
+                                        if (streamedFlag != null) {
+                                            streamedFlag[0] = true;      // 正文已流式输出（本轮）
+                                        }
+                                        lastStreamed = true;             // 最近一次生成有正文流式输出
+                                        if (callback != null) {
+                                            callback.onToken(emit);
+                                        }
                                     }
                                 }
                             }
@@ -966,6 +983,161 @@ public class AgentLoopEngine {
                 + " toolCalls=" + toolCallsHolder.size());
 
         return new GenerateResult(content, reasoningBuf.toString(), toolCallsHolder);
+    }
+
+    /**
+     * 流式过滤 <tool_call> 标签片段（Java 侧兜底）。
+     * C++ 层 common_chat_parse 对 Qwen 的 <tool_call>{...}</tool_call> 标签格式解析不出，
+     * is_tool_call 标志失效，标签会当普通正文 token 推到 UI；这里用状态机：
+     * - 开标签跨 token 拆分时（如 <tool + _call>）前缀滞留探测，识别后进入吞状态；
+     * - 吞状态下持续累积直到闭合标签；若模型漏输出闭合标签，则内容 {} 配平后进入
+     *   "观望"状态：继续吞可选的 </tool_call> 残留（含跨 token 拆分），一旦收到非
+     *   闭合标签内容即补壳退出，把正常正文还回，保证不泄露标签也不吞掉正常回复；
+     * - 超长保护：累积超过上限仍无闭合时强制结束并交回当前 token。
+     * <tool_calls> 复数标签同样覆盖（其以 <tool_call 为前缀）。
+     * @return 需要推送给 UI 的正文片段（正在吞 tool_call 时返回 ""）
+     */
+    private String filterStreamToken(String token, StringBuilder buf, boolean[] swallowing,
+                                     boolean[] jsonDone, StringBuilder closeBuf) {
+        if (swallowing[0]) {
+            // 超长保护：累积超过上限仍未闭合 → 强制补壳退出，当前 token 交回正常路径
+            if (buf.length() > 8192) {
+                swallowing[0] = false;
+                jsonDone[0] = false;
+                buf.setLength(0);
+                return filterStreamToken(token, buf, swallowing, jsonDone, closeBuf);
+            }
+            // 正在吞 tool_call：持续累积（闭合标签可能跨 token 拆分）
+            buf.append(token);
+            String acc = buf.toString();
+            int close = acc.indexOf("</tool_call");
+            if (close >= 0) {
+                // 有闭合标签 → 正常结束
+                swallowing[0] = false;
+                jsonDone[0] = false;
+                String tail = acc.substring(close + "</tool_call".length());
+                buf.setLength(0);
+                int gt = tail.indexOf('>');
+                if (gt >= 0) tail = tail.substring(gt + 1);
+                if (!tail.isEmpty()) return filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
+                return "";
+            }
+            if (jsonDone[0]) {
+                // 观望：JSON 已配平，吞掉可选的闭合标签残留
+                closeBuf.append(token);
+                String cb = closeBuf.toString();
+                if (cb.indexOf("</tool_call") >= 0) {
+                    // 闭合标签补全（含跨 token 拆分）→ 结束，处理其后的正文
+                    swallowing[0] = false;
+                    jsonDone[0] = false;
+                    closeBuf.setLength(0);
+                    buf.setLength(0);
+                    int c = cb.indexOf("</tool_call");
+                    String tail = cb.substring(c + "</tool_call".length());
+                    int gt = tail.indexOf('>');
+                    if (gt >= 0) tail = tail.substring(gt + 1);
+                    if (!tail.isEmpty()) return filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
+                    return "";
+                }
+                if ("</tool_call".startsWith(cb)) {
+                    // 闭合标签前缀（跨 token 拆分中）→ 继续吞
+                    return "";
+                }
+                // 不是闭合标签 → 模型确实漏闭合：closeBuf 内容视为正文输出（不吞正常回复）
+                swallowing[0] = false;
+                jsonDone[0] = false;
+                closeBuf.setLength(0);
+                buf.setLength(0);
+                return cb;
+            }
+            // JSON 对象已完整（org.json 解析成功）→ 进入观望状态（等可选闭合标签 / 判定漏闭合）
+            if (isCompleteJsonObject(acc)) {
+                jsonDone[0] = true;
+                return "";
+            }
+            return "";
+        }
+        // 不在吞状态：把 token 追加到探测缓冲
+        buf.append(token);
+        String probe = buf.toString();
+
+        // 查找完整开标签 <tool_call>（<tool_calls 亦命中）
+        int open = probe.indexOf("<tool_call");
+        if (open >= 0) {
+            String before = probe.substring(0, open);
+            buf.setLength(0);
+            buf.append(probe.substring(open));
+            String after = buf.toString();
+            if (after.indexOf("</tool_call") >= 0) {
+                // 同一缓冲内已闭合：处理闭合标签之后的正文
+                buf.setLength(0);
+                int c = after.indexOf("</tool_call");
+                String tail = after.substring(c + "</tool_call".length());
+                int gt = tail.indexOf('>');
+                if (gt >= 0) tail = tail.substring(gt + 1);
+                if (!tail.isEmpty()) return before + filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
+                return before;
+            }
+            // 闭合标签正在跨 token 流入 → 进入吞状态继续等
+            if (isClosingTagIncomplete(after)) {
+                closeBuf.setLength(0);
+                swallowing[0] = true;
+                return before;
+            }
+            // 模型漏闭合但内容已在同一缓冲内形成完整 JSON → 进入观望状态
+            if (isCompleteJsonObject(after)) {
+                closeBuf.setLength(0);
+                swallowing[0] = true;
+                jsonDone[0] = true;
+                return before;
+            }
+            closeBuf.setLength(0);
+            swallowing[0] = true;
+            return before;
+        }
+
+        // 无完整开标签：末尾跨 token 拆分的开标签前缀滞留
+        int lastLt = probe.lastIndexOf('<');
+        if (lastLt >= 0) {
+            String suffix = probe.substring(lastLt);
+            if ("<tool_call".startsWith(suffix) && suffix.length() < "<tool_call".length()) {
+                String head = probe.substring(0, lastLt);
+                buf.setLength(0);
+                buf.append(suffix);
+                return head;
+            }
+            if ("<tool_call".equals(suffix)) {
+                buf.setLength(0);
+                buf.append(suffix);
+                closeBuf.setLength(0);
+                swallowing[0] = true;
+                return probe.substring(0, lastLt);
+            }
+        }
+        // 无任何可疑前缀 → 缓冲全部输出
+        buf.setLength(0);
+        return probe;
+    }
+
+    /** 判断 s 中从第一个 { 起是否已形成完整 JSON 对象：用 org.json 解析器判定（正确处理字符串内花括号/嵌套/转义） */
+    private boolean isCompleteJsonObject(String s) {
+        int start = s.indexOf('{');
+        if (start < 0) return false;
+        if (s.indexOf('}') < start) return false;   // 尚无闭合括号，未形成对象
+        try {
+            new JSONObject(s.substring(start));
+            return true;
+        } catch (JSONException e) {
+            return false;
+        }
+    }
+
+    /** 判断 s 末尾是否存在正在跨 token 流入的闭合标签前缀（如 </ / </t / </tool_c），用于避免提前补壳 */
+    private boolean isClosingTagIncomplete(String s) {
+        int lt = s.lastIndexOf('<');
+        if (lt < 0) return false;
+        String suffix = s.substring(lt);
+        return "</tool_call".startsWith(suffix) && suffix.length() < "</tool_call".length();
     }
 
     /** 解析 tool_call 事件（§4.2）：id/name/arguments(JSON 字符串) */
@@ -1572,10 +1744,16 @@ public class AgentLoopEngine {
                 .replaceAll("(?s)<thought>.*?</thought>", "")
                 .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
-                // 剥 tool_call 标签（模型输出 tool_call 后未闭合/残留，防 TTS 朗读标签文本）
-                .replaceAll("(?s)<tool_call>.*?</tool_call>", "")
-                .replaceAll("(?s)<tool_call[^>]*>", "")
-                .replaceAll("(?s)</tool_call[^>]*>", "")
+                // ① 剥闭合的 tool_call / tool_calls 标签（含内容）
+                .replaceAll("(?s)<tool_calls?>.*?</tool_calls?[^>]*>", "")
+                // ② 剥未闭合的 tool_call 开始标签及后续残留：模型常见漏输出 </tool_call>，
+                //    开始标签之后的 JSON 会被一并吞掉，避免 {"name":..} 残留进最终消息
+                .replaceAll("(?s)<tool_calls?>[^>]*>(?:(?!</?tool_calls?[^>]*>).)*$", "")
+                // ③ 兜底：只删标签壳（历史/嵌套场景残留）
+                .replaceAll("(?s)<tool_calls?[^>]*>", "")
+                .replaceAll("(?s)</tool_calls?[^>]*>", "")
+                // ④ 剥无标签的裸 tool_call JSON（模型把 {"name":"..","arguments":{..}} 直接当正文输出时）
+                .replaceAll("(?s)\\{\\\"name\\\"\\s*:\\s*\\\"[^\\\"]+\\\",\\s*\\\"arguments\\\"\\s*:\\s*\\{.*?\\}\\s*\\}", "")
                 // 剥 ChatML 标记（模型偶尔输出模板前缀 <|im_start|>assistant / <|im_end|>）
                 .replaceAll("<\\|im_start\\|>\\s*assistant", "")
                 .replaceAll("<\\|im_start\\|>", "")

@@ -120,6 +120,42 @@
                 app:icon="@drawable/ic_refresh"
                 app:iconSize="14dp"/>
         </LinearLayout>
+
+        <!-- 快捷入口：AI 中心 / AI 服务 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_center"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:text="🤖 AI 中心"
+                android:textSize="12sp"
+                android:textColor="@color/on_secondary_container"
+                app:backgroundTint="@color/secondary_container"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"
+                android:layout_marginEnd="6dp"
+                android:minWidth="0dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_service"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:text="⚙️ AI 服务"
+                android:textSize="12sp"
+                android:textColor="@color/on_secondary_container"
+                app:backgroundTint="@color/secondary_container"
+                app:cornerRadius="12dp"
+                android:textAllCaps="false"
+                android:minWidth="0dp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout

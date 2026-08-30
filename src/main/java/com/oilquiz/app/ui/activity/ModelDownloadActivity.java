@@ -1,6 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
@@ -52,6 +53,8 @@ public class ModelDownloadActivity extends BaseActivity {
     private MaterialButton btnSwitchMirror;
     private TextView tvDownloadMethod;
     private MaterialButton btnSwitchDownloadMethod;
+    private MaterialButton btnAICenter;
+    private MaterialButton btnAIService;
     
     private ModelDownloadManager modelDownloadManager;
     
@@ -120,8 +123,20 @@ public class ModelDownloadActivity extends BaseActivity {
         btnSwitchMirror = findViewById(R.id.btn_switch_mirror);
         tvDownloadMethod = findViewById(R.id.tv_download_method);
         btnSwitchDownloadMethod = findViewById(R.id.btn_switch_download_method);
+        btnAICenter = findViewById(R.id.btn_ai_center);
+        btnAIService = findViewById(R.id.btn_ai_service);
         
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
+
+        // 快捷入口：AI 中心 / AI 服务
+        if (btnAICenter != null) {
+            btnAICenter.setOnClickListener(v ->
+                    startActivity(new Intent(ModelDownloadActivity.this, AICenterActivity.class)));
+        }
+        if (btnAIService != null) {
+            btnAIService.setOnClickListener(v ->
+                    startActivity(new Intent(ModelDownloadActivity.this, AIServiceStatusActivity.class)));
+        }
     }
 
     @Override

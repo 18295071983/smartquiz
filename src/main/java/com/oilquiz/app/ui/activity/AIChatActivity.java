@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModel;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.chat.component.QuickToolChipModule;
 import com.oilquiz.app.ai.chat.coordination.AIChatCoordinator;
 import com.oilquiz.app.ai.chat.viewmodel.AIChatViewModel;
 
@@ -161,6 +162,9 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnNewConversation;
     private MaterialButton btnClearAllHistory;
     private MaterialButton btnAgentManager;
+    private MaterialButton btnAICenter;
+    private MaterialButton btnAIService;
+    private MaterialButton btnModelDownload;
     private View thinkingIndicator;
     private Chip chipNormalChat;
     private Chip chipWeather;
@@ -168,6 +172,8 @@ public class AIChatActivity extends BaseActivity {
     /** 快捷工具栏：键盘弹出时自动折叠 */
     private ChipGroup quickActionsChipGroup;
     private ImageView ivQuickExpand;
+    /** 快捷工具 chip 模块：统一管理快捷区工具入口 chip（静态绑定 + 动态构建） */
+    private QuickToolChipModule quickToolModule;
     private boolean quickBarExpanded = true;
     /** 标记是否由键盘弹出自动折叠，键盘隐藏时仅恢复这种情况 */
     private boolean keyboardAutoCollapsed = false;
@@ -455,6 +461,9 @@ public class AIChatActivity extends BaseActivity {
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
             btnAgentManager = findViewById(R.id.btn_agent_manager);
+            btnAICenter = findViewById(R.id.btn_ai_center);
+            btnAIService = findViewById(R.id.btn_ai_service);
+            btnModelDownload = findViewById(R.id.btn_model_download);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
             chipNormalChat = findViewById(R.id.chip_normal_chat);
             chipWeather = findViewById(R.id.chip_weather);
@@ -1320,6 +1329,18 @@ public class AIChatActivity extends BaseActivity {
             btnAgentManager.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this, AgentManagerActivity.class)));
         }
+        if (btnAICenter != null) {
+            btnAICenter.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, AICenterActivity.class)));
+        }
+        if (btnAIService != null) {
+            btnAIService.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, AIServiceStatusActivity.class)));
+        }
+        if (btnModelDownload != null) {
+            btnModelDownload.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)));
+        }
         if (btnClearAllHistory != null) {
             btnClearAllHistory.setOnClickListener(v -> {
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
@@ -1357,34 +1378,34 @@ public class AIChatActivity extends BaseActivity {
             });
         });
 
-        if (chipWeather != null) chipWeather.setOnClickListener(v -> showToolGuideDialog("ai_weather"));
-
-        if (chipClear != null) chipClear.setOnClickListener(v -> {
-            clearChat();
-        });
-
-        // 工具快捷输入引导：点击chip弹出参数引导表单
-        Chip chipSearch = findViewById(R.id.chip_search);
-        Chip chipDatabase = findViewById(R.id.chip_database);
-        Chip chipFile = findViewById(R.id.chip_file);
-        Chip chipLocation = findViewById(R.id.chip_location);
-        Chip chipApp = findViewById(R.id.chip_app);
-        Chip chipCalc = findViewById(R.id.chip_calc);
-
-        if (chipSearch != null) chipSearch.setOnClickListener(v -> showToolGuideDialog("network_search"));
-        if (chipDatabase != null) chipDatabase.setOnClickListener(v -> showToolGuideDialog("database"));
-        if (chipFile != null) chipFile.setOnClickListener(v -> showToolGuideDialog("file_reader"));
-        if (chipLocation != null) chipLocation.setOnClickListener(v -> showToolGuideDialog("location"));
-        if (chipApp != null) chipApp.setOnClickListener(v -> showToolGuideDialog("app_operation"));
-        if (chipCalc != null) chipCalc.setOnClickListener(v -> showToolGuideDialog("app_toolkit"));
-
-        // 动态新增聚合方案入口 chip（出行准备🚗/学习查询📚/网页研究🔍），添加到快捷按钮 ChipGroup
+        // 快捷工具 chip 模块：统一绑定抽屉静态 chip 引导 + 动态创建聚合方案 chip
         com.google.android.material.chip.ChipGroup quickGroup = findViewById(R.id.quick_actions_chip_group);
-        if (quickGroup != null) {
-            addCompositeChip(quickGroup, "🚗 出行准备", "go_out");
-            addCompositeChip(quickGroup, "📚 学习查询", "study");
-            addCompositeChip(quickGroup, "🔍 网页研究", "research");
-        }
+        quickToolModule = new QuickToolChipModule(this, new QuickToolChipModule.Callback() {
+            @Override
+            public void onToolGuide(String toolId) {
+                showToolGuideDialog(toolId);
+            }
+
+            @Override
+            public void onCompositeGuide(String flowId) {
+                showCompositeGuideDialog(flowId);
+            }
+
+            @Override
+            public void onClearChat() {
+                clearChat();
+            }
+        });
+        quickToolModule.bindStaticToolChips(
+                findViewById(R.id.chip_weather),
+                findViewById(R.id.chip_search),
+                findViewById(R.id.chip_database),
+                findViewById(R.id.chip_file),
+                findViewById(R.id.chip_location),
+                findViewById(R.id.chip_app),
+                findViewById(R.id.chip_calc),
+                findViewById(R.id.chip_clear_chat2));
+        quickToolModule.addQuickChips(quickGroup);
 
         // 深度思考开关（对齐官方：独立开关，点击开↔关，开启高亮主色/关闭灰色）
         Chip chipDeepThink = findViewById(R.id.chip_deep_think);
@@ -1986,13 +2007,38 @@ public class AIChatActivity extends BaseActivity {
                 // 注入已自动获取的上下文（不覆盖用户已填值）
                 injectAutoContext(execParams);
 
-                // app_toolkit 部分分类（计算/获取信息）无 action 子步骤，直接用分类名作为 action
-                if ("app_toolkit".equals(toolName)
-                        && execParams.containsKey("category") && !execParams.containsKey("action")) {
-                    String cat = String.valueOf(execParams.get("category"));
-                    if ("calculate".equals(cat) || "get_info".equals(cat)) {
-                        execParams.put("action", cat);
+                // app_toolkit 路由：
+                // - 更多工具分类（more_tools）：tool 即独立工具名，切换到该工具执行，移除分类/工具参数；
+                //   其中 unit_converter 的预设换算对 conv_pair 拆分为 from/to；
+                // - 计算/获取信息等无 action 子步骤的分类：直接用分类名作为 action。
+                final String finalToolName;
+                if ("app_toolkit".equals(toolName)) {
+                    String cat = execParams.containsKey("category")
+                            ? String.valueOf(execParams.get("category")) : "";
+                    if ("more_tools".equals(cat) && execParams.containsKey("tool")) {
+                        finalToolName = String.valueOf(execParams.get("tool"));
+                        execParams.remove("category");
+                        execParams.remove("tool");
+                        // 单位换算：预设换算对 "m|km" → from=m, to=km
+                        if ("unit_converter".equals(finalToolName) && execParams.containsKey("conv_pair")) {
+                            String pair = String.valueOf(execParams.get("conv_pair"));
+                            execParams.remove("conv_pair");
+                            String[] parts = pair.split("\\|");
+                            if (parts.length == 2 && !parts[0].isEmpty() && !parts[1].isEmpty()) {
+                                execParams.put("from", parts[0]);
+                                execParams.put("to", parts[1]);
+                            }
+                        }
+                    } else {
+                        if (execParams.containsKey("category") && !execParams.containsKey("action")) {
+                            if ("calculate".equals(cat) || "get_info".equals(cat)) {
+                                execParams.put("action", cat);
+                            }
+                        }
+                        finalToolName = toolName;
                     }
+                } else {
+                    finalToolName = toolName;
                 }
 
                 // 执行前检查缺失的环境上下文
@@ -2013,7 +2059,7 @@ public class AIChatActivity extends BaseActivity {
                             execParams.put("lat", lat);   // Double类型，天气工具需要Double/Number
                             execParams.put("lon", lon);   // Double类型，天气工具需要Double/Number
                             addSystemMessage("📍 已定位到: " + city);
-                            runGuideToolExecution(dialog, toolName, execParams);
+                            runGuideToolExecution(dialog, finalToolName, execParams);
                         }
                         @Override
                         public void onLocationFailed(String error) {
@@ -2028,7 +2074,7 @@ public class AIChatActivity extends BaseActivity {
                 }
 
                 // 无缺失上下文，直接执行
-                runGuideToolExecution(dialog, toolName, execParams);
+                runGuideToolExecution(dialog, finalToolName, execParams);
             });
             container.addView(execBtn);
         }
@@ -2545,19 +2591,6 @@ public class AIChatActivity extends BaseActivity {
             }
         }
         return ToolGuideFlow.GuideStep.StepType.FILE_PICKER;
-    }
-
-    /** 动态创建一个聚合方案入口 Chip 并加入 ChipGroup */
-    private void addCompositeChip(com.google.android.material.chip.ChipGroup group,
-                                  String label, final String flowId) {
-        com.google.android.material.chip.Chip chip = new com.google.android.material.chip.Chip(this);
-        chip.setText(label);
-        chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(0xFFE8F5E9));
-        chip.setTextColor(0xFF1B5E20);
-        chip.setChipStrokeWidth(0f);
-        chip.setClickable(true);
-        chip.setOnClickListener(v -> showCompositeGuideDialog(flowId));
-        group.addView(chip);
     }
 
     /**
