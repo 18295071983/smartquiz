@@ -579,17 +579,15 @@ public class OCRManager {
             return "";
         }
         
-        // 去除不可打印的控制字符（保留换行和制表符）
-        StringBuilder cleaned = new StringBuilder();
-        for (char c : text.toCharArray()) {
-            if (c == '\n' || c == '\r' || c == '\t' || 
-                (c >= 32 && c <= 126) || 
-                (c >= 0x4e00 && c <= 0x9fff) || 
-                (c >= 0x3040 && c <= 0x30ff) || 
-                (c >= 0x31f0 && c <= 0x31ff) || 
-                (c >= 0xac00 && c <= 0xd7af) || 
-                (c >= 0x1100 && c <= 0x11ff) ||
-                (c >= 0xff00 && c <= 0xffef)) {
+        // 仅过滤不可见控制字符（换行/回车/制表保留），保留全部可打印字符。
+        // 原实现用白名单区间，但区间不含中文标点（。、、《》「」）、弯引号、
+        // 破折号、省略号及 CJK 扩展汉字，导致识别结果被删成“残缺”。
+        StringBuilder cleaned = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t') {
+                cleaned.append(c);
+            } else if (!Character.isISOControl(c)) {
                 cleaned.append(c);
             }
         }
