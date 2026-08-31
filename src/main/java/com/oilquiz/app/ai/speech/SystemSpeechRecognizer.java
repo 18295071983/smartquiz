@@ -172,7 +172,9 @@ public class SystemSpeechRecognizer {
             });
 
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            // 不指定 LANGUAGE_MODEL，让系统使用默认识别引擎（兼容小爱、讯飞、Google 等）
+            // 显式指定自由文本模型与中文，兼容小米小爱等国内引擎（避免引擎按默认英文模型拒绝请求）
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
             AILogger.d(TAG, "启动系统语音识别，调用包: " + context.getPackageName());

@@ -5,6 +5,8 @@ import android.net.Uri;
 
 import com.oilquiz.app.ai.model.OnlineModelManager;
 
+import com.oilquiz.app.util.AILogger;
+
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 
@@ -27,6 +29,8 @@ import java.util.concurrent.CompletableFuture;
  * </pre>
  */
 public class SpeechManager {
+
+    private static final String TAG = "SpeechManager";
 
     private final Context context;
     private final SpeechRecognitionService asrService;
@@ -111,20 +115,44 @@ public class SpeechManager {
 
     // ---------- 离线/系统语音识别兜底 ----------
 
-    /** 设备是否有可用的系统语音识别服务（离线兜底） */
+    /**
+     * 设备是否有可用的系统语音识别服务（离线兜底）。
+     * 真实检测设备上是否注册了系统 RecognitionService（如小米小爱语音引擎的
+     * com.xiaomi.mibrain.speech/.asr.AsrService），而非写死禁用。
+     */
     public boolean isOfflineAsrAvailable() {
-        return false; // 已禁用系统语音识别兜底
+        try {
+            return SystemSpeechRecognizer.isAvailable(context);
+        } catch (Exception e) {
+            AILogger.w(TAG, "检查系统语音识别可用性失败: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
      * 启动离线/系统语音识别（实时监听麦克风）
-     * 用于在线 ASR 不可用或调用失败时的兜底；需用户重新说话
+     * 用于在线 ASR 不可用或调用失败时的兜底；需用户重新说话。
+     * 修复：恢复被禁用的系统语音识别兜底，不再强制要求配置在线语音识别模型。
      */
     public void startOfflineRecognition(SystemSpeechRecognizer.RecognitionCallback callback) {
-        // 已禁用系统语音识别兜底
-        if (callback != null) {
-            callback.onError("系统语音识别已禁用，请配置在线语音识别模型（如 qwen3-asr-flash）");
-            callback.onEnd();
+        try {
+            if (!SystemSpeechRecognizer.isAvailable(context)) {
+                if (callback != null) {
+                    callback.onError("当前设备没有可用的系统语音识别服务，请配置在线语音识别模型（如 qwen3-asr-flash / whisper-1）");
+                    callback.onEnd();
+                }
+                return;
+            }
+            if (offlineRecognizer == null) {
+                offlineRecognizer = new SystemSpeechRecognizer(context);
+            }
+            offlineRecognizer.startListening(callback);
+        } catch (Exception e) {
+            AILogger.e(TAG, "启动系统语音识别失败: " + e.getMessage(), e);
+            if (callback != null) {
+                callback.onError("系统语音识别启动失败: " + e.getMessage());
+                callback.onEnd();
+            }
         }
     }
 

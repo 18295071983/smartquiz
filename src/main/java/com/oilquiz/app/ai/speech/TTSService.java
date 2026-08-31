@@ -316,18 +316,29 @@ public class TTSService {
     }
 
     /**
-     * 根据当前配置的 TTS 模型自动检测匹配的默认音色
+     * 根据当前配置的 TTS 模型自动检测匹配的默认音色。
+     *
+     * 只基于"语音合成功能模型"（FEATURE_TTS）解析模型名：
+     * - 显式配置了具体模型名 → 直接用
+     * - 只配置了 TTS 专用端点、未指定具体模型名 → 用 SpeechModelSelector 解析出的
+     *   端点默认 TTS 模型名（如 qwen3-tts-flash / cosyvoice-v2）
+     * - 未配置 TTS 专用端点 → 返回 null（落到默认音色）
+     *
+     * 修复：不再回退到"全局活跃聊天模型"（getActiveModel）。
+     * 旧逻辑在用户未配 TTS 专用模型时用聊天模型名猜 TTS 音色，切换聊天模型即导致
+     * 默认音色跳变（音色漂移）——即"功能模型入口硬编码"问题。
      */
     private String detectDefaultVoiceForModel() {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
             String featureModelName = manager.getFeatureModelName(OnlineModelManager.FEATURE_TTS);
             if (featureModelName == null || featureModelName.isEmpty()) {
-                OnlineModelManager.OnlineModelConfig activeConfig = manager.getActiveModel();
-                if (activeConfig != null) {
-                    featureModelName = activeConfig.selectedModel != null
-                            ? activeConfig.selectedModel
-                            : activeConfig.modelName;
+                // 未显式指定具体模型名：从 TTS 专用端点解析实际使用的模型名
+                OnlineModelManager.OnlineModelConfig ttsConfig =
+                        manager.getFeatureModel(OnlineModelManager.FEATURE_TTS);
+                if (ttsConfig != null) {
+                    featureModelName = SpeechModelSelector.resolveModelName(
+                            ttsConfig, null, SpeechModelSelector.Capability.TTS);
                 }
             }
             if (featureModelName == null || featureModelName.isEmpty()) {

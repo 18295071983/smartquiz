@@ -161,28 +161,82 @@ public class SystemTtsEngine {
         });
     }
 
-    /** 合成前应用用户选择的系统音色（仅 sys: 前缀音色生效） */
+    /** 当前已应用的系统音色名（避免每次重复 setVoice 触发引擎状态抖动） */
+    private String appliedVoiceName = null;
+    /** 未指定系统音色时的稳定中文默认音色（缓存到成员，保证整轮合成音色一致） */
+    private String defaultZhVoiceName = null;
+
+    /**
+     * 合成前应用音色：
+     * 用户指定 sys: 前缀音色 → 应用该音色；
+     * 未指定/非系统音色（在线音色回退系统TTS场景）→ 锁定稳定的中文默认音色，
+     * 不再依赖引擎残留/随机音色，从根本上消除"本地语音合成音色漂移"。
+     * 音色未变化时跳过 setVoice（避免反复设置引起引擎重初始化）。
+     */
     private void applyVoice(String voiceId) {
-        if (voiceId == null || !voiceId.startsWith(TTSService.SYS_VOICE_PREFIX) || systemTts == null) {
+        if (systemTts == null) {
             return;
         }
+        String targetName = null;
+        if (voiceId != null && voiceId.startsWith(TTSService.SYS_VOICE_PREFIX)) {
+            targetName = voiceId.substring(TTSService.SYS_VOICE_PREFIX.length());
+        } else {
+            targetName = findDefaultZhVoiceName();
+        }
+        if (targetName == null || targetName.equals(appliedVoiceName)) {
+            return; // 无可用音色或音色未变化
+        }
         try {
-            String name = voiceId.substring(TTSService.SYS_VOICE_PREFIX.length());
             java.util.Set<android.speech.tts.Voice> voices = systemTts.getVoices();
             if (voices == null) {
                 return;
             }
             for (android.speech.tts.Voice v : voices) {
-                if (v != null && name.equals(v.getName())) {
+                if (v != null && targetName.equals(v.getName())) {
                     systemTts.setVoice(v);
-                    AILogger.i(TAG, "应用系统TTS音色: " + name);
+                    appliedVoiceName = targetName;
+                    AILogger.i(TAG, "应用系统TTS音色: " + targetName);
                     return;
                 }
             }
-            AILogger.w(TAG, "未找到系统音色: " + name);
+            AILogger.w(TAG, "未找到系统音色: " + targetName);
         } catch (Exception e) {
             AILogger.w(TAG, "应用系统音色失败: " + e.getMessage());
         }
+    }
+
+    /** 查找稳定的默认中文音色：优先 zh/cmn 音色，其次任意音色；结果缓存，整轮合成音色保持一致 */
+    private String findDefaultZhVoiceName() {
+        if (defaultZhVoiceName != null) {
+            return defaultZhVoiceName;
+        }
+        try {
+            if (systemTts == null) {
+                return null;
+            }
+            java.util.Set<android.speech.tts.Voice> voices = systemTts.getVoices();
+            if (voices == null) {
+                return null;
+            }
+            for (android.speech.tts.Voice v : voices) {
+                if (v != null && v.getName() != null) {
+                    String n = v.getName().toLowerCase();
+                    if (n.contains("zh") || n.contains("cmn")) {
+                        defaultZhVoiceName = v.getName();
+                        return defaultZhVoiceName;
+                    }
+                }
+            }
+            for (android.speech.tts.Voice v : voices) {
+                if (v != null && v.getName() != null) {
+                    defaultZhVoiceName = v.getName();
+                    return defaultZhVoiceName;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "查找默认中文音色失败: " + e.getMessage());
+        }
+        return null;
     }
 
     /** 释放系统 TTS 资源 */
