@@ -264,10 +264,17 @@ public class OCRActivity extends AppCompatActivity {
     }
 
     private void openImagePicker() {
-        Intent intent = new Intent();
-        intent.setType("image/*");
-        intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
-        startActivityForResult(Intent.createChooser(intent, "选择图片"), PICK_IMAGE_REQUEST);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            // Android 13+：Photo Picker（系统相册界面，SAF 无存储权限，返回 content:// URI）
+            // 用户点"从相册选择"期望进相册，ACTION_OPEN_DOCUMENT 会弹文件管理器，语义不符
+            Intent intent = new Intent(MediaStore.ACTION_PICK_IMAGES);
+            startActivityForResult(intent, PICK_IMAGE_REQUEST);
+        } else {
+            // 低版本：ACTION_GET_CONTENT（SAF，无需存储权限），系统选择器可直接进入相册
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            startActivityForResult(Intent.createChooser(intent, "选择图片"), PICK_IMAGE_REQUEST);
+        }
     }
     
     private void openPdfPicker() {
