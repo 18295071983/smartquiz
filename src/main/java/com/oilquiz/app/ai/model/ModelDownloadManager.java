@@ -904,7 +904,9 @@ public class ModelDownloadManager {
         "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
         "https://hf-mirror.com/ibm-granite/granite-4.0-h-micro-GGUF/resolve/main/granite-4.0-h-micro-Q4_K_M.gguf",
         // 多模态视觉模型（需要配合 mmproj 投影文件使用）
-        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+        // 22: Qwen3-VL-2B-Thinking（多模态 Agent：视觉 + 思考链 + 原生 <tool_call> 工具调用）
+        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf"
     };
 
     // 多模态模型的 mmproj 投影文件 URL（与 PRESET_DOMESTIC_MODEL_URLS 索引对应，null 表示无 mmproj）
@@ -913,7 +915,8 @@ public class ModelDownloadManager {
         null, null, null, null, null, null, null, null, null,
         "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
         null,  // 20: Granite-4.0-Micro
-        "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf"  // 21: Qwen2.5-VL-3B
+        "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf",  // 21: Qwen2.5-VL-3B
+        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf"  // 22: Qwen3-VL-2B-Thinking
     };
 
     public List<ModelPresetInfo> getPresetDomesticModels() {
@@ -943,6 +946,7 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
         // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
         list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21], 300));
+        list.add(new ModelPresetInfo("qwen3-vl-2b-thinking", "Qwen3-VL-2B-Thinking", "多模态Agent：视觉理解+思考链+原生工具调用", PRESET_DOMESTIC_MODEL_URLS[22], 1056, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[22], 424));
         return list;
     }
 
