@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/white"
-    tools:context=".FilePreviewActivity">
+    tools:context=".ui.activity.FilePreviewActivity">
 
     <!-- 标题栏 -->
     <androidx.appcompat.widget.Toolbar

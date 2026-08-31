@@ -3379,6 +3379,13 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void processMessageWithAttachmentsViaAgent(String originalMessage, List<ChatMessage.Attachment> attachments) {
+        // 同步捕获本条消息的深度思考开关（sendMessage 结束后会 autoReset 复位，异步线程里再读会变 false）
+        boolean thinkingFlag = false;
+        try {
+            thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        } catch (Exception ignored) {
+        }
+        final boolean visionThinkingEnabled = thinkingFlag;
         List<ChatMessage.Attachment> filtered = new ArrayList<>();
         List<String> skippedFiles = new ArrayList<>();
         for (ChatMessage.Attachment att : attachments) {
@@ -3419,8 +3426,10 @@ public class AIChatActivity extends BaseActivity {
             try {
                 multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
             } catch (Exception ignored) {}
+            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
+            final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
             if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
                 return;
             }
 
@@ -3444,6 +3453,10 @@ public class AIChatActivity extends BaseActivity {
                             .append("（").append(formatFileSize(att.size)).append("）")
                             .append(saved ? " → 正在解析..." : " → ❗保存失败")
                             .append("\n");
+                }
+                // 本地模型已加载但视觉未就绪时，明确提示走 OCR 的原因（避免静默降级困惑）
+                if (localVisionNotReady) {
+                    displayMsg.append("\n⚠️ 本地视觉模型未就绪（未加载 mmproj），本次使用本地高精度 OCR（PP-OCRv6）识别图片文字");
                 }
                 displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
 
@@ -3742,6 +3755,13 @@ public class AIChatActivity extends BaseActivity {
     private static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
 
     private void processMessageWithAttachments(String originalMessage, List<ChatMessage.Attachment> attachments) {
+        // 同步捕获本条消息的深度思考开关（sendMessage 结束后会 autoReset 复位）
+        boolean thinkingFlag = false;
+        try {
+            thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        } catch (Exception ignored) {
+        }
+        final boolean visionThinkingEnabled = thinkingFlag;
         // 过滤有效附件（限制数量与大小）
         List<ChatMessage.Attachment> filtered = new ArrayList<>();
         List<String> skippedFiles = new ArrayList<>();
@@ -3789,8 +3809,10 @@ public class AIChatActivity extends BaseActivity {
             try {
                 multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
             } catch (Exception ignored) {}
+            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
+            final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
             if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
                 return;
             }
 
@@ -3809,6 +3831,10 @@ public class AIChatActivity extends BaseActivity {
                             .append("（").append(formatFileSize(att.size)).append("）")
                             .append(saved ? " → 正在解析..." : " → ❗保存失败")
                             .append("\n");
+                }
+                // 本地模型已加载但视觉未就绪时，明确提示走 OCR 的原因（避免静默降级困惑）
+                if (localVisionNotReady) {
+                    displayMsg.append("\n⚠️ 本地视觉模型未就绪（未加载 mmproj），本次使用本地高精度 OCR（PP-OCRv6）识别图片文字");
                 }
                 displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
 
@@ -3897,7 +3923,8 @@ public class AIChatActivity extends BaseActivity {
      */
     private void handleMultimodalImage(ChatMessage.Attachment imageAtt,
                                        java.util.Map<android.net.Uri, String> localFileMap,
-                                       String originalMessage) {
+                                       String originalMessage,
+                                       boolean visionThinkingEnabled) {
         try {
             android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
             String localPath = localFileMap != null ? localFileMap.get(uri) : null;
@@ -3910,11 +3937,254 @@ public class AIChatActivity extends BaseActivity {
 
             final String userText = originalMessage == null || originalMessage.trim().isEmpty()
                     ? "请描述这张图片的内容" : originalMessage;
-            // 用户消息已由 sendMessage 添加（含附件），此处不再重复添加，直接创建 AI 回复消息
+            // 图片预处理：WebP/HEIC 等重编码为 JPEG + 长边降采样，
+            // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题
+            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, localFile);
+            // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
+            // 其文本离开图片会误导模型）
+            final java.util.List<ChatMessage> history = buildVisionHistory(1);
+            // 采样参数读用户配置（不再硬编码 0.7/0.9/40）
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            final float temperature = aiConfig != null ? aiConfig.getTemperature() : 0.7f;
+            final float topP = aiConfig != null ? aiConfig.getTopP() : 0.9f;
+            final int topK = aiConfig != null ? aiConfig.getTopK() : 40;
 
-            // 创建流式 AI 消息
-            final String msgId = java.util.UUID.randomUUID().toString();
-            ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+            startLocalVisionGeneration(history, userText, visionImagePath,
+                    maxTokens, temperature, topP, topK, visionThinkingEnabled);
+        } catch (Exception e) {
+            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
+            showToast("图片处理失败，请重试");
+        }
+    }
+
+    /** 构建本地视觉模型的多轮上下文：取 chatHistory 中除末尾 excludeLast 条外的 USER/AI 文本消息，最多 12 条 */
+    private java.util.List<ChatMessage> buildVisionHistory(int excludeLast) {
+        java.util.List<ChatMessage> hist = new java.util.ArrayList<>();
+        int end = Math.max(0, chatHistory.size() - excludeLast);
+        for (int i = 0; i < end; i++) {
+            ChatMessage m = chatHistory.get(i);
+            if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                    && m.content != null && !m.content.isEmpty()) {
+                hist.add(m);
+            }
+        }
+        if (hist.size() > 12) {
+            hist = new java.util.ArrayList<>(hist.subList(hist.size() - 12, hist.size()));
+        }
+        return hist;
+    }
+
+    /**
+     * 执行本地视觉推理（共用：新图首轮 / 纯文字追问复用上一张图）。
+     * 含竞态缓解：调用前在工作线程再次确认多模态就绪，避免 UI 线程检查后、生成线程执行前用户切换模型。
+     */
+    private void startLocalVisionGeneration(java.util.List<ChatMessage> history, String userText,
+                                            String visionImagePath, int maxTokens,
+                                            float temperature, float topP, int topK,
+                                            boolean visionThinkingEnabled) {
+        final String msgId = java.util.UUID.randomUUID().toString();
+        ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+        aiMsg.status = ChatMessage.MessageStatus.GENERATING;
+        chatHistory.add(aiMsg);
+        final int aiIndex = chatHistory.size() - 1;
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
+        scrollToBottom();
+        beginGeneration();
+
+        new Thread(() -> {
+            final StringBuilder full = new StringBuilder();
+            try {
+                // 竞态缓解：工作线程再确认一次多模态就绪（期间用户可能切换模型）
+                if (!LlamaHelper.isMultimodalLoaded() || !LlamaHelper.isModelInitialized()) {
+                    runOnUiThread(() -> {
+                        aiMsg.content = "图片识别失败: 本地视觉模型未就绪（mmproj 未加载或模型已切换），请稍后重试";
+                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                        endGeneration();
+                    });
+                    return;
+                }
+                LlamaHelper.generateWithImage(history, userText, visionImagePath,
+                        maxTokens, temperature, topP, topK, visionThinkingEnabled,
+                        new LlamaHelper.TokenCallback() {
+                            @Override public void onToken(String token) {
+                                if (token == null) return;
+                                synchronized (full) { full.append(token); }
+                                runOnUiThread(() -> {
+                                    synchronized (full) { aiMsg.content = full.toString(); }
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                });
+                            }
+                            @Override public void onComplete(String fullText) {
+                                runOnUiThread(() -> {
+                                    aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
+                                    aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    endGeneration();
+                                    scrollToBottom();
+                                    saveHistoryAsync();
+                                });
+                            }
+                            @Override public void onError(String error) {
+                                runOnUiThread(() -> {
+                                    aiMsg.content = "图片识别失败: " + error;
+                                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    endGeneration();
+                                });
+                            }
+                        });
+            } catch (Exception e) {
+                AppLogger.e(TAG, "Multimodal generate error: " + e.getMessage(), e);
+                runOnUiThread(() -> {
+                    aiMsg.content = "图片处理异常: " + e.getMessage();
+                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                    endGeneration();
+                });
+            }
+        }).start();
+    }
+
+    /** 解析附件为真实本地文件（优先落盘路径，否则 content:// 复制到缓存） */
+    private java.io.File resolveAttachmentFile(ChatMessage.Attachment att) {
+        try {
+            if (att.localFilePath != null) {
+                java.io.File f = new java.io.File(att.localFilePath);
+                if (f.exists()) return f;
+            }
+            if (att.url != null && !att.url.isEmpty()) {
+                java.io.File f = com.oilquiz.app.util.UriPathResolver.resolveToFile(this, att.url);
+                if (f != null && f.exists()) return f;
+            }
+        } catch (Exception e) {
+            AppLogger.w(TAG, "resolveAttachmentFile failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 本地多模态追问：上一轮发过图、当前为纯文字且本地视觉已就绪时，自动复用该图做视觉理解，
+     * 解决"看完图后追问"失效问题。返回 true 表示已接管本轮回复。
+     */
+    private boolean tryFollowUpVision(String message) {
+        try {
+            if (aiService == null) return false;
+            if (!LlamaHelper.isMultimodalLoaded() || !LlamaHelper.isModelInitialized()) return false;
+            if (chatHistory == null || chatHistory.isEmpty()) return false;
+            // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
+            ChatMessage.Attachment lastImage = null;
+            int lastImageIndex = -1;
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
+                    for (ChatMessage.Attachment att : m.attachments) {
+                        if (att != null && "image".equals(att.type)) {
+                            lastImage = att;
+                            lastImageIndex = i;
+                            break;
+                        }
+                    }
+                }
+                if (lastImage != null) break;
+            }
+            if (lastImage == null || lastImageIndex < 0) return false;
+            if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            java.io.File imageFile = resolveAttachmentFile(lastImage);
+            if (imageFile == null || !imageFile.exists()) return false;
+
+            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, imageFile);
+            // 历史：图片消息之前的 USER/AI 文本
+            final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
+            for (int i = 0; i < lastImageIndex; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && m.content != null && !m.content.isEmpty()) {
+                    history.add(m);
+                }
+            }
+            if (history.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(history.size() - 12, history.size()));
+                history.clear();
+                history.addAll(trimmed);
+            }
+
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            final float temperature = aiConfig != null ? aiConfig.getTemperature() : 0.7f;
+            final float topP = aiConfig != null ? aiConfig.getTopP() : 0.9f;
+            final int topK = aiConfig != null ? aiConfig.getTopK() : 40;
+            boolean thinkingFlag = false;
+            try {
+                thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            } catch (Exception ignored) {
+            }
+            final boolean thinkingEnabled = thinkingFlag;
+            AppLogger.ai(TAG, "Follow-up vision: reuse image " + imageFile.getName() + " for: " + message);
+            startLocalVisionGeneration(history, message, visionImagePath,
+                    maxTokens, temperature, topP, topK, thinkingEnabled);
+            return true;
+        } catch (Exception e) {
+            AppLogger.w(TAG, "tryFollowUpVision failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 在线视觉追问：上一轮发过图、当前为纯文字且在线模型支持视觉时，
+     * 自动复用该图（base64 注入 OpenAI 兼容消息）做视觉理解，
+     * 解决"看完图后追问"失效问题（原 Agent 文本路径的历史序列化不含图片）。
+     * 返回 true 表示已接管本轮回复。
+     */
+    private boolean tryFollowUpOnlineVision(String message) {
+        try {
+            if (!isOnlineVisionModel()) return false;
+            if (chatHistory == null || chatHistory.isEmpty()) return false;
+            // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
+            ChatMessage.Attachment lastImage = null;
+            int lastImageIndex = -1;
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
+                    for (ChatMessage.Attachment att : m.attachments) {
+                        if (att != null && "image".equals(att.type)) {
+                            lastImage = att;
+                            lastImageIndex = i;
+                            break;
+                        }
+                    }
+                }
+                if (lastImage != null) break;
+            }
+            if (lastImage == null || lastImageIndex < 0) return false;
+            if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            final ChatMessage.Attachment fImage = lastImage;
+            java.io.File imageFile = resolveAttachmentFile(lastImage);
+            if (imageFile == null || !imageFile.exists()) return false;
+            if (imageFile.length() > 4L * 1024 * 1024) return false; // 防请求体过大，超 4MB 不走在线视觉
+
+            // 读图转 base64
+            byte[] bytes = java.nio.file.Files.readAllBytes(imageFile.toPath());
+            final String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+
+            // 历史：图片消息之前的 USER/AI 纯文本（跳过带附件消息，多轮发图时避免把旧图文本/默认文本混入）
+            final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
+            for (int i = 0; i < lastImageIndex; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && (m.attachments == null || m.attachments.isEmpty())
+                        && m.content != null && !m.content.isEmpty()) {
+                    history.add(m);
+                }
+            }
+            if (history.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(history.size() - 12, history.size()));
+                history.clear();
+                history.addAll(trimmed);
+            }
+
+            // 创建流式 AI 回复消息
+            ChatMessage aiMsg = ChatMessage.createAIMessage(
+                    java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
             aiMsg.status = ChatMessage.MessageStatus.GENERATING;
             chatHistory.add(aiMsg);
             final int aiIndex = chatHistory.size() - 1;
@@ -3923,53 +4193,56 @@ public class AIChatActivity extends BaseActivity {
             beginGeneration();
 
             final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
-            new Thread(() -> {
-                final StringBuilder full = new StringBuilder();
-                try {
-                    LlamaHelper.generateWithImage(new ArrayList<>(),
-                            userText, localFile.getAbsolutePath(),
-                            maxTokens, 0.7f, 0.9f, 40, false,
-                            new LlamaHelper.TokenCallback() {
-                                @Override public void onToken(String token) {
-                                    if (token == null) return;
-                                    synchronized (full) { full.append(token); }
-                                    runOnUiThread(() -> {
-                                        synchronized (full) { aiMsg.content = full.toString(); }
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                    });
-                                }
-                                @Override public void onComplete(String fullText) {
-                                    runOnUiThread(() -> {
-                                        aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
-                                        aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                        endGeneration();
-                                        scrollToBottom();
-                                        saveHistoryAsync();
-                                    });
-                                }
-                                @Override public void onError(String error) {
-                                    runOnUiThread(() -> {
-                                        aiMsg.content = "图片识别失败: " + error;
-                                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                        endGeneration();
-                                    });
-                                }
+            com.oilquiz.app.ai.service.OnlineInferenceService ois =
+                    com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
+            OnlineModelManager.OnlineModelConfig active =
+                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+            if (ois == null || active == null) {
+                aiMsg.content = "在线模型未配置";
+                aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                endGeneration();
+                return true;
+            }
+
+            AppLogger.ai(TAG, "Follow-up online vision: reuse image " + imageFile.getName() + " for: " + message);
+            ois.generateStreamWithImages(message, java.util.Collections.singletonList(b64),
+                    active, history, maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
+                        @Override public void onToken(String token) {
+                            if (token == null) return;
+                            runOnUiThread(() -> {
+                                aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
                             });
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "Multimodal generate error: " + e.getMessage(), e);
-                    runOnUiThread(() -> {
-                        aiMsg.content = "图片处理异常: " + e.getMessage();
-                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                        endGeneration();
+                        }
+                        @Override public void onComplete(String fullText) {
+                            runOnUiThread(() -> {
+                                aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : aiMsg.content;
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                scrollToBottom();
+                                saveHistoryAsync();
+                            });
+                        }
+                        @Override public void onError(String error) {
+                            // 在线视觉失败：进入冷却（30s 内不走在线视觉），回退 OCR+Agent
+                            lastOnlineVisionFailAt = System.currentTimeMillis();
+                            runOnUiThread(() -> {
+                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用本地高精度 OCR 识别...";
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
+                                processMessageWithAttachmentsViaAgent(message,
+                                        java.util.Collections.singletonList(fImage));
+                            });
+                        }
                     });
-                }
-            }).start();
+            return true;
         } catch (Exception e) {
-            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
-            showToast("图片处理失败，请重试");
+            AppLogger.w(TAG, "tryFollowUpOnlineVision failed: " + e.getMessage());
+            return false;
         }
     }
 
@@ -4056,8 +4329,24 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
+            // 多轮上下文：图片消息之前的 USER/AI 纯文本（跳过带附件消息，避免旧图文本混入）
+            final java.util.List<ChatMessage> onlineHistory = new java.util.ArrayList<>();
+            for (int i = 0; i < chatHistory.size() - 1; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && (m.attachments == null || m.attachments.isEmpty())
+                        && m.content != null && !m.content.isEmpty()) {
+                    onlineHistory.add(m);
+                }
+            }
+            if (onlineHistory.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(onlineHistory.subList(onlineHistory.size() - 12, onlineHistory.size()));
+                onlineHistory.clear();
+                onlineHistory.addAll(trimmed);
+            }
+
             ois.generateStreamWithImages(userText, java.util.Collections.singletonList(b64),
-                    active, new java.util.ArrayList<>(),
+                    active, onlineHistory,
                     maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token == null) return;
@@ -4080,7 +4369,7 @@ public class AIChatActivity extends BaseActivity {
                             // 在线视觉失败：进入冷却（30s 内不走在线视觉），回退 OCR+Agent
                             lastOnlineVisionFailAt = System.currentTimeMillis();
                             runOnUiThread(() -> {
-                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用 OCR 识别...";
+                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用本地高精度 OCR 识别...";
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
                                 if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
                                 endGeneration();
@@ -4411,6 +4700,11 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
 
+        // 本地多模态追问：上一轮发过图、当前纯文字且本地视觉已就绪 → 自动复用该图走视觉理解（不走纯文本/缓存）
+        if (tryFollowUpVision(message)) {
+            return;
+        }
+
         if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled()) {
             String cached = cacheManager.getCachedResponse(message);
             if (cached != null) { addAIMessage(cached); addSystemMessage("(来自缓存)"); return; }
@@ -4625,6 +4919,12 @@ public class AIChatActivity extends BaseActivity {
             if (!useOnlineModel && !localAgentEnabled) {
                 addSystemMessage("🤖 本地模型暂不支持 Agent 工具调用，已使用普通对话。");
                 processChatMessageNormal(message);
+                return;
+            }
+
+            // 在线视觉追问：上一轮发过图、当前纯文字且在线模型支持视觉 → 自动复用该图做视觉理解
+            // （置于 Agent 引擎就绪检查前，看图问答不必走完整 Agent 工具循环）
+            if (useOnlineModel && tryFollowUpOnlineVision(message)) {
                 return;
             }
 

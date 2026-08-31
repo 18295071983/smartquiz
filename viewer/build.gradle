@@ -14,7 +14,7 @@ android {
         buildConfigField "String", "BUILD_ID_SHORT", "\"dev\""
         buildConfigField "String", "VENDOR", "\"LibreOffice\""
         buildConfigField "String", "PRIVACY_POLICY_URL", "\"\""
-        buildConfigField "boolean", "ALLOW_EDITING", "false"
+        buildConfigField "boolean", "ALLOW_EDITING", "true"
         buildConfigField "String", "APPLICATION_ID", "\"com.oilquiz.app\""
         buildConfigField "int", "VERSION_CODE", "1"
     }

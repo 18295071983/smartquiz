@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="?attr/colorSurface"
-    tools:context=".StudyProgressActivity">
+    >
 
     <!-- 顶部状态栏 -->
     <androidx.appcompat.widget.Toolbar

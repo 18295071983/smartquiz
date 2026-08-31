@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/white"
-    tools:context=".QuizActivity">
+    tools:context=".ui.activity.QuizActivity">
 
     <!-- 顶部信息栏 -->
     <LinearLayout

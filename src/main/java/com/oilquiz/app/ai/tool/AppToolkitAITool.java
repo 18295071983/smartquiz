@@ -222,7 +222,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+            // 优先使用在线视觉模型 OCR，失败自动回退本地高精度 OCR（PP-OCRv6），最终 ML Kit 兜底
             com.oilquiz.app.manager.OCRManager ocrManager = toolkit.getOcrManager();
             String resultText = ocrManager.recognizeFileOnlineFirst(imageFile.getAbsolutePath(), language)
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
@@ -234,7 +234,9 @@ public class AppToolkitAITool implements AITool {
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");
             resultMap.put("text", resultText);
-            resultMap.put("engine", "online_vision"); // 标记使用的引擎
+            // 实际生效引擎：在线视觉模型 / 本地高精度 RapidOCR(PP-OCRv6) / ML Kit
+            resultMap.put("engine", ocrManager.getLastEngine());
+            resultMap.put("engine_label", ocrManager.getLastEngineLabel());
             resultMap.put("language", language != null ? language : "auto");
             
             return new AIToolResult(resultMap, parameters);

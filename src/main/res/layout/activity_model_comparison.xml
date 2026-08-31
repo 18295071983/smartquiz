@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/white"
-    tools:context=".ModelComparisonActivity">
+    tools:context=".ai.model.ModelComparisonActivity">
 
     <!-- 顶部工具栏 -->
     <androidx.appcompat.widget.Toolbar

@@ -56,21 +56,53 @@ public final class LibreOfficeViewerLauncher {
         }
     }
 
-    /** 获取文件 MIME 类型。 */
+    /** 获取文件 MIME 类型（与集成查看器 manifest 声明的 38 种格式对齐）。 */
     public static String getMimeType(String fileName) {
         String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
         switch (ext) {
+            // MS Office
             case "doc": return "application/msword";
             case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
             case "xls": return "application/vnd.ms-excel";
             case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             case "ppt": return "application/vnd.ms-powerpoint";
             case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case "ppsx": return "application/vnd.openxmlformats-officedocument.presentationml.slideshow";
+            // MS Office 模板
+            case "dot": case "dotx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.template";
+            case "xlt": case "xltx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.template";
+            case "pot": case "potx": return "application/vnd.openxmlformats-officedocument.presentationml.template";
+            // ODF
             case "odt": return "application/vnd.oasis.opendocument.text";
             case "ods": return "application/vnd.oasis.opendocument.spreadsheet";
             case "odp": return "application/vnd.oasis.opendocument.presentation";
+            case "odg": return "application/vnd.oasis.opendocument.graphics";
+            // ODF 模板
+            case "ott": return "application/vnd.oasis.opendocument.text-template";
+            case "ots": return "application/vnd.oasis.opendocument.spreadsheet-template";
+            case "otp": return "application/vnd.oasis.opendocument.presentation-template";
+            case "otg": return "application/vnd.oasis.opendocument.graphics-template";
+            // ODF flat-xml
+            case "fodt": return "application/vnd.oasis.opendocument.text-flat-xml";
+            case "fods": return "application/vnd.oasis.opendocument.spreadsheet-flat-xml";
+            case "fodp": return "application/vnd.oasis.opendocument.presentation-flat-xml";
+            case "fodg": return "application/vnd.oasis.opendocument.graphics-flat-xml";
+            // 其他文档格式
             case "rtf": return "application/rtf";
             case "csv": return "text/csv";
+            case "vsd": return "application/vnd.visio";
+            case "vsdx": return "application/vnd.visio2013";
+            case "vdx": return "application/vnd.visio.xml";
+            case "pub": return "application/x-mspublisher";
+            case "wps": return "application/vnd.ms-works";
+            case "key": return "application/vnd.apple.keynote";
+            case "abw": return "application/x-abiword";
+            case "pmd": return "application/x-pagemaker";
+            // 矢量图形
+            case "emf": return "image/x-emf";
+            case "svm": return "image/x-svm";
+            case "wmf": return "image/x-wmf";
+            case "svg": return "image/svg+xml";
             case "txt": return "text/plain";
             case "pdf": return "application/pdf";
             default: return "*/*";

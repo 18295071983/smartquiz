@@ -13,6 +13,7 @@ import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -72,6 +73,11 @@ public class OCRActivity extends AppCompatActivity {
     private QuestionViewModel questionViewModel;
     private NoteViewModel noteViewModel;
     
+    private ScrollView scrollView;
+    private View bottomBar;
+    private View resultContainer;
+    private View actionsContainer;
+    
     private boolean isProcessing = false;
 
     @Override
@@ -112,6 +118,10 @@ public class OCRActivity extends AppCompatActivity {
         btnOcrModel = findViewById(R.id.btn_ocr_model); // OCR 模型选择按钮
         progressBar = findViewById(R.id.progress_bar);
         progressText = findViewById(R.id.progress_text);
+        scrollView = findViewById(R.id.scroll_view);
+        bottomBar = findViewById(R.id.bottom_bar);
+        resultContainer = findViewById(R.id.result_container);
+        actionsContainer = findViewById(R.id.actions_container);
     }
     
     private void setupLanguageSpinner() {
@@ -182,6 +192,47 @@ public class OCRActivity extends AppCompatActivity {
                 tvOcrModelName.setText("自动选择（推荐）");
             }
         }
+    }
+
+    /**
+     * 识别完成后展示本次实际生效的识别引擎（在线视觉模型 / 本地高精度 OCR PP-OCRv6 / ML Kit）。
+     * 本地 RapidOCR 为内置高精度引擎，无需选择；点击模型行仍用于配置在线 OCR 模型。
+     */
+    private void showLastEngine() {
+        try {
+            String engine = ocrManager.getLastEngineLabel();
+            if (engine != null && !engine.isEmpty() && !"未知引擎".equals(engine)) {
+                tvOcrModelName.setText("本次识别引擎：" + engine);
+            }
+        } catch (Exception e) {
+            // 展示失败不影响识别结果
+        }
+    }
+
+    /**
+     * 识别完成统一入口：展示结果、底部从"开始识别"切换为结果操作按钮、滚动到结果区。
+     * @param successText 识别成功文本；失败时传 null（错误信息已写入结果框）
+     */
+    private void showRecognitionResult(String successText) {
+        if (successText != null) {
+            resultEditText.setText(successText);
+            Toast.makeText(this, "识别成功！", Toast.LENGTH_SHORT).show();
+        }
+        if (resultContainer != null) resultContainer.setVisibility(View.VISIBLE);
+        if (actionsContainer != null) actionsContainer.setVisibility(View.VISIBLE);
+        if (bottomBar != null) bottomBar.setVisibility(View.GONE);
+        if (scrollView != null) {
+            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+        }
+    }
+
+    /**
+     * 回到选图态：恢复"开始识别"底部栏、隐藏结果与操作按钮（重新选择文件时调用）。
+     */
+    private void resetUiForSelection() {
+        if (bottomBar != null) bottomBar.setVisibility(View.VISIBLE);
+        if (actionsContainer != null) actionsContainer.setVisibility(View.GONE);
+        if (resultContainer != null) resultContainer.setVisibility(View.GONE);
     }
     
     private void setupButtons() {
@@ -268,6 +319,7 @@ public class OCRActivity extends AppCompatActivity {
             selectedImage = loadOriginalImage(imageUri);
             if (selectedImage != null) {
                 selectedPdfUri = null;
+                resetUiForSelection();
                 imageView.setImageBitmap(selectedImage);
                 imageView.setVisibility(View.VISIBLE);
                 findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
@@ -280,6 +332,7 @@ public class OCRActivity extends AppCompatActivity {
                 selectedImage = loadOriginalImage(cameraImageUri);
                 if (selectedImage != null) {
                     selectedPdfUri = null;
+                    resetUiForSelection();
                     imageView.setImageBitmap(selectedImage);
                     imageView.setVisibility(View.VISIBLE);
                     findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
@@ -291,6 +344,7 @@ public class OCRActivity extends AppCompatActivity {
                 selectedImage = (Bitmap) data.getExtras().get("data");
                 if (selectedImage != null) {
                     selectedPdfUri = null;
+                    resetUiForSelection();
                     imageView.setImageBitmap(selectedImage);
                     imageView.setVisibility(View.VISIBLE);
                     findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
@@ -300,6 +354,7 @@ public class OCRActivity extends AppCompatActivity {
         } else if (requestCode == PICK_PDF_REQUEST && data != null && data.getData() != null) {
             selectedPdfUri = data.getData();
             selectedImage = null;
+            resetUiForSelection();
             imageView.setVisibility(View.GONE);
             findViewById(R.id.tv_preview_hint).setVisibility(View.VISIBLE);
             ((TextView)findViewById(R.id.tv_preview_hint)).setText("已选择PDF文件\n点击开始识别");
@@ -397,18 +452,15 @@ public class OCRActivity extends AppCompatActivity {
         isProcessing = true;
         showProgress(true, "正在识别...");
         
-        // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+        // 优先在线视觉模型 OCR，失败自动回退本地高精度 OCR（PP-OCRv6），最终 ML Kit 兜底
         ocrManager.processImageOnlineFirst(selectedImage, new OCRManager.OCRCallback() {
             @Override
             public void onSuccess(String text) {
                 isProcessing = false;
                 showProgress(false, null);
                 
-                // 确保文本正确显示，避免乱码
-                resultEditText.setText(text);
-                findViewById(R.id.result_container).setVisibility(View.VISIBLE);
-                findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                Toast.makeText(OCRActivity.this, "识别成功！", Toast.LENGTH_SHORT).show();
+                showLastEngine();
+                showRecognitionResult(text);
             }
 
             @Override
@@ -417,9 +469,7 @@ public class OCRActivity extends AppCompatActivity {
                 showProgress(false, null);
                 
                 resultEditText.setText("识别失败: " + error);
-                findViewById(R.id.result_container).setVisibility(View.VISIBLE);
-                findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                Toast.makeText(OCRActivity.this, "识别失败: " + error, Toast.LENGTH_SHORT).show();
+                showRecognitionResult(null);
             }
         });
     }
@@ -434,10 +484,8 @@ public class OCRActivity extends AppCompatActivity {
                 isProcessing = false;
                 showProgress(false, null);
                 
-                resultEditText.setText(text);
-                findViewById(R.id.result_container).setVisibility(View.VISIBLE);
-                findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                Toast.makeText(OCRActivity.this, "PDF识别成功！", Toast.LENGTH_SHORT).show();
+                showLastEngine();
+                showRecognitionResult(text);
             }
 
             @Override
@@ -446,9 +494,7 @@ public class OCRActivity extends AppCompatActivity {
                 showProgress(false, null);
                 
                 resultEditText.setText("PDF识别失败: " + error);
-                findViewById(R.id.result_container).setVisibility(View.VISIBLE);
-                findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                Toast.makeText(OCRActivity.this, "PDF识别失败: " + error, Toast.LENGTH_SHORT).show();
+                showRecognitionResult(null);
             }
         }, (percent, message) -> {
             runOnUiThread(() -> {

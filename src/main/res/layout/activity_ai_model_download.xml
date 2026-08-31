@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:context=".AIModelDownloadActivity">
+    >
 
     <!-- 顶部导航栏 -->
     <androidx.appcompat.widget.Toolbar

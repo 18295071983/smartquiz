@@ -889,14 +889,24 @@ public class ModelDownloadActivity extends BaseActivity {
                 String fileName = getFileNameFromDownloadUrl(downloadUrl);
                 String modelPath = modelDir + File.separator + fileName;
                 
-                // 检测多模态投影文件是否存在
-                String baseName = fileName;
-                if (baseName.toLowerCase().endsWith(".gguf")) {
-                    baseName = baseName.substring(0, baseName.length() - 5);
+                // 检测多模态投影文件是否存在：
+                // 优先按预设 mmprojUrl 的实际文件名（如 mmproj-F16.gguf / mmproj-model-f16.gguf）检测，
+                // 兼容旧命名 "<模型名>.mmproj.gguf"，避免"多模态"徽标检测不到。
+                boolean mmprojAvailable = false;
+                ModelDownloadManager.ModelPresetInfo presetInfo = findPresetInfoByUrl(downloadUrl);
+                if (presetInfo != null && presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
+                    String mmprojName = getFileNameFromDownloadUrl(presetInfo.mmprojUrl);
+                    if (mmprojName != null && !mmprojName.isEmpty()) {
+                        mmprojAvailable = new File(modelDir + File.separator + mmprojName).exists();
+                    }
                 }
-                String mmprojPath = modelDir + File.separator + baseName + ".mmproj.gguf";
-                File mmprojFile = new File(mmprojPath);
-                boolean mmprojAvailable = mmprojFile.exists();
+                if (!mmprojAvailable) {
+                    String baseName = fileName;
+                    if (baseName.toLowerCase().endsWith(".gguf")) {
+                        baseName = baseName.substring(0, baseName.length() - 5);
+                    }
+                    mmprojAvailable = new File(modelDir + File.separator + baseName + ".mmproj.gguf").exists();
+                }
                 
                 boolean isDownloaded = new File(modelPath).exists();
                 boolean isDownloading = modelDownloadManager.isDownloading(modelId);
@@ -919,11 +929,8 @@ public class ModelDownloadActivity extends BaseActivity {
                         if (file.exists()) {
                             file.delete();
                         }
-                        // 删除对应的 mmproj 文件
-                        File mmprojToDelete = new File(mmprojPath);
-                        if (mmprojToDelete.exists()) {
-                            mmprojToDelete.delete();
-                        }
+                        // 删除对应的 mmproj 文件（按预设实际文件名 + 兼容旧命名）
+                        deleteMmprojForModel(modelDir, fileName, downloadUrl);
                         updateModelState(modelId, downloadUrl);
                         updateDownloadStats();
                     });
@@ -976,6 +983,24 @@ public class ModelDownloadActivity extends BaseActivity {
                         startDownload(modelId, downloadUrl);
                     });
                 }
+            }
+
+            /** 删除与模型关联的 mmproj 文件（优先预设实际文件名，兼容旧命名） */
+            private void deleteMmprojForModel(String modelDir, String fileName, String downloadUrl) {
+                ModelDownloadManager.ModelPresetInfo presetInfo = findPresetInfoByUrl(downloadUrl);
+                if (presetInfo != null && presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
+                    String mmprojName = getFileNameFromDownloadUrl(presetInfo.mmprojUrl);
+                    if (mmprojName != null && !mmprojName.isEmpty()) {
+                        File f = new File(modelDir + File.separator + mmprojName);
+                        if (f.exists()) f.delete();
+                    }
+                }
+                String baseName = fileName;
+                if (baseName.toLowerCase().endsWith(".gguf")) {
+                    baseName = baseName.substring(0, baseName.length() - 5);
+                }
+                File legacy = new File(modelDir + File.separator + baseName + ".mmproj.gguf");
+                if (legacy.exists()) legacy.delete();
             }
 
             private void updateOnlineModelState(String downloadUrl) {

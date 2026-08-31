@@ -22,17 +22,18 @@
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
+        android:id="@+id/scroll_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:fillViewport="true">
-        
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="16dp">
-            
+
             <!-- 欢迎卡片 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -41,27 +42,28 @@
                 app:cardBackgroundColor="@color/primary_container"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="20dp">
-                
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:padding="20dp">
-                    
+
                     <ImageView
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:src="@drawable/ic_ocr"
+                        android:contentDescription="OCR图标"
                         android:tint="@color/on_primary_container"
                         android:layout_marginEnd="16dp" />
-                    
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-                        
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -70,20 +72,20 @@
                             android:textStyle="bold"
                             android:textColor="@color/on_primary_container"
                             android:layout_marginBottom="4dp" />
-                        
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="识别图片中的文字"
                             android:textSize="14sp"
                             android:textColor="@color/on_primary_container" />
-                        
+
                     </LinearLayout>
-                    
+
                 </LinearLayout>
-                
+
             </com.google.android.material.card.MaterialCardView>
-            
+
             <!-- 图片选择 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -92,13 +94,13 @@
                 app:cardBackgroundColor="@color/surface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="20dp">
-                
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -107,13 +109,13 @@
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
                         android:layout_marginBottom="16dp" />
-                    
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:layout_marginBottom="8dp">
-                        
+
                         <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_capture_image"
                         android:layout_width="0dp"
@@ -141,15 +143,15 @@
                         app:cornerRadius="12dp"
                         android:textAllCaps="false"
                         android:layout_marginEnd="8dp"/>
-                        
+
                     </LinearLayout>
-                    
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:layout_marginBottom="16dp">
-                        
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_select_pdf"
                         android:layout_width="match_parent"
@@ -161,9 +163,9 @@
                         android:textColor="@color/on_tertiary"
                         app:cornerRadius="12dp"
                         android:textAllCaps="false"/>
-                        
+
                     </LinearLayout>
-                    
+
                     <!-- 预览区域 -->
                     <LinearLayout
                         android:id="@+id/preview_container"
@@ -174,14 +176,15 @@
                         android:background="@color/surface_variant"
                         android:padding="16dp"
                         android:layout_marginBottom="16dp">
-                        
+
                         <ImageView
                             android:id="@+id/iv_preview"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
                             android:scaleType="centerCrop"
+                            android:contentDescription="图片预览"
                             android:visibility="gone" />
-                        
+
                         <TextView
                             android:id="@+id/tv_preview_hint"
                             android:layout_width="wrap_content"
@@ -189,13 +192,13 @@
                             android:text="预览图片"
                             android:textSize="14sp"
                             android:textColor="@color/on_surface_variant" />
-                            
+
                     </LinearLayout>
-                    
+
                 </LinearLayout>
-                
+
             </com.google.android.material.card.MaterialCardView>
-            
+
             <!-- 识别设置 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -204,13 +207,13 @@
                 app:cardBackgroundColor="@color/surface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="20dp">
-                
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -219,14 +222,14 @@
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
                         android:layout_marginBottom="16dp" />
-                    
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:layout_marginBottom="12dp">
-                        
+
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
@@ -234,7 +237,7 @@
                             android:text="语言"
                             android:textSize="14sp"
                             android:textColor="@color/on_surface" />
-                        
+
                         <Spinner
                             android:id="@+id/spinner_language"
                             android:layout_width="0dp"
@@ -242,9 +245,9 @@
                             android:layout_weight="1"
                             android:background="@drawable/rounded_spinner"
                             android:padding="12dp" />
-                        
+
                     </LinearLayout>
-                    
+
                     <!-- OCR 模型选择（可点击行） -->
                     <LinearLayout
                         android:id="@+id/btn_ocr_model"
@@ -254,20 +257,21 @@
                         android:background="?attr/selectableItemBackground"
                         android:padding="12dp"
                         android:layout_marginTop="4dp">
-                        
+
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical">
-                            
+
                             <ImageView
                                 android:layout_width="20dp"
                                 android:layout_height="20dp"
                                 android:src="@drawable/ic_ai_model"
+                                android:contentDescription="OCR模型"
                                 android:layout_marginEnd="8dp"
                                 app:tint="@color/primary" />
-                            
+
                             <TextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
@@ -275,15 +279,16 @@
                                 android:text="OCR 模型"
                                 android:textSize="14sp"
                                 android:textColor="@color/on_surface" />
-                            
+
                             <ImageView
                                 android:layout_width="16dp"
                                 android:layout_height="16dp"
                                 android:src="@drawable/ic_chevron_right"
+                                android:contentDescription="更多"
                                 app:tint="@color/on_surface_variant" />
-                            
+
                         </LinearLayout>
-                        
+
                         <TextView
                             android:id="@+id/tv_ocr_model_name"
                             android:layout_width="match_parent"
@@ -293,13 +298,13 @@
                             android:textColor="@color/primary"
                             android:layout_marginStart="28dp"
                             android:layout_marginTop="2dp" />
-                        
+
                     </LinearLayout>
-                    
+
                 </LinearLayout>
-                
+
             </com.google.android.material.card.MaterialCardView>
-            
+
             <!-- 进度显示 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/progress_card"
@@ -310,13 +315,13 @@
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="20dp"
                 android:visibility="gone">
-                
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    
+
                     <TextView
                         android:id="@+id/progress_text"
                         android:layout_width="wrap_content"
@@ -325,7 +330,7 @@
                         android:textSize="14sp"
                         android:textColor="@color/on_surface"
                         android:layout_marginBottom="8dp" />
-                        
+
                     <ProgressBar
                         android:id="@+id/progress_bar"
                         style="?android:attr/progressBarStyleHorizontal"
@@ -333,17 +338,136 @@
                         android:layout_height="wrap_content"
                         android:max="100"
                         android:progress="0" />
-                        
+
                 </LinearLayout>
-                
+
             </com.google.android.material.card.MaterialCardView>
-            
+
+            <!-- 识别结果（置于滚动区内，避免与上方选择区互相挤压） -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/result_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="识别结果"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="12dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="识别文本"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeWidth="2dp"
+                        app:boxStrokeColor="@color/outline"
+                        app:hintTextColor="@color/primary">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_recognized_text"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="180dp"
+                            android:textSize="15sp"
+                            android:textColor="@color/on_surface"
+                            android:inputType="textMultiLine"
+                            android:gravity="top|start"
+                            android:scrollbars="vertical"
+                            android:padding="12dp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
         </LinearLayout>
-        
+
     </ScrollView>
 
-    <!-- 底部操作按钮 -->
+    <!-- 底部操作栏：开始识别按钮 / 识别后操作按钮（二选一展示，由 Java 控制可见性） -->
     <LinearLayout
+        android:id="@+id/actions_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="@color/surface"
+        android:elevation="8dp"
+        android:visibility="gone">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_copy_text"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="复制文本"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginBottom="10dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_share_text"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="分享文本"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:backgroundTint="@color/secondary"
+            android:textColor="@color/on_secondary"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginBottom="10dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_add_to_note"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="添加到笔记"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:backgroundTint="@color/tertiary"
+            android:textColor="@color/on_tertiary"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"
+            android:layout_marginBottom="10dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_save_text"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="保存文本"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:backgroundTint="@color/tertiary"
+            android:textColor="@color/on_tertiary"
+            app:cornerRadius="12dp"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -360,122 +484,6 @@
             android:textStyle="bold"
             app:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"/>
-
-    </LinearLayout>
-
-    <!-- 识别结果容器 -->
-    <LinearLayout
-        android:id="@+id/result_container"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:visibility="gone">
-        
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="识别结果"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="@color/on_surface"
-            android:layout_marginBottom="16dp" />
-        
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:hint="识别文本"
-            app:boxCornerRadiusBottomEnd="12dp"
-            app:boxCornerRadiusBottomStart="12dp"
-            app:boxCornerRadiusTopEnd="12dp"
-            app:boxCornerRadiusTopStart="12dp"
-            app:boxStrokeWidth="2dp"
-            app:boxStrokeColor="@color/outline"
-            app:hintTextColor="@color/primary"
-            android:layout_marginBottom="16dp">
-            
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_recognized_text"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:textSize="14sp"
-                android:textColor="@color/on_surface"
-                android:inputType="textMultiLine"
-                android:gravity="top|start"
-                android:scrollbars="vertical"
-                android:padding="12dp" />
-                
-        </com.google.android.material.textfield.TextInputLayout>
-        
-    </LinearLayout>
-
-    <!-- 操作按钮容器 -->
-    <LinearLayout
-        android:id="@+id/actions_container"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:background="@color/surface"
-        android:elevation="8dp"
-        android:visibility="gone">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_copy_text"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="复制文本"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_share_text"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="分享文本"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_add_to_note"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="添加到笔记"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/tertiary"
-            android:textColor="@color/on_tertiary"
-            app:cornerRadius="12dp"
-            android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_save_text"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="保存文本"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/tertiary"
-            android:textColor="@color/on_tertiary"
             app:cornerRadius="12dp"
             android:textAllCaps="false"/>
 

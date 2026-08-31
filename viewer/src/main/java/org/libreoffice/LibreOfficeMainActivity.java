@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import com.google.android.material.snackbar.Snackbar;
 
 import androidx.activity.OnBackPressedCallback;
@@ -252,9 +253,9 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         LinearLayout bottomToolbarLayout = findViewById(R.id.toolbar_bottom);
         LinearLayout toolbarColorPickerLayout = findViewById(R.id.toolbar_color_picker);
         LinearLayout toolbarBackColorPickerLayout = findViewById(R.id.toolbar_back_color_picker);
-        bottomToolbarSheetBehavior = BottomSheetBehavior.from(bottomToolbarLayout);
-        toolbarColorPickerBottomSheetBehavior = BottomSheetBehavior.from(toolbarColorPickerLayout);
-        toolbarBackColorPickerBottomSheetBehavior = BottomSheetBehavior.from(toolbarBackColorPickerLayout);
+        bottomToolbarSheetBehavior = ensureBottomSheetBehavior(bottomToolbarLayout);
+        toolbarColorPickerBottomSheetBehavior = ensureBottomSheetBehavior(toolbarColorPickerLayout);
+        toolbarBackColorPickerBottomSheetBehavior = ensureBottomSheetBehavior(toolbarBackColorPickerLayout);
         bottomToolbarSheetBehavior.setHideable(true);
         toolbarColorPickerBottomSheetBehavior.setHideable(true);
         toolbarBackColorPickerBottomSheetBehavior.setHideable(true);
@@ -640,7 +641,9 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         LOKitShell.getMainHandler().post(new Runnable() {
             @Override
             public void run() {
-                bottomToolbarSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                if (bottomToolbarSheetBehavior != null) {
+                    bottomToolbarSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                }
             }
         });
     }
@@ -649,9 +652,15 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         LOKitShell.getMainHandler().post(new Runnable() {
             @Override
             public void run() {
-                bottomToolbarSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-                toolbarColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-                toolbarBackColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                if (bottomToolbarSheetBehavior != null) {
+                    bottomToolbarSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+                if (toolbarColorPickerBottomSheetBehavior != null) {
+                    toolbarColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+                if (toolbarBackColorPickerBottomSheetBehavior != null) {
+                    toolbarBackColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
                 findViewById(R.id.search_toolbar).setVisibility(View.GONE);
                 findViewById(R.id.UNO_commands_toolbar).setVisibility(View.GONE);
                 isFormattingToolbarOpen=false;
@@ -701,8 +710,12 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
                 } else {
                     showBottomToolbar();
                     findViewById(R.id.formatting_toolbar).setVisibility(View.GONE);
-                    toolbarColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-                    toolbarBackColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                    if (toolbarColorPickerBottomSheetBehavior != null) {
+                        toolbarColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                    }
+                    if (toolbarBackColorPickerBottomSheetBehavior != null) {
+                        toolbarBackColorPickerBottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                    }
                     findViewById(R.id.search_toolbar).setVisibility(View.VISIBLE);
                     findViewById(R.id.UNO_commands_toolbar).setVisibility(View.GONE);
                     hideSoftKeyboardDirect();
@@ -1115,6 +1128,24 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
             mFormattingController.handleActivityResult(requestCode, resultCode, data);
             hideBottomToolbar();
         }
+    }
+
+    /**
+     * 获取 View 的 BottomSheetBehavior；若为 null（如 include 布局时 layout_behavior 丢失），
+     * 则手动创建并绑定到 CoordinatorLayout.LayoutParams，避免后续 setState 时 NPE。
+     */
+    private BottomSheetBehavior ensureBottomSheetBehavior(View view) {
+        if (view == null) {
+            return null;
+        }
+        BottomSheetBehavior behavior = BottomSheetBehavior.from(view);
+        if (behavior == null) {
+            behavior = new BottomSheetBehavior();
+            if (view.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
+                ((CoordinatorLayout.LayoutParams) view.getLayoutParams()).setBehavior(behavior);
+            }
+        }
+        return behavior;
     }
 }
 

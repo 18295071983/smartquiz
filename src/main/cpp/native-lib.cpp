@@ -3676,52 +3676,10 @@ public:
         }
         LOGI("Full prompt (history + image) length: %zu", fullPrompt.size());
 
-        // 4. 评估历史部分（不带图像）- 先评估历史 text，写入 KV cache
-        if (!history.empty()) {
-            // 构建不含图像的历史提示词
-            std::vector<std::pair<std::string, std::string>> historyWithoutImage = history;
-            if (!history.empty() && history.back().first == "user") {
-                // 最后一条用户消息不含图像标记
-                std::string textOnly = history.back().second;
-                size_t markerPos = textOnly.find(marker);
-                if (markerPos != std::string::npos) {
-                    // 移除图像标记部分
-                    textOnly = textOnly.substr(0, markerPos);
-                }
-                historyWithoutImage.back() = {"user", textOnly};
-            } else {
-                historyWithoutImage.push_back({"user", userText});
-            }
-            
-            std::string historyPrompt = applyChatTemplateForMessages(historyWithoutImage, false);
-            if (!historyPrompt.empty()) {
-                // Tokenize 历史
-                std::vector<llama_token> historyTokens;
-                int nHistoryTokens = -llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), NULL, 0, true, true);
-                if (nHistoryTokens > 0) {
-                    historyTokens.resize(nHistoryTokens);
-                    if (llama_tokenize(vocab, historyPrompt.c_str(), historyPrompt.size(), historyTokens.data(), historyTokens.size(), true, true) >= 0) {
-                        // 评估历史 token 到 KV cache（分块，batch ≤ n_batch 防 assert 崩溃）
-                        const int nBatch = llama_n_batch(ctx);
-                        const int bSize = nBatch > 0 ? nBatch : 256;
-                        bool ok = true;
-                        for (size_t offset = 0; offset < historyTokens.size(); offset += bSize) {
-                            size_t nTokens = std::min((size_t)bSize, historyTokens.size() - offset);
-                            llama_batch historyBatch = llama_batch_get_one(historyTokens.data() + offset, (int)nTokens);
-                            int ret = llama_decode(ctx, historyBatch);
-                            if (ret != 0) {
-                                LOGW("Failed to evaluate history into KV cache: %d (offset=%zu)", ret, offset);
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if (ok) {
-                            LOGI("History evaluated: %zu tokens into KV cache", historyTokens.size());
-                        }
-                    }
-                }
-            }
-        }
+        // 4. 多轮历史不再单独预评估：fullPrompt 已包含历史 + 当前图像消息，
+        //    统一由 mtmd_tokenize 一次分词、mtmd_helper_eval_chunks 从 0 位置单趟评估，
+        //    避免"历史先写入 KV cache 再以 n_past=0 评估全 prompt"导致的历史被覆盖/错位 bug。
+        //    （与文本路径一致：每轮全量重评估，不做跨轮 KV 复用）
 
         // 5. 加载图像
         mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false);
@@ -3751,17 +3709,8 @@ public:
             return false;
         }
 
-        // 8. 评估图像 token
-        // 如果历史已评估，从历史结束位置开始评估图像
-        // 否则从 0 开始
+        // 8. 评估图像 + 完整 prompt（含历史）token —— 统一从 0 位置单趟评估
         llama_pos n_past = 0;
-        if (!history.empty()) {
-            // 历史评估后，n_past 就是历史 token 数量
-            // 使用 mtmd_helper_get_n_tokens 估算历史大小
-            // 由于我们没有单独保存历史的 chunks，使用 llama_batch 评估后无法直接获取 n_past
-            // 改为保守估计：假设历史评估后 KV cache 已就位
-            n_past = 0;  // mtmd 会从当前位置继续
-        }
         
         // 检查上下文容量
         size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
@@ -5770,6 +5719,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
                         // 转换为小写 role 字符串
                         std::string roleLower = std::string(type);
                         for (auto& c : roleLower) c = std::tolower(c);
+                        // MessageType.AI 枚举名为 "ai"，chat template 需要标准角色名 "assistant"
+                        if (roleLower == "ai") roleLower = "assistant";
                         history.push_back({roleLower, std::string(content)});
                     }
                     if (type) env->ReleaseStringUTFChars(typeStr, type);

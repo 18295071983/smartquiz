@@ -288,7 +288,7 @@ public class FileContentExtractor {
         StringBuilder extractedText = new StringBuilder();
         final Object lock = new Object();
         
-        // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+        // 优先使用在线视觉模型 OCR，失败回退本地高精度 OCR（PP-OCRv6），最终 ML Kit 兜底
         ocrManager.processImageOnlineFirst(bitmap, new OCRManager.OCRCallback() {
             @Override
             public void onSuccess(String text) {

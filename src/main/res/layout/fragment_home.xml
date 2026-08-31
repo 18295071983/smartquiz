@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:padding="16dp"
     android:background="?attr/colorSurface"
-    tools:context=".Fragment.HomeFragment">
+    >
 
     <!-- 欢迎信息 -->
     <LinearLayout

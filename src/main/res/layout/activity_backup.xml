@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/background"
-    tools:context=".BackupActivity">
+    tools:context=".ui.activity.BackupActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"

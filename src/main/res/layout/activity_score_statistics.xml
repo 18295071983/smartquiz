@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/gray_ultra_light"
-    tools:context=".ScoreStatisticsActivity">
+    >
 
     <!-- 顶部状态栏 -->
     <androidx.appcompat.widget.Toolbar

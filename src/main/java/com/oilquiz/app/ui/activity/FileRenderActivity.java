@@ -395,31 +395,68 @@ public class FileRenderActivity extends BaseActivity {
         }
     }
 
-    /** 是否为 LibreOffice 可稳定渲染的文档格式（Word/Excel/PPT + ODF + RTF）。
-     *  说明：csv/txt 由内置文本渲染器处理（更稳、更快）；pdf 由专用 Pdfium 预览处理。 */
+    /** 是否为 LibreOffice 可渲染的文档格式（与集成查看器支持的全部格式对齐）。
+     *  说明：txt 由内置文本渲染器处理（更稳、更快）；pdf 由专用 Pdfium 预览处理。 */
     private boolean isLibreOfficeDocument(File file) {
         String n = file.getName().toLowerCase();
-        return n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".xls") ||
-                n.endsWith(".xlsx") || n.endsWith(".ppt") || n.endsWith(".pptx") ||
-                n.endsWith(".odt") || n.endsWith(".ods") || n.endsWith(".odp") ||
-                n.endsWith(".rtf");
+        // MS Office + 模板
+        return n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".dot") || n.endsWith(".dotx")
+                || n.endsWith(".xls") || n.endsWith(".xlsx") || n.endsWith(".xlt") || n.endsWith(".xltx")
+                || n.endsWith(".ppt") || n.endsWith(".pptx") || n.endsWith(".ppsx")
+                || n.endsWith(".pot") || n.endsWith(".potx")
+                // ODF + 模板 + flat-xml
+                || n.endsWith(".odt") || n.endsWith(".ods") || n.endsWith(".odp") || n.endsWith(".odg")
+                || n.endsWith(".ott") || n.endsWith(".ots") || n.endsWith(".otp") || n.endsWith(".otg")
+                || n.endsWith(".fodt") || n.endsWith(".fods") || n.endsWith(".fodp") || n.endsWith(".fodg")
+                // 其他文档
+                || n.endsWith(".rtf") || n.endsWith(".csv")
+                || n.endsWith(".vsd") || n.endsWith(".vsdx") || n.endsWith(".vdx")
+                || n.endsWith(".pub") || n.endsWith(".wps") || n.endsWith(".key")
+                || n.endsWith(".abw") || n.endsWith(".pmd")
+                // 矢量图形
+                || n.endsWith(".emf") || n.endsWith(".svm") || n.endsWith(".wmf") || n.endsWith(".svg");
     }
 
-    /** 获取文件 MIME 类型 */
+    /** 获取文件 MIME 类型（与集成查看器支持格式对齐） */
     private String getMimeType(String fileName) {
         String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
         switch (ext) {
             case "doc": return "application/msword";
             case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "dot": case "dotx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.template";
             case "xls": return "application/vnd.ms-excel";
             case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case "xlt": case "xltx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.template";
             case "ppt": return "application/vnd.ms-powerpoint";
             case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case "ppsx": return "application/vnd.openxmlformats-officedocument.presentationml.slideshow";
+            case "pot": case "potx": return "application/vnd.openxmlformats-officedocument.presentationml.template";
             case "odt": return "application/vnd.oasis.opendocument.text";
             case "ods": return "application/vnd.oasis.opendocument.spreadsheet";
             case "odp": return "application/vnd.oasis.opendocument.presentation";
+            case "odg": return "application/vnd.oasis.opendocument.graphics";
+            case "ott": return "application/vnd.oasis.opendocument.text-template";
+            case "ots": return "application/vnd.oasis.opendocument.spreadsheet-template";
+            case "otp": return "application/vnd.oasis.opendocument.presentation-template";
+            case "otg": return "application/vnd.oasis.opendocument.graphics-template";
+            case "fodt": return "application/vnd.oasis.opendocument.text-flat-xml";
+            case "fods": return "application/vnd.oasis.opendocument.spreadsheet-flat-xml";
+            case "fodp": return "application/vnd.oasis.opendocument.presentation-flat-xml";
+            case "fodg": return "application/vnd.oasis.opendocument.graphics-flat-xml";
             case "rtf": return "application/rtf";
             case "csv": return "text/csv";
+            case "vsd": return "application/vnd.visio";
+            case "vsdx": return "application/vnd.visio2013";
+            case "vdx": return "application/vnd.visio.xml";
+            case "pub": return "application/x-mspublisher";
+            case "wps": return "application/vnd.ms-works";
+            case "key": return "application/vnd.apple.keynote";
+            case "abw": return "application/x-abiword";
+            case "pmd": return "application/x-pagemaker";
+            case "emf": return "image/x-emf";
+            case "svm": return "image/x-svm";
+            case "wmf": return "image/x-wmf";
+            case "svg": return "image/svg+xml";
             case "txt": return "text/plain";
             case "pdf": return "application/pdf";
             default: return "*/*";

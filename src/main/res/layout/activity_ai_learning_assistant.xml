@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/gray_ultra_light"
-    tools:context=".AILearningAssistantActivity">
+    >
 
     <!-- 顶部导航栏 -->
     <androidx.appcompat.widget.Toolbar

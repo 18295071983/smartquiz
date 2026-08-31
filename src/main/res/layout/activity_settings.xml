@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:padding="24dp"
     android:background="?attr/colorSurface"
-    tools:context=".SettingsActivity">
+    >
 
     <!-- 页面标题 -->
     <TextView
