@@ -25,6 +25,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -475,47 +477,28 @@ public class OCRManager {
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
                     page.close();
                     
-                    // 使用当前模型识别文字
-                    final int currentPage = i;
-                    final boolean isLastPage = (i == pageCount - 1);
-                    
-                    // 在主线程处理OCR
-                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    mainHandler.post(() -> {
-                        processImage(bitmap, new OCRCallback() {
-                            @Override
-                            public void onSuccess(String text) {
-                                synchronized (totalText) {
-                                    totalText.append(text);
-                                    totalText.append("\n\n--- 第 ").append(currentPage + 1).append(" 页结束 ---\n\n");
-                                    
-                                    if (isLastPage) {
-                                        String finalText = cleanText(totalText.toString());
-                                        if (progressCallback != null) {
-                                            progressCallback.onProgress(100, "识别完成！");
-                                        }
-                                        callback.onSuccess(finalText);
-                                    }
-                                }
-                            }
-                            
-                            @Override
-                            public void onFailure(String error) {
-                                Log.e(TAG, "第 " + (currentPage + 1) + " 页识别失败: " + error);
-                                // 继续处理下一页
-                                if (isLastPage) {
-                                    String finalText = cleanText(totalText.toString());
-                                    if (progressCallback != null) {
-                                        progressCallback.onProgress(100, "识别完成（部分页面可能识别失败）！");
-                                    }
-                                    callback.onSuccess(finalText);
-                                }
-                            }
-                        });
-                    });
-                    
-                    // 等待一下让主线程处理
-                    Thread.sleep(500);
+                    // 串行同步识别（工作线程）。原实现每页异步 processImage + sleep(500)，
+                    // 而 v6 单页识别可达 10s+，多页会并发调用 RapidOCR 单例
+                    // （ONNX session 非线程安全）导致识别错乱/失败，这里改为逐页串行。
+                    String pageText = recognizePageSync(bitmap);
+                    bitmap.recycle();
+                    if (pageText != null && !pageText.trim().isEmpty()) {
+                        totalText.append(pageText);
+                        totalText.append("\n\n--- 第 ").append(i + 1).append(" 页结束 ---\n\n");
+                    } else {
+                        Log.w(TAG, "第 " + (i + 1) + " 页未识别到文本");
+                    }
+                }
+                
+                String finalText = cleanText(totalText.toString());
+                if (progressCallback != null) {
+                    progressCallback.onProgress(100, "识别完成！");
+                }
+                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                if (finalText.trim().isEmpty()) {
+                    mainHandler.post(() -> callback.onFailure("PDF未识别到文字"));
+                } else {
+                    mainHandler.post(() -> callback.onSuccess(finalText));
                 }
                 
             } catch (Exception e) {
@@ -537,6 +520,55 @@ public class OCRManager {
                 }
             }
         }).start();
+    }
+    
+    /**
+     * 同步识别一页 PDF 渲染的 Bitmap（工作线程串行调用）。
+     * 优先 RapidOCR（PP-OCRv6），失败/无结果回退 ML Kit（同步等待）。
+     * 返回清理后的文本；无结果返回 null。
+     */
+    private String recognizePageSync(Bitmap bitmap) {
+        // RapidOCR 同步推理（工作线程）
+        try {
+            String t = NativeOcrEngine.recognize(context, bitmap);
+            if (t != null && !t.trim().isEmpty()) {
+                lastEngine = ENGINE_RAPIDOCR_V6;
+                return cleanText(t);
+            }
+            Log.w(TAG, "PDF 页 RapidOCR 无结果，回退 ML Kit");
+        } catch (Exception e) {
+            Log.w(TAG, "PDF 页 RapidOCR 失败，回退 ML Kit: " + e.getMessage());
+        }
+        // ML Kit 兜底（异步，用 CountDownLatch 同步等待结果）
+        try {
+            final String[] result = new String[1];
+            final CountDownLatch latch = new CountDownLatch(1);
+            mlKitProcess(bitmap, new OCRCallback() {
+                @Override
+                public void onSuccess(String text) {
+                    synchronized (result) { result[0] = text; }
+                    latch.countDown();
+                }
+                @Override
+                public void onFailure(String error) {
+                    synchronized (result) { result[0] = "OCR识别失败: " + error; }
+                    latch.countDown();
+                }
+            }, true);
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                Log.w(TAG, "PDF 页 ML Kit 识别超时");
+                return null;
+            }
+            String r;
+            synchronized (result) { r = result[0]; }
+            if (r != null && !r.startsWith("OCR识别失败")) {
+                return cleanText(r);
+            }
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "PDF 页 ML Kit 兜底异常: " + e.getMessage());
+            return null;
+        }
     }
     
     /**
