@@ -11,7 +11,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp"
+        app:elevation="@dimen/elev_0"
         android:background="@color/surface">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
@@ -35,24 +35,24 @@
         android:visibility="gone">
         <View
             android:id="@+id/status_indicator"
-            android:layout_width="8dp"
-            android:layout_height="8dp"
+            android:layout_width="@dimen/size_8"
+            android:layout_height="@dimen/size_8"
             android:background="@drawable/status_indicator_unknown"/>
         <TextView
             android:id="@+id/tv_service_status"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="在线服务状态"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"/>
         <TextView
             android:id="@+id/tv_usage_info"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text=""
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/text_tertiary"/>
     </LinearLayout>
 
@@ -60,7 +60,7 @@
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_margin="@dimen/space_16"
         app:cardCornerRadius="12dp"
         app:cardElevation="2dp"
         app:cardBackgroundColor="@color/surface">
@@ -68,36 +68,36 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="当前模型"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/text_secondary"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="@dimen/space_4"/>
             <TextView
                 android:id="@+id/current_model_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="未选择模型"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
                 android:textColor="@color/primary"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="@dimen/space_4"/>
             <TextView
                 android:id="@+id/current_model_type"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="类型: 未知"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/text_tertiary"/>
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         <LinearLayout
@@ -111,59 +111,59 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="在线模型"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/add_online_model_button"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
+                        android:layout_height="@dimen/size_36"
                         android:text="+ 添加"
                         app:backgroundTint="@color/primary"
                         android:textColor="@color/on_primary"
-                        app:cornerRadius="8dp"
+                        app:cornerRadius="@dimen/radius_8"
                         android:textAllCaps="false"
                         style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_api_config"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_height="@dimen/size_36"
+                        android:layout_marginStart="@dimen/space_8"
                         android:text="API配置"
                         app:backgroundTint="@color/surface_variant"
                         android:textColor="@color/primary"
-                        app:cornerRadius="8dp"
+                        app:cornerRadius="@dimen/radius_8"
                         android:textAllCaps="false"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/text_12"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
                 </LinearLayout>
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/online_models_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="@dimen/space_8"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
                 <TextView
                     android:id="@+id/online_models_empty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:padding="16dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:padding="@dimen/space_16"
                     android:gravity="center"
                     android:text="暂无在线模型，点击右上角“+ 添加”配置 API"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_tertiary"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
@@ -176,7 +176,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:paddingHorizontal="16dp"
-                android:paddingBottom="16dp">
+                android:paddingBottom="@dimen/space_16">
                 <LinearLayout
                     android:id="@+id/row_feature_models_header"
                     android:layout_width="match_parent"
@@ -184,23 +184,23 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:paddingVertical="12dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
+                    android:paddingStart="@dimen/space_4"
+                    android:paddingEnd="@dimen/space_4"
                     android:background="?attr/selectableItemBackground">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="功能专用模型"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                 </LinearLayout>
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_marginTop="@dimen/space_2"
                     android:text="为语音等功能指定专用在线模型，不配置则自动选择"
-                    android:textSize="11sp"
+                    android:textSize="@dimen/text_11"
                     android:textColor="@color/text_tertiary"/>
 
                 <!-- 语音识别模型 -->
@@ -210,24 +210,24 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="10dp"
-                    android:padding="14dp"
+                    android:layout_marginTop="@dimen/space_10"
+                    android:padding="@dimen/space_14"
                     android:background="?attr/selectableItemBackground">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎙️ 语音识别模型"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_primary"/>
                     <TextView
                         android:id="@+id/tv_asr_model_value"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="@dimen/space_8"
                         android:gravity="end"
                         android:text="自动选择"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textColor="@color/primary"
                         android:maxLines="1"
                         android:ellipsize="end"/>
@@ -240,24 +240,24 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="4dp"
-                    android:padding="14dp"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:padding="@dimen/space_14"
                     android:background="?attr/selectableItemBackground">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🔊 语音合成模型"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_primary"/>
                     <TextView
                         android:id="@+id/tv_tts_model_value"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="@dimen/space_8"
                         android:gravity="end"
                         android:text="自动选择"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textColor="@color/primary"
                         android:maxLines="1"
                         android:ellipsize="end"/>
@@ -270,24 +270,24 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="4dp"
-                    android:padding="14dp"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:padding="@dimen/space_14"
                     android:background="?attr/selectableItemBackground">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎵 语音合成音色"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_primary"/>
                     <TextView
                         android:id="@+id/tv_tts_voice_value"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="@dimen/space_8"
                         android:gravity="end"
                         android:text="alloy（默认）"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textColor="@color/primary"
                         android:maxLines="1"
                         android:ellipsize="end"/>
@@ -299,28 +299,28 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="本地模型"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/import_local_model_button"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
+                        android:layout_height="@dimen/size_36"
                         android:text="+ 导入"
                         app:backgroundTint="@color/primary"
                         android:textColor="@color/on_primary"
-                        app:cornerRadius="8dp"
+                        app:cornerRadius="@dimen/radius_8"
                         android:textAllCaps="false"
                         style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
                 </LinearLayout>
@@ -328,18 +328,18 @@
                     android:id="@+id/models_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="@dimen/space_8"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
                 <TextView
                     android:id="@+id/local_models_empty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:padding="16dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:padding="@dimen/space_16"
                     android:gravity="center"
                     android:text="暂无本地模型，点击右上角“+ 导入”导入模型文件"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_tertiary"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
@@ -351,17 +351,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/refresh_button"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/size_48"
             android:text="刷新"
             app:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
     </LinearLayout>
 

@@ -5,8 +5,8 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@color/surface"
-    android:padding="14dp"
-    android:layout_marginBottom="1dp">
+    android:padding="@dimen/space_14"
+    android:layout_marginBottom="@dimen/space_1">
 
     <!-- 第一行：题号 + 题目信息 + 操作按钮 -->
     <LinearLayout
@@ -18,19 +18,19 @@
         <!-- 左侧：题号 -->
         <TextView
             android:id="@+id/questionNumberTextView"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/size_28"
+            android:layout_height="@dimen/size_28"
             android:text="1"
-            android:textSize="13sp"
+            android:textSize="@dimen/text_13"
             android:textStyle="bold"
             android:textColor="@color/primary"
             android:background="@drawable/question_number_bg"
             android:gravity="center"
-            android:layout_marginEnd="12dp"/>
+            android:layout_marginEnd="@dimen/space_12"/>
 
         <!-- 中间：题目信息 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
@@ -40,26 +40,26 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="4dp">
+                android:layout_marginBottom="@dimen/space_4">
 
                 <TextView
                     android:id="@+id/questionTypeTextView"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="单选"
-                    android:textSize="10sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/primary"
                     android:background="@drawable/question_type_tag_bg"
                     android:paddingHorizontal="6dp"
                     android:paddingVertical="2dp"
-                    android:layout_marginEnd="8dp"/>
+                    android:layout_marginEnd="@dimen/space_8"/>
 
                 <TextView
                     android:id="@+id/difficultyTextView"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="中等"
-                    android:textSize="10sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_tertiary"/>
             </LinearLayout>
 
@@ -68,17 +68,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="题目内容"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/text_primary"
                 android:lineSpacingExtra="2dp"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="@dimen/space_4"/>
 
             <TextView
                 android:id="@+id/categoryTextView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="默认"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_tertiary"/>
         </LinearLayout>
 
@@ -88,13 +88,13 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:layout_marginStart="8dp">
+            android:layout_marginStart="@dimen/space_8">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_favorite"
                 style="@style/Widget.Material3.Button.IconButton"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="@dimen/size_36"
+                android:layout_height="@dimen/size_36"
                 app:icon="@android:drawable/btn_star_big_off"
                 app:iconTint="@color/tertiary"
                 app:iconGravity="textStart"
@@ -103,8 +103,8 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_delete"
                 style="@style/Widget.Material3.Button.IconButton"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="@dimen/size_36"
+                android:layout_height="@dimen/size_36"
                 app:icon="@android:drawable/ic_menu_delete"
                 app:iconTint="@color/error"
                 app:iconGravity="textStart"
@@ -117,11 +117,11 @@
         android:id="@+id/answerTextView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         android:textColor="@color/success"
         android:background="@color/success_container"
-        android:padding="8dp"
-        android:layout_marginTop="8dp"
+        android:padding="@dimen/space_8"
+        android:layout_marginTop="@dimen/space_8"
         android:visibility="gone"/>
 
     <!-- 解析区域（默认隐藏） -->
@@ -129,11 +129,11 @@
         android:id="@+id/explanationTextView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_secondary"
         android:background="@drawable/explanation_bg"
-        android:padding="8dp"
-        android:layout_marginTop="4dp"
+        android:padding="@dimen/space_8"
+        android:layout_marginTop="@dimen/space_4"
         android:lineSpacingExtra="2dp"
         android:visibility="gone"/>
 

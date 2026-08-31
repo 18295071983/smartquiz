@@ -19,28 +19,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:gravity="center">
 
         <ProgressBar
             android:id="@+id/progressBar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="加载中..."
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/progressDetailText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="准备中..."
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/mappedFieldCount"
@@ -53,13 +53,13 @@
     <WebView
         android:id="@+id/previewWebView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1" />
 
     <ImageView
         android:id="@+id/previewImageView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:visibility="gone" />
 
@@ -67,59 +67,59 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="8dp">
+        android:padding="@dimen/space_8">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSettings"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="设置"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="@dimen/space_4"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnAutoMap"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="自动映射"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="@dimen/space_4"
                 app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSplitOptions"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="拆分选项"
-                android:layout_marginEnd="4dp"
-                app:backgroundTint="#FF9800"
+                android:layout_marginEnd="@dimen/space_4"
+                app:backgroundTint="@color/orange_material"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnClearMap"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="清除映射"
                 app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
         </LinearLayout>
@@ -131,25 +131,25 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCancel"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="关闭"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:backgroundTint="@color/gray_500"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNext"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="下一步"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
         </LinearLayout>

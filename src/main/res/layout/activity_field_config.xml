@@ -4,45 +4,45 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/background">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="字段配置"
-        android:textSize="24sp"
+        android:textSize="@dimen/text_24"
         android:textStyle="bold"
         android:textColor="@color/on_surface"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <TextView
         android:id="@+id/template_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="16sp"
+        android:textSize="@dimen/text_16"
         android:textColor="@color/on_surface"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="@dimen/space_8" />
 
     <ListView
         android:id="@+id/field_list"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="@dimen/space_16"
         android:divider="@android:color/transparent"
         android:dividerHeight="4dp" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/export_button"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="@dimen/size_56"
         android:text="导出"
-        android:textSize="16sp"
+        android:textSize="@dimen/text_16"
         android:textStyle="bold"
         app:backgroundTint="@color/primary"
         android:textColor="@android:color/white"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 
 </LinearLayout>

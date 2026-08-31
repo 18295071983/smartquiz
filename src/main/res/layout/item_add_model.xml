@@ -5,7 +5,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/add_model_button"
@@ -15,6 +15,6 @@
         app:icon="@drawable/ic_add"
         app:iconGravity="start"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        app:cornerRadius="8dp"/>
+        app:cornerRadius="@dimen/radius_8"/>
 
 </LinearLayout>

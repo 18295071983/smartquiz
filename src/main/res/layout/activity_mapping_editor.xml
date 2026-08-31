@@ -11,7 +11,7 @@
         android:id="@+id/appBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="2dp"
+        app:elevation="@dimen/elev_2"
         app:layout_constraintTop_toTopOf="parent">
 
         <androidx.appcompat.widget.Toolbar
@@ -29,16 +29,16 @@
     <LinearLayout
         android:id="@+id/contentLayout"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:orientation="vertical"
         app:layout_constraintTop_toBottomOf="@id/appBar"
         app:layout_constraintBottom_toTopOf="@id/bottomButtons">
 
         <androidx.core.widget.NestedScrollView
             android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -51,28 +51,28 @@
                     app:cardCornerRadius="16dp"
                     app:cardElevation="2dp"
                     app:cardBackgroundColor="@color/primary_container"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginBottom="@dimen/space_16">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="18dp">
+                        android:padding="@dimen/space_18">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="字段映射配置"
-                            android:textSize="19sp"
+                            android:textSize="@dimen/text_19"
                             android:textStyle="bold"
                             android:textColor="@color/on_primary_container"
-                            android:layout_marginBottom="5dp"/>
+                            android:layout_marginBottom="@dimen/space_5"/>
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="将Excel列映射到对应的题目字段"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_primary_container" />
 
                     </LinearLayout>
@@ -84,7 +84,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginBottom="16dp"/>
+                    android:layout_marginBottom="@dimen/space_16"/>
 
             </LinearLayout>
 
@@ -97,29 +97,29 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="18dp"
+        android:padding="@dimen/space_18"
         android:background="@color/surface"
-        app:elevation="8dp"
+        app:elevation="@dimen/elev_8"
         app:layout_constraintBottom_toBottomOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="@dimen/space_12">
 
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_add_field"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_52"
                 android:layout_weight="1"
                 android:background="@drawable/btn_gradient_secondary"
                 android:text="添加字段"
                 android:textColor="@color/white"
                 android:textAllCaps="false"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:icon="@drawable/ic_add"
                 app:iconTint="@color/white"
                 app:iconGravity="textStart"
@@ -128,16 +128,16 @@
 
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_load_mapping"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_52"
                 android:layout_weight="1"
                 android:background="@drawable/btn_outline_primary"
                 android:text="加载配置"
-                android:textColor="#6366f1"
+                android:textColor="@color/theme_indigo"
                 android:textAllCaps="false"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="@dimen/space_8" />
 
         </LinearLayout>
 
@@ -148,30 +148,30 @@
 
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_cancel"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_52"
                 android:layout_weight="1"
                 android:text="取消"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:textColor="#6b7280"
+                android:textColor="@color/gray_450"
                 android:textAllCaps="false"
-                android:backgroundTint="#f3f4f6"
-                app:cornerRadius="14dp"
-                android:layout_marginEnd="8dp" />
+                android:backgroundTint="@color/gray_100b"
+                app:cornerRadius="@dimen/radius_14"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_next"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_52"
                 android:layout_weight="1"
                 android:background="@drawable/btn_gradient_primary"
                 android:text="下一步"
                 android:textColor="@color/white"
                 android:textAllCaps="false"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_8"
                 app:icon="@drawable/ic_chevron_right"
                 app:iconTint="@color/white"
                 app:iconGravity="textEnd"
@@ -187,22 +187,22 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="8dp"
+        android:elevation="@dimen/elev_8"
         app:layout_constraintBottom_toBottomOf="parent"
         android:visibility="gone">
         <ProgressBar
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:indeterminate="true"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
         <TextView
             android:id="@+id/progressText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="处理中..."
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/on_surface"
             android:gravity="center"/>
     </LinearLayout>

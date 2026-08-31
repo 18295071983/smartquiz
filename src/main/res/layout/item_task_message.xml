@@ -3,32 +3,32 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <TextView
         android:id="@+id/task_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="📋 任务进度"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/task_label"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/message_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/message_card_background"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:textColor="@color/task_text"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textIsSelectable="true" />
 
     <ProgressBar
         android:id="@+id/task_progress"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="@dimen/space_8"
         android:visibility="gone"
         style="?android:attr/progressBarStyleHorizontal" />
 

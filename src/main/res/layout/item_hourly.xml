@@ -3,35 +3,35 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:gravity="center"
-    android:minWidth="72dp">
+    android:minWidth="@dimen/min_72">
 
     <TextView
         android:id="@+id/tv_hour"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="现在"
-        android:textSize="12sp"
-        android:textColor="#94A3B8"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/text_tertiary"
         android:textStyle="bold"/>
 
     <ImageView
         android:id="@+id/tv_hour_icon"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="@dimen/size_48"
+        android:layout_height="@dimen/size_48"
         android:src="@drawable/wi_unknown"
         android:scaleType="fitCenter"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="@dimen/space_8"/>
 
     <TextView
         android:id="@+id/tv_hour_temp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="25°"
-        android:textSize="16sp"
-        android:textColor="#1E293B"
+        android:textSize="@dimen/text_16"
+        android:textColor="@color/text_primary"
         android:textStyle="bold"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="@dimen/space_8"/>
 
 </LinearLayout>

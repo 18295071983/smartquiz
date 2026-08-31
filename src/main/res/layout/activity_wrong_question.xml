@@ -11,7 +11,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -23,7 +23,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         
@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             
             <!-- 统计卡片 -->
             <com.google.android.material.card.MaterialCardView
@@ -40,24 +40,24 @@
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/secondary_container"
                 app:cardCornerRadius="16dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="20dp">
+                    android:padding="@dimen/space_20">
                     
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_error"
                         android:tint="@color/on_secondary_container"
-                        android:layout_marginEnd="16dp" />
+                        android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
@@ -66,17 +66,17 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="错题统计"
-                            android:textSize="18sp"
+                            android:textSize="@dimen/text_18"
                             android:textStyle="bold"
                             android:textColor="@color/on_secondary_container"
-                            android:layout_marginBottom="4dp" />
+                            android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
                             android:id="@+id/statsTextView"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="共 0 道错题"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_secondary_container" />
                         
                     </LinearLayout>
@@ -90,17 +90,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardViewReviewAll"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     app:cardElevation="2dp"
                     app:cardBackgroundColor="@color/surface"
                     app:cardCornerRadius="12dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_marginEnd="@dimen/space_8"
                     android:clickable="true"
                     android:focusable="true">
                     
@@ -109,20 +109,20 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="20dp">
+                        android:padding="@dimen/space_20">
                         
                         <ImageView
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
+                            android:layout_width="@dimen/size_32"
+                            android:layout_height="@dimen/size_32"
                             android:src="@drawable/ic_quiz"
                             android:tint="@color/primary"
-                            android:layout_marginBottom="8dp" />
+                            android:layout_marginBottom="@dimen/space_8" />
                         
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="复习全部"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textStyle="bold"
                             android:textColor="@color/on_surface" />
                         
@@ -132,13 +132,13 @@
                 
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardViewClearAll"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     app:cardElevation="2dp"
                     app:cardBackgroundColor="@color/surface"
                     app:cardCornerRadius="12dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_marginStart="@dimen/space_8"
                     android:clickable="true"
                     android:focusable="true">
                     
@@ -147,20 +147,20 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="20dp">
+                        android:padding="@dimen/space_20">
                         
                         <ImageView
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
+                            android:layout_width="@dimen/size_32"
+                            android:layout_height="@dimen/size_32"
                             android:src="@drawable/ic_error"
                             android:tint="@color/error"
-                            android:layout_marginBottom="8dp" />
+                            android:layout_marginBottom="@dimen/space_8" />
                         
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="清空全部"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textStyle="bold"
                             android:textColor="@color/on_surface" />
                         
@@ -175,10 +175,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="错题列表"
-                android:textSize="18sp"
+                android:textSize="@dimen/text_18"
                 android:textStyle="bold"
                 android:textColor="@color/on_surface"
-                android:layout_marginBottom="12dp" />
+                android:layout_marginBottom="@dimen/space_12" />
             
         </LinearLayout>
         
@@ -188,9 +188,9 @@
     <ListView
         android:id="@+id/lv_wrong_questions"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:divider="@android:color/transparent"
         android:dividerHeight="12dp"
         android:clipToPadding="false" />

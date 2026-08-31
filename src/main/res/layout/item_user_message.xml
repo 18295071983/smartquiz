@@ -10,9 +10,9 @@
         android:id="@+id/block_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="10sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="1dp"
+        android:layout_marginBottom="@dimen/space_1"
         android:layout_gravity="end"
         android:visibility="gone" />
 
@@ -26,14 +26,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginLeft="48dp"
+            android:layout_marginLeft="@dimen/space_48"
             android:gravity="end">
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/attachments_recycler"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="3dp"
+                android:layout_marginBottom="@dimen/space_3"
                 android:layout_gravity="end"
                 android:visibility="gone"
                 android:clipToPadding="false" />
@@ -47,7 +47,7 @@
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
                 android:textColor="@android:color/white"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:lineSpacingMultiplier="1.3"
                 android:textIsSelectable="true" />
 
@@ -55,20 +55,20 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="1dp"
+                android:layout_marginTop="@dimen/space_1"
                 android:layout_gravity="end">
 
                 <ImageView
                     android:id="@+id/status_icon"
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
+                    android:layout_width="@dimen/size_14"
+                    android:layout_height="@dimen/size_14"
                     android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/status_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="10sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_secondary"
                     android:visibility="gone" />
 
@@ -76,9 +76,9 @@
                     android:id="@+id/timestamp_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="10sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_secondary"
-                    android:layout_marginStart="4dp" />
+                    android:layout_marginStart="@dimen/space_4" />
 
             </LinearLayout>
 

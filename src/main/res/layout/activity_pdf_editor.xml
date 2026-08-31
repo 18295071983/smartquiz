@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:background="@color/purple_700"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_back"
@@ -25,11 +25,11 @@
             app:backgroundTint="@android:color/transparent"/>
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="PDF编辑器"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
             android:textColor="@android:color/white"
             android:gravity="center"/>
@@ -50,7 +50,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:visibility="gone">
 
         <ProgressBar
@@ -65,14 +65,14 @@
             android:layout_height="wrap_content"
             android:text="加载中..."
             android:gravity="center"
-            android:layout_marginTop="8dp"/>
+            android:layout_marginTop="@dimen/space_8"/>
     </LinearLayout>
 
     <!-- WebView用于显示PDF -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"/>
 
     <!-- 编辑控制栏 -->
@@ -82,7 +82,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@color/gray_100"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 文本注释输入 -->
         <EditText
@@ -93,7 +93,7 @@
             android:inputType="textMultiLine"
             android:lines="3"
             android:background="@android:drawable/editbox_background"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="@dimen/space_16"/>
 
         <!-- 编辑按钮 -->
         <LinearLayout
@@ -104,26 +104,26 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_add_text_annotation"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="添加文本注释"
                 app:backgroundTint="@color/teal_600"
                 android:textColor="@android:color/white"
-                android:layout_marginEnd="8dp"
-                app:cornerRadius="12dp"
+                android:layout_marginEnd="@dimen/space_8"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_add_drawing_annotation"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="手绘注释"
                 app:backgroundTint="@color/teal_600"
                 android:textColor="@android:color/white"
-                android:layout_marginStart="8dp"
-                app:cornerRadius="12dp"
+                android:layout_marginStart="@dimen/space_8"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>
 
@@ -134,9 +134,9 @@
             android:text="编辑文本"
             app:backgroundTint="@color/teal_600"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
 
 </LinearLayout>

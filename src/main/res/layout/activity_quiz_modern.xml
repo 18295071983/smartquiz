@@ -12,7 +12,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -26,14 +26,14 @@
                 android:orientation="horizontal"
                 android:gravity="center"
                 android:layout_gravity="end"
-                android:layout_marginEnd="16dp">
+                android:layout_marginEnd="@dimen/space_16">
                 <!-- 计时器（考试/挑战模式可见） -->
                 <TextView
                     android:id="@+id/textViewTimer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:textColor="@color/text_secondary"
                     android:visibility="gone"/>
@@ -49,8 +49,8 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="16dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
+        android:paddingTop="@dimen/space_10"
+        android:paddingBottom="@dimen/space_10"
         android:background="?attr/colorSurface">
 
         <TextView
@@ -58,17 +58,17 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="得分: 0"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textColor="@color/primary"
-            android:layout_marginEnd="12dp"
+            android:layout_marginEnd="@dimen/space_12"
             android:visibility="gone"/>
 
         <ProgressBar
             android:id="@+id/progressBar"
             style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="0dp"
-            android:layout_height="4dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_4"
             android:layout_weight="1"
             android:max="10"
             android:progress="1"
@@ -80,22 +80,22 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1/10"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textColor="@color/text_secondary"
-            android:layout_marginStart="12dp"/>
+            android:layout_marginStart="@dimen/space_12"/>
     </LinearLayout>
 
     <View
         android:layout_width="match_parent"
-        android:layout_height="1dp"
+        android:layout_height="@dimen/size_1"
         android:background="@color/border_light"/>
 
     <!-- 主内容滚动区 -->
     <ScrollView
         android:id="@+id/scrollViewContent"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         <LinearLayout
@@ -103,8 +103,8 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingHorizontal="16dp"
-            android:paddingTop="16dp"
-            android:paddingBottom="8dp">
+            android:paddingTop="@dimen/space_16"
+            android:paddingBottom="@dimen/space_8">
 
             <!-- 题目区域 -->
             <LinearLayout
@@ -113,8 +113,8 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/card_bg"
-                android:padding="20dp"
-                android:layout_marginBottom="12dp">
+                android:padding="@dimen/space_20"
+                android:layout_marginBottom="@dimen/space_12">
 
                 <!-- 题目头部：题号 + 题型标签 -->
                 <LinearLayout
@@ -122,20 +122,20 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginBottom="@dimen/space_16">
 
                     <!-- 题号标记 -->
                     <TextView
                         android:id="@+id/textViewQuestionNumber"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/size_40"
+                        android:layout_height="@dimen/size_40"
                         android:text="1"
-                        android:textSize="17sp"
+                        android:textSize="@dimen/text_17"
                         android:textStyle="bold"
                         android:textColor="@color/primary"
                         android:background="@drawable/question_number_bg"
                         android:gravity="center"
-                        android:layout_marginEnd="12dp"/>
+                        android:layout_marginEnd="@dimen/space_12"/>
 
                     <!-- 题型标签 -->
                     <TextView
@@ -143,7 +143,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="单选题"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textColor="@color/primary"
                         android:background="@drawable/question_type_tag_bg"
                         android:paddingHorizontal="12dp"
@@ -156,10 +156,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="这是一道测试题目，请问以下哪个选项是正确的？"
-                    android:textSize="18sp"
+                    android:textSize="@dimen/text_18"
                     android:textColor="@color/text_primary"
                     android:lineSpacingExtra="6dp"
-                    android:layout_marginBottom="20dp"/>
+                    android:layout_marginBottom="@dimen/space_20"/>
 
                 <!-- 选项动态容器（由Java代码根据题型动态填充） -->
                 <LinearLayout
@@ -167,7 +167,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginBottom="16dp"/>
+                    android:layout_marginBottom="@dimen/space_16"/>
 
                 <!-- 填空题输入框 -->
                 <com.google.android.material.textfield.TextInputLayout
@@ -175,7 +175,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="请输入答案"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:visibility="gone"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
@@ -193,12 +193,12 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonSubmit"
                     android:layout_width="match_parent"
-                    android:layout_height="48dp"
+                    android:layout_height="@dimen/size_48"
                     android:text="提交答案"
                     app:backgroundTint="@color/primary"
                     android:textColor="@android:color/white"
-                    android:layout_marginBottom="16dp"
-                    app:cornerRadius="12dp"
+                    android:layout_marginBottom="@dimen/space_16"
+                    app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false"
                     android:visibility="gone"/>
 
@@ -209,26 +209,26 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:background="@drawable/explanation_bg"
-                    android:padding="16dp"
-                    android:layout_marginBottom="16dp"
+                    android:padding="@dimen/space_16"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:visibility="gone">
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="💡"
-                            android:textSize="16sp"
-                            android:layout_marginEnd="6dp"/>
+                            android:textSize="@dimen/text_16"
+                            android:layout_marginEnd="@dimen/space_6"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="解析"
-                            android:textSize="15sp"
+                            android:textSize="@dimen/text_15"
                             android:textStyle="bold"
                             android:textColor="@color/primary"/>
                     </LinearLayout>
@@ -237,7 +237,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="这是题目的解析内容，帮助你理解知识点。"
-                        android:textSize="15sp"
+                        android:textSize="@dimen/text_15"
                         android:textColor="@color/text_secondary"
                         android:lineSpacingExtra="4dp"/>
                 </LinearLayout>
@@ -247,14 +247,14 @@
                     android:id="@+id/buttonShowAnswer"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="48dp"
+                    android:layout_height="@dimen/size_48"
                     android:text="查看答案"
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textColor="@color/primary"
                     app:strokeColor="@color/primary"
-                    app:strokeWidth="1.5dp"
-                    android:layout_marginBottom="8dp"
-                    app:cornerRadius="12dp"
+                    app:strokeWidth="@dimen/stroke_1_5"
+                    android:layout_marginBottom="@dimen/space_8"
+                    app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false"
                     android:visibility="gone"/>
             </LinearLayout>
@@ -266,31 +266,31 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/answer_card_bg"
-                android:padding="16dp"
-                android:layout_marginBottom="12dp"
+                android:padding="@dimen/space_16"
+                android:layout_marginBottom="@dimen/space_12"
                 android:visibility="gone">
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_marginBottom="@dimen/space_8">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="✓"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
                         android:textColor="@color/success"
                         android:background="@drawable/answer_check_bg"
                         android:paddingHorizontal="6dp"
                         android:paddingVertical="2dp"
-                        android:layout_marginEnd="8dp"/>
+                        android:layout_marginEnd="@dimen/space_8"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="正确答案"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
                         android:textColor="@color/success"/>
                 </LinearLayout>
@@ -299,7 +299,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="A"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_20"
                     android:textStyle="bold"
                     android:textColor="@color/on_success"/>
             </LinearLayout>
@@ -313,18 +313,18 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="?attr/colorSurface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
 
         <!-- 题目导航 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="题目导航"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/text_tertiary"
             android:paddingHorizontal="20dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="0dp"/>
+            android:paddingTop="@dimen/space_8"
+            android:paddingBottom="@dimen/space_0"/>
 
         <!-- 题目导航滚动条 -->
         <HorizontalScrollView
@@ -332,8 +332,8 @@
             android:layout_height="wrap_content"
             android:scrollbars="none"
             android:paddingHorizontal="16dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp">
+            android:paddingTop="@dimen/space_6"
+            android:paddingBottom="@dimen/space_6">
             <LinearLayout
                 android:id="@+id/navigationLayout"
                 android:layout_width="wrap_content"
@@ -348,48 +348,48 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:paddingHorizontal="16dp"
-            android:paddingBottom="14dp"
-            android:paddingTop="4dp">
+            android:paddingBottom="@dimen/space_14"
+            android:paddingTop="@dimen/space_4">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonPrevious"
                 style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="← 上一题"
-                android:textSize="15sp"
+                android:textSize="@dimen/text_15"
                 android:textColor="@color/text_secondary"
                 app:strokeColor="@color/border"
-                app:cornerRadius="12dp"
-                android:layout_marginEnd="8dp"
+                app:cornerRadius="@dimen/radius_12"
+                android:layout_marginEnd="@dimen/space_8"
                 android:textAllCaps="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonMark"
                 style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="☆ 标记"
-                android:textSize="15sp"
+                android:textSize="@dimen/text_15"
                 android:textColor="@color/tertiary"
                 app:strokeColor="@color/tertiary"
-                app:cornerRadius="12dp"
-                android:layout_marginEnd="8dp"
+                app:cornerRadius="@dimen/radius_12"
+                android:layout_marginEnd="@dimen/space_8"
                 android:textAllCaps="false"
                 android:visibility="gone"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonNext"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="下一题 →"
-                android:textSize="15sp"
+                android:textSize="@dimen/text_15"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>
     </LinearLayout>

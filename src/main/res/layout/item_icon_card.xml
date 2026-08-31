@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_margin="@dimen/space_4"
     android:clickable="true"
     android:focusable="true"
     app:cardBackgroundColor="@color/card_background"
@@ -15,21 +15,21 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:gravity="center">
 
         <ImageView
             android:id="@+id/ivIcon"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:contentDescription="图标"/>
 
         <TextView
             android:id="@+id/tvIconName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="12sp"
+            android:layout_marginTop="@dimen/space_8"
+            android:textSize="@dimen/text_12"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
             android:gravity="center"
@@ -40,8 +40,8 @@
             android:id="@+id/tvIconKey"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textSize="10sp"
+            android:layout_marginTop="@dimen/space_2"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_tertiary"
             android:gravity="center"
             android:maxLines="1"

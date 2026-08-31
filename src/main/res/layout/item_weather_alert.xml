@@ -4,8 +4,8 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/alert_card_bg"
-    android:padding="14dp"
-    android:layout_marginBottom="10dp">
+    android:padding="@dimen/space_14"
+    android:layout_marginBottom="@dimen/space_10">
 
     <!-- 顶部：图标 + 标题 + 等级标签 -->
     <LinearLayout
@@ -20,19 +20,19 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="⚠️"
-            android:textSize="20sp" />
+            android:textSize="@dimen/text_20" />
 
         <!-- 标题 -->
         <TextView
             android:id="@+id/tv_alert_title"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="暴雨黄色预警"
-            android:textSize="15sp"
+            android:textSize="@dimen/text_15"
             android:textStyle="bold"
             android:textColor="@color/weather_dark_text"
-            android:layout_marginStart="10dp" />
+            android:layout_marginStart="@dimen/space_10" />
 
         <!-- 等级标签 -->
         <TextView
@@ -40,7 +40,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="黄色"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/white"
             android:background="@drawable/alert_level_badge"
             android:paddingHorizontal="8dp"
@@ -53,10 +53,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="发布时间：2024-07-20 10:30"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/weather_dark_text_secondary"
-        android:layout_marginTop="8dp"
-        android:layout_marginStart="30dp" />
+        android:layout_marginTop="@dimen/space_8"
+        android:layout_marginStart="@dimen/space_30" />
 
     <!-- 预警内容（可展开） -->
     <TextView
@@ -64,10 +64,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="预计未来6小时内，我市大部分地区将出现50毫米以上降水，并伴有短时大风和雷电..."
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         android:textColor="@color/weather_dark_text_secondary"
-        android:layout_marginTop="8dp"
-        android:layout_marginStart="30dp"
+        android:layout_marginTop="@dimen/space_8"
+        android:layout_marginStart="@dimen/space_30"
         android:maxLines="3"
         android:ellipsize="end"
         android:lineSpacingExtra="3dp" />
@@ -78,9 +78,9 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="展开详情 ▼"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/blue_400"
-        android:layout_marginTop="6dp"
-        android:layout_marginStart="30dp"
+        android:layout_marginTop="@dimen/space_6"
+        android:layout_marginStart="@dimen/space_30"
         android:paddingVertical="4dp" />
 </LinearLayout>

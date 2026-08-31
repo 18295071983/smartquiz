@@ -5,9 +5,9 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="?attr/colorSurface"
-    android:padding="12dp"
-    android:elevation="1dp"
-    android:layout_marginBottom="8dp"
+    android:padding="@dimen/space_12"
+    android:elevation="@dimen/elev_1"
+    android:layout_marginBottom="@dimen/space_8"
     android:backgroundTint="?attr/colorSurface">
 
     <LinearLayout
@@ -18,20 +18,20 @@
 
         <!-- 分数 -->
         <LinearLayout
-            android:layout_width="80dp"
-            android:layout_height="80dp"
+            android:layout_width="@dimen/size_80"
+            android:layout_height="@dimen/size_80"
             android:orientation="vertical"
             android:gravity="center"
             android:background="?attr/colorPrimary"
-            android:elevation="2dp"
-            android:layout_marginEnd="16dp">
+            android:elevation="@dimen/elev_2"
+            android:layout_marginEnd="@dimen/space_16">
 
             <TextView
                 android:id="@+id/textViewScore"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="85"
-                android:textSize="28sp"
+                android:textSize="@dimen/text_28"
                 android:fontFamily="sans-serif-bold"
                 android:textColor="?attr/colorOnPrimary" />
 
@@ -39,14 +39,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="分数"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="?attr/colorOnPrimary"
-                android:layout_marginTop="2dp" />
+                android:layout_marginTop="@dimen/space_2" />
         </LinearLayout>
 
         <!-- 详细信息 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
@@ -62,22 +62,22 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="2026-02-19 14:30"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:fontFamily="sans-serif-medium"
                     android:textColor="?attr/colorOnSurface"
-                    android:layout_marginEnd="8dp" />
+                    android:layout_marginEnd="@dimen/space_8" />
 
                 <View
-                    android:layout_width="1dp"
-                    android:layout_height="16dp"
+                    android:layout_width="@dimen/size_1"
+                    android:layout_height="@dimen/size_16"
                     android:background="?attr/colorOutline"
-                    android:layout_marginHorizontal="8dp" />
+                    android:layout_marginHorizontal="@dimen/space_8" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="练习模式"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
 
@@ -86,9 +86,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="10/12 正确 | 5:30 用时 | 消防安全"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginTop="4dp" />
+                android:layout_marginTop="@dimen/space_4" />
         </LinearLayout>
     </LinearLayout>
 

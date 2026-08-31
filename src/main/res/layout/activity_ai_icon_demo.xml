@@ -12,34 +12,34 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/card_background"
-        android:elevation="4dp"
+        android:elevation="@dimen/elev_4"
         android:orientation="horizontal"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <ImageView
             android:id="@+id/btnBack"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true"
-            android:padding="8dp"
+            android:padding="@dimen/space_8"
             android:src="@drawable/ic_back"
             android:tint="@color/text_primary"
             android:contentDescription="返回"/>
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:orientation="vertical">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="AI图标演示"
-                android:textSize="20sp"
+                android:textSize="@dimen/text_20"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"/>
 
@@ -47,9 +47,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="查看和测试所有AI图标"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/text_secondary"
-                android:layout_marginTop="2dp"/>
+                android:layout_marginTop="@dimen/space_2"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -67,7 +67,7 @@
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/viewPager"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"/>
 
     <LinearLayout
@@ -75,13 +75,13 @@
         android:layout_height="wrap_content"
         android:background="@color/card_background"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="智能图标测试"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textColor="@color/text_primary"/>
 
@@ -89,34 +89,34 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="输入意图类型，测试图标自动匹配"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"
-            android:layout_marginTop="4dp"/>
+            android:layout_marginTop="@dimen/space_4"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="@dimen/space_8">
 
             <EditText
                 android:id="@+id/etIntentTest"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:hint="例如: translate, ocr, generate..."
                 android:inputType="text"
                 android:maxLines="1"
                 android:background="@drawable/edittext_background"
-                android:padding="12dp"
+                android:padding="@dimen/space_12"
                 android:textColor="@color/text_primary"
-                android:textSize="14sp"/>
+                android:textSize="@dimen/text_14"/>
 
             <Button
                 android:id="@+id/btnTestIntent"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_8"
                 android:text="测试"
                 android:backgroundTint="@color/primary"
                 android:textColor="@color/white"/>
@@ -127,23 +127,23 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_12"
             android:gravity="center_vertical"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:background="@color/primary_alpha_10"
             android:visibility="gone">
 
             <ImageView
                 android:id="@+id/ivTestResult"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_48"
+                android:layout_height="@dimen/size_48"
                 android:contentDescription="匹配的图标"/>
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="12dp"
+                android:layout_marginStart="@dimen/space_12"
                 android:orientation="vertical">
 
                 <TextView
@@ -151,7 +151,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary"/>
 
@@ -160,9 +160,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_secondary"
-                    android:layout_marginTop="2dp"/>
+                    android:layout_marginTop="@dimen/space_2"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -170,14 +170,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="@dimen/space_8">
 
             <TextView
                 android:id="@+id/tvQuickHint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="快速测试: "
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/text_secondary"/>
 
             <TextView
@@ -185,41 +185,41 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="translate"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/primary"
                 android:clickable="true"
-                android:paddingStart="4dp"
-                android:paddingEnd="8dp"/>
+                android:paddingStart="@dimen/space_4"
+                android:paddingEnd="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/tvQuick2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="ocr"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/primary"
                 android:clickable="true"
-                android:paddingEnd="8dp"/>
+                android:paddingEnd="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/tvQuick3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="agent"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/primary"
                 android:clickable="true"
-                android:paddingEnd="8dp"/>
+                android:paddingEnd="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/tvQuick4"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="success"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/primary"
                 android:clickable="true"
-                android:paddingEnd="8dp"/>
+                android:paddingEnd="@dimen/space_8"/>
         </LinearLayout>
     </LinearLayout>
 

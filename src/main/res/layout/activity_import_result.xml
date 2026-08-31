@@ -10,7 +10,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -22,54 +22,54 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="导入完成"
-                android:textSize="24sp"
+                android:textSize="@dimen/text_24"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="24dp"/>
+                android:layout_marginBottom="@dimen/space_24"/>
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
                 app:cardCornerRadius="8dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="总记录数:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvTotalCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -78,21 +78,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="成功:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvSuccessCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="@android:color/holo_green_dark"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -101,21 +101,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="失败:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvFailedCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorError"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -124,21 +124,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="跳过:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvSkippedCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -147,21 +147,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="导入时间:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvImportTime"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0秒"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -171,19 +171,19 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="文件名:"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textColor="?attr/colorOnSurface"/>
                         <TextView
                             android:id="@+id/tvFileName"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text=""
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:gravity="right"
                             android:maxLines="1"
@@ -197,22 +197,22 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginTop="@dimen/space_16"
+                android:layout_marginBottom="@dimen/space_16">
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="成功率:"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="?attr/colorOnSurface"/>
                 <TextView
                     android:id="@+id/tvSuccessRate"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="0%"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="@android:color/holo_green_dark"
                     android:gravity="right"/>
             </LinearLayout>
@@ -223,25 +223,25 @@
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
                 app:cardCornerRadius="8dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="错误信息"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvErrors"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="100dp"/>
+                        android:minHeight="@dimen/min_100"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -249,38 +249,38 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="16dp">
+                android:layout_marginTop="@dimen/space_16">
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnImportAgain"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_48"
                     android:layout_weight="1"
                     android:text="再次导入"
                     app:backgroundTint="@color/secondary"
                     android:textColor="@android:color/white"
-                    android:layout_marginEnd="8dp"
-                    app:cornerRadius="12dp"
+                    android:layout_marginEnd="@dimen/space_8"
+                    app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnViewQuestions"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_48"
                     android:layout_weight="1"
                     android:text="查看题目"
                     app:backgroundTint="@color/secondary"
                     android:textColor="@android:color/white"
-                    android:layout_marginEnd="8dp"
-                    app:cornerRadius="12dp"
+                    android:layout_marginEnd="@dimen/space_8"
+                    app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnDone"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_48"
                     android:layout_weight="1"
                     android:text="完成"
                     app:backgroundTint="@color/primary"
                     android:textColor="@android:color/white"
-                    app:cornerRadius="12dp"
+                    app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false"/>
             </LinearLayout>
 

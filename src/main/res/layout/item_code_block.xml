@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginVertical="8dp"
+    android:layout_marginVertical="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
     app:cardBackgroundColor="@color/surface_variant">
@@ -25,18 +25,18 @@
 
             <TextView
                 android:id="@+id/tv_code_language"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="java"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"
                 android:textAllCaps="true"/>
 
             <ImageButton
                 android:id="@+id/btn_copy_code"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="@dimen/size_32"
+                android:layout_height="@dimen/size_32"
                 android:src="@drawable/ic_copy"
                 android:background="?attr/selectableItemBorderless"
                 android:contentDescription="复制代码"
@@ -53,8 +53,8 @@
                 android:id="@+id/tv_code_content"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:padding="12dp"
-                android:textSize="13sp"
+                android:padding="@dimen/space_12"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/text_primary"
                 android:fontFamily="monospace"
                 android:lineSpacingExtra="2dp"/>

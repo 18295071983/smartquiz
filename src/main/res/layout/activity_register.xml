@@ -21,19 +21,19 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="32dp">
+            android:padding="@dimen/space_32">
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="80dp"
-                android:layout_height="80dp"
+                android:layout_width="@dimen/size_80"
+                android:layout_height="@dimen/size_80"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="8dp"
                 app:cardBackgroundColor="@color/primary"
-                android:layout_marginBottom="24dp">
+                android:layout_marginBottom="@dimen/space_24">
 
                 <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="@dimen/size_48"
+                    android:layout_height="@dimen/size_48"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
                     android:tint="@color/on_primary"
@@ -45,16 +45,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
-                android:textSize="28sp"
+                android:textSize="@dimen/text_28"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="@dimen/space_8" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/register_title"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/text_secondary" />
 
         </LinearLayout>
@@ -63,7 +63,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
+            android:layout_marginHorizontal="@dimen/space_16"
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp"
             app:cardBackgroundColor="@color/card_background">
@@ -72,14 +72,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="24dp">
+                android:padding="@dimen/space_24">
 
                 <!-- 用户名输入框 -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/textInputLayoutUsername"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:hint="请输入用户名"
                     app:startIconDrawable="@drawable/ic_person"
                     app:startIconTint="@color/primary"
@@ -104,7 +104,7 @@
                     android:id="@+id/textInputLayoutEmail"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:hint="@string/email_hint"
                     app:startIconDrawable="@drawable/ic_settings"
                     app:startIconTint="@color/primary"
@@ -129,7 +129,7 @@
                     android:id="@+id/textInputLayoutPhone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:hint="请输入手机号"
                     app:startIconDrawable="@drawable/ic_settings"
                     app:startIconTint="@color/primary"
@@ -154,7 +154,7 @@
                     android:id="@+id/textInputLayoutPassword"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:hint="@string/password_hint"
                     app:startIconDrawable="@drawable/ic_settings"
                     app:startIconTint="@color/primary"
@@ -181,7 +181,7 @@
                     android:id="@+id/textInputLayoutConfirmPassword"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
+                    android:layout_marginBottom="@dimen/space_8"
                     android:hint="@string/confirm_password_hint"
                     app:startIconDrawable="@drawable/ic_settings"
                     app:startIconTint="@color/primary"
@@ -207,16 +207,16 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/registerButton"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="@dimen/size_56"
                     android:text="@string/register_button"
                     android:textAllCaps="false"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="@color/on_primary"
                     app:backgroundTint="@color/primary"
-                    app:cornerRadius="12dp"
-                    app:elevation="4dp"
+                    app:cornerRadius="@dimen/radius_12"
+                    app:elevation="@dimen/elev_4"
                     app:rippleColor="@color/primary_light"
-                    android:layout_marginTop="16dp" />
+                    android:layout_marginTop="@dimen/space_16" />
 
                 <!-- 进度条 -->
                 <ProgressBar
@@ -224,7 +224,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="@dimen/space_16"
                     android:visibility="gone"
                     android:indeterminateTint="@color/primary" />
 
@@ -238,15 +238,15 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
-            android:padding="24dp">
+            android:padding="@dimen/space_24">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/has_account"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/text_secondary"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/textViewLogin"
@@ -254,7 +254,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/login_title"
                 android:textAllCaps="false"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/primary"
                 style="@style/Widget.MaterialComponents.Button.TextButton" />
 
@@ -262,11 +262,11 @@
 
         <!-- 底部装饰 -->
         <View
-            android:layout_width="120dp"
-            android:layout_height="4dp"
+            android:layout_width="@dimen/size_120"
+            android:layout_height="@dimen/size_4"
             android:background="@drawable/bg_icon_circle"
             android:backgroundTint="@color/primary_alpha_50"
-            android:layout_marginBottom="32dp" />
+            android:layout_marginBottom="@dimen/space_32" />
 
     </LinearLayout>
 

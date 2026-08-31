@@ -4,12 +4,12 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="32dp">
+    android:padding="@dimen/space_32">
 
     <ImageView
         android:id="@+id/empty_icon"
-        android:layout_width="64dp"
-        android:layout_height="64dp"
+        android:layout_width="@dimen/size_64"
+        android:layout_height="@dimen/size_64"
         android:src="@drawable/ic_empty_model"
         android:contentDescription="@string/empty_models"/>
 
@@ -17,9 +17,9 @@
         android:id="@+id/empty_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_16"
         android:text="@string/no_models_available"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_tertiary"
         android:gravity="center"/>
 

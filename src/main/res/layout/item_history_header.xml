@@ -4,14 +4,14 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <TextView
         android:id="@+id/history_header_text"
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface" />
 
@@ -19,15 +19,15 @@
         android:id="@+id/history_header_count"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_secondary" />
 
     <View
         android:id="@+id/history_header_divider"
-        android:layout_width="0dp"
-        android:layout_height="1dp"
+        android:layout_width="@dimen/size_0"
+        android:layout_height="@dimen/size_1"
         android:layout_weight="1"
         android:background="@color/outline"
-        android:layout_marginStart="8dp" />
+        android:layout_marginStart="@dimen/space_8" />
 
 </LinearLayout>

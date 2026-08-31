@@ -5,14 +5,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/background"
     tools:context=".ui.activity.DataIssueFixActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -24,52 +24,52 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="@dimen/space_16"
                 app:cardElevation="4dp"
                 app:cardCornerRadius="8dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="修复统计"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="总问题数:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/totalIssuesCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_surface"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -77,21 +77,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="已解决数:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/resolvedIssuesCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_surface"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -100,19 +100,19 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="未解决数:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/unresolvedIssuesCount"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_surface"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -128,15 +128,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="问题列表"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:id="@+id/issuesContainer"
                         android:layout_width="match_parent"
@@ -147,9 +147,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="暂无问题"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="@dimen/space_12"
                         android:gravity="center"
                         android:visibility="gone"/>
                 </LinearLayout>
@@ -162,34 +162,34 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnScanIssues"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="扫描问题"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp"/>
+                android:layout_marginEnd="@dimen/space_8"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnFixAll"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="全部修复"
                 app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>
         <LinearLayout
@@ -198,35 +198,35 @@
             android:orientation="horizontal">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonBatchFix"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="批量修复"
                 app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp"/>
+                android:layout_marginEnd="@dimen/space_8"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonSkipAndContinue"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="跳过"
                 app:backgroundTint="@color/secondary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp"/>
+                android:layout_marginEnd="@dimen/space_8"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonCompleteFix"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="完成"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>
     </LinearLayout>

@@ -7,6 +7,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/app_name"
-        android:textSize="18sp"
-        android:padding="16dp"/>
+        android:textSize="@dimen/text_18"
+        android:padding="@dimen/space_16"/>
 </LinearLayout>

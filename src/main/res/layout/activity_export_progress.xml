@@ -4,33 +4,33 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:gravity="center">
 
     <com.google.android.material.progressindicator.CircularProgressIndicator
         android:id="@+id/progress_indicator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="@dimen/space_16"
         app:indicatorColor="@color/primary" />
 
     <TextView
         android:id="@+id/progress_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="16sp"
+        android:textSize="@dimen/text_16"
         android:textColor="@color/on_surface"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/finish_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="完成"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="@dimen/space_8"
         android:visibility="gone"
         app:backgroundTint="@color/primary"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 
     <com.google.android.material.button.MaterialButton
@@ -38,10 +38,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="查看文件"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="@dimen/space_8"
         android:visibility="gone"
         app:backgroundTint="@color/secondary"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 
     <com.google.android.material.button.MaterialButton
@@ -51,7 +51,7 @@
         android:text="分享文件"
         android:visibility="gone"
         app:backgroundTint="@color/primary"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 
 </LinearLayout>

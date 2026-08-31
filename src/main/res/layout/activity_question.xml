@@ -11,7 +11,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -25,24 +25,24 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="4dp">
+        android:elevation="@dimen/elev_4">
 
         <androidx.appcompat.widget.SearchView
             android:id="@+id/searchView"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:queryHint="搜索题目"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="@dimen/space_8"
             android:background="@color/surface_variant"/>
 
         <Spinner
             android:id="@+id/spinner_question_type"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="@dimen/space_8"
             android:background="@color/surface_variant"/>
 
         <Spinner
@@ -56,65 +56,65 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/questionListView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_toggle_view"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="切换视图"
             android:textAllCaps="false"
             android:textColor="@color/on_secondary"
             app:backgroundTint="@color/secondary"
-            app:cornerRadius="12dp"
-            android:layout_marginEnd="4dp"/>
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginEnd="@dimen/space_4"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_toggle_answer"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="显示答案"
             android:textAllCaps="false"
             android:textColor="@color/on_secondary"
             app:backgroundTint="@color/secondary"
-            app:cornerRadius="12dp"
-            android:layout_marginEnd="4dp"/>
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginEnd="@dimen/space_4"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_refresh"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="@string/refresh_data"
             android:textAllCaps="false"
             android:textColor="@color/on_secondary"
             app:backgroundTint="@color/secondary"
-            app:cornerRadius="12dp"
-            android:layout_marginEnd="4dp"/>
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginEnd="@dimen/space_4"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_clear_all"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="清空全部"
             android:textAllCaps="false"
             android:textColor="@color/on_error"
             app:backgroundTint="@color/error"
-            app:cornerRadius="12dp"/>
+            app:cornerRadius="@dimen/radius_12"/>
 
     </LinearLayout>
 

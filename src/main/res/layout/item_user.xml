@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
+    android:layout_margin="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="4dp">
 
@@ -11,31 +11,31 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <TextView
             android:id="@+id/textViewUsername"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Username"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/textViewEmail"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:text="Email"
-            android:textSize="14sp" />
+            android:textSize="@dimen/text_14" />
 
         <TextView
             android:id="@+id/textViewPhone"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:text="Phone"
-            android:textSize="14sp" />
+            android:textSize="@dimen/text_14" />
 
     </LinearLayout>
 

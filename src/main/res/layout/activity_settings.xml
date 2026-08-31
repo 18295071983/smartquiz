@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="24dp"
+    android:padding="@dimen/space_24"
     android:background="?attr/colorSurface"
     >
 
@@ -14,20 +14,20 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="设置"
-        android:textSize="24sp"
+        android:textSize="@dimen/text_24"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="32dp" />
+        android:layout_marginTop="@dimen/space_32" />
 
     <!-- 设置项卡片 -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardViewSettings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="@dimen/space_24"
         app:cardElevation="4dp"
         app:cardCornerRadius="12dp"
         app:layout_constraintTop_toBottomOf="@id/textViewTitle"
@@ -43,17 +43,17 @@
             <LinearLayout
                 android:id="@+id/linearLayoutNotifications"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingHorizontal="24dp">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                 android:text="推送通知"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="?attr/colorOnSurface" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
@@ -68,92 +68,92 @@
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
+                android:layout_height="@dimen/size_1"
                 android:background="@color/gray"
-                android:layout_marginHorizontal="24dp" />
+                android:layout_marginHorizontal="@dimen/space_24" />
 
             <!-- 清除缓存按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonClearCache"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:text="清除缓存"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/purple_600"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="@dimen/space_24"
                 app:backgroundTint="@android:color/transparent" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
+                android:layout_height="@dimen/size_1"
                 android:background="@color/gray"
-                android:layout_marginHorizontal="24dp" />
+                android:layout_marginHorizontal="@dimen/space_24" />
 
             <!-- 题库管理按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonQuestionBank"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:text="题库管理"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/purple_600"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="@dimen/space_24"
                 app:backgroundTint="@android:color/transparent" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
+                android:layout_height="@dimen/size_1"
                 android:background="@color/gray"
-                android:layout_marginHorizontal="24dp" />
+                android:layout_marginHorizontal="@dimen/space_24" />
 
             <!-- 主题切换按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonToggleTheme"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:text="切换到深色主题"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/purple_600"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="@dimen/space_24"
                 app:backgroundTint="@android:color/transparent" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
+                android:layout_height="@dimen/size_1"
                 android:background="@color/gray"
-                android:layout_marginHorizontal="24dp" />
+                android:layout_marginHorizontal="@dimen/space_24" />
 
             <!-- 反馈按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonFeedback"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:text="@string/menu_feedback"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/purple_600"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="@dimen/space_24"
                 app:backgroundTint="@android:color/transparent" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
+                android:layout_height="@dimen/size_1"
                 android:background="@color/gray"
-                android:layout_marginHorizontal="24dp" />
+                android:layout_marginHorizontal="@dimen/space_24" />
 
             <!-- 检查更新按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonCheckUpdates"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="@dimen/size_60"
                 android:text="检查更新"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/purple_600"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="@dimen/space_24"
                 app:backgroundTint="@android:color/transparent" />
 
         </LinearLayout>
@@ -165,7 +165,7 @@
         android:id="@+id/cardViewAppInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="@dimen/space_24"
         app:cardElevation="4dp"
         app:cardCornerRadius="12dp"
         app:layout_constraintTop_toBottomOf="@id/cardViewSettings"
@@ -176,32 +176,32 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="@dimen/space_24">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="应用信息"
-                android:textSize="18sp"
+                android:textSize="@dimen/text_18"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="16dp" />
+                android:layout_marginBottom="@dimen/space_16" />
 
             <TextView
                 android:id="@+id/textViewAppVersion"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="版本：1.0.0"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/textViewDeviceInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="设备信息"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
         </LinearLayout>
@@ -213,7 +213,7 @@
         android:id="@+id/cardViewAbout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="@dimen/space_24"
         app:cardElevation="4dp"
         app:cardCornerRadius="12dp"
         app:layout_constraintTop_toBottomOf="@id/cardViewAppInfo"
@@ -224,23 +224,23 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="@dimen/space_24">
 
             <TextView
                 android:id="@+id/textViewAbout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="关于应用"
-                android:textSize="18sp"
+                android:textSize="@dimen/text_18"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="16dp" />
+                android:layout_marginBottom="@dimen/space_16" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="答题宝是一款功能强大的离线答题应用，帮助用户高效学习和复习各种知识。\n\n主要功能：\n• 多种答题模式（练习、考试、复习、挑战、背诵）\n• 题库管理（导入、导出、编辑、删除）\n• 多格式资料导出（Excel、PDF、Markdown等）\n• WPS Office集成，直接打开和编辑文件\n• 个人中心，管理个人信息和设置\n\n本应用完全离线运行，保护您的隐私，无需网络连接即可使用所有功能。\n\n版本：1.0\n开发者：答题宝团队"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:lineSpacingExtra="8sp" />
 

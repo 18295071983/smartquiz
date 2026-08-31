@@ -19,78 +19,78 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="🧰 工具中心"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
-            android:paddingBottom="12dp"/>
+            android:paddingBottom="@dimen/space_12"/>
 
         <!-- ===== 模型选择 ===== -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"
-            android:paddingBottom="4dp"/>
+            android:paddingBottom="@dimen/space_4"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_model_select"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="🤖 选择模型"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="12dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <!-- ===== 深度思考开关 ===== -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="对话模式"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"
-            android:paddingBottom="4dp"/>
+            android:paddingBottom="@dimen/space_4"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_mode_select"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="💬 普通"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_primary_container"
             app:backgroundTint="@color/primary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="12dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <!-- ===== 快捷工具 ===== -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="快捷工具"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"
-            android:paddingBottom="4dp"/>
+            android:paddingBottom="@dimen/space_4"/>
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/quick_actions_chip_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="@dimen/space_12">
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_weather"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🌤️ 查天气"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -100,7 +100,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🔍 搜索"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -110,7 +110,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🗄️ 数据库"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -120,7 +120,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📁 文件"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -130,7 +130,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📍 定位"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -140,7 +140,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📱 应用"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -150,7 +150,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🧰 聚合工具包"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="@dimen/space_4"
                 app:chipBackgroundColor="@color/tertiary_container"
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
@@ -170,66 +170,66 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="管理"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"
-            android:paddingBottom="4dp"/>
+            android:paddingBottom="@dimen/space_4"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_agent_manager"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="🛠️ Agent 管理（记忆/工具/工作区/统计）"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="8dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_ai_center"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="🤖 AI 中心（模型/工具/Agent 入口）"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="8dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_ai_service"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="⚙️ AI 服务（状态/启动/日志）"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="8dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_model_download"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="📥 模型下载（本地模型/GGUF）"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"
-            android:layout_marginBottom="8dp"/>
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <!-- ===== 其他 ===== -->
         <LinearLayout
@@ -240,60 +240,60 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_history"
             android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="@dimen/size_40"
                 android:layout_weight="1"
                 android:text="📜 历史"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/on_secondary_container"
                 app:backgroundTint="@color/secondary_container"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 android:paddingHorizontal="8dp"
-                android:minWidth="0dp"/>
+                android:minWidth="@dimen/min_0"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_chat"
             android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="@dimen/size_40"
                 android:layout_weight="1"
                 android:text="🗑️ 清空"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/on_error_container"
                 app:backgroundTint="@color/error_container"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 android:paddingHorizontal="8dp"
-                android:minWidth="0dp"/>
+                android:minWidth="@dimen/min_0"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_auto_tts"
             android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="@dimen/size_40"
                 android:layout_weight="1"
                 android:text="🔇 语音"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/on_secondary_container"
                 app:backgroundTint="@color/secondary_container"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:paddingHorizontal="8dp"
-                android:minWidth="0dp"/>
+                android:minWidth="@dimen/min_0"/>
         </LinearLayout>
 
         <!-- 日志查看 -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_log_viewer"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="📄 处理日志"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_secondary_container"
             app:backgroundTint="@color/secondary_container"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:gravity="start|center_vertical"
             android:paddingHorizontal="12dp"
-            android:minWidth="0dp"/>
+            android:minWidth="@dimen/min_0"/>
 
     </LinearLayout>
 </ScrollView>

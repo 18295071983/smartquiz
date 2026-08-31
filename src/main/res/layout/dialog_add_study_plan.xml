@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <!-- 标题 -->
     <EditText
@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:hint="计划标题"
         android:inputType="text"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
     <!-- 描述 -->
     <EditText
@@ -22,7 +22,7 @@
         android:hint="计划描述"
         android:inputType="textMultiLine"
         android:lines="3"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
     <!-- 目标题数 -->
     <EditText
@@ -31,7 +31,7 @@
         android:layout_height="wrap_content"
         android:hint="目标题数"
         android:inputType="number"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
     <!-- 分类 -->
     <EditText
@@ -40,7 +40,7 @@
         android:layout_height="wrap_content"
         android:hint="题目分类"
         android:inputType="text"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
     <!-- 难度 -->
     <EditText
@@ -49,6 +49,6 @@
         android:layout_height="wrap_content"
         android:hint="难度 (1-简单, 2-中等, 3-困难)"
         android:inputType="number"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
 </LinearLayout>

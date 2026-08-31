@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/surface">
 
     <TextView
@@ -12,55 +12,55 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="练习模式"
-        android:textSize="16sp"
+        android:textSize="@dimen/text_16"
         android:textStyle="bold"
         android:textColor="@color/on_surface"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/textViewScore"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="85分"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/textViewQuestionCount"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="10题"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/textViewCorrectCount"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="正确: 8/10"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
         android:id="@+id/textViewTimeUsed"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="用时: 5分钟"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
         android:id="@+id/textViewDate"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="2024-01-01 10:00"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="@dimen/space_12" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonReview"
@@ -69,7 +69,7 @@
         android:text="复习"
         app:backgroundTint="@color/primary"
         android:textColor="@android:color/white"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 
 </LinearLayout>

@@ -4,17 +4,17 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="24dp">
+    android:padding="@dimen/space_24">
 
     <!-- 导出设置标题 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="导出选项"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
         android:textColor="@color/black"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <!-- 包含分类选项 -->
     <LinearLayout
@@ -22,7 +22,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchIncludeCategories"
@@ -36,9 +36,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="包含分类"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/black"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -48,7 +48,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchIncludeDifficulty"
@@ -62,9 +62,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="包含难度"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/black"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -74,7 +74,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchIncludeExplanation"
@@ -88,9 +88,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="包含解析"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/black"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -100,7 +100,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchAutoSizeColumns"
@@ -114,9 +114,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="自动调整列宽（Excel）"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/black"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -125,9 +125,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="导出说明：\n1. Excel格式支持最完整的题目信息\n2. PDF和图片格式适合打印和分享\n3. Markdown和HTML格式适合网页展示\n4. CSV格式适合与其他系统交互" 
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/gray"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_16"
         android:lineSpacingExtra="4dp" />
 
 </LinearLayout>

@@ -12,7 +12,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -20,7 +20,7 @@
             android:background="?attr/colorSurface"
             app:title="题库智能修复"
             app:titleTextColor="?attr/colorOnSurface"
-            app:elevation="0dp" />
+            app:elevation="@dimen/elev_0" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <!-- 统计区 -->
@@ -28,8 +28,8 @@
         android:id="@+id/tvRepairStats"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:textSize="13sp"
+        android:padding="@dimen/space_12"
+        android:textSize="@dimen/text_13"
         android:textColor="@color/text_secondary"
         android:text="点击「扫描题库」检测乱码、缺失字段、答案异常与重复题" />
 
@@ -38,9 +38,9 @@
         android:id="@+id/tvRepairStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:textSize="13sp"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:textSize="@dimen/text_13"
         android:textColor="?attr/colorPrimary"
         android:visibility="gone" />
 
@@ -49,8 +49,8 @@
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginEnd="@dimen/space_12"
         android:max="100"
         android:progress="0"
         android:visibility="gone" />
@@ -60,46 +60,46 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp">
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingTop="@dimen/space_4"
+        android:paddingBottom="@dimen/space_4">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnScanRepair"
             style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
             android:layout_weight="1"
             android:text="扫描题库"
-            android:textSize="13sp"
-            app:cornerRadius="20dp"
+            android:textSize="@dimen/text_13"
+            app:cornerRadius="@dimen/radius_20"
             android:textAllCaps="false"
-            android:layout_marginEnd="6dp" />
+            android:layout_marginEnd="@dimen/space_6" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRuleFix"
             style="@style/Widget.Material3.Button"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
             android:layout_weight="1"
             android:text="规则修复"
-            android:textSize="13sp"
+            android:textSize="@dimen/text_13"
             android:enabled="false"
-            app:cornerRadius="20dp"
+            app:cornerRadius="@dimen/radius_20"
             android:textAllCaps="false"
-            android:layout_marginEnd="6dp" />
+            android:layout_marginEnd="@dimen/space_6" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAiFix"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
             android:layout_weight="1"
             android:text="AI修复"
-            android:textSize="13sp"
+            android:textSize="@dimen/text_13"
             android:enabled="false"
-            app:cornerRadius="20dp"
+            app:cornerRadius="@dimen/radius_20"
             android:textAllCaps="false" />
     </LinearLayout>
 
@@ -107,11 +107,11 @@
     <ListView
         android:id="@+id/lvRepairIssues"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:divider="@android:color/transparent"
         android:dividerHeight="4dp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
         android:clipToPadding="false" />
 </LinearLayout>

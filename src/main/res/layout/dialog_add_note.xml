@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <!-- 笔记标题 -->
     <EditText
@@ -11,23 +11,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="笔记标题"
-        android:textSize="16sp"
-        android:padding="12dp"
+        android:textSize="@dimen/text_16"
+        android:padding="@dimen/space_12"
         android:background="@drawable/edittext_background"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <!-- 笔记内容 -->
     <EditText
         android:id="@+id/editTextContent"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
+        android:layout_height="@dimen/size_200"
         android:hint="笔记内容"
-        android:textSize="14sp"
-        android:padding="12dp"
+        android:textSize="@dimen/text_14"
+        android:padding="@dimen/space_12"
         android:background="@drawable/edittext_background"
         android:gravity="top"
         android:inputType="textMultiLine"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <!-- 笔记分类 -->
     <EditText
@@ -35,9 +35,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="笔记分类"
-        android:textSize="14sp"
-        android:padding="12dp"
+        android:textSize="@dimen/text_14"
+        android:padding="@dimen/space_12"
         android:background="@drawable/edittext_background"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
 </LinearLayout>

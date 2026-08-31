@@ -3,42 +3,42 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:gravity="center_vertical">
 
     <TextView
         android:id="@+id/tv_date"
-        android:layout_width="64dp"
+        android:layout_width="@dimen/size_64"
         android:layout_height="wrap_content"
         android:text="今天"
-        android:textSize="14sp"
-        android:textColor="#1E293B"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/text_primary"
         android:textStyle="bold"/>
 
     <ImageView
         android:id="@+id/tv_icon"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="@dimen/size_40"
+        android:layout_height="@dimen/size_40"
         android:src="@drawable/wi_unknown"
         android:scaleType="fitCenter"/>
 
     <TextView
         android:id="@+id/tv_desc"
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="晴"
-        android:textSize="14sp"
-        android:textColor="#64748B"
-        android:paddingStart="8dp"/>
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/text_secondary"
+        android:paddingStart="@dimen/space_8"/>
 
     <TextView
         android:id="@+id/tv_temp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="18° ~ 28°"
-        android:textSize="15sp"
-        android:textColor="#1E293B"
+        android:textSize="@dimen/text_15"
+        android:textColor="@color/text_primary"
         android:textStyle="bold"/>
 
 </LinearLayout>

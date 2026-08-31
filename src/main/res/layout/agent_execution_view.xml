@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <!-- 标题栏 -->
     <LinearLayout
@@ -11,32 +11,32 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="@dimen/space_6">
 
         <TextView
             android:id="@+id/tv_title_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="🤖"
-            android:textSize="18sp" />
+            android:textSize="@dimen/text_18" />
 
         <TextView
             android:id="@+id/tv_title"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Agent执行中..."
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_primary"
             android:textStyle="bold"
-            android:layout_marginStart="6dp" />
+            android:layout_marginStart="@dimen/space_6" />
 
         <TextView
             android:id="@+id/tv_step_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="步骤 1/?"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary" />
 
     </LinearLayout>
@@ -47,7 +47,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/agent_execution_background"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
         <!-- 日志区背景 agent_execution_background 使用 surface（浅色=白/夜间=深灰），
              与文字 text_primary/text_secondary 均有足够对比度 -->
 
@@ -69,8 +69,8 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/agent_step_card_background"
-        android:padding="12dp"
-        android:layout_marginTop="8dp">
+        android:padding="@dimen/space_12"
+        android:layout_marginTop="@dimen/space_8">
 
         <!-- 步骤类型标签 -->
         <LinearLayout
@@ -84,15 +84,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="思考"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/primary"
                 android:background="@drawable/agent_step_type_tag"
                 android:paddingHorizontal="8dp"
                 android:paddingVertical="2dp" />
 
             <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_0"
                 android:layout_weight="1" />
 
             <!-- 推理速度 / Token 统计：AI 导入流程不更新（页面上方有 monitorBar），默认隐藏 -->
@@ -101,7 +101,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0.0 t/s"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"
                 android:visibility="gone" />
 
@@ -110,9 +110,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0 token"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_8"
                 android:visibility="gone" />
 
         </LinearLayout>
@@ -122,10 +122,10 @@
             android:id="@+id/tv_step_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_primary"
             android:lineSpacingMultiplier="1.3"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:textIsSelectable="true" />
 
         <!-- 工具调用参数（当步骤类型为工具调用时显示） -->
@@ -134,14 +134,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="工具参数:"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"
                 android:textStyle="bold" />
 
@@ -149,11 +149,11 @@
                 android:id="@+id/tv_tool_params"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/text_primary"
                 android:background="@drawable/code_block_background"
-                android:padding="8dp"
-                android:layout_marginTop="4dp"
+                android:padding="@dimen/space_8"
+                android:layout_marginTop="@dimen/space_4"
                 android:fontFamily="monospace" />
 
         </LinearLayout>
@@ -164,7 +164,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:visibility="gone">
 
             <LinearLayout
@@ -178,7 +178,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="✓ 成功"
-                    android:textSize="11sp"
+                    android:textSize="@dimen/text_11"
                     android:textColor="@color/success"
                     android:textStyle="bold" />
 
@@ -187,9 +187,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="工具名称"
-                    android:textSize="11sp"
+                    android:textSize="@dimen/text_11"
                     android:textColor="@color/text_secondary"
-                    android:layout_marginStart="8dp" />
+                    android:layout_marginStart="@dimen/space_8" />
 
             </LinearLayout>
 
@@ -197,11 +197,11 @@
                 android:id="@+id/tv_tool_result_content"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/text_primary"
                 android:background="@drawable/code_block_background"
-                android:padding="10dp"
-                android:layout_marginTop="6dp"
+                android:padding="@dimen/space_10"
+                android:layout_marginTop="@dimen/space_6"
                 android:fontFamily="monospace"
                 android:textIsSelectable="true" />
 
@@ -215,8 +215,8 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp"
+        android:paddingTop="@dimen/space_8"
+        android:paddingBottom="@dimen/space_4"
         android:visibility="gone">
 
         <TextView
@@ -224,12 +224,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="已用时间: 0秒"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/text_secondary" />
 
         <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1" />
 
         <TextView
@@ -237,7 +237,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="总计: 0 token"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/text_secondary" />
 
     </LinearLayout>

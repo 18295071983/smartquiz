@@ -3,17 +3,17 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <View
         android:id="@+id/view_status_indicator"
-        android:layout_width="3dp"
+        android:layout_width="@dimen/size_3"
         android:layout_height="match_parent"
         android:background="@color/border"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="@dimen/space_8"/>
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical">
@@ -26,10 +26,10 @@
 
             <TextView
                 android:id="@+id/tv_status"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"/>
 
@@ -37,7 +37,7 @@
                 android:id="@+id/tv_stats"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"/>
         </LinearLayout>
     </LinearLayout>

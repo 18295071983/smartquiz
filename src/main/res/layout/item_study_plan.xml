@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/surface">
 
     <TextView
@@ -12,28 +12,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="计划名称"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
         android:textColor="@color/on_surface"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/tv_plan_details"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="目标: 10题"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/tv_plan_date"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="2024-01-01"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="@dimen/space_8" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -42,40 +42,40 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_edit"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="编辑"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/primary"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginEnd="@dimen/space_8" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_delete"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="删除"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/error"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginEnd="@dimen/space_8" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_reset"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="重置"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/secondary"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
     </LinearLayout>

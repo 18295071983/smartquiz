@@ -5,28 +5,28 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:padding="@dimen/space_20">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="题库字段说明"
-        android:textSize="17sp"
+        android:textSize="@dimen/text_17"
         android:textStyle="bold"
         android:textColor="@color/text_primary"/>
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="@dimen/space_4"
         android:text="导入时自动识别表头列并匹配到以下标准字段。支持的常见写法（别名）见各字段下方。"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_secondary"/>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="420dp"
-        android:layout_marginTop="10dp"
+        android:layout_height="@dimen/size_420"
+        android:layout_marginTop="@dimen/space_10"
         android:fillViewport="false">
 
         <LinearLayout
@@ -39,10 +39,10 @@
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_close"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="12dp"
+        android:layout_height="@dimen/size_44"
+        android:layout_marginTop="@dimen/space_12"
         android:text="知道了"
-        android:textSize="14sp"
-        app:cornerRadius="10dp"/>
+        android:textSize="@dimen/text_14"
+        app:cornerRadius="@dimen/radius_10"/>
 
 </LinearLayout>

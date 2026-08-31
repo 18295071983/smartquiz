@@ -20,20 +20,20 @@
     <!-- 主要内容区域 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 状态信息滚动视图 -->
         <ScrollView
             android:id="@+id/scroll_view"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1"
             android:background="@drawable/rounded_card"
-            android:elevation="4dp"
-            android:padding="20dp"
+            android:elevation="@dimen/elev_4"
+            android:padding="@dimen/space_20"
             android:scrollbars="vertical">
 
             <!-- 状态信息文本 -->
@@ -41,7 +41,7 @@
                 android:id="@+id/tv_status_info"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:lineSpacingExtra="4sp"
                 android:textColor="@color/text_primary"
                 android:fontFamily="sans-serif" />
@@ -53,51 +53,51 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/space_16"
             android:gravity="center">
 
             <Button
                 android:id="@+id/btn_refresh"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="刷新状态"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:fontFamily="sans-serif-medium"
                 android:textColor="@color/white"
                 android:background="@drawable/rounded_corners_teal"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 android:stateListAnimator="@null"
-                android:elevation="2dp" />
+                android:elevation="@dimen/elev_2" />
 
             <Button
                 android:id="@+id/btn_clear"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="清空日志"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:fontFamily="sans-serif-medium"
                 android:textColor="@color/white"
                 android:background="@drawable/rounded_corners_gray"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
+                android:layout_marginStart="@dimen/space_8"
+                android:layout_marginEnd="@dimen/space_8"
                 android:stateListAnimator="@null"
-                android:elevation="2dp" />
+                android:elevation="@dimen/elev_2" />
 
             <Button
                 android:id="@+id/btn_restart"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="重启内核"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:fontFamily="sans-serif-medium"
                 android:textColor="@color/white"
                 android:background="@drawable/rounded_corners_red"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_8"
                 android:stateListAnimator="@null"
-                android:elevation="2dp" />
+                android:elevation="@dimen/elev_2" />
 
         </LinearLayout>
 

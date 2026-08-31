@@ -13,48 +13,48 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@color/surface"
-        android:elevation="4dp">
+        android:elevation="@dimen/elev_4">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_clear_log"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="清空日志"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/error"
             android:textColor="@android:color/white"
-            app:cornerRadius="20dp"
-            android:layout_marginEnd="8dp"/>
+            app:cornerRadius="@dimen/radius_20"
+            android:layout_marginEnd="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_copy_log"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="复制日志"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/primary"
             android:textColor="@android:color/white"
-            app:cornerRadius="20dp"
-            android:layout_marginEnd="8dp"/>
+            app:cornerRadius="@dimen/radius_20"
+            android:layout_marginEnd="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_share_log"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="分享日志"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/secondary"
             android:textColor="@android:color/white"
-            app:cornerRadius="20dp"
-            android:layout_marginEnd="8dp"/>
+            app:cornerRadius="@dimen/radius_20"
+            android:layout_marginEnd="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_export_log"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="@dimen/size_40"
             android:text="导出日志"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/tertiary"
             android:textColor="@android:color/white"
-            app:cornerRadius="20dp"/>
+            app:cornerRadius="@dimen/radius_20"/>
     </LinearLayout>
 
     <!-- 搜索和筛选区域 -->
@@ -62,7 +62,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@color/surface_variant">
         <!-- 搜索框 -->
         <com.google.android.material.textfield.TextInputLayout
@@ -87,13 +87,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="@dimen/space_8">
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_all"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="全部"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:chipBackgroundColor="@color/primary_container"
                 app:chipStrokeColor="@color/primary"
                 app:chipStrokeWidth="1dp"
@@ -103,7 +103,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="模型信息"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:chipBackgroundColor="@color/secondary_container"
                 app:chipStrokeColor="@color/secondary"
                 app:chipStrokeWidth="1dp"
@@ -113,7 +113,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="错误信息"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:chipBackgroundColor="@color/error_container"
                 app:chipStrokeColor="@color/error"
                 app:chipStrokeWidth="1dp"
@@ -123,7 +123,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="成功信息"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 app:chipBackgroundColor="@color/success_container"
                 app:chipStrokeColor="@color/success"
                 app:chipStrokeWidth="1dp"
@@ -174,7 +174,7 @@
     <ScrollView
         android:id="@+id/log_scroll_view"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         <LinearLayout
@@ -195,7 +195,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp"
+                android:padding="@dimen/space_16"
                 android:background="@color/surface_variant"
                 android:visibility="gone">
                 <TextView
@@ -203,29 +203,29 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="详细信息"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary"
-                    android:layout_marginBottom="12dp"/>
+                    android:layout_marginBottom="@dimen/space_12"/>
                 <TextView
                     android:id="@+id/detailed_content"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="@color/text_primary"
                     android:background="@color/surface"
-                    android:padding="12dp"
-                    android:minHeight="120dp"/>
+                    android:padding="@dimen/space_12"
+                    android:minHeight="@dimen/min_120"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_close_detail"
                     android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_height="@dimen/size_40"
                     android:text="关闭"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     app:backgroundTint="@color/primary"
                     android:textColor="@color/on_primary"
-                    app:cornerRadius="20dp"
-                    android:layout_marginTop="12dp"/>
+                    app:cornerRadius="@dimen/radius_20"
+                    android:layout_marginTop="@dimen/space_12"/>
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
@@ -235,28 +235,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
         <EditText
             android:id="@+id/input_message"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="输入消息..."
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:background="@drawable/rounded_edittext"
             android:maxLines="3"
             android:inputType="textMultiLine"
             android:textColor="@color/text_primary"
             android:textColorHint="@color/text_secondary"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_send"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+            android:layout_width="@dimen/size_56"
+            android:layout_height="@dimen/size_56"
             app:backgroundTint="@color/primary"
-            app:cornerRadius="28dp"
+            app:cornerRadius="@dimen/radius_28"
             app:icon="@drawable/ic_send"
             app:iconGravity="textStart"
             app:iconPadding="0dp"

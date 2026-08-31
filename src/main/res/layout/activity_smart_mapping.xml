@@ -17,13 +17,13 @@
         android:id="@+id/loadingCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_margin="@dimen/space_16"
         android:visibility="gone">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="@dimen/space_16"
             android:gravity="center">
             <ProgressBar
                 android:id="@+id/progressBar"
@@ -33,14 +33,14 @@
                 android:id="@+id/statusText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="@dimen/space_8"
                 android:text="分析中..."
-                android:textSize="18sp" />
+                android:textSize="@dimen/text_18" />
             <TextView
                 android:id="@+id/progressDetailText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="@dimen/space_8"
                 android:text="处理中..." />
         </LinearLayout>
     </androidx.cardview.widget.CardView>
@@ -49,37 +49,37 @@
         android:id="@+id/statsCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:layout_marginBottom="8dp">
+        android:layout_margin="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_8">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:padding="16dp"
+            android:padding="@dimen/space_16"
             android:gravity="center">
             <TextView
                 android:id="@+id/questionTypeCount"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="3"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:gravity="center" />
             <TextView
                 android:id="@+id/difficultyCount"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="0"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:gravity="center" />
             <TextView
                 android:id="@+id/categoryCount"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="0"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:gravity="center" />
         </LinearLayout>
     </androidx.cardview.widget.CardView>
@@ -88,53 +88,53 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp">
+        android:layout_marginStart="@dimen/space_16"
+        android:layout_marginEnd="@dimen/space_16">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnQuestionType"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="题型映射"
-            android:layout_marginEnd="4dp"
+            android:layout_marginEnd="@dimen/space_4"
             android:backgroundTint="@color/teal_200"
-            app:cornerRadius="8dp"
-            app:strokeWidth="2dp"
+            app:cornerRadius="@dimen/radius_8"
+            app:strokeWidth="@dimen/stroke_2"
             app:strokeColor="@color/teal_200" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDifficulty"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="难度映射"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            app:cornerRadius="8dp"
-            app:strokeWidth="2dp"
+            android:layout_marginStart="@dimen/space_4"
+            android:layout_marginEnd="@dimen/space_4"
+            app:cornerRadius="@dimen/radius_8"
+            app:strokeWidth="@dimen/stroke_2"
             app:strokeColor="@color/teal_200" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCategory"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="分类映射"
-            android:layout_marginStart="4dp"
-            app:cornerRadius="8dp"
-            app:strokeWidth="2dp"
+            android:layout_marginStart="@dimen/space_4"
+            app:cornerRadius="@dimen/radius_8"
+            app:strokeWidth="@dimen/stroke_2"
             app:strokeColor="@color/teal_200" />
     </LinearLayout>
 
     <androidx.cardview.widget.CardView
         android:id="@+id/mappingCard"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:layout_margin="16dp">
+        android:layout_margin="@dimen/space_16">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/mappingRecyclerView"
                 android:layout_width="match_parent"
@@ -146,22 +146,22 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCancel"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="取消"
-            android:layout_marginEnd="8dp"
-            app:cornerRadius="8dp" />
+            android:layout_marginEnd="@dimen/space_8"
+            app:cornerRadius="@dimen/radius_8" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnNext"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="下一步"
-            app:cornerRadius="8dp" />
+            app:cornerRadius="@dimen/radius_8" />
     </LinearLayout>
 
 </LinearLayout>

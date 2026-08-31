@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginVertical="8dp"
+    android:layout_marginVertical="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
     app:cardBackgroundColor="@color/secondary_container">
@@ -12,7 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <!-- 标题栏 -->
         <LinearLayout
@@ -20,13 +20,13 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📊 思维导图"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/on_secondary_container"
                 android:textStyle="bold"/>
         </LinearLayout>
@@ -36,11 +36,11 @@
             android:id="@+id/tv_mermaid_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/on_secondary_container"
             android:fontFamily="monospace"
             android:lineSpacingExtra="4dp"
-            android:paddingStart="16dp"/>
+            android:paddingStart="@dimen/space_16"/>
 
     </LinearLayout>
 

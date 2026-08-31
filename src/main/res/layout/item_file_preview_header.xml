@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/surface_variant">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="文件预览"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
         android:textColor="@color/on_surface_variant"/>
 
@@ -19,6 +19,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="16dp"/>
+        android:layout_marginTop="@dimen/space_16"/>
 
 </LinearLayout>

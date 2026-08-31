@@ -17,7 +17,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="题干"
-            android:textSize="13sp"
+            android:textSize="@dimen/text_13"
             android:textStyle="bold"
             android:textColor="@color/text_primary"/>
 
@@ -26,12 +26,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="必填"
-            android:textSize="10sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/error"
             android:background="@drawable/agent_step_type_tag_error"
             android:paddingHorizontal="6dp"
             android:paddingVertical="1dp"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="@dimen/space_6"
             android:visibility="gone"/>
     </LinearLayout>
 
@@ -40,13 +40,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="别名"
-        android:textSize="11sp"
+        android:textSize="@dimen/text_11"
         android:textColor="@color/text_secondary"
-        android:layout_marginTop="2dp"/>
+        android:layout_marginTop="@dimen/space_2"/>
 
     <View
         android:layout_width="match_parent"
-        android:layout_height="1dp"
+        android:layout_height="@dimen/size_1"
         android:background="@color/divider"
-        android:layout_marginTop="6dp"/>
+        android:layout_marginTop="@dimen/space_6"/>
 </LinearLayout>

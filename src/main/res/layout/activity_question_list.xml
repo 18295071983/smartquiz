@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/background"
     >
 
@@ -15,23 +15,23 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="24dp">
+        android:layout_marginBottom="@dimen/space_24">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="返回"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             app:backgroundTint="@color/gray_500"
             android:textColor="@color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="16dp" />
+            android:layout_marginEnd="@dimen/space_16" />
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="题目管理"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
             android:textColor="@color/teal_700" />
     </LinearLayout>
@@ -41,23 +41,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="@dimen/space_16">
         <!-- 搜索框 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:background="@drawable/rounded_edittext"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
             <EditText
                 android:id="@+id/editTextSearch"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:hint="搜索题目..."
                 android:inputType="text"
-                android:padding="12dp"
-                android:textSize="14sp"
+                android:padding="@dimen/space_12"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/on_surface"
                 android:background="@android:color/transparent" />
             <com.google.android.material.button.MaterialButton
@@ -65,14 +65,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="搜索"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 app:backgroundTint="@color/teal_700"
                 android:textColor="@color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:paddingHorizontal="16dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginStart="@dimen/space_8"
+                android:layout_marginEnd="@dimen/space_8" />
         </LinearLayout>
         
         <!-- 筛选选项 -->
@@ -85,26 +85,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="筛选:"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/gray_700"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="@dimen/space_8" />
             <Spinner
                 android:id="@+id/spinnerCategory"
-                android:layout_width="100dp"
+                android:layout_width="@dimen/size_100"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 android:background="@drawable/rounded_spinner"
                 android:popupBackground="@color/white" />
             <Spinner
                 android:id="@+id/spinnerDifficulty"
-                android:layout_width="100dp"
+                android:layout_width="@dimen/size_100"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="@dimen/space_8"
                 android:background="@drawable/rounded_spinner"
                 android:popupBackground="@color/white" />
             <Spinner
                 android:id="@+id/spinnerType"
-                android:layout_width="100dp"
+                android:layout_width="@dimen/size_100"
                 android:layout_height="wrap_content"
                 android:background="@drawable/rounded_spinner"
                 android:popupBackground="@color/white" />
@@ -113,13 +113,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="重置"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 app:backgroundTint="@color/gray_500"
                 android:textColor="@color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:paddingHorizontal="12dp"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="@dimen/space_8" />
         </LinearLayout>
     </LinearLayout>
 
@@ -129,10 +129,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="题库为空，暂无题目"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:gravity="center"
         android:layout_gravity="center"
-        android:layout_marginTop="100dp"
+        android:layout_marginTop="@dimen/space_100"
         android:textColor="@color/gray_500" />
 
     <!-- 题目列表 -->

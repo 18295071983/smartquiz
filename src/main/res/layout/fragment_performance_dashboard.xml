@@ -11,43 +11,43 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- TPS 和延迟 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginEnd="8dp">
+                android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="TPS"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/tps_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0.0"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -56,33 +56,33 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginStart="8dp">
+                android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="延迟"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/latency_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0.0ms"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -97,36 +97,36 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginEnd="8dp">
+                android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="GPU 使用率"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/gpu_usage_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0%"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -135,33 +135,33 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginStart="8dp">
+                android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="内存使用率"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/memory_usage_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0%"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -178,33 +178,33 @@
             android:orientation="horizontal">
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginEnd="8dp">
+                android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="温度"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/temperature_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0°C"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -213,33 +213,33 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
-                android:layout_marginStart="8dp">
+                android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="性能评分"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/performance_score_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary" />
 
@@ -255,30 +255,30 @@
     <WebView
         android:id="@+id/tps_chart"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
-        android:padding="16dp" />
+        android:layout_height="@dimen/size_200"
+        android:padding="@dimen/space_16" />
 
     <!-- 优化建议 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="优化建议"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/optimization_suggestions"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1" />
 
     </LinearLayout>
@@ -291,6 +291,6 @@
         android:text="一键优化"
         android:backgroundTint="@color/teal_600"
         android:textColor="@color/white"
-        android:layout_margin="16dp" />
+        android:layout_margin="@dimen/space_16" />
 
 </LinearLayout>

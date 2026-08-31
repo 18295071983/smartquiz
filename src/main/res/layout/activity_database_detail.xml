@@ -5,14 +5,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/background"
     tools:context=".ui.activity.DatabaseDetailActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -24,47 +24,47 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="@dimen/space_16"
                 app:cardElevation="4dp"
                 app:cardCornerRadius="8dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="数据库状态"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <TextView
                         android:id="@+id/tv_database_status"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="状态: 未知"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="8dp"/>
+                        android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/tv_database_version"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="版本: 未知"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textColor="@color/text_secondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -72,41 +72,41 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="@dimen/space_16"
                 app:cardElevation="4dp"
                 app:cardCornerRadius="8dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="数据统计"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="用户数量:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_user_count"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_primary"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -114,21 +114,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="题目数量:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_question_count"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_primary"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -136,21 +136,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="学习计划:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_study_plan_count"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_primary"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -158,21 +158,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
+                        android:layout_marginBottom="@dimen/space_8">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="笔记数量:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_note_count"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_primary"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -181,19 +181,19 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal">
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="错题数量:"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_wrong_question_count"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/text_primary"
                             android:gravity="right"/>
                     </LinearLayout>
@@ -209,21 +209,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="数据库路径"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"
-                        android:layout_marginBottom="12dp"/>
+                        android:layout_marginBottom="@dimen/space_12"/>
                     <TextView
                         android:id="@+id/tv_database_path"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="路径: 未知"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/text_secondary"
                         android:singleLine="false"
                         android:maxLines="3"/>

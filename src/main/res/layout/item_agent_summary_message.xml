@@ -3,10 +3,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:background="@drawable/message_card_background"
-    android:layout_marginTop="8dp"
-    android:layout_marginBottom="8dp">
+    android:layout_marginTop="@dimen/space_8"
+    android:layout_marginBottom="@dimen/space_8">
 
     <!-- 标题 -->
     <LinearLayout
@@ -14,22 +14,22 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="@dimen/space_8">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="🤖"
-            android:textSize="18sp"
-            android:layout_marginEnd="6dp" />
+            android:textSize="@dimen/text_18"
+            android:layout_marginEnd="@dimen/space_6" />
 
         <TextView
             android:id="@+id/summary_title"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Agent 执行汇总"
-            android:textSize="15sp"
+            android:textSize="@dimen/text_15"
             android:textColor="@color/agent_summary_title"
             android:textStyle="bold" />
 
@@ -37,45 +37,45 @@
             android:id="@+id/summary_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textStyle="bold" />
     </LinearLayout>
 
     <!-- 分割线 -->
     <View
         android:layout_width="match_parent"
-        android:layout_height="1dp"
+        android:layout_height="@dimen/size_1"
         android:background="@color/agent_summary_divider"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="@dimen/space_8" />
 
     <!-- 统计信息 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="@dimen/space_4">
 
         <!-- 总耗时 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="4dp">
+            android:padding="@dimen/space_4">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="⏱"
-                android:textSize="16sp"
-                android:layout_marginBottom="2dp" />
+                android:textSize="@dimen/text_16"
+                android:layout_marginBottom="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/summary_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/agent_summary_value"
                 android:textStyle="bold" />
 
@@ -83,31 +83,31 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="耗时"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/agent_summary_label" />
         </LinearLayout>
 
         <!-- 总步骤 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="4dp">
+            android:padding="@dimen/space_4">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📊"
-                android:textSize="16sp"
-                android:layout_marginBottom="2dp" />
+                android:textSize="@dimen/text_16"
+                android:layout_marginBottom="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/summary_steps"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/agent_summary_value"
                 android:textStyle="bold" />
 
@@ -115,31 +115,31 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="思考轮"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/agent_summary_label" />
         </LinearLayout>
 
         <!-- 工具调用 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="4dp">
+            android:padding="@dimen/space_4">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🔧"
-                android:textSize="16sp"
-                android:layout_marginBottom="2dp" />
+                android:textSize="@dimen/text_16"
+                android:layout_marginBottom="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/summary_tools"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/agent_summary_value"
                 android:textStyle="bold" />
 
@@ -147,31 +147,31 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="工具"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/agent_summary_label" />
         </LinearLayout>
 
         <!-- Token 使用 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="4dp">
+            android:padding="@dimen/space_4">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📝"
-                android:textSize="16sp"
-                android:layout_marginBottom="2dp" />
+                android:textSize="@dimen/text_16"
+                android:layout_marginBottom="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/summary_tokens"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/agent_summary_value"
                 android:textStyle="bold" />
 
@@ -179,7 +179,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Token"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/agent_summary_label" />
         </LinearLayout>
     </LinearLayout>
@@ -189,8 +189,8 @@
         android:id="@+id/summary_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:textSize="11sp"
+        android:layout_marginTop="@dimen/space_6"
+        android:textSize="@dimen/text_11"
         android:textColor="@color/text_secondary"
         android:lineSpacingExtra="2dp"
         android:visibility="gone"/>

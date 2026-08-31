@@ -4,22 +4,22 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/surface"
-    android:layout_marginBottom="8dp">
+    android:layout_marginBottom="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="@dimen/space_8">
         <TextView
             android:id="@+id/textViewFileName"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="文件名"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textColor="@color/on_surface"/>
         <TextView
@@ -27,7 +27,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="状态"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/success_color"/>
     </LinearLayout>
 
@@ -35,24 +35,24 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="@dimen/space_8">
         <TextView
             android:id="@+id/textViewImportTime"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="2024-01-01 12:00:00"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_secondary"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDelete"
             android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_height="@dimen/size_32"
             android:text="删除"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             app:backgroundTint="@color/error"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
     </LinearLayout>
 
@@ -62,19 +62,19 @@
         android:orientation="horizontal">
         <TextView
             android:id="@+id/textViewImportedCount"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="成功: 0"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_secondary"/>
         <TextView
             android:id="@+id/textViewFailedCount"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="失败: 0"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_secondary"
             android:gravity="right"/>
     </LinearLayout>

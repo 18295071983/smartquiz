@@ -27,7 +27,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
     <!-- 模型下载状态 -->
     <LinearLayout
@@ -35,16 +35,16 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/rounded_corners_gray_light"
-        android:padding="16dp"
-        android:layout_marginBottom="16dp">
+        android:padding="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_16">
 
         <TextView
             android:id="@+id/tv_download_status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="准备下载模型..."
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"/>
+            android:textSize="@dimen/text_16"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <ProgressBar
             android:id="@+id/progress_download"
@@ -61,16 +61,16 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/rounded_corners_gray_light"
-        android:padding="16dp"
-        android:layout_marginBottom="16dp">
+        android:padding="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_16">
 
         <TextView
             android:id="@+id/tv_file_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="请选择要解析的题库文件"
-            android:textSize="14sp"
-            android:layout_marginBottom="12dp"/>
+            android:textSize="@dimen/text_14"
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <Button
             android:id="@+id/btn_select_file"
@@ -85,25 +85,25 @@
     <!-- 解析结果 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
         android:background="@drawable/rounded_corners_gray_light"
-        android:padding="16dp"
-        android:layout_marginBottom="16dp">
+        android:padding="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_16">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="解析结果"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <ScrollView
             android:id="@+id/scroll_view_result"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1">
 
             <TextView
@@ -111,7 +111,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="解析结果将显示在这里..."
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:lineSpacingExtra="4dp"/>
         </ScrollView>
     </LinearLayout>

@@ -4,9 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:background="@color/surface"
-    android:layout_marginBottom="8dp"
+    android:layout_marginBottom="@dimen/space_8"
     android:clickable="true"
     android:focusable="true"
     android:foreground="?attr/selectableItemBackground">
@@ -15,33 +15,33 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="@dimen/space_8"
         android:gravity="center_vertical">
         <TextView
             android:id="@+id/tv_log_timestamp"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="2024-01-01 12:00:00"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary"/>
         <TextView
             android:id="@+id/tv_log_source"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="应用"
-            android:textSize="10sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/on_surface_variant"
             android:background="@drawable/rounded_tag"
             android:paddingHorizontal="6dp"
             android:paddingVertical="1dp"
-            android:layout_marginEnd="6dp"/>
+            android:layout_marginEnd="@dimen/space_6"/>
         <TextView
             android:id="@+id/tv_log_level"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="INFO"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@android:color/white"
             android:paddingHorizontal="8dp"
             android:paddingVertical="2dp"/>
@@ -52,16 +52,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="操作"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_primary"
-        android:layout_marginBottom="4dp"/>
+        android:layout_marginBottom="@dimen/space_4"/>
 
     <TextView
         android:id="@+id/tv_log_detail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="详细信息"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
         android:maxLines="5"
         android:ellipsize="end"/>

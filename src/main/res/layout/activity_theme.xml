@@ -11,7 +11,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -23,7 +23,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         
@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             
             <!-- 欢迎卡片 -->
             <com.google.android.material.card.MaterialCardView
@@ -40,24 +40,24 @@
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/primary_container"
                 app:cardCornerRadius="16dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="20dp">
+                    android:padding="@dimen/space_20">
                     
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_theme"
                         android:tint="@color/on_primary_container"
-                        android:layout_marginEnd="16dp" />
+                        android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
@@ -66,16 +66,16 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="个性化你的应用"
-                            android:textSize="18sp"
+                            android:textSize="@dimen/text_18"
                             android:textStyle="bold"
                             android:textColor="@color/on_primary_container"
-                            android:layout_marginBottom="4dp" />
+                            android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="选择你喜欢的主题和颜色"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_primary_container" />
                         
                     </LinearLayout>
@@ -91,22 +91,22 @@
                 app:cardElevation="2dp"
                 app:cardBackgroundColor="@color/surface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="主题模式"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="16dp" />
+                        android:layout_marginBottom="@dimen/space_16" />
                     
                     <RadioGroup
                         android:id="@+id/radioGroupThemeMode"
@@ -120,7 +120,7 @@
                             app:cardElevation="1dp"
                             app:cardBackgroundColor="@color/surface_variant"
                             app:cardCornerRadius="8dp"
-                            android:layout_marginBottom="8dp"
+                            android:layout_marginBottom="@dimen/space_8"
                             android:clickable="true"
                             android:focusable="true">
                             
@@ -129,16 +129,16 @@
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:gravity="center_vertical"
-                                android:padding="12dp">
+                                android:padding="@dimen/space_12">
                                 
                                 <RadioButton
                                     android:id="@+id/radio_light"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginEnd="12dp" />
+                                    android:layout_marginEnd="@dimen/space_12" />
                                 
                                 <LinearLayout
-                                    android:layout_width="0dp"
+                                    android:layout_width="@dimen/size_0"
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
                                     android:orientation="vertical">
@@ -147,7 +147,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="浅色模式"
-                                        android:textSize="14sp"
+                                        android:textSize="@dimen/text_14"
                                         android:textStyle="bold"
                                         android:textColor="@color/on_surface" />
                                     
@@ -155,7 +155,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="明亮清晰的界面"
-                                        android:textSize="12sp"
+                                        android:textSize="@dimen/text_12"
                                         android:textColor="@color/on_surface_variant" />
                                         
                                 </LinearLayout>
@@ -170,7 +170,7 @@
                             app:cardElevation="1dp"
                             app:cardBackgroundColor="@color/surface_variant"
                             app:cardCornerRadius="8dp"
-                            android:layout_marginBottom="8dp"
+                            android:layout_marginBottom="@dimen/space_8"
                             android:clickable="true"
                             android:focusable="true">
                             
@@ -179,16 +179,16 @@
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:gravity="center_vertical"
-                                android:padding="12dp">
+                                android:padding="@dimen/space_12">
                                 
                                 <RadioButton
                                     android:id="@+id/radio_dark"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginEnd="12dp" />
+                                    android:layout_marginEnd="@dimen/space_12" />
                                 
                                 <LinearLayout
-                                    android:layout_width="0dp"
+                                    android:layout_width="@dimen/size_0"
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
                                     android:orientation="vertical">
@@ -197,7 +197,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="深色模式"
-                                        android:textSize="14sp"
+                                        android:textSize="@dimen/text_14"
                                         android:textStyle="bold"
                                         android:textColor="@color/on_surface" />
                                     
@@ -205,7 +205,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="护眼节能的界面"
-                                        android:textSize="12sp"
+                                        android:textSize="@dimen/text_12"
                                         android:textColor="@color/on_surface_variant" />
                                         
                                 </LinearLayout>
@@ -228,16 +228,16 @@
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:gravity="center_vertical"
-                                android:padding="12dp">
+                                android:padding="@dimen/space_12">
                                 
                                 <RadioButton
                                     android:id="@+id/radio_system"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginEnd="12dp" />
+                                    android:layout_marginEnd="@dimen/space_12" />
                                 
                                 <LinearLayout
-                                    android:layout_width="0dp"
+                                    android:layout_width="@dimen/size_0"
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
                                     android:orientation="vertical">
@@ -246,7 +246,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="跟随系统"
-                                        android:textSize="14sp"
+                                        android:textSize="@dimen/text_14"
                                         android:textStyle="bold"
                                         android:textColor="@color/on_surface" />
                                     
@@ -254,7 +254,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="与系统主题保持一致"
-                                        android:textSize="12sp"
+                                        android:textSize="@dimen/text_12"
                                         android:textColor="@color/on_surface_variant" />
                                         
                                 </LinearLayout>
@@ -276,22 +276,22 @@
                 app:cardElevation="2dp"
                 app:cardBackgroundColor="@color/surface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="主题颜色"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="16dp" />
+                        android:layout_marginBottom="@dimen/space_16" />
                     
                     <LinearLayout
                         android:id="@+id/linearLayoutThemeColors"
@@ -311,13 +311,13 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save_theme"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="@dimen/size_48"
                 android:text="保存设置"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
                 app:backgroundTint="@color/primary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
             
         </LinearLayout>

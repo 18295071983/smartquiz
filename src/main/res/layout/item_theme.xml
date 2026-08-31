@@ -3,16 +3,16 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:gravity="center">
 
     <TextView
         android:id="@+id/tv_theme_name"
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="主题名称"
-        android:textSize="16sp" />
+        android:textSize="@dimen/text_16" />
 
     <RadioButton
         android:id="@+id/rb_theme"

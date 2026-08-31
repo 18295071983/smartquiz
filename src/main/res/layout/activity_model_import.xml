@@ -11,7 +11,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -23,7 +23,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         
@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             
             <!-- 欢迎卡片 -->
             <com.google.android.material.card.MaterialCardView
@@ -40,24 +40,24 @@
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/primary_container"
                 app:cardCornerRadius="16dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="20dp">
+                    android:padding="@dimen/space_20">
                     
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_analyze"
                         android:tint="@color/on_primary_container"
-                        android:layout_marginEnd="16dp" />
+                        android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
@@ -66,16 +66,16 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="AI模型导入"
-                            android:textSize="18sp"
+                            android:textSize="@dimen/text_18"
                             android:textStyle="bold"
                             android:textColor="@color/on_primary_container"
-                            android:layout_marginBottom="4dp" />
+                            android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="导入自定义AI模型"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textColor="@color/on_primary_container" />
                         
                     </LinearLayout>
@@ -91,44 +91,44 @@
                 app:cardElevation="2dp"
                 app:cardBackgroundColor="@color/surface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="选择模型文件"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="16dp" />
+                        android:layout_marginBottom="@dimen/space_16" />
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_select_model"
                         android:layout_width="match_parent"
-                        android:layout_height="48dp"
+                        android:layout_height="@dimen/size_48"
                         android:text="选择模型文件"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
                         app:backgroundTint="@color/primary"
                         android:textColor="@color/on_primary"
-                        app:cornerRadius="12dp"
+                        app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
-                        android:layout_marginBottom="16dp" />
+                        android:layout_marginBottom="@dimen/space_16" />
                         
                     <TextView
                         android:id="@+id/tv_model_path"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="未选择文件"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/on_surface"
-                        android:layout_marginBottom="16dp" />
+                        android:layout_marginBottom="@dimen/space_16" />
                         
                 </LinearLayout>
                 
@@ -141,24 +141,24 @@
                 app:cardElevation="2dp"
                 app:cardBackgroundColor="@color/secondary_container"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/size_40"
+                        android:layout_height="@dimen/size_40"
                         android:src="@drawable/ic_ai_download"
                         android:tint="@color/on_secondary_container"
-                        android:layout_marginEnd="16dp" />
+                        android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
@@ -167,16 +167,16 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="没有本地模型？"
-                            android:textSize="15sp"
+                            android:textSize="@dimen/text_15"
                             android:textStyle="bold"
                             android:textColor="@color/on_secondary_container"
-                            android:layout_marginBottom="2dp" />
+                            android:layout_marginBottom="@dimen/space_2" />
                         
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="在线下载预训练模型"
-                            android:textSize="13sp"
+                            android:textSize="@dimen/text_13"
                             android:textColor="@color/on_secondary_container" />
                         
                     </LinearLayout>
@@ -184,13 +184,13 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_go_download"
                         android:layout_width="wrap_content"
-                        android:layout_height="40dp"
+                        android:layout_height="@dimen/size_40"
                         android:text="去下载"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold"
                         app:backgroundTint="@color/secondary"
                         android:textColor="@color/on_secondary"
-                        app:cornerRadius="20dp"
+                        app:cornerRadius="@dimen/radius_20"
                         android:textAllCaps="false"
                         app:icon="@drawable/ic_download"
                         app:iconSize="16dp"
@@ -209,20 +209,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
         
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_import_model"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="@dimen/size_56"
             android:text="导入模型"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             app:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
             
     </LinearLayout>
@@ -231,20 +231,20 @@
     <LinearLayout
         android:id="@+id/progress_container"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:visibility="gone">
         
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="导入进度"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
             android:textColor="@color/on_surface"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
             
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -252,22 +252,22 @@
             app:cardElevation="2dp"
             app:cardBackgroundColor="@color/surface"
             app:cardCornerRadius="12dp"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
             
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 
                 <TextView
                     android:id="@+id/tv_import_progress"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="正在导入模型..."
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="@color/on_surface"
-                    android:layout_marginBottom="12dp" />
+                    android:layout_marginBottom="@dimen/space_12" />
                     
                 <ProgressBar
                     android:id="@+id/progress_bar"
@@ -282,10 +282,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0%"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="@color/on_surface_variant"
                     android:layout_gravity="end"
-                    android:layout_marginTop="8dp" />
+                    android:layout_marginTop="@dimen/space_8" />
                     
             </LinearLayout>
             
@@ -297,20 +297,20 @@
     <LinearLayout
         android:id="@+id/result_container"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:visibility="gone">
         
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="导入结果"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
             android:textColor="@color/on_surface"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
             
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -318,30 +318,30 @@
             app:cardElevation="2dp"
             app:cardBackgroundColor="@color/surface"
             app:cardCornerRadius="12dp"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
             
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 
                 <TextView
                     android:id="@+id/tv_import_status"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="导入状态: 成功"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="@color/on_surface"
-                    android:layout_marginBottom="8dp" />
+                    android:layout_marginBottom="@dimen/space_8" />
                     
                 <TextView
                     android:id="@+id/tv_import_message"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="模型导入成功，已添加到模型列表"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="@color/on_surface_variant" />
                     
             </LinearLayout>
@@ -356,36 +356,36 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/surface"
-        android:elevation="8dp"
+        android:elevation="@dimen/elev_8"
         android:visibility="gone">
         
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_view_models"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="查看模型"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             app:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginEnd="@dimen/space_8" />
             
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_import_another"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="导入另一个"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             app:backgroundTint="@color/secondary"
             android:textColor="@color/on_secondary"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
             
     </LinearLayout>

@@ -4,43 +4,43 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:gravity="center">
 
     <ProgressBar
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="@dimen/size_48"
+        android:layout_height="@dimen/size_48"
         android:indeterminate="true"
         android:indeterminateTint="@color/primary"
-        android:layout_marginBottom="16dp"/>
+        android:layout_marginBottom="@dimen/space_16"/>
 
     <TextView
         android:id="@+id/loading_message"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="加载中..."
-        android:textSize="16sp"
+        android:textSize="@dimen/text_16"
         android:textColor="@color/text_primary"
-        android:layout_marginBottom="8dp"/>
+        android:layout_marginBottom="@dimen/space_8"/>
 
     <TextView
         android:id="@+id/loading_submessage"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="请稍候"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/text_secondary"
-        android:layout_marginBottom="24dp"/>
+        android:layout_marginBottom="@dimen/space_24"/>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_cancel"
         android:layout_width="wrap_content"
-        android:layout_height="48dp"
+        android:layout_height="@dimen/size_48"
         android:text="取消"
         app:backgroundTint="@color/primary"
         android:textColor="@color/on_primary"
-        app:cornerRadius="12dp"
+        app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false"
-        android:layout_marginTop="16dp"/>
+        android:layout_marginTop="@dimen/space_16"/>
 
 </LinearLayout>

@@ -4,21 +4,21 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:background="@drawable/bg_card_background"
-    android:layout_marginBottom="4dp">
+    android:layout_marginBottom="@dimen/space_4">
 
     <View
         android:id="@+id/model_link_status_indicator"
-        android:layout_width="8dp"
-        android:layout_height="8dp"
+        android:layout_width="@dimen/size_8"
+        android:layout_height="@dimen/size_8"
         android:background="@drawable/status_indicator_unknown"/>
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="10dp"
+        android:layout_marginStart="@dimen/space_10"
         android:orientation="vertical">
 
         <TextView
@@ -26,7 +26,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型名称"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textColor="@color/text_primary"/>
 
@@ -34,23 +34,23 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="2dp">
+            android:layout_marginTop="@dimen/space_2">
 
             <TextView
                 android:id="@+id/model_link_type"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="gpt-4"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/text_secondary"/>
 
             <TextView
                 android:id="@+id/model_link_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="@dimen/space_8"
                 android:text="在线"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/success_color"/>
 
         </LinearLayout>
@@ -62,16 +62,16 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="150ms"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_tertiary"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="@dimen/space_8"/>
 
     <TextView
         android:id="@+id/model_link_cost"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="$0.0030"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_tertiary"/>
 
 </LinearLayout>

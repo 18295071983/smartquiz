@@ -4,22 +4,22 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:layout_marginTop="8dp"
-    android:layout_marginBottom="4dp"
-    android:layout_marginStart="4dp"
-    android:layout_marginEnd="4dp">
+    android:layout_marginTop="@dimen/space_8"
+    android:layout_marginBottom="@dimen/space_4"
+    android:layout_marginStart="@dimen/space_4"
+    android:layout_marginEnd="@dimen/space_4">
 
     <View
-        android:layout_width="3dp"
-        android:layout_height="16dp"
+        android:layout_width="@dimen/size_3"
+        android:layout_height="@dimen/size_16"
         android:background="@color/primary"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="@dimen/space_8"/>
 
     <TextView
         android:id="@+id/tv_category_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         android:textStyle="bold"
         android:textColor="@color/primary"
         android:letterSpacing="0.05"

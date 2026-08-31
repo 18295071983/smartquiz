@@ -12,8 +12,8 @@
         <!-- 图标背景 -->
         <FrameLayout
             android:id="@+id/indicator_bg"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="@dimen/size_36"
+            android:layout_height="@dimen/size_36"
             android:background="@drawable/bg_step_pending">
 
             <TextView
@@ -22,7 +22,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:text="⚙️"
-                android:textSize="16sp" />
+                android:textSize="@dimen/text_16" />
 
         </FrameLayout>
 
@@ -31,9 +31,9 @@
             android:id="@+id/tv_step_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:text="初始化"
-            android:textSize="10sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/text_secondary" />
 
     </LinearLayout>

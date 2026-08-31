@@ -11,15 +11,15 @@
         android:id="@+id/tv_index_icon"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="28sp"
+        android:textSize="@dimen/text_28"
         android:textColor="@color/weather_primary" />
 
     <TextView
         android:id="@+id/tv_index_name"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textSize="12sp"
+        android:layout_marginTop="@dimen/space_4"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/weather_dark_text_secondary"
         android:maxLines="1"
         android:ellipsize="end" />
@@ -28,8 +28,8 @@
         android:id="@+id/tv_index_value"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textSize="12sp"
+        android:layout_marginTop="@dimen/space_2"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/weather_dark_text"
         android:textStyle="bold"
         android:maxLines="1"

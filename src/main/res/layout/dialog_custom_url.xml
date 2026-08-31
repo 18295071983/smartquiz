@@ -3,28 +3,28 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="@dimen/space_16">
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型名称"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_primary"
-            android:layout_marginBottom="4dp"/>
+            android:layout_marginBottom="@dimen/space_4"/>
         <EditText
             android:id="@+id/et_name"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/size_48"
             android:hint="输入模型名称"
             android:background="@drawable/rounded_edittext"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"/>
+            android:paddingStart="@dimen/space_12"
+            android:paddingEnd="@dimen/space_12"/>
     </LinearLayout>
 
     <LinearLayout
@@ -35,17 +35,17 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="下载链接"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_primary"
-            android:layout_marginBottom="4dp"/>
+            android:layout_marginBottom="@dimen/space_4"/>
         <EditText
             android:id="@+id/et_url"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/size_48"
             android:hint="输入模型下载链接 (.gguf/.bin/.pt/.onnx/.tflite)"
             android:background="@drawable/rounded_edittext"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
+            android:paddingStart="@dimen/space_12"
+            android:paddingEnd="@dimen/space_12"
             android:inputType="textUri"/>
     </LinearLayout>
 
@@ -53,8 +53,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="支持格式: GGUF, PyTorch(.bin/.pt), ONNX, TensorFlow(.tflite)"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/text_secondary"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="@dimen/space_8"/>
 
 </LinearLayout>

@@ -4,44 +4,44 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:background="@color/surface"
-    android:elevation="2dp"
-    android:layout_marginBottom="8dp">
+    android:elevation="@dimen/elev_2"
+    android:layout_marginBottom="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
         <ImageView
             android:id="@+id/issueTypeIcon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
             android:src="@drawable/ic_info"
             android:tint="@color/primary"
-            android:layout_marginEnd="12dp"/>
+            android:layout_marginEnd="@dimen/space_12"/>
         <TextView
             android:id="@+id/issueRowNumber"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="行 1"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_secondary"
-            android:layout_marginEnd="12dp"/>
+            android:layout_marginEnd="@dimen/space_12"/>
         <TextView
             android:id="@+id/issueDescription"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="问题描述"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/on_surface"/>
         <ImageView
             android:id="@+id/issueStatusIcon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
             android:src="@drawable/ic_info"
             android:tint="@color/text_secondary"/>
     </LinearLayout>
@@ -51,15 +51,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
         <TextView
             android:id="@+id/inputLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="输入值"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/text_secondary"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/spinnerInputLayout"
@@ -84,21 +84,21 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonSkip"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="@dimen/size_36"
             android:text="跳过"
             app:backgroundTint="@color/secondary"
             android:textColor="@android:color/white"
-            android:layout_marginEnd="8dp"
-            app:cornerRadius="12dp"
+            android:layout_marginEnd="@dimen/space_8"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonApply"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="@dimen/size_36"
             android:text="应用"
             app:backgroundTint="@color/primary"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
     </LinearLayout>
 

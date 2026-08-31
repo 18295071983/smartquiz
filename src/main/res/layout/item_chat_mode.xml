@@ -4,10 +4,10 @@
     android:id="@+id/mode_card"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_margin="@dimen/space_4"
     app:cardCornerRadius="18dp"
     app:cardElevation="1dp"
-    app:strokeWidth="1dp"
+    app:strokeWidth="@dimen/stroke_1"
     app:strokeColor="@color/mode_unselected_border"
     app:cardBackgroundColor="@color/mode_unselected_background">
 
@@ -23,23 +23,23 @@
             android:id="@+id/mode_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="14sp" />
+            android:textSize="@dimen/text_14" />
 
         <TextView
             android:id="@+id/mode_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="13sp"
+            android:textSize="@dimen/text_13"
             android:textColor="@color/text_primary"
-            android:layout_marginStart="4dp"
+            android:layout_marginStart="@dimen/space_4"
             android:maxLines="1"
             android:ellipsize="end" />
 
         <View
             android:id="@+id/selected_indicator"
-            android:layout_width="6dp"
-            android:layout_height="6dp"
-            android:layout_marginStart="6dp"
+            android:layout_width="@dimen/size_6"
+            android:layout_height="@dimen/size_6"
+            android:layout_marginStart="@dimen/space_6"
             android:background="@drawable/mode_selected_dot"
             android:visibility="gone" />
 

@@ -12,14 +12,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 在线服务状态卡片 -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_service_status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/card_background"
@@ -30,25 +30,25 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp"
+                android:padding="@dimen/space_16"
                 android:gravity="center_vertical">
                 <TextView
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="@dimen/size_32"
+                    android:layout_height="@dimen/size_32"
                     android:text="☁️"
-                    android:textSize="24sp"
+                    android:textSize="@dimen/text_24"
                     android:gravity="center"/>
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:layout_marginStart="12dp"
+                    android:layout_marginStart="@dimen/space_12"
                     android:orientation="vertical">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="在线服务状态"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <TextView
@@ -56,13 +56,13 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="点击配置API服务"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/text_12"
                         android:textColor="@color/text_secondary"
-                        android:layout_marginTop="2dp"/>
+                        android:layout_marginTop="@dimen/space_2"/>
                 </LinearLayout>
                 <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="@dimen/size_24"
+                    android:layout_height="@dimen/size_24"
                     android:src="@drawable/ic_chevron_right"
                     app:tint="@color/text_tertiary"
                     android:contentDescription="箭头"/>
@@ -74,7 +74,7 @@
             android:id="@+id/card_online_models"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="@color/card_background"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
@@ -82,7 +82,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <!-- 头部：图标+标题+开关 -->
                 <LinearLayout
@@ -91,18 +91,18 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
+                        android:layout_width="@dimen/size_32"
+                        android:layout_height="@dimen/size_32"
                         android:text="🌐"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:gravity="center"/>
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="12dp"
+                        android:layout_marginStart="@dimen/space_12"
                         android:text="在线模型"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -116,7 +116,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/space_12"
                     app:cardBackgroundColor="@color/surface_variant"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="0dp">
@@ -124,30 +124,30 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="12dp">
+                        android:padding="@dimen/space_12">
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="当前模型"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_current_online_model"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="GPT-4o"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textStyle="bold"
                             android:textColor="@color/primary"
-                            android:layout_marginTop="2dp"/>
+                            android:layout_marginTop="@dimen/space_2"/>
                         <TextView
                             android:id="@+id/tv_current_online_provider"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="OpenAI"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_tertiary"
-                            android:layout_marginTop="2dp"/>
+                            android:layout_marginTop="@dimen/space_2"/>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -157,29 +157,29 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="12dp">
+                    android:layout_marginTop="@dimen/space_12">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="API配置列表"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/text_12"
                         android:textColor="@color/text_secondary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_refresh_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="@dimen/size_32"
                         android:text="🔄 刷新模型"
-                        android:textSize="11sp"
-                        app:cornerRadius="8dp"/>
+                        android:textSize="@dimen/text_11"
+                        app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/online_models_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="@dimen/space_8"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
@@ -187,11 +187,11 @@
                     android:id="@+id/online_models_empty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:padding="16dp"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:padding="@dimen/space_16"
                     android:gravity="center"
                     android:text="暂无在线模型，点击下方按钮添加配置"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_tertiary"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
@@ -202,10 +202,10 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="@dimen/space_8"
                     android:text="➕ 添加新配置"
-                    android:textSize="13sp"
-                    app:cornerRadius="8dp"/>
+                    android:textSize="@dimen/text_13"
+                    app:cornerRadius="@dimen/radius_8"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -214,7 +214,7 @@
             android:id="@+id/card_local_models"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="@color/card_background"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
@@ -222,7 +222,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <!-- 头部：图标+标题+开关 -->
                 <LinearLayout
@@ -231,18 +231,18 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
+                        android:layout_width="@dimen/size_32"
+                        android:layout_height="@dimen/size_32"
                         android:text="💾"
-                        android:textSize="24sp"
+                        android:textSize="@dimen/text_24"
                         android:gravity="center"/>
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="12dp"
+                        android:layout_marginStart="@dimen/space_12"
                         android:text="导入模型"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -255,7 +255,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/space_12"
                     app:cardBackgroundColor="@color/surface_variant"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="0dp">
@@ -263,30 +263,30 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="12dp">
+                        android:padding="@dimen/space_12">
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="当前模型"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_current_local_model"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="未加载模型"
-                            android:textSize="16sp"
+                            android:textSize="@dimen/text_16"
                             android:textStyle="bold"
                             android:textColor="@color/primary"
-                            android:layout_marginTop="2dp"/>
+                            android:layout_marginTop="@dimen/space_2"/>
                         <TextView
                             android:id="@+id/tv_local_model_info"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="点击加载模型"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_tertiary"
-                            android:layout_marginTop="2dp"/>
+                            android:layout_marginTop="@dimen/space_2"/>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -296,29 +296,29 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="12dp">
+                    android:layout_marginTop="@dimen/space_12">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="本地模型列表"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/text_12"
                         android:textColor="@color/text_secondary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_refresh_local_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="@dimen/size_32"
                         android:text="🔄 刷新"
-                        android:textSize="11sp"
-                        app:cornerRadius="8dp"/>
+                        android:textSize="@dimen/text_11"
+                        app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/models_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="@dimen/space_8"
                     android:nestedScrollingEnabled="false"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
@@ -326,11 +326,11 @@
                     android:id="@+id/local_models_empty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:padding="16dp"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:padding="@dimen/space_16"
                     android:gravity="center"
                     android:text="暂无本地模型，请先导入或下载模型"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/text_tertiary"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
@@ -340,29 +340,29 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:layout_marginTop="8dp">
+                    android:layout_marginTop="@dimen/space_8">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_manage_local_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
+                        android:layout_marginEnd="@dimen/space_4"
                         android:text="📁 管理"
-                        android:textSize="12sp"
-                        app:cornerRadius="8dp"/>
+                        android:textSize="@dimen/text_12"
+                        app:cornerRadius="@dimen/radius_8"/>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_download_local_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="4dp"
+                        android:layout_marginStart="@dimen/space_4"
                         android:text="⬇️ 下载"
-                        android:textSize="12sp"
-                        app:cornerRadius="8dp"/>
+                        android:textSize="@dimen/text_12"
+                        app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -372,7 +372,7 @@
             android:id="@+id/card_token_stats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="@color/card_background"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
@@ -380,7 +380,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -388,11 +388,11 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="📊 本次会话 Token 消耗"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
                     <TextView
@@ -400,7 +400,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="约 ¥0.00"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/primary"/>
                 </LinearLayout>
 
@@ -408,11 +408,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/space_12"
                     android:gravity="center">
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical"
@@ -421,32 +421,32 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                         android:text="输入"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_input_tokens"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="@dimen/text_22"
                             android:textStyle="bold"
                             android:textColor="@color/primary"
-                            android:layout_marginTop="4dp"/>
+                            android:layout_marginTop="@dimen/space_4"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="tokens"
-                            android:textSize="10sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/on_primary_container"
                             android:alpha="0.5"/>
                     </LinearLayout>
 
-                    <View android:layout_width="1dp"
-                        android:layout_height="40dp"
+                    <View android:layout_width="@dimen/size_1"
+                        android:layout_height="@dimen/size_40"
                         android:background="@color/divider"/>
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical"
@@ -455,32 +455,32 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="输出"
-                            android:textSize="11sp"
+                            android:textSize="@dimen/text_11"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_output_tokens"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="@dimen/text_22"
                             android:textStyle="bold"
                             android:textColor="@color/secondary"
-                            android:layout_marginTop="4dp"/>
+                            android:layout_marginTop="@dimen/space_4"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="tokens"
-                            android:textSize="10sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_tertiary"/>
                     </LinearLayout>
 
-                    <View android:layout_width="1dp"
-                        android:layout_height="40dp"
+                    <View android:layout_width="@dimen/size_1"
+                        android:layout_height="@dimen/size_40"
                         android:background="@color/on_primary_container"
                         android:alpha="0.2"/>
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical"
@@ -489,22 +489,22 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="总计"
-                            android:textSize="11sp"
+                            android:textSize="@dimen/text_11"
                             android:textColor="@color/text_secondary"/>
                         <TextView
                             android:id="@+id/tv_total_tokens"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="@dimen/text_22"
                             android:textStyle="bold"
                             android:textColor="@color/tertiary"
-                            android:layout_marginTop="4dp"/>
+                            android:layout_marginTop="@dimen/space_4"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="tokens"
-                            android:textSize="10sp"
+                            android:textSize="@dimen/text_12"
                             android:textColor="@color/text_tertiary"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -515,7 +515,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="@color/card_background"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
@@ -523,16 +523,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🤖 AI功能"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary"
-                    android:layout_marginBottom="12dp"/>
+                    android:layout_marginBottom="@dimen/space_12"/>
                 
                 <GridLayout
                     android:layout_width="match_parent"
@@ -543,98 +543,98 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_question_generator"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="📝\n题目生成"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_question_analyzer"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="🔍\n题目分析"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_learning_assistant"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="👤\n学习助手"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_translator"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="🌐\n翻译工具"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ai_chat"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="💬\nAI聊天"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_icon_demo"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="🎨\n图标演示"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ai_image"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="🖼️\nAI生图"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ai_video"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
-                        android:layout_margin="4dp"
+                        android:layout_margin="@dimen/space_4"
                         android:text="🎬\nAI生视频"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/text_11"
                         android:minLines="2"
-                        app:cornerRadius="12dp"/>
+                        app:cornerRadius="@dimen/radius_12"/>
                 </GridLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

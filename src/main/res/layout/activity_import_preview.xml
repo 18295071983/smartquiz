@@ -10,7 +10,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
@@ -24,7 +24,7 @@
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
+        android:layout_margin="@dimen/space_12"
         app:cardBackgroundColor="@color/surface"
         app:cardCornerRadius="12dp"
         app:cardElevation="1dp">
@@ -32,7 +32,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="14dp">
+            android:padding="@dimen/space_14">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -40,53 +40,53 @@
                 android:gravity="center_vertical">
                 <TextView
                     android:id="@+id/tv_total"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="共 0 行"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/text_13"
                     android:textColor="@color/text_primary"
                     android:textStyle="bold"/>
                 <TextView
                     android:id="@+id/tv_complete"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="完整 0"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/text_13"
                     android:textColor="@color/success"/>
                 <TextView
                     android:id="@+id/tv_incomplete"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="缺字段 0"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/text_13"
                     android:textColor="@color/warning"/>
                 <TextView
                     android:id="@+id/tv_skipped"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="跳过 0"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/text_13"
                     android:textColor="@color/error"/>
             </LinearLayout>
             <TextView
                 android:id="@+id/tv_missing_detail"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="@dimen/space_6"
                 android:text=""
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/text_secondary"/>
             <TextView
                 android:id="@+id/tv_dup_detail"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="@dimen/space_6"
                 android:text=""
-                android:textSize="11sp"
+                android:textSize="@dimen/text_11"
                 android:textColor="@color/error"
                 android:visibility="gone"/>
         </LinearLayout>
@@ -96,11 +96,11 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/preview_recycler"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:layout_marginHorizontal="12dp"
+        android:layout_marginHorizontal="@dimen/space_12"
         android:clipToPadding="false"
-        android:paddingBottom="8dp"
+        android:paddingBottom="@dimen/space_8"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
     <!-- 底部操作区 -->
@@ -108,9 +108,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@color/surface"
-        android:elevation="8dp">
+        android:elevation="@dimen/elev_8">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -121,7 +121,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="处理方式："
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/text_secondary"/>
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_all"
@@ -129,7 +129,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="全部导入"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:checked="true"/>
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_skip"
@@ -137,34 +137,34 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="仅导入完整题"
-                android:textSize="12sp"
-                android:layout_marginStart="8dp"/>
+                android:textSize="@dimen/text_12"
+                android:layout_marginStart="@dimen/space_8"/>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="10dp">
+            android:layout_marginTop="@dimen/space_10">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_cancel"
                 style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="@dimen/space_6"
                 android:text="取消导入"
-                android:textSize="14sp"
-                app:cornerRadius="12dp"/>
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_12"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_continue"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="@dimen/space_6"
                 android:text="继续导入"
-                android:textSize="14sp"
-                app:cornerRadius="12dp"/>
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_12"/>
         </LinearLayout>
     </LinearLayout>
 

@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingBottom="32dp">
+        android:paddingBottom="@dimen/space_32">
 
         <!-- ==================== 顶部问候区（仿天气详情页主温度区） ==================== -->
         <LinearLayout
@@ -21,51 +21,51 @@
             android:layout_height="wrap_content"
             android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:paddingTop="36dp"
-            android:paddingBottom="20dp"
+            android:paddingTop="@dimen/space_36"
+            android:paddingBottom="@dimen/space_20"
             android:paddingHorizontal="24dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
-                android:textColor="#CCFFFFFF"
-                android:textSize="13sp"
+                android:textColor="@color/white_alpha_80"
+                android:textSize="@dimen/text_13"
                 android:alpha="0.9" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:text="@string/welcome_back"
                 android:textColor="@color/future_text_primary"
-                android:textSize="30sp"
+                android:textSize="@dimen/text_30"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:text="@string/start_learning_today"
                 android:textColor="@color/future_text_tertiary"
-                android:textSize="14sp" />
+                android:textSize="@dimen/text_14" />
 
             <!-- 统计卡行（玻璃拟态） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="@dimen/space_20"
                 android:orientation="horizontal">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
+                    android:layout_marginEnd="@dimen/space_6"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:id="@+id/tvQuestionCount"
@@ -73,28 +73,28 @@
                         android:layout_height="wrap_content"
                         android:text="@string/default_question_count"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="28sp"
+                        android:textSize="@dimen/text_28"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
+                        android:layout_marginTop="@dimen/space_2"
                         android:text="@string/question_bank_info"
                         android:textColor="@color/future_text_tertiary"
-                        android:textSize="12sp" />
+                        android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="@dimen/space_6"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:id="@+id/tvAiStatus"
@@ -104,16 +104,16 @@
                         android:maxLines="2"
                         android:text="@string/default_ai_status"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
+                        android:layout_marginTop="@dimen/space_2"
                         android:text="@string/status"
                         android:textColor="@color/future_text_tertiary"
-                        android:textSize="12sp" />
+                        android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
 
@@ -126,8 +126,8 @@
             android:id="@+id/card_weather_banner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginBottom="18dp"
+            android:layout_marginHorizontal="@dimen/space_16"
+            android:layout_marginBottom="@dimen/space_18"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@android:color/transparent"
@@ -148,7 +148,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
+            android:layout_marginHorizontal="@dimen/space_16"
             android:orientation="vertical">
 
             <!-- 分区标题 -->
@@ -157,21 +157,21 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingBottom="10dp">
+                android:paddingBottom="@dimen/space_10">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/core_features"
                     android:textColor="@color/future_text_primary"
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
 
                 <View
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/bg_dot_violet" />
 
             </LinearLayout>
@@ -180,14 +180,14 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
+                android:layout_marginBottom="@dimen/space_10"
                 android:orientation="horizontal">
 
                 <LinearLayout
                     android:id="@+id/btn_question"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="5dp"
+                    android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:clickable="true"
@@ -195,29 +195,29 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="14dp">
+                    android:padding="@dimen/space_14">
 
                     <ImageView
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
+                        android:layout_width="@dimen/size_56"
+                        android:layout_height="@dimen/size_56"
                         android:src="@drawable/ic_home_question" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/space_8"
                         android:text="@string/question_management"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/btn_quiz"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="5dp"
+                    android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:clickable="true"
@@ -225,20 +225,20 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="14dp">
+                    android:padding="@dimen/space_14">
 
                     <ImageView
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
+                        android:layout_width="@dimen/size_56"
+                        android:layout_height="@dimen/size_56"
                         android:src="@drawable/ic_home_quiz" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/space_8"
                         android:text="@string/start_quiz"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
                 </LinearLayout>
@@ -251,8 +251,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginHorizontal="@dimen/space_16"
+            android:layout_marginTop="@dimen/space_14"
             android:orientation="vertical">
 
             <!-- 分区标题 -->
@@ -261,21 +261,21 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingBottom="10dp">
+                android:paddingBottom="@dimen/space_10">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/smart_features"
                     android:textColor="@color/future_text_primary"
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
 
                 <View
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/bg_dot_cyan" />
 
             </LinearLayout>
@@ -285,24 +285,24 @@
                 android:id="@+id/btn_question_generate"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
+                android:layout_marginBottom="@dimen/space_10"
                 android:background="@drawable/bg_home_header"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <ImageView
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+                    android:layout_width="@dimen/size_52"
+                    android:layout_height="@dimen/size_52"
                     android:src="@drawable/ic_home_chat" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginStart="@dimen/space_14"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
@@ -311,16 +311,16 @@
                         android:layout_height="wrap_content"
                         android:text="@string/ai_chat"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/start_learning_today"
-                        android:textColor="#D0D5FF"
-                        android:textSize="12sp" />
+                        android:textColor="@color/indigo_pale"
+                        android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
 
@@ -329,7 +329,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/chevron_arrow"
                     android:textColor="@color/future_text_primary"
-                    android:textSize="28sp" />
+                    android:textSize="@dimen/text_28" />
 
             </LinearLayout>
 
@@ -339,8 +339,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginHorizontal="@dimen/space_16"
+            android:layout_marginTop="@dimen/space_14"
             android:orientation="vertical">
 
             <!-- 分区标题 -->
@@ -349,21 +349,21 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingBottom="10dp">
+                android:paddingBottom="@dimen/space_10">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/more_features"
                     android:textColor="@color/future_text_primary"
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
 
                 <View
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/bg_dot_amber" />
 
             </LinearLayout>
@@ -376,9 +376,9 @@
 
                 <LinearLayout
                     android:id="@+id/btn_import_export"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="5dp"
+                    android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:clickable="true"
@@ -386,30 +386,30 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="10dp">
+                    android:padding="@dimen/space_10">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/size_40"
+                        android:layout_height="@dimen/size_40"
                         android:src="@drawable/ic_home_exchange" />
 
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
+                        android:layout_marginStart="@dimen/space_10"
                         android:layout_weight="1"
                         android:text="@string/import_export"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/btn_toolbox"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="5dp"
+                    android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
                     android:background="@drawable/weather_card_glass"
                     android:clickable="true"
@@ -417,21 +417,21 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="10dp">
+                    android:padding="@dimen/space_10">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/size_40"
+                        android:layout_height="@dimen/size_40"
                         android:src="@drawable/ic_home_toolbox" />
 
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
+                        android:layout_marginStart="@dimen/space_10"
                         android:layout_weight="1"
                         android:text="@string/toolkit"
                         android:textColor="@color/future_text_primary"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
                 </LinearLayout>
