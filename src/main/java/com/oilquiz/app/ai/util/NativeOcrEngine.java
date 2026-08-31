@@ -121,9 +121,8 @@ public class NativeOcrEngine {
     private static String copyAssetToCache(Context context, String assetPath) {
         try {
             File outFile = new File(context.getCacheDir(), "ocr_v6_keys.txt");
-            if (outFile.exists() && outFile.length() > 0) {
-                return outFile.getAbsolutePath();
-            }
+            // 始终从 assets 覆盖复制：若命中旧版本缓存（如带引号的错误 keys），
+            // 会导致 CTC 解码索引错位（数字识别成单引号），故不做 exists 短路。
             try (InputStream in = context.getAssets().open(assetPath);
                  OutputStream out = new FileOutputStream(outFile)) {
                 byte[] buffer = new byte[8192];
