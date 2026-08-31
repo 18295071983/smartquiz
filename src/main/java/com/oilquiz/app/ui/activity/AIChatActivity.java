@@ -151,6 +151,8 @@ public class AIChatActivity extends BaseActivity {
     private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
     private boolean streamTtsFed = false; // 本轮生成是否已进行过流式朗读
     private String voiceInputBaseText = ""; // 系统识别开始前输入框已有文本（实时展示部分结果时作为前缀）
+    /** 识别预览后待发送消息是否标记为语音消息（发送时消费并复位） */
+    private volatile boolean pendingVoiceInputSource = false;
     private View voiceRecordingBar; // 录音状态横幅
     private android.widget.TextView tvVoiceRecordingTime; // 录音计时
     private android.widget.TextView tvVoiceRecordingDot; // 录音红点
@@ -3317,6 +3319,10 @@ public class AIChatActivity extends BaseActivity {
         if (!savedAttachments.isEmpty()) {
             String userContent = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
             ChatMessage userMessage = ChatMessage.createUserMessage(userContent, savedAttachments);
+            if (pendingVoiceInputSource) {
+                userMessage.voiceInput = true;
+                pendingVoiceInputSource = false;
+            }
             chatHistory.add(userMessage);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
             scrollToBottom(true);
@@ -3325,7 +3331,9 @@ public class AIChatActivity extends BaseActivity {
             currentAttachments.clear();
             resetAttachmentAdapter();
         } else {
-            addUserMessage(message);
+            boolean fromVoice = pendingVoiceInputSource;
+            pendingVoiceInputSource = false;
+            addUserMessage(message, fromVoice);
         }
 
         inputMessage.setText("");
@@ -7286,11 +7294,17 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Message Adders =====================
 
     private void addUserMessage(String message) {
+        addUserMessage(message, false);
+    }
+
+    private void addUserMessage(String message, boolean voiceInput) {
         if (chatHistory == null) return;
 
         // 隐藏空状态
         updateEmptyState();
-        chatHistory.add(ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis()));
+        ChatMessage msg = ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis());
+        msg.voiceInput = voiceInput;
+        chatHistory.add(msg);
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
@@ -8402,8 +8416,8 @@ public class AIChatActivity extends BaseActivity {
                 new com.oilquiz.app.ai.speech.SystemSpeechRecognizer.RecognitionCallback() {
             @Override
             public void onResult(String text) {
-                appendRecognizedText(text);
-                showToast("✅ 识别完成（系统识别）");
+                // 自动预览：识别结果填入输入框并切回键盘模式，用户确认/修改后再发送（避免识别错误直接发出）
+                previewRecognizedText(text);
             }
 
             @Override
@@ -8543,8 +8557,8 @@ public class AIChatActivity extends BaseActivity {
                             showToast("语音识别暂不可用，可在模型管理中配置语音识别模型");
                         }
                     } else if (result != null && result.text != null && !result.text.isEmpty()) {
-                        appendRecognizedText(result.text);
-                        showToast("✅ 识别完成（" + result.modelName + "）");
+                        // 自动预览：在线识别完成也填入输入框待确认
+                        previewRecognizedText(result.text);
                     } else {
                         showToast("未识别到语音内容");
                     }
@@ -8572,6 +8586,35 @@ public class AIChatActivity extends BaseActivity {
             } else if (inputManager != null) {
                 inputManager.appendText(text);
             }
+        });
+    }
+
+    /**
+     * 自动预览：识别结果填入输入框并自动切回键盘模式，让用户看到结果、可修改后再点发送。
+     * 避免"识别错误直接发出"的盲盒体验；语音模式下输入框隐藏，故识别完成必须切回键盘模式展示。
+     */
+    private void previewRecognizedText(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            showToast("未识别到语音内容");
+            return;
+        }
+        final String clean = text.trim();
+        // 标记本次识别预览的消息来源为语音，发送时在 USER 消息上打语音标识
+        pendingVoiceInputSource = true;
+        runOnUiThread(() -> {
+            if (inputMessage != null) {
+                inputMessage.setText(clean);
+                inputMessage.requestFocus();
+                inputMessage.setSelection(inputMessage.getText().length());
+            } else if (inputManager != null) {
+                inputManager.appendText(clean);
+            }
+            // 退出语音模式，展示输入框供用户预览/修改
+            if (voiceInputMode) {
+                voiceInputMode = false;
+                updateVoiceInputModeUI();
+            }
+            showToast("✅ 识别完成，可修改后发送");
         });
     }
 

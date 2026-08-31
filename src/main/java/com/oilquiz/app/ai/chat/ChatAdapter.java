@@ -763,6 +763,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindUserMessage(UserMessageViewHolder holder, ChatMessage message, String timeStr) {
+        // 语音消息标识：来源语音的 USER 消息在气泡上方显示 "🎤 语音" 标签，与文字消息区分
+        if (holder.blockLabel != null) {
+            if (message.voiceInput) {
+                holder.blockLabel.setText("🎤 语音");
+                holder.blockLabel.setVisibility(View.VISIBLE);
+            } else {
+                holder.blockLabel.setText("");
+                holder.blockLabel.setVisibility(View.GONE);
+            }
+        }
         holder.messageText.setText(message.content);
         holder.timestampText.setText(timeStr);
 

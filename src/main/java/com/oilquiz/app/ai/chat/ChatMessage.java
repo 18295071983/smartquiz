@@ -260,6 +260,8 @@ public class ChatMessage {
 
     /** 是否可重试 */
     public boolean retryable;
+    /** 消息来源是否为语音输入（按住说话识别后发送） */
+    public boolean voiceInput;
 
     /** Agent反思信息 */
     public AgentReflectionInfo agentReflectionInfo;
@@ -1145,6 +1147,7 @@ public class ChatMessage {
         this.agentExecutionState = builder.agentExecutionState;
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
+        this.voiceInput = builder.voiceInput;
         this.inferenceProgress = builder.inferenceProgress;
         this.agentGroupId = builder.agentGroupId;
     }
@@ -1639,6 +1642,7 @@ public class ChatMessage {
         private SummaryInfo summaryInfo;
         private String errorDetail;
         private boolean retryable = false;
+        private boolean voiceInput;
         private Integer taskProgress;
         private boolean isExpanded = false;
         private String agentGroupId;
@@ -1778,6 +1782,11 @@ public class ChatMessage {
 
         public Builder retryable(boolean retryable) {
             this.retryable = retryable;
+            return this;
+        }
+
+        public Builder voiceInput(boolean voiceInput) {
+            this.voiceInput = voiceInput;
             return this;
         }
 

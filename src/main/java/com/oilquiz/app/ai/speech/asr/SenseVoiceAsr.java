@@ -129,11 +129,31 @@ public class SenseVoiceAsr {
         return INSTANCE != null;
     }
 
-    /** 主动释放（可选） */
+    /**
+     * 释放模型并重置单例：关闭 ONNX session，把 INSTANCE 置空，让 GC 回收 228MB 模型内存。
+     * 再次调用 {@link #getInstance(Context)} 时重新初始化加载。
+     * 用于"识别完即卸载"策略：避免语音模型与本地 LLM 常驻并发占用内存。
+     */
     public void release() {
         try {
-            if (session != null) session.close();
+            if (session != null) {
+                session.close();
+            }
         } catch (Exception ignored) {
+        }
+        synchronized (SenseVoiceAsr.class) {
+            if (INSTANCE == this) {
+                INSTANCE = null;
+            }
+        }
+        AILogger.i(TAG, "本地 ASR 模型已卸载，释放内存（下次识别时重新初始化）");
+    }
+
+    /** 卸载当前单例模型（无实例时忽略） */
+    public static void releaseInstance() {
+        SenseVoiceAsr inst = INSTANCE;
+        if (inst != null) {
+            inst.release();
         }
     }
 

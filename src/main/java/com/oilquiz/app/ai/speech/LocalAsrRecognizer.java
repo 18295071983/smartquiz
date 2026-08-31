@@ -48,24 +48,28 @@ public class LocalAsrRecognizer {
 
     public LocalAsrRecognizer(Context context) {
         this.context = context.getApplicationContext();
-        // 后台预热加载模型（首次加载 228MB 需数秒，避免在 UI 线程阻塞）
-        worker.execute(() -> {
-            try {
-                SenseVoiceAsr.getInstance(this.context);
-                AILogger.i(TAG, "本地 ASR 模型已预热");
-            } catch (Throwable t) {
-                AILogger.w(TAG, "本地 ASR 预热失败: " + t.getMessage());
-            }
-        });
+        // 按需加载：不再启动预热。模型在识别时初始化、识别完成后卸载（releaseInstance），
+        // 避免 228MB 语音模型与本地 LLM 常驻并发占用内存。
     }
 
     public boolean isListening() {
         return recording;
     }
 
-    /** 本地 ASR 是否就绪（模型已加载完成） */
+    /**
+     * 本地 ASR 是否可用（assets 模型存在即可用；模型按需加载，识别时才初始化，
+     * 识别完成即卸载）。不做加载探测，避免频繁触发 228MB 模型加载。
+     */
     public boolean isAvailable() {
-        return SenseVoiceAsr.isReady();
+        try {
+            android.content.res.AssetManager am = context.getAssets();
+            try (java.io.InputStream is = am.open("asr/model.int8.onnx")) {
+                return is != null;
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "本地 ASR assets 检查失败: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -161,6 +165,7 @@ public class LocalAsrRecognizer {
         }
         if (total < SAMPLE_RATE / 4) {
             postError("录音太短，未检测到有效语音");
+            releaseAsrModel();
             postEnd();
             return;
         }
@@ -186,6 +191,8 @@ public class LocalAsrRecognizer {
             AILogger.e(TAG, "本地识别失败: " + e.getMessage(), e);
             postError("本地识别失败: " + e.getMessage());
         }
+        // 识别结束：卸载模型释放内存（再次识别时 doStart 重新初始化加载）
+        releaseAsrModel();
         postEnd();
     }
 
@@ -208,6 +215,15 @@ public class LocalAsrRecognizer {
         releaseRecorder();
         synchronized (chunks) {
             chunks.clear();
+        }
+    }
+
+    /** 卸载本地 ASR 模型（识别结束后调用，释放 228MB 内存；仅当本次未在录音时执行） */
+    private void releaseAsrModel() {
+        try {
+            SenseVoiceAsr.releaseInstance();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "卸载本地 ASR 模型异常: " + t.getMessage());
         }
     }
 
