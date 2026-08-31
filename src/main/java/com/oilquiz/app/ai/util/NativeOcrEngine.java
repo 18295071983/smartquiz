@@ -49,6 +49,14 @@ public class NativeOcrEngine {
         if (rapidOCR == null && !initFailed) {
             try {
                 Context ctx = context.getApplicationContext();
+                // RapidOCR4j 初始化时会把 assets 模型复制到 cacheDir/<modelPath>，
+                // 目标目录（cache/ocr/v6）必须预先存在，否则 FileOutputStream 打开目标报 ENOENT
+                // （真机实测 FileNotFoundException: .../cache/ocr/v6/det.onnx）。
+                File ocrCacheDir = new File(ctx.getCacheDir(), "ocr/v6");
+                if (!ocrCacheDir.exists()) {
+                    ocrCacheDir.mkdirs();
+                }
+
                 OcrConfig config = new OcrConfig();
 
                 // 检测：PP-OCRv6_small det + v6 官方 DB 后处理参数

@@ -2542,8 +2542,10 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void pickImage() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                // SAF：ACTION_OPEN_DOCUMENT 无需存储权限，兼容 Android 13+（原 ACTION_PICK+MediaStore 依赖 READ_MEDIA_IMAGES）
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("image/*");
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(intent, 101);
             });
         }
