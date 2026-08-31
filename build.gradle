@@ -187,6 +187,8 @@ dependencies {
     // 本地高精度 OCR：RapidOCR4j-Android（RapidOCR Java 移植，PaddleOCR 系模型 + ONNX Runtime + OpenCV，
     // 端侧离线，中文精度远高于 ML Kit；内部已带 onnxruntime-android:1.18.0 与 opencv:4.9.0）
     implementation "io.github.hzkitty:rapidocr4j-android:1.0.0"
+    // 本地离线语音识别（SenseVoice）：直接复用 onnxruntime-android（rapidocr4j 已传递同版本，显式声明确保 API 可见）
+    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.18.0"
     implementation "net.i2p.crypto:eddsa:0.3.0"
 
     implementation "androidx.appcompat:appcompat:1.7.0"

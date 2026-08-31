@@ -35,7 +35,8 @@ public class SpeechManager {
     private final Context context;
     private final SpeechRecognitionService asrService;
     private final TTSService ttsService;
-    private volatile SystemSpeechRecognizer offlineRecognizer; // 离线/系统语音识别兜底
+    private volatile LocalAsrRecognizer localRecognizer;      // 本地离线 ASR（SenseVoice，App 前台录音，绕开系统后台限制）
+    private volatile SystemSpeechRecognizer offlineRecognizer; // 系统语音识别兜底（本地模型不可用时）
 
     /** 录音占用者："app"=应用层录音按钮 / "agent"=Agent语音输入组件，同一时间只允许一方录音 */
     private volatile String recordingOwner = null;
@@ -122,9 +123,17 @@ public class SpeechManager {
      */
     public boolean isOfflineAsrAvailable() {
         try {
+            // 优先本地 SenseVoice（完全离线，无系统服务限制）
+            if (localRecognizer == null) {
+                localRecognizer = new LocalAsrRecognizer(context);
+            }
+            if (localRecognizer.isAvailable()) {
+                return true;
+            }
+            // 本地模型未就绪时回退检查系统识别服务
             return SystemSpeechRecognizer.isAvailable(context);
         } catch (Exception e) {
-            AILogger.w(TAG, "检查系统语音识别可用性失败: " + e.getMessage());
+            AILogger.w(TAG, "检查离线语音识别可用性失败: " + e.getMessage());
             return false;
         }
     }
@@ -136,9 +145,18 @@ public class SpeechManager {
      */
     public void startOfflineRecognition(SystemSpeechRecognizer.RecognitionCallback callback) {
         try {
+            // 优先本地 SenseVoice（App 前台录音 + 端侧推理，天然绕开 Android 12+ 后台录音限制）
+            if (localRecognizer == null) {
+                localRecognizer = new LocalAsrRecognizer(context);
+            }
+            if (localRecognizer.isAvailable()) {
+                localRecognizer.startListening(callback);
+                return;
+            }
+            // 本地模型未就绪（如首次加载中/加载失败）：回退系统语音识别
             if (!SystemSpeechRecognizer.isAvailable(context)) {
                 if (callback != null) {
-                    callback.onError("当前设备没有可用的系统语音识别服务，请配置在线语音识别模型（如 qwen3-asr-flash / whisper-1）");
+                    callback.onError("当前设备没有可用的离线语音识别（本地模型与系统识别均不可用），请稍后重试或配置在线语音识别模型");
                     callback.onEnd();
                 }
                 return;
@@ -148,9 +166,9 @@ public class SpeechManager {
             }
             offlineRecognizer.startListening(callback);
         } catch (Exception e) {
-            AILogger.e(TAG, "启动系统语音识别失败: " + e.getMessage(), e);
+            AILogger.e(TAG, "启动离线语音识别失败: " + e.getMessage(), e);
             if (callback != null) {
-                callback.onError("系统语音识别启动失败: " + e.getMessage());
+                callback.onError("离线语音识别启动失败: " + e.getMessage());
                 callback.onEnd();
             }
         }
@@ -158,6 +176,10 @@ public class SpeechManager {
 
     /** 停止离线识别（触发最终结果回调） */
     public void stopOfflineRecognition() {
+        if (localRecognizer != null && localRecognizer.isListening()) {
+            localRecognizer.stopListening();
+            return;
+        }
         if (offlineRecognizer != null) {
             offlineRecognizer.stopListening();
         }
@@ -165,6 +187,10 @@ public class SpeechManager {
 
     /** 取消离线识别并释放 */
     public void cancelOfflineRecognition() {
+        if (localRecognizer != null && localRecognizer.isListening()) {
+            localRecognizer.cancel();
+            return;
+        }
         if (offlineRecognizer != null) {
             offlineRecognizer.cancel();
         }
@@ -172,7 +198,8 @@ public class SpeechManager {
 
     /** 是否正在进行离线识别 */
     public boolean isOfflineRecognizing() {
-        return offlineRecognizer != null && offlineRecognizer.isListening();
+        return (localRecognizer != null && localRecognizer.isListening())
+                || (offlineRecognizer != null && offlineRecognizer.isListening());
     }
 
     /** 获取当前生效的 ASR 模型显示名（用于 UI 展示） */
