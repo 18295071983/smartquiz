@@ -279,13 +279,13 @@ public class OCRActivity extends AppCompatActivity {
     
     private void openPdfPicker() {
         Intent intent = new Intent();
-        // 放宽为 */*：部分系统/文件管理把 PDF 识别为 application/octet-stream，
-        // 窄 mime 过滤会导致 PDF 文件灰显/不可选（用户感知为“系统拒绝”）。
-        // 仍走 SAF（ACTION_OPEN_DOCUMENT + OPENABLE），选后按类型校验并提示。
+        // 直接放开：SAF 文件选择器（ACTION_OPEN_DOCUMENT + OPENABLE），
+        // 不设 mime 限制、不弹“打开方式”列表，直接进系统文件选择器由用户自选；
+        // 选中后不做类型校验（用户自行负责选对文件）。
         intent.setType("*/*");
         intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(intent, "选择PDF文件"), PICK_PDF_REQUEST);
+        startActivityForResult(intent, PICK_PDF_REQUEST);
     }
 
     private void openCamera() {
@@ -363,18 +363,8 @@ public class OCRActivity extends AppCompatActivity {
                 }
             }
         } else if (requestCode == PICK_PDF_REQUEST && data != null && data.getData() != null) {
-            Uri pdfUri = data.getData();
-            // 类型校验：按 mime 或扩展名判断是否为 PDF，避免误选其他文件
-            String pdfMime = null;
-            try { pdfMime = getContentResolver().getType(pdfUri); } catch (Exception ignored) {}
-            String pdfStr = pdfUri.toString().toLowerCase();
-            boolean isPdf = (pdfMime != null && pdfMime.contains("pdf"))
-                    || pdfStr.endsWith(".pdf") || pdfStr.contains(".pdf");
-            if (!isPdf) {
-                Toast.makeText(this, "请选择PDF文件", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            selectedPdfUri = pdfUri;
+            // 直接放开：不做类型校验，用户自选任何文件
+            selectedPdfUri = data.getData();
             selectedImage = null;
             resetUiForSelection();
             imageView.setVisibility(View.GONE);
