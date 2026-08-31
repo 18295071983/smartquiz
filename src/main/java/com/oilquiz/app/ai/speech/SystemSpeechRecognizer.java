@@ -88,6 +88,9 @@ public class SystemSpeechRecognizer {
     private void doStartListening() {
         try {
             destroyInternal();
+            // 修复 "no selected voice recognition service" 导致的 ERROR_CLIENT：
+            // 系统未选中语音识别服务时，自动设为系统已注册的默认识别服务（需 WRITE_SECURE_SETTINGS）
+            ensureVoiceRecognitionService(context);
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
                 if (currentCallback != null) {
                     currentCallback.onError("设备没有可用的语音识别服务，请配置在线语音识别模型");
@@ -95,7 +98,15 @@ public class SystemSpeechRecognizer {
                 return;
             }
 
-            recognizer = SpeechRecognizer.createSpeechRecognizer(context);
+            // 优先直接绑定系统已注册的识别服务组件（如小米小爱 AsrService），
+            // 避免 voice_recognition_service 未选中时 createSpeechRecognizer 报 "no selected voice recognition service"
+            android.content.ComponentName svc = findRecognitionServiceComponent(context);
+            if (svc != null) {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context, svc);
+                AILogger.d(TAG, "绑定语音识别服务: " + svc.flattenToString());
+            } else {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context);
+            }
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override
                 public void onReadyForSpeech(Bundle params) {
@@ -203,6 +214,74 @@ public class SystemSpeechRecognizer {
     /** 取消并释放资源 */
     public void cancel() {
         mainHandler.post(this::destroyInternal);
+    }
+
+    /**
+     * 确保系统已选中语音识别服务。
+     * Android 的 SpeechRecognizer 在 voice_recognition_service 为空时报
+     * "no selected voice recognition service"（ERROR_CLIENT=5）。此方法在识别前
+     * 自动把该设置补为系统已注册的默认识别服务（如小米小爱 AsrService）。
+     * 需要 WRITE_SECURE_SETTINGS 权限（debug 构建可通过 pm grant 授予）；无权限时静默跳过。
+     */
+    private static void ensureVoiceRecognitionService(Context ctx) {
+        try {
+            String svc = android.provider.Settings.Secure.getString(
+                    ctx.getContentResolver(), "voice_recognition_service");
+            if (svc != null && !svc.isEmpty()) {
+                return; // 已设置
+            }
+            String defaultSvc = findDefaultRecognitionService(ctx);
+            if (defaultSvc != null) {
+                boolean ok = android.provider.Settings.Secure.putString(
+                        ctx.getContentResolver(), "voice_recognition_service", defaultSvc);
+                AILogger.i(TAG, "自动设置系统语音识别服务: " + defaultSvc + " -> " + ok);
+            } else {
+                AILogger.w(TAG, "系统未注册任何语音识别服务，无法自动设置");
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "自动设置语音识别服务失败(需 WRITE_SECURE_SETTINGS 权限): " + e.getMessage());
+        }
+    }
+
+    /** 查找系统已注册的第一个语音识别服务组件（如 com.xiaomi.mibrain.speech/.asr.AsrService） */
+    private static android.content.ComponentName findRecognitionServiceComponent(Context ctx) {
+        try {
+            android.content.Intent intent = new android.content.Intent("android.speech.RecognitionService");
+            java.util.List<android.content.pm.ResolveInfo> list =
+                    ctx.getPackageManager().queryIntentServices(intent,
+                            android.content.pm.PackageManager.MATCH_ALL);
+            if (list != null) {
+                for (android.content.pm.ResolveInfo ri : list) {
+                    if (ri.serviceInfo != null && ri.serviceInfo.packageName != null
+                            && ri.serviceInfo.name != null && ri.serviceInfo.enabled) {
+                        return new android.content.ComponentName(
+                                ri.serviceInfo.packageName, ri.serviceInfo.name);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** 查找系统已注册的第一个语音识别服务（如 com.xiaomi.mibrain.speech/.asr.AsrService） */
+    private static String findDefaultRecognitionService(Context ctx) {
+        try {
+            android.content.Intent intent = new android.content.Intent("android.speech.RecognitionService");
+            java.util.List<android.content.pm.ResolveInfo> list =
+                    ctx.getPackageManager().queryIntentServices(intent,
+                            android.content.pm.PackageManager.MATCH_ALL);
+            if (list != null) {
+                for (android.content.pm.ResolveInfo ri : list) {
+                    if (ri.serviceInfo != null && ri.serviceInfo.packageName != null
+                            && ri.serviceInfo.name != null) {
+                        return ri.serviceInfo.packageName + "/" + ri.serviceInfo.name;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private void destroyInternal() {
