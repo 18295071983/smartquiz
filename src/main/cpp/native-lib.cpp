@@ -2890,7 +2890,7 @@ public:
         std::vector<common_chat_tool> tools;
         if (!toolsJson.empty()) {
             try {
-                auto tools_json = nlohmann::ordered_json::parse(toolsJson);
+                auto tools_json = common_json::parse(toolsJson);
                 tools = common_chat_tools_parse_oaicompat(tools_json);
                 LOGI("Parsed %zu tools from JSON", tools.size());
             } catch (const std::exception& e) {
@@ -3018,9 +3018,9 @@ public:
         };
 
         // step 1（R8-3）：ordered_json 解析（与 common_chat_*_parse_oaicompat 参数类型一致）
-        nlohmann::ordered_json req;
+        common_json req;
         try {
-            req = nlohmann::ordered_json::parse(requestJson);
+            req = common_json::parse(requestJson);
         } catch (const std::exception& e) {
             LOGE("chatJson: JSON parse failed: %s", e.what());
             sendError("JSON parse failed");
@@ -3682,7 +3682,8 @@ public:
         //    （与文本路径一致：每轮全量重评估，不做跨轮 KV 复用）
 
         // 5. 加载图像
-        mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false);
+        mtmd_helper_init_opt initOpt = {};
+        mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false, initOpt);
         if (bitmapWrapper.bitmap == nullptr) {
             LOGE("Failed to load image: %s", imagePath.c_str());
             callback("", true, "Failed to load image");
