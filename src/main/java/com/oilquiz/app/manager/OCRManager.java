@@ -465,7 +465,9 @@ public class OCRManager {
                     
                     int pageWidth = page.getWidth();
                     int pageHeight = page.getHeight();
-                    float scale = 3.0f;
+                    // 渲染 scale 3.0→4.0：发票/扫描件小字密集，提高分辨率利于 det 检出；
+                    // 超长边用 4096 上限兜底，避免 OOM。
+                    float scale = 4.0f;
                     if (pageWidth * scale > 4096 || pageHeight * scale > 4096) {
                         scale = 4096f / Math.max(pageWidth, pageHeight);
                     }

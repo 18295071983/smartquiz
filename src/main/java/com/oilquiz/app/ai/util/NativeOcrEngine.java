@@ -60,10 +60,12 @@ public class NativeOcrEngine {
                 OcrConfig config = new OcrConfig();
 
                 // 检测：PP-OCRv6_small det + v6 官方 DB 后处理参数
+                // boxThresh 0.45→0.35、maxCandidates 3000→5000：提高小字/密集文字（发票、表格）召回，
+                // 代价是略微增加误检框，由 rec 后处理过滤，实测对发票类场景收益明显。
                 config.Det.modelPath = V6_DET_ASSET;
                 config.Det.thresh = 0.2f;
-                config.Det.boxThresh = 0.45f;
-                config.Det.maxCandidates = 3000;
+                config.Det.boxThresh = 0.35f;
+                config.Det.maxCandidates = 5000;
                 config.Det.unclipRatio = 1.4f;
 
                 // 识别：PP-OCRv6_small rec + v6 字典（复制到 cache 供文件读取）
