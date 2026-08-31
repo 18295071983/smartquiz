@@ -438,25 +438,32 @@ public class SenseVoiceAsr {
 
     // ==================== 模型/tokens 加载 ====================
 
-    /** 从 assets 提取文件到 filesDir（已存在且大小一致则跳过，避免每次启动复制 228MB） */
+    /**
+     * 从 assets 释放模型到应用目录（filesDir）：仅首次复制，之后直接用缓存文件。
+     * 用 ".ok" 标记文件保证只复制一次；模型文件被系统清理时自动重新释放。
+     * 避免每次启动/识别都打开 assets 重复处理 228MB 大文件。
+     */
     private File extractAssetIfNeeded(Context ctx, String assetPath, String fileName) throws Exception {
         File out = new File(ctx.getFilesDir(), "asr_" + fileName);
-        AssetManager am = ctx.getAssets();
-        long assetLen = 0;
-        try (InputStream is = am.open(assetPath)) {
-            assetLen = is.available();
-        }
-        if (out.exists() && out.length() == assetLen) {
+        File marker = new File(ctx.getFilesDir(), "asr_" + fileName + ".ok");
+        // 已释放（标记存在且文件有效）：直接返回缓存文件，不再打开 assets
+        if (marker.exists() && out.exists() && out.length() > 1024) {
             return out;
         }
+        AssetManager am = ctx.getAssets();
         try (InputStream is = am.open(assetPath);
              FileOutputStream fos = new FileOutputStream(out)) {
-            byte[] buf = new byte[8192];
+            byte[] buf = new byte[65536];
             int n;
             while ((n = is.read(buf)) != -1) {
                 fos.write(buf, 0, n);
             }
         }
+        // 复制完成写标记，保证只释放一次
+        try (FileOutputStream mf = new FileOutputStream(marker)) {
+            mf.write(0x01);
+        }
+        AILogger.i(TAG, "模型释放到应用目录: " + out.getName() + " (" + out.length() / 1048576 + "MB)");
         return out;
     }
 
