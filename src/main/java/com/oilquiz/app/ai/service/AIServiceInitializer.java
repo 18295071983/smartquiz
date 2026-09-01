@@ -169,13 +169,17 @@ public final class AIServiceInitializer {
             }
             initializing = true;
             initStartTime = System.currentTimeMillis();
+            // 清理上一步骤分离的待加载残留（若上次下载完未点「加载模型」就退出，避免串到本次初始化）
+            pendingModelFile = null;
+            pendingMmprojFile = null;
         }
 
-        // 停止"模型预加载服务"并取消进行中的预加载，避免与一键下载/加载抢同一模型槽（一边下载一边加载）。
+        // 取消进行中的模型预加载，避免与一键下载/加载抢同一模型槽（一边下载一边加载）。
         // 说明：AIProcessingService 是推理通道（非自动初始化源，onCreate 不加载模型），此处不停止它；
         // App 启动自动预加载（preloadAIServiceInternal）已通过 isInitializing() 检查在初始化期间跳过。
+        // 注意：只发 CANCEL_PRELOAD 指令，不做 stopService+重建——ModelPreloadService 的 native
+        // initModel 是阻塞调用，shutdownNow 无法真正中断；stopService 重建反而引入并发初始化风险。
         try {
-            app.stopService(new Intent(app, ModelPreloadService.class));
             app.startService(new Intent(app, ModelPreloadService.class).setAction("CANCEL_PRELOAD"));
         } catch (Exception e) {
             AILogger.w(TAG, "cancel background preload failed: " + e.getMessage());
@@ -202,7 +206,10 @@ public final class AIServiceInitializer {
             if (mmprojFileName != null && !modelFileExists(app, mmprojFileName, mmprojExpectedBytes)) {
                 AILogger.i(TAG, "主模型已存在，mmproj 缺失，补充下载: " + mmprojFileName);
                 notifyProgress(callback, "模型已就绪，正在补充下载视觉模块…", 100);
+                // 补充下载同样带期望大小与 SHA-256 哈希校验（与 downloadPresetModel 一致），
+                // 避免下载到错误版本/半截文件被误判为已就绪。
                 downloadManager.downloadFromCustomUrl(modelId + "_mmproj", preset.mmprojUrl,
+                        mmprojExpectedBytes, preset.mmprojSha256,
                         new ModelDownloadManager.DownloadCallback() {
                             @Override
                             public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
@@ -217,41 +224,36 @@ public final class AIServiceInitializer {
                             @Override
                             public void onComplete(String id, String filePath) {
                                 AILogger.i(TAG, "mmproj 下载完成: " + filePath);
+                                // 两步分离：下载完成不自动加载（大模型加载卡 UI），等用户点「加载模型」
                                 new Thread(() -> {
                                     waitForFiles(app, modelFileName, mmprojFileName,
                                             modelExpectedBytes, mmprojExpectedBytes);
-                                    boolean ok = configureAndLoad(app, modelFileName, mmprojFileName);
-                                    if (ok) {
-                                        finishInit(callback, modelFileName, true, null);
-                                    } else {
-                                        finishInit(callback, null, false, "模型加载失败，请重试");
-                                    }
-                                }, "ai-init-mmproj").start();
+                                    pendingModelFile = modelFileName;
+                                    pendingMmprojFile = mmprojFileName;
+                                    notifyProgress(callback, "下载完成，点击「加载模型」开始使用", 100);
+                                    notifyDownloadReady(callback, preset.name, modelFileName);
+                                }, "ai-init-mmproj-ready").start();
                             }
 
                             @Override
                             public void onError(String id, String error) {
                                 AILogger.w(TAG, "mmproj 下载失败: " + error);
-                                // 主模型可正常使用（文本对话），视觉不可用，降级提示
-                                new Thread(() -> {
-                                    boolean ok = configureAndLoad(app, modelFileName, mmprojFileName);
-                                    if (ok) {
-                                        finishInit(callback, modelFileName, false, null);
-                                    } else {
-                                        finishInit(callback, null, false, "模型加载失败，请重试");
-                                    }
-                                }, "ai-init-mmproj-fallback").start();
+                                // 降级：主模型可文本对话，视觉不可用 → 仍走两步分离等用户点加载
+                                pendingModelFile = modelFileName;
+                                pendingMmprojFile = null;
+                                notifyProgress(callback, "视觉模块下载失败，文本对话可用。点击「加载模型」", 100);
+                                notifyDownloadReady(callback, preset.name, modelFileName);
                             }
 
                             @Override
                             public void onPaused(String id) { notifyProgress(callback, "视觉模块下载暂停", -1); }
                             @Override
                             public void onCancelled(String id) {
-                                new Thread(() -> {
-                                    boolean ok = configureAndLoad(app, modelFileName, mmprojFileName);
-                                    if (ok) finishInit(callback, modelFileName, false, null);
-                                    else finishInit(callback, null, false, "模型加载失败，请重试");
-                                }, "ai-init-mmproj-cancel").start();
+                                // 取消同样降级（主模型可用），等用户点加载
+                                pendingModelFile = modelFileName;
+                                pendingMmprojFile = null;
+                                notifyProgress(callback, "视觉模块下载已取消，文本对话可用。点击「加载模型」", 100);
+                                notifyDownloadReady(callback, preset.name, modelFileName);
                             }
                             @Override public void onResumed(String id) { notifyProgress(callback, "继续补充下载…", -1); }
                         });
@@ -316,7 +318,11 @@ public final class AIServiceInitializer {
                 if (loadStarted.compareAndSet(false, true)) {
                     AILogger.i(TAG, "下载完成回调 id=" + id + " path=" + filePath);
                     new Thread(() -> {
-                        waitForFiles(app, modelFileName, mmprojFileName, modelExpectedBytes, mmprojExpectedBytes);
+                        boolean ready = waitForFiles(app, modelFileName, mmprojFileName,
+                                modelExpectedBytes, mmprojExpectedBytes);
+                        if (!ready) {
+                            AILogger.w(TAG, "下载完成但文件未就绪（可能超时），仍通知用户尝试加载");
+                        }
                         // 两步分离：下载完成不自动加载（大模型加载卡 UI），等待用户点「加载模型」
                         pendingModelFile = modelFileName;
                         pendingMmprojFile = mmprojFileName;
@@ -335,7 +341,7 @@ public final class AIServiceInitializer {
                         new Thread(() -> {
                             waitForFiles(app, modelFileName, null, modelExpectedBytes, 0);
                             pendingModelFile = modelFileName;
-                            pendingMmprojFile = mmprojFileName;
+                            pendingMmprojFile = null; // mmproj 失败/缺失，不标记，加载时 AIService 自动跳过视觉
                             notifyProgress(callback, "视觉模块下载失败，文本对话可用。点击「加载模型」", 100);
                             notifyDownloadReady(callback, preset.name, modelFileName);
                         }, "ai-init-mmproj-fallback").start();
@@ -410,6 +416,12 @@ public final class AIServiceInitializer {
             notifyError(callback, "未找到已下载的模型文件，请重新初始化");
             return;
         }
+        // 加载前重新校验模型文件完整性（下载完成后文件可能被外部改动/损坏，避免加载时报错无明确提示）
+        if (!modelFileExists(app, resolvedModel, expectedBytesForModelName(app, resolvedModel))) {
+            AILogger.w(TAG, "loadDownloadedModel: 模型文件不完整: " + resolvedModel);
+            notifyError(callback, "模型文件不完整，请重新初始化");
+            return;
+        }
         final String fModel = resolvedModel;
         final String fMmproj = resolvedMmproj;
         AILogger.i(TAG, "loadDownloadedModel: " + fModel + " mmproj=" + fMmproj);
@@ -434,6 +446,12 @@ public final class AIServiceInitializer {
                 AILogger.e(TAG, "AIService 获取失败");
                 return false;
             }
+            // 说明：mmprojFileName 仅用于语义确认——AIService.switchModel → loadModelLocked 内部会按
+            // GGUF 架构自动加载同目录 mmproj（autoLoadMultimodalIfAvailable：预设精确配对+逐个尝试）。
+            // 此处无需显式传入；mmproj 缺失/失败时主模型仍可加载（文本对话可用），视觉功能自动降级。
+            if (mmprojFileName != null && !mmprojFileName.isEmpty()) {
+                AILogger.i(TAG, "configureAndLoad: mmproj 由 AIService 自动挂载, 期望=" + mmprojFileName);
+            }
             AILogger.i(TAG, "配置当前模型并加载: " + modelFileName);
             boolean ok = aiService.switchModel(modelFileName);
             AILogger.i(TAG, "switchModel(" + modelFileName + ") = " + ok);
@@ -444,22 +462,26 @@ public final class AIServiceInitializer {
         }
     }
 
-    /** 等待主模型 / mmproj 文件就绪（限时轮询；含完整性校验） */
-    private static void waitForFiles(Context app, String modelFileName, String mmprojFileName,
-                                     long modelExpectedBytes, long mmprojExpectedBytes) {
+    /** 等待主模型 / mmproj 文件就绪（限时轮询；含完整性校验）。就绪返回 true；超时返回 false 并打日志。 */
+    private static boolean waitForFiles(Context app, String modelFileName, String mmprojFileName,
+                                        long modelExpectedBytes, long mmprojExpectedBytes) {
         long deadline = System.currentTimeMillis() + MMPROJ_WAIT_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             if (modelFileExistsInternal(app, modelFileName, modelExpectedBytes)
                     && (mmprojFileName == null || modelFileExistsInternal(app, mmprojFileName, mmprojExpectedBytes))) {
-                return;
+                return true;
             }
             try {
                 Thread.sleep(MMPROJ_WAIT_STEP_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return;
+                AILogger.w(TAG, "waitForFiles 被中断");
+                return false;
             }
         }
+        AILogger.w(TAG, "waitForFiles 超时: model=" + modelFileName
+                + " mmproj=" + mmprojFileName);
+        return false;
     }
 
     /** 查找预置模型 */

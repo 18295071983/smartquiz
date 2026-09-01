@@ -283,10 +283,19 @@ public class ModelDownloadManager {
     }
 
     public String downloadFromCustomUrl(String modelId, String url, DownloadCallback callback) {
+        return downloadFromCustomUrl(modelId, url, 0, null, callback);
+    }
+
+    /**
+     * 从自定义 URL 下载（带期望大小与 SHA-256 校验）。
+     * expectedSize &lt;= 0 且 checksum 为空时退化为仅做 .part 原子下载（不校验哈希）。
+     */
+    public String downloadFromCustomUrl(String modelId, String url, long expectedSize, String checksum,
+                                        DownloadCallback callback) {
         String modelDir = new File(context.getFilesDir(), "ai_models").getAbsolutePath();
         String modelPath = modelDir + File.separator + getFileNameFromUrl(url);
 
-        ModelDownloadRequest request = new ModelDownloadRequest(modelId, url, modelPath, 0, null);
+        ModelDownloadRequest request = new ModelDownloadRequest(modelId, url, modelPath, expectedSize, checksum);
         return download(request, callback);
     }
 
