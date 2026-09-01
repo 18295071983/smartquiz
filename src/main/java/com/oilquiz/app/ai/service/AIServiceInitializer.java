@@ -504,14 +504,15 @@ public final class AIServiceInitializer {
     }
 
     /** 模型文件是否完整存在（内部 ai_models / 自定义目录 / files 根；expectedBytes>0 时校验大小） */
-    private static boolean modelFileExists(Context app, String fileName, long expectedBytes) {
+    static boolean modelFileExists(Context app, String fileName, long expectedBytes) {
         if (fileName == null || fileName.isEmpty()) return false;
+        String expectedSha = expectedShaForFileName(app, fileName);
         try {
             // 内部 ai_models（加载模型的实际目录）
             File internal = new File(app.getFilesDir(), "ai_models");
             File f1 = new File(internal, fileName);
             if (f1.exists() && f1.isFile()) {
-                if (!isComplete(f1, expectedBytes)) {
+                if (!ModelDownloadManager.verifyComplete(f1, expectedBytes, expectedSha)) {
                     AILogger.w(TAG, "模型文件不完整(内部): " + fileName + " size=" + f1.length()
                             + " expected=" + expectedBytes);
                     return false;
@@ -523,7 +524,7 @@ public final class AIServiceInitializer {
             ModelManager modelManager = new ModelManager(app);
             File custom = new File(modelManager.getModelSaveDirectory(), fileName);
             if (custom.exists() && custom.isFile()) {
-                if (!isComplete(custom, expectedBytes)) {
+                if (!ModelDownloadManager.verifyComplete(custom, expectedBytes, expectedSha)) {
                     AILogger.w(TAG, "模型文件不完整(自定义): " + fileName + " size=" + custom.length()
                             + " expected=" + expectedBytes);
                     return false;
@@ -534,7 +535,7 @@ public final class AIServiceInitializer {
             // files 根目录
             File f2 = new File(app.getFilesDir(), fileName);
             if (f2.exists() && f2.isFile()) {
-                if (!isComplete(f2, expectedBytes)) {
+                if (!ModelDownloadManager.verifyComplete(f2, expectedBytes, expectedSha)) {
                     AILogger.w(TAG, "模型文件不完整(files根): " + fileName + " size=" + f2.length()
                             + " expected=" + expectedBytes);
                     return false;
@@ -548,13 +549,33 @@ public final class AIServiceInitializer {
         }
     }
 
-    /** 仅检查内部 ai_models（与 AIService 加载逻辑一致；mmproj 必须位于此目录才能被加载） */
+    /** 根据模型文件名从 preset 解析期望 SHA-256（无 preset 匹配返回 null） */
+    private static String expectedShaForFileName(Context app, String fileName) {
+        if (fileName == null || fileName.isEmpty()) return null;
+        try {
+            ModelDownloadManager manager = ModelDownloadManager.getInstance(app);
+            java.util.List<ModelDownloadManager.ModelPresetInfo> list = manager.getPresetDomesticModels();
+            if (list != null) {
+                for (ModelDownloadManager.ModelPresetInfo p : list) {
+                    if (p == null) continue;
+                    if (p.downloadUrl != null && fileName.equals(fileNameFromUrl(p.downloadUrl))) return p.sha256;
+                    if (p.mmprojUrl != null && !p.mmprojUrl.isEmpty()
+                            && fileName.equals(fileNameFromUrl(p.mmprojUrl))) return p.mmprojSha256;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "expectedShaForFileName failed: " + e.getMessage());
+        }
+        return null;
+    }
+
     private static boolean modelFileExistsInternal(Context app, String fileName, long expectedBytes) {
         if (fileName == null || fileName.isEmpty()) return false;
+        String expectedSha = expectedShaForFileName(app, fileName);
         try {
             File f = new File(new File(app.getFilesDir(), "ai_models"), fileName);
             if (!f.exists() || !f.isFile()) return false;
-            return isComplete(f, expectedBytes);
+            return ModelDownloadManager.verifyComplete(f, expectedBytes, expectedSha);
         } catch (Exception e) {
             AILogger.w(TAG, "modelFileExistsInternal failed: " + e.getMessage());
             return false;

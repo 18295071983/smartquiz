@@ -215,7 +215,7 @@ public class ModelDownloadManager {
 
         ModelDownloadRequest request = new ModelDownloadRequest(
             modelId, presetInfo.downloadUrl, modelPath,
-            presetInfo.sizeMB * 1024 * 1024, null
+            presetInfo.sizeMB * 1024 * 1024, presetInfo.sha256
         );
         String downloadId = download(request, callback);
 
@@ -238,7 +238,7 @@ public class ModelDownloadManager {
                 AILogger.i(TAG, "Downloading mmproj for multimodal model: " + presetInfo.name);
                 ModelDownloadRequest mmprojRequest = new ModelDownloadRequest(
                     mmprojId, presetInfo.mmprojUrl, mmprojPath,
-                    mmprojExpected, null
+                    mmprojExpected, presetInfo.mmprojSha256
                 );
                 download(mmprojRequest, new DownloadCallback() {
                     @Override
@@ -609,6 +609,101 @@ public class ModelDownloadManager {
         executor.shutdown();
     }
 
+
+    /** 计算文件 SHA-256（hex 小写）；失败返回 null */
+    public static String sha256(File file) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+                byte[] buf = new byte[65536];
+                int r;
+                while ((r = fis.read(buf)) > 0) md.update(buf, 0, r);
+            }
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : md.digest()) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "sha256 failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 写校验 sidecar：<file>.sha256（内容：sha256 一行 + 大小一行），下载校验通过后写入以加速后续校验 */
+    private static void writeSha256Sidecar(File target, String sha) {
+        try {
+            File sc = new File(target.getAbsolutePath() + ".sha256");
+            try (java.io.FileWriter w = new java.io.FileWriter(sc)) {
+                w.write(sha + "\n" + target.length() + "\n");
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** 读 sidecar：返回 [sha, size]，不存在或损坏返回 null */
+    private static String[] readSha256Sidecar(File target) {
+        try {
+            File sc = new File(target.getAbsolutePath() + ".sha256");
+            if (!sc.exists()) return null;
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(sc))) {
+                String sha = r.readLine();
+                String size = r.readLine();
+                if (sha == null || sha.trim().isEmpty()) return null;
+                return new String[]{ sha.trim(), size == null ? "" : size.trim() };
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 文件完整性校验：
+     *  - 大小不达 90% 阈值 → false
+     *  - 有期望哈希：sidecar 命中（且大小一致）→ true；否则计算 SHA-256 对比，匹配则补写 sidecar
+     *  - 无期望哈希：大小阈值兜底
+     */
+    public static boolean verifyComplete(File file, long expectedSize, String checksum) {
+        if (file == null || !file.exists() || file.length() == 0) return false;
+        if (expectedSize > 0 && file.length() < (long) (expectedSize * 0.90)) return false;
+        if (checksum == null || checksum.isEmpty()) return true;
+        String[] sc = readSha256Sidecar(file);
+        if (sc != null && checksum.equalsIgnoreCase(sc[0])) {
+            if (sc.length > 1 && sc[1].length() > 0 && sc[1].equals(String.valueOf(file.length()))) return true;
+        }
+        String actual = sha256(file);
+        if (actual != null && checksum.equalsIgnoreCase(actual)) {
+            writeSha256Sidecar(file, actual);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 下载完成收尾：SHA-256 校验（有 checksum）→ 原子重命名 .part → 正式路径 → 写 sidecar。
+     * 校验或 rename 失败会清除 .part 并返回 false（调用方从头重下）。
+     */
+    private boolean verifyAndFinalize(File partFile, File outputFile, long expectedSize, String checksum) {
+        if (expectedSize > 0 && partFile.length() < (long) (expectedSize * 0.90)) {
+            partFile.delete();
+            return false;
+        }
+        if (checksum != null && !checksum.isEmpty()) {
+            String actual = sha256(partFile);
+            if (actual == null || !checksum.equalsIgnoreCase(actual)) {
+                AILogger.w(TAG, "SHA-256 校验失败，清除重下: " + partFile.getName());
+                partFile.delete();
+                return false;
+            }
+        }
+        if (!partFile.renameTo(outputFile)) {
+            AILogger.w(TAG, "finalize rename 失败，清除重下: " + partFile.getName());
+            partFile.delete();
+            return false;
+        }
+        if (checksum != null && !checksum.isEmpty()) {
+            writeSha256Sidecar(outputFile, checksum);
+        }
+        return true;
+    }
+
     // ==================== 内部下载任务 ====================
 
     private class DownloadTask implements Runnable {
@@ -702,7 +797,7 @@ public class ModelDownloadManager {
                     existingBytes = partFile.length();
                     // .part 已完整 → 直接 finalize（rename 到正式路径），无需重新传输
                     if (request.expectedSize > 0 && existingBytes >= (long) (request.expectedSize * 0.90)) {
-                        if (partFile.renameTo(outputFile)) {
+                        if (verifyAndFinalize(partFile, outputFile, request.expectedSize, request.checksum)) {
                             AILogger.i(TAG, ".part 已完整，直接 finalize: " + outputFile.getAbsolutePath());
                             progress.state = DownloadState.COMPLETED;
                             progress.totalBytes = existingBytes;
@@ -791,7 +886,7 @@ public class ModelDownloadManager {
                 outputStream.close();
                 outputStream = null;
                 // 下载完成：原子重命名 .part → 正式路径（半截文件不会留在正式目录）
-                if (partFile.renameTo(outputFile)) {
+                if (verifyAndFinalize(partFile, outputFile, request.expectedSize, request.checksum)) {
                     AILogger.i(TAG, "下载完成，finalize: " + outputFile.getAbsolutePath());
                     return outputFile.getAbsolutePath();
                 }
@@ -986,11 +1081,15 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）",
                 "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
                 1840, "Q4_K_M", 32768, 4096, 8,
-                "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf", 300));
+                "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf", 1276,
+                "bc2b4d4f4dfc5d28109ade0fe797d3b9015b1fe600dc03076868328d990c3352",
+                "471220b286e984a20ba01bb080b52b1c78e9811de2f8fb761b1d39ea9e35b56f"));
         list.add(new ModelPresetInfo("qwen3-vl-2b-thinking", "Qwen3-VL-2B-Thinking", "多模态Agent：视觉理解+思考链+原生工具调用",
                 "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
                 1056, "Q4_K_M", 32768, 4096, 8,
-                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf", 424));
+                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf", 424,
+                "06a77f027abc20f54197ce27b841881b97fdd1b74b0ec5f2794ec48e087745d9",
+                "48d1045b938a06a5e5531a9f91d4655ca1a3624c688aba0cef3744a332eb6c60"));
         return list;
     }
 
@@ -1007,6 +1106,8 @@ public class ModelDownloadManager {
         public final String mmprojUrl;          // 多模态投影文件 URL，null 表示非多模态模型
         public final long mmprojSizeMB;         // mmproj 预估文件大小(MB)
         public final boolean multimodal;
+        public String sha256;            // 主模型期望 SHA-256（可选，null 表示无哈希校验）
+        public String mmprojSha256;      // mmproj 期望 SHA-256（可选）
 
         public ModelPresetInfo(String id, String name, String description, String downloadUrl,
                                long sizeMB, String quantization, int contextLength,
@@ -1038,6 +1139,16 @@ public class ModelDownloadManager {
             this.mmprojUrl = mmprojUrl;
             this.mmprojSizeMB = mmprojSizeMB;
             this.multimodal = mmprojUrl != null && !mmprojUrl.isEmpty();
+        }
+
+        public ModelPresetInfo(String id, String name, String description, String downloadUrl,
+                               long sizeMB, String quantization, int contextLength,
+                               long minRamMB, int recommendedGpuLayers, String mmprojUrl,
+                               long mmprojSizeMB, String sha256, String mmprojSha256) {
+            this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
+                 minRamMB, recommendedGpuLayers, mmprojUrl, mmprojSizeMB);
+            this.sha256 = sha256;
+            this.mmprojSha256 = mmprojSha256;
         }
     }
 }
