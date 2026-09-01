@@ -36,6 +36,13 @@ public class SpeechManager {
     private final SpeechRecognitionService asrService;
     private final TTSService ttsService;
     private volatile LocalAsrRecognizer localRecognizer;      // 本地离线 ASR（SenseVoice，App 前台录音，绕开系统后台限制）
+
+    /**
+     * 本地 SenseVoice 离线语音识别开关（用户要求：当前禁用本地语音识别）。
+     * true=使用本地 SenseVoice；false=禁用，语音识别走系统识别兜底 / 在线识别。
+     * 恢复时改为 true 即可，无需其他改动。
+     */
+    private static final boolean LOCAL_ASR_ENABLED = false;
     private volatile SystemSpeechRecognizer offlineRecognizer; // 系统语音识别兜底（本地模型不可用时）
 
     /** 录音占用者："app"=应用层录音按钮 / "agent"=Agent语音输入组件，同一时间只允许一方录音 */
@@ -123,6 +130,10 @@ public class SpeechManager {
      */
     public boolean isOfflineAsrAvailable() {
         try {
+            // 本地 SenseVoice 已禁用（LOCAL_ASR_ENABLED=false），仅检查系统识别服务
+            if (!LOCAL_ASR_ENABLED) {
+                return SystemSpeechRecognizer.isAvailable(context);
+            }
             // 优先本地 SenseVoice（完全离线，无系统服务限制）
             if (localRecognizer == null) {
                 localRecognizer = new LocalAsrRecognizer(context);
@@ -145,6 +156,21 @@ public class SpeechManager {
      */
     public void startOfflineRecognition(SystemSpeechRecognizer.RecognitionCallback callback) {
         try {
+            // 本地 SenseVoice 已禁用：直接走系统语音识别兜底
+            if (!LOCAL_ASR_ENABLED) {
+                if (!SystemSpeechRecognizer.isAvailable(context)) {
+                    if (callback != null) {
+                        callback.onError("本地语音识别已禁用且系统识别不可用，请配置在线语音识别模型");
+                        callback.onEnd();
+                    }
+                    return;
+                }
+                if (offlineRecognizer == null) {
+                    offlineRecognizer = new SystemSpeechRecognizer(context);
+                }
+                offlineRecognizer.startListening(callback);
+                return;
+            }
             // 优先本地 SenseVoice（App 前台录音 + 端侧推理，天然绕开 Android 12+ 后台录音限制）
             if (localRecognizer == null) {
                 localRecognizer = new LocalAsrRecognizer(context);
@@ -176,7 +202,7 @@ public class SpeechManager {
 
     /** 停止离线识别（触发最终结果回调） */
     public void stopOfflineRecognition() {
-        if (localRecognizer != null && localRecognizer.isListening()) {
+        if (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening()) {
             localRecognizer.stopListening();
             return;
         }
@@ -187,7 +213,7 @@ public class SpeechManager {
 
     /** 取消离线识别并释放 */
     public void cancelOfflineRecognition() {
-        if (localRecognizer != null && localRecognizer.isListening()) {
+        if (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening()) {
             localRecognizer.cancel();
             return;
         }
@@ -198,7 +224,7 @@ public class SpeechManager {
 
     /** 是否正在进行离线识别 */
     public boolean isOfflineRecognizing() {
-        return (localRecognizer != null && localRecognizer.isListening())
+        return (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening())
                 || (offlineRecognizer != null && offlineRecognizer.isListening());
     }
 

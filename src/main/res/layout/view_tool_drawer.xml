@@ -231,6 +231,21 @@
             android:minWidth="@dimen/min_0"
             android:layout_marginBottom="@dimen/space_8"/>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_ai_init"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_40"
+            android:text="⚡ 一键初始化（自动下载并配置本地模型）"
+            android:textSize="@dimen/text_12"
+            android:textColor="@color/on_primary"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:gravity="start|center_vertical"
+            android:paddingHorizontal="12dp"
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
+
         <!-- ===== 其他 ===== -->
         <LinearLayout
             android:layout_width="match_parent"

@@ -95,6 +95,52 @@
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
+    <!-- AI 服务一键初始化：本地与在线模型均未配置时显示 -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/ai_init_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_16"
+        android:layout_marginEnd="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_4"
+        android:visibility="gone"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="@color/primary_container">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/space_16">
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="一键初始化 AI 服务"
+                android:textSize="@dimen/text_15"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:layout_marginBottom="@dimen/space_4"/>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="尚未配置本地与在线模型。点击自动下载默认模型并初始化本地模型服务，离线即可使用。"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="@dimen/space_12"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_init"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_36"
+                android:text="一键初始化"
+                app:backgroundTint="@color/primary"
+                android:textColor="@color/on_primary"
+                app:cornerRadius="@dimen/radius_8"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_14"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="@dimen/size_0"

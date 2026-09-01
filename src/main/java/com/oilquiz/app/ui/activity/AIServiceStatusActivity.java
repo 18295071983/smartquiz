@@ -21,6 +21,7 @@ import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.model.ModelManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.AIConfig.OptimizationMode;
@@ -226,16 +227,21 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         localAgentSwitch = findViewById(R.id.local_agent_switch);
         localFcSwitch = findViewById(R.id.local_fc_switch);
 
-        // 初始化按钮
+        // 初始化按钮：未配置本地且未配置在线模型 → 进入一键初始化精美引导界面
         MaterialButton btnInitializeModel = findViewById(R.id.btn_initialize_model);
         if (btnInitializeModel != null) {
             btnInitializeModel.setOnClickListener(v -> {
-                // 手动初始化AI服务
+                if (AIServiceInitializer.needsInitialization(this)) {
+                    startActivity(new Intent(AIServiceStatusActivity.this, AIServiceInitActivity.class));
+                    return;
+                }
+
+                // 已配置（本地或在线）→ 手动初始化本地 AI 服务
                 Toast.makeText(this, "正在初始化AI服务...", Toast.LENGTH_SHORT).show();
-                
+
                 new Thread(() -> {
                     boolean success = aiService.initializeSafe();
-                    
+
                     runOnUiThread(() -> {
                         if (success) {
                             Toast.makeText(this, "AI服务初始化成功", Toast.LENGTH_SHORT).show();

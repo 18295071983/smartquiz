@@ -161,7 +161,7 @@ public class AIInferenceCore {
                                 String role = msg.isAIMessage() ? "assistant" : "user";
                                 msgs.add(new com.oilquiz.app.ai.util.PromptBuilder.Message(role, msg.content));
                             }
-                            return LlamaHelper.generate(msgs, config.maxTokens, config.temperature);
+                            return LlamaHelper.generate(msgs, config.maxTokens, applyUserTemperature(config.temperature));
                         }
                     }
                 } catch (Exception e) {
@@ -210,7 +210,7 @@ public class AIInferenceCore {
                             String role = msg.isAIMessage() ? "assistant" : "user";
                             msgs.add(new com.oilquiz.app.ai.util.PromptBuilder.Message(role, msg.content));
                         }
-                        return LlamaHelper.generate(msgs, config.maxTokens, config.temperature);
+                        return LlamaHelper.generate(msgs, config.maxTokens, applyUserTemperature(config.temperature));
                     }
                 }
             } catch (Exception e) {
@@ -281,5 +281,23 @@ public class AIInferenceCore {
                 UUID.randomUUID().toString(), userPrompt, System.currentTimeMillis()));
             return messages;
         }
+    }
+
+
+    /** 应用用户自定义温度（参数面板）：用户设置 > 0 时覆盖，否则用模型默认 */
+    private float applyUserTemperature(float defaultTemp) {
+        try {
+            com.oilquiz.app.ai.config.UserModelParamsManager um =
+                    com.oilquiz.app.ai.config.UserModelParamsManager.getInstance(context);
+            if (!um.isAuto()) {
+                float userTemp = um.getTemperature();
+                if (userTemp > 0f) {
+                    return userTemp;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "applyUserTemperature failed: " + e.getMessage());
+        }
+        return defaultTemp;
     }
 }

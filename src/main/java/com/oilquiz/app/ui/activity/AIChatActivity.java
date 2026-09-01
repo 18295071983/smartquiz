@@ -40,6 +40,7 @@ import javax.inject.Inject;
 import dagger.hilt.android.AndroidEntryPoint;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
@@ -167,6 +168,7 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnAICenter;
     private MaterialButton btnAIService;
     private MaterialButton btnModelDownload;
+    private MaterialButton btnAiInit;
     private View thinkingIndicator;
     private Chip chipNormalChat;
     private Chip chipWeather;
@@ -466,6 +468,7 @@ public class AIChatActivity extends BaseActivity {
             btnAICenter = findViewById(R.id.btn_ai_center);
             btnAIService = findViewById(R.id.btn_ai_service);
             btnModelDownload = findViewById(R.id.btn_model_download);
+            btnAiInit = findViewById(R.id.btn_ai_init);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
             chipNormalChat = findViewById(R.id.chip_normal_chat);
             chipWeather = findViewById(R.id.chip_weather);
@@ -1342,6 +1345,17 @@ public class AIChatActivity extends BaseActivity {
         if (btnModelDownload != null) {
             btnModelDownload.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)));
+        }
+        // AI 服务一键初始化：本地与在线均未配置时提供，点击进入精美引导界面
+        if (btnAiInit != null) {
+            updateAiInitButtonVisibility();
+            btnAiInit.setOnClickListener(v -> {
+                if (!AIServiceInitializer.needsInitialization(this)) {
+                    updateAiInitButtonVisibility();
+                    return;
+                }
+                startActivity(new Intent(AIChatActivity.this, AIServiceInitActivity.class));
+            });
         }
         if (btnClearAllHistory != null) {
             btnClearAllHistory.setOnClickListener(v -> {
@@ -6947,6 +6961,19 @@ public class AIChatActivity extends BaseActivity {
             updateDeepThinkChip(chip);
         }
         showToast(next ? "已开启深度思考" : "已关闭深度思考");
+    }
+
+    /**
+     * 更新一键初始化按钮显隐（本地与在线均未配置时显示）
+     */
+    private void updateAiInitButtonVisibility() {
+        if (btnAiInit == null) return;
+        boolean show = AIServiceInitializer.needsInitialization(this);
+        btnAiInit.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            btnAiInit.setEnabled(true);
+            btnAiInit.setText("⚡ 一键初始化（自动下载并配置本地模型）");
+        }
     }
 
     /**

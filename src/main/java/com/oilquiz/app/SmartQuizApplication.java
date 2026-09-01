@@ -262,6 +262,12 @@ public class SmartQuizApplication extends Application {
      */
     private void preloadAIServiceInternal() {
         try {
+            // 一键初始化进行中：跳过自动预加载，避免与下载/加载互相冲突
+            if (com.oilquiz.app.ai.service.AIServiceInitializer.isInitializing()) {
+                com.oilquiz.app.util.AILogger.i(TAG,
+                        "检测到一键初始化进行中，跳过自动预加载AI服务，避免冲突");
+                return;
+            }
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
 
             // 仅当"激活"的在线模型时才跳过本地 GGUF 预加载（激活=当前主用在线，加载本地只会白占内存）。
@@ -284,15 +290,16 @@ public class SmartQuizApplication extends Application {
 
             if (!aiService.isInitialized()) {
                 com.oilquiz.app.util.AILogger.i(TAG, "模型未初始化，尝试加载已导入的模型…");
-                String[] availableModels = aiService.getAvailableModels();
-                if (availableModels != null && availableModels.length > 0) {
-                    String modelName = availableModels[0];
+                // 选择可作主模型的模型：排除 mmproj/CLIP 投影文件（llama.cpp 无法将其作为主模型加载，
+                // 否则报 "CLIP cannot be used as main model" 导致预加载失败、AI 状态错误）
+                String modelName = selectMainModelForPreload(aiService);
+                if (modelName != null) {
                     com.oilquiz.app.util.AILogger.i(TAG, "找到可用模型: " + modelName);
                     // 直接加载模型（预加载在后台异步进行，不会阻塞本次加载）
                     boolean success = aiService.switchModel(modelName);
                     com.oilquiz.app.util.AILogger.i(TAG, "模型加载结果: " + success);
                 } else {
-                    com.oilquiz.app.util.AILogger.i(TAG, "未找到已导入的 .gguf 模型，跳过预加载（assets 中无内置模型）");
+                    com.oilquiz.app.util.AILogger.i(TAG, "未找到可作主模型的 .gguf 模型，跳过预加载（避免误加载 mmproj/CLIP 投影文件）");
                 }
             }
 
@@ -301,6 +308,33 @@ public class SmartQuizApplication extends Application {
         } catch (Exception e) {
             com.oilquiz.app.util.AILogger.e(TAG, "AI服务预加载失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 选择自动预加载的主模型：优先当前配置的主模型（非投影文件），
+     * 否则从可用主模型中选第一个（排除 mmproj/CLIP 投影文件）。
+     */
+    private String selectMainModelForPreload(com.oilquiz.app.ai.service.AIService aiService) {
+        try {
+            // 1) 优先当前配置的主模型（非投影文件 + 文件完整）
+            String current = aiService.getCurrentModelName();
+            if (current != null && !current.isEmpty()
+                    && aiService.isMainModelUsable(current)) {
+                return current;
+            }
+            // 2) 从可用主模型中选第一个完整可用的（排除 mmproj/CLIP 与不完整半截文件）
+            String[] mains = aiService.getAvailableMainModels();
+            if (mains != null) {
+                for (String name : mains) {
+                    if (name != null && !name.isEmpty() && aiService.isMainModelUsable(name)) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            com.oilquiz.app.util.AILogger.w(TAG, "选择预加载主模型失败: " + e.getMessage());
+        }
+        return null;
     }
 
     /**

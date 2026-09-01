@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI 初始化徽标光晕（径向渐变 → 透明） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="60%p"
+        android:startColor="#408B5CF6"
+        android:centerColor="#1A8B5CF6"
+        android:endColor="#008B5CF6" />
+</shape>

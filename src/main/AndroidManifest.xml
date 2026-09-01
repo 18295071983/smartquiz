@@ -280,6 +280,11 @@
             android:theme="@style/Theme.OilQuizApp" />
 
         <activity
+            android:name=".ui.activity.AIServiceInitActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
             android:name=".ui.activity.AICenterActivity"
             android:exported="false" />
 

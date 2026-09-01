@@ -27,6 +27,7 @@ import com.oilquiz.app.ai.model.InferenceType;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ui.adapter.ModelAdapter;
@@ -67,6 +68,8 @@ public class ModelSelectorActivity extends AppCompatActivity
     private TextView tvTtsModelValue;  // 语音合成模型显示
     private TextView tvTtsVoiceValue;  // TTS 音色显示
     private LinearLayout rowFeatureModelsHeader;  // 功能专用模型标题行
+    private View aiInitCard;                      // AI 服务一键初始化卡片
+    private MaterialButton btnAiInit;             // 一键初始化按钮
 
     /** 在线模型配置变更监听器（需在 onDestroy 中注销避免内存泄漏） */
     private OnlineModelManager.ModelChangeListener modelChangeListener;
@@ -90,6 +93,8 @@ public class ModelSelectorActivity extends AppCompatActivity
             addOnlineModelButton = findViewById(R.id.add_online_model_button);
             importLocalModelButton = findViewById(R.id.import_local_model_button);
             btnApiConfig = findViewById(R.id.btn_api_config);
+            aiInitCard = findViewById(R.id.ai_init_card);
+            btnAiInit = findViewById(R.id.btn_ai_init);
             onlineModelsSection = findViewById(R.id.online_models_section);
             onlineModelsEmptyView = findViewById(R.id.online_models_empty);
             localModelsEmptyView = findViewById(R.id.local_models_empty);
@@ -124,6 +129,18 @@ public class ModelSelectorActivity extends AppCompatActivity
             if (btnApiConfig != null) {
                 btnApiConfig.setOnClickListener(v -> {
                     startActivity(new Intent(ModelSelectorActivity.this, ApiConfigActivity.class));
+                });
+            }
+
+            // AI 服务一键初始化入口：仅当本地与在线模型均未配置时显示
+            if (aiInitCard != null && btnAiInit != null) {
+                updateAiInitCardVisibility();
+                btnAiInit.setOnClickListener(v -> {
+                    if (!AIServiceInitializer.needsInitialization(this)) {
+                        updateAiInitCardVisibility();
+                        return;
+                    }
+                    startActivity(new Intent(ModelSelectorActivity.this, AIServiceInitActivity.class));
                 });
             }
 
@@ -249,6 +266,19 @@ public class ModelSelectorActivity extends AppCompatActivity
         } catch (Exception e) {
             e.printStackTrace();
             Toast.makeText(this, "刷新模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 更新 AI 服务一键初始化卡片显隐（本地与在线均未配置时显示）
+     */
+    private void updateAiInitCardVisibility() {
+        if (aiInitCard == null) return;
+        boolean show = AIServiceInitializer.needsInitialization(this);
+        aiInitCard.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (btnAiInit != null) {
+            btnAiInit.setEnabled(true);
+            btnAiInit.setText("一键初始化");
         }
     }
 

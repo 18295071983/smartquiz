@@ -17,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -27,6 +28,7 @@ import androidx.appcompat.widget.SearchView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.model.ModelDownloadManager;
 import com.oilquiz.app.ai.model.ModelInfo;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.util.AILogger;
 
@@ -55,6 +57,7 @@ public class ModelDownloadActivity extends BaseActivity {
     private MaterialButton btnSwitchDownloadMethod;
     private MaterialButton btnAICenter;
     private MaterialButton btnAIService;
+    private MaterialButton btnAiInit;
     
     private ModelDownloadManager modelDownloadManager;
     
@@ -125,6 +128,7 @@ public class ModelDownloadActivity extends BaseActivity {
         btnSwitchDownloadMethod = findViewById(R.id.btn_switch_download_method);
         btnAICenter = findViewById(R.id.btn_ai_center);
         btnAIService = findViewById(R.id.btn_ai_service);
+        btnAiInit = findViewById(R.id.btn_ai_init);
         
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
@@ -137,12 +141,33 @@ public class ModelDownloadActivity extends BaseActivity {
             btnAIService.setOnClickListener(v ->
                     startActivity(new Intent(ModelDownloadActivity.this, AIServiceStatusActivity.class)));
         }
+        // AI 服务一键初始化：本地与在线均未配置时提供，点击进入精美引导界面
+        if (btnAiInit != null) {
+            updateAiInitButtonVisibility();
+            btnAiInit.setOnClickListener(v -> {
+                if (!AIServiceInitializer.needsInitialization(this)) {
+                    updateAiInitButtonVisibility();
+                    return;
+                }
+                startActivity(new Intent(ModelDownloadActivity.this, AIServiceInitActivity.class));
+            });
+        }
+    }
+
+    /** 更新一键初始化按钮显隐（本地与在线均未配置时显示可用） */
+    private void updateAiInitButtonVisibility() {
+        if (btnAiInit == null) return;
+        boolean show = AIServiceInitializer.needsInitialization(this);
+        btnAiInit.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            btnAiInit.setEnabled(true);
+            btnAiInit.setText("⚡ 一键初始化");
+        }
     }
 
     @Override
     protected void initData() {
         modelDownloadManager = ModelDownloadManager.getInstance(this);
-        
         currentModelList = new ArrayList<>();
         allModelList = new ArrayList<>();
         modelAdapter = new ModelAdapter();
@@ -151,7 +176,6 @@ public class ModelDownloadActivity extends BaseActivity {
         setupSpinners();
         loadModels();
         updateDownloadStats();
-        
         modelDownloadManager.setGlobalCallback(new ModelDownloadManager.DownloadCallback() {
             @Override
             public void onProgress(String modelId, int progress, long downloadedMB, long totalMB) {
@@ -929,8 +953,15 @@ public class ModelDownloadActivity extends BaseActivity {
                         if (file.exists()) {
                             file.delete();
                         }
+                        // 同时清理未完成的 .part 临时文件（.part 机制）
+                        File part = new File(modelPath + ".part");
+                        if (part.exists()) {
+                            part.delete();
+                        }
                         // 删除对应的 mmproj 文件（按预设实际文件名 + 兼容旧命名）
                         deleteMmprojForModel(modelDir, fileName, downloadUrl);
+                        // P3: 若删除的是当前使用中的模型，卸载并重置 AI 服务状态
+                        resetAIServiceIfCurrentModel(fileName);
                         updateModelState(modelId, downloadUrl);
                         updateDownloadStats();
                     });
@@ -985,6 +1016,22 @@ public class ModelDownloadActivity extends BaseActivity {
                 }
             }
 
+            /** P3: 若删除的是当前使用中的模型，卸载并重置 AI 服务，避免对话指向已删文件 */
+            private void resetAIServiceIfCurrentModel(String deletedFileName) {
+                try {
+                    com.oilquiz.app.ai.service.AIService aiService =
+                            com.oilquiz.app.ai.service.AIService.getInstance(ModelDownloadActivity.this);
+                    if (aiService == null) return;
+                    String cur = aiService.getCurrentModelName();
+                    if (cur != null && cur.equals(deletedFileName)) {
+                        com.oilquiz.app.util.AILogger.i("ModelDownloadActivity", "删除的是当前模型，卸载 AI 服务: " + deletedFileName);
+                        aiService.unloadCurrentModel();
+                    }
+                } catch (Exception e) {
+                    com.oilquiz.app.util.AILogger.w("ModelDownloadActivity", "resetAIServiceIfCurrentModel failed: " + e.getMessage());
+                }
+            }
+
             /** 删除与模型关联的 mmproj 文件（优先预设实际文件名，兼容旧命名） */
             private void deleteMmprojForModel(String modelDir, String fileName, String downloadUrl) {
                 ModelDownloadManager.ModelPresetInfo presetInfo = findPresetInfoByUrl(downloadUrl);
@@ -993,6 +1040,9 @@ public class ModelDownloadActivity extends BaseActivity {
                     if (mmprojName != null && !mmprojName.isEmpty()) {
                         File f = new File(modelDir + File.separator + mmprojName);
                         if (f.exists()) f.delete();
+                        // 同时清理 mmproj 的 .part 临时文件
+                        File fpart = new File(modelDir + File.separator + mmprojName + ".part");
+                        if (fpart.exists()) fpart.delete();
                     }
                 }
                 String baseName = fileName;
@@ -1001,6 +1051,8 @@ public class ModelDownloadActivity extends BaseActivity {
                 }
                 File legacy = new File(modelDir + File.separator + baseName + ".mmproj.gguf");
                 if (legacy.exists()) legacy.delete();
+                File legacyPart = new File(modelDir + File.separator + baseName + ".mmproj.gguf.part");
+                if (legacyPart.exists()) legacyPart.delete();
             }
 
             private void updateOnlineModelState(String downloadUrl) {

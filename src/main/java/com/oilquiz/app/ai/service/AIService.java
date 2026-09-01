@@ -1001,6 +1001,21 @@ public class AIService implements ComponentCallbacks2 {
             // 获取上下文大小用于计算 KV 缓存（模型尺寸感知：8B 级大模型自动降档）
             int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0, modelSizeMB);
 
+            // 用户手动上下文覆盖（参数面板写入 user_model_params）：仿 gpu_layers_manual 机制
+            try {
+                android.content.SharedPreferences userPrefs = context.getSharedPreferences(
+                        "user_model_params", android.content.Context.MODE_PRIVATE);
+                if (!userPrefs.getBoolean("use_auto", true)) {
+                    int manualCtx = userPrefs.getInt("context_size_manual", -1);
+                    if (manualCtx >= 512 && manualCtx <= 32768) {
+                        contextSize = manualCtx;
+                        AILogger.i(TAG, "User manual context override: " + contextSize);
+                    }
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "context manual override failed: " + e.getMessage());
+            }
+
             // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
             int gpuLayers = resourceConfig.getOptimalGpuLayers(
@@ -1902,6 +1917,83 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     /**
+     * 是否投影文件（mmproj / CLIP / vision projector）。
+     * 投影文件无法作为主模型加载（llama.cpp 报 "CLIP cannot be used as main model"），
+     * 自动预加载 / 主模型选择时必须排除。
+     */
+    public static boolean isProjectionFileName(String fileName) {
+        if (fileName == null) return false;
+        String lower = fileName.toLowerCase();
+        return lower.contains("mmproj") || lower.contains("clip") || lower.contains("projection");
+    }
+
+    /**
+     * 获取可用主模型列表（排除 mmproj / CLIP 投影文件）。
+     * 用于自动预加载等场景，避免把投影文件误当主模型加载导致失败。
+     */
+    public String[] getAvailableMainModels() {
+        java.util.List<String> models = new java.util.ArrayList<>();
+        File modelDir = new File(context.getFilesDir(), MODEL_DIR_NAME);
+        if (modelDir.exists() && modelDir.isDirectory()) {
+            String[] files = modelDir.list();
+            if (files != null) {
+                for (String file : files) {
+                    // P4: 过滤投影文件 + 不完整/损坏文件（半截文件不进入选择列表，避免选中后加载失败）
+                    if (file.endsWith(".gguf") && isMainModelUsable(file)) {
+                        models.add(file);
+                    }
+                }
+            }
+        }
+        return models.toArray(new String[models.size()]);
+    }
+
+    /**
+     * 主模型文件是否完整可用：非投影文件 + 文件存在 + 按 preset 期望大小做完整性校验
+     * （不完整/损坏的半截文件返回 false，避免自动预加载选到坏文件导致 AI 状态错误）。
+     * 非 preset 模型不校验大小（仅文件存在）。
+     */
+    public boolean isMainModelUsable(String modelName) {
+        if (modelName == null || isProjectionFileName(modelName)) return false;
+        String path = findModelPath(modelName);
+        if (path == null) return false;
+        try {
+            long expected = expectedBytesForModelName(modelName);
+            if (expected > 0) {
+                java.io.File f = new java.io.File(path);
+                return f.length() >= (long) (expected * 0.90);
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "isMainModelUsable check failed: " + e.getMessage());
+        }
+        return true;
+    }
+
+    /** 按模型文件名查 preset 期望字节数；未命中返回 -1 */
+    private long expectedBytesForModelName(String modelName) {
+        try {
+            com.oilquiz.app.ai.model.ModelDownloadManager manager =
+                    com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(context);
+            java.util.List<com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo> list =
+                    manager.getPresetDomesticModels();
+            if (list != null) {
+                for (com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo p : list) {
+                    if (p == null || p.downloadUrl == null) continue;
+                    String url = p.downloadUrl;
+                    int lastSlash = url.lastIndexOf('/');
+                    String presetFile = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+                    if (modelName.equals(presetFile) && p.sizeMB > 0) {
+                        return p.sizeMB * 1024L * 1024L;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "expectedBytesForModelName failed: " + e.getMessage());
+        }
+        return -1L;
+    }
+
+    /**
      * 切换模型
      */
     public boolean switchModel(String modelName) {
@@ -2296,6 +2388,27 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 释放资源（异步；与模型加载互斥）
      */
+    /**
+     * 卸载当前模型并重置 AI 服务状态（currentModelName / isInitialized）。
+     * 用于删除"当前使用中"的模型文件后，避免后续对话指向已删除文件。
+     * 需在后台线程调用；内部已排队到 executorService。
+     */
+    public void unloadCurrentModel() {
+        executorService.execute(() -> {
+            synchronized (modelInitLock) {
+                try {
+                    releaseNativeResourcesLocked(false);
+                    currentModelName = null;
+                    isInitialized = false;
+                    AILogger.i(TAG, "Current model unloaded (file removed)");
+                    mainHandler.post(this::notifyStatusChange);
+                } catch (Exception e) {
+                    AILogger.e(TAG, "unloadCurrentModel error: " + e.getMessage(), e);
+                }
+            }
+        });
+    }
+
     public void release() {
         if (crashHandler != null) {
             crashHandler.stopMonitoring();

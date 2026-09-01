@@ -155,6 +155,20 @@
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:minWidth="@dimen/min_0"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_init"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="⚡ 一键初始化"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/on_primary"
+                app:backgroundTint="@color/primary"
+                app:cornerRadius="@dimen/radius_12"
+                android:textAllCaps="false"
+                android:layout_marginStart="@dimen/space_6"
+                android:minWidth="@dimen/min_0"/>
         </LinearLayout>
     </LinearLayout>
 

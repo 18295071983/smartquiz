@@ -222,13 +222,23 @@ public class ModelDownloadManager {
         // 如果是多模态模型，同时下载 mmproj 投影文件
         if (presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
             String mmprojPath = modelDir + File.separator + getFileNameFromUrl(presetInfo.mmprojUrl);
+            // P1: mmproj 期望字节数（用预设大小，保证完整性校验准确）
+            long mmprojExpected = presetInfo.mmprojSizeMB > 0 ? presetInfo.mmprojSizeMB * 1024L * 1024L : 0L;
             File mmprojFile = new File(mmprojPath);
+            // P1: 半截/损坏的 mmproj 存在时删除重下，避免"exists 跳过 → 加载失败"
+            if (mmprojFile.exists() && mmprojFile.isFile() && mmprojExpected > 0
+                    && mmprojFile.length() < (long) (mmprojExpected * 0.90)) {
+                AILogger.w(TAG, "mmproj 不完整，删除重下: " + mmprojPath
+                        + " size=" + mmprojFile.length() + " expected=" + mmprojExpected);
+                //noinspection ResultOfMethodCallIgnored
+                mmprojFile.delete();
+            }
             if (!mmprojFile.exists()) {
                 String mmprojId = modelId + "_mmproj";
                 AILogger.i(TAG, "Downloading mmproj for multimodal model: " + presetInfo.name);
                 ModelDownloadRequest mmprojRequest = new ModelDownloadRequest(
                     mmprojId, presetInfo.mmprojUrl, mmprojPath,
-                    0, null
+                    mmprojExpected, null
                 );
                 download(mmprojRequest, new DownloadCallback() {
                     @Override
@@ -682,13 +692,34 @@ public class ModelDownloadManager {
                 connection.setRequestMethod("GET");
                 connection.setRequestProperty("Accept-Encoding", "identity");
 
-                // 断点续传
+                // .part 机制 + 原子重命名：先下载到 <name>.part，完整后 rename 到正式路径。
+                // 半截文件永远不会出现在正式目录 → 杜绝"半截文件被 exists() 误判为已下载"。
                 outputFile = new File(request.modelPath);
                 outputFile.getParentFile().mkdirs();
+                final File partFile = new File(request.modelPath + ".part");
                 long existingBytes = 0;
-                if (outputFile.exists() && outputFile.length() > 0) {
-                    existingBytes = outputFile.length();
-                    connection.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+                if (partFile.exists() && partFile.length() > 0) {
+                    existingBytes = partFile.length();
+                    // .part 已完整 → 直接 finalize（rename 到正式路径），无需重新传输
+                    if (request.expectedSize > 0 && existingBytes >= (long) (request.expectedSize * 0.90)) {
+                        if (partFile.renameTo(outputFile)) {
+                            AILogger.i(TAG, ".part 已完整，直接 finalize: " + outputFile.getAbsolutePath());
+                            progress.state = DownloadState.COMPLETED;
+                            progress.totalBytes = existingBytes;
+                            progress.downloadedBytes = existingBytes;
+                            if (callback != null) callback.onComplete(taskId, outputFile.getAbsolutePath());
+                            if (globalCallback != null) globalCallback.onComplete(taskId, outputFile.getAbsolutePath());
+                            return outputFile.getAbsolutePath();
+                        }
+                        // rename 失败 → 清除 .part 重新下载
+                        AILogger.w(TAG, ".part finalize rename 失败，清除重下: " + partFile.getAbsolutePath());
+                        //noinspection ResultOfMethodCallIgnored
+                        partFile.delete();
+                        existingBytes = 0;
+                    }
+                    if (existingBytes > 0) {
+                        connection.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+                    }
                 }
 
                 int responseCode = connection.getResponseCode();
@@ -710,7 +741,7 @@ public class ModelDownloadManager {
                 progress.state = DownloadState.DOWNLOADING;
 
                 inputStream = new BufferedInputStream(connection.getInputStream(), BUFFER_SIZE);
-                outputStream = new FileOutputStream(outputFile, existingBytes > 0);
+                outputStream = new FileOutputStream(partFile, existingBytes > 0);
 
                 byte[] buffer = new byte[BUFFER_SIZE];
                 long totalBytesRead = existingBytes;
@@ -757,7 +788,14 @@ public class ModelDownloadManager {
                 }
 
                 outputStream.flush();
-                return outputFile.getAbsolutePath();
+                outputStream.close();
+                outputStream = null;
+                // 下载完成：原子重命名 .part → 正式路径（半截文件不会留在正式目录）
+                if (partFile.renameTo(outputFile)) {
+                    AILogger.i(TAG, "下载完成，finalize: " + outputFile.getAbsolutePath());
+                    return outputFile.getAbsolutePath();
+                }
+                throw new IOException("finalize rename failed: " + partFile.getAbsolutePath());
 
             } catch (InterruptedException e) {
                 throw e;
@@ -945,8 +983,14 @@ public class ModelDownloadManager {
         list.add(new ModelPresetInfo("gemma-3-4b", "Gemma-3-4B", "谷歌多语言推理模型", PRESET_DOMESTIC_MODEL_URLS[19], 2300, "Q4_K_M", 32768, 4096, 8));
         list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
         // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
-        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21], 300));
-        list.add(new ModelPresetInfo("qwen3-vl-2b-thinking", "Qwen3-VL-2B-Thinking", "多模态Agent：视觉理解+思考链+原生工具调用", PRESET_DOMESTIC_MODEL_URLS[22], 1056, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[22], 424));
+        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）",
+                "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+                1840, "Q4_K_M", 32768, 4096, 8,
+                "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf", 300));
+        list.add(new ModelPresetInfo("qwen3-vl-2b-thinking", "Qwen3-VL-2B-Thinking", "多模态Agent：视觉理解+思考链+原生工具调用",
+                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
+                1056, "Q4_K_M", 32768, 4096, 8,
+                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf", 424));
         return list;
     }
 
