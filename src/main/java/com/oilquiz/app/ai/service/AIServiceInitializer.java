@@ -35,8 +35,13 @@ public final class AIServiceInitializer {
 
     private static final String TAG = "AIServiceInitializer";
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final long MMPROJ_WAIT_TIMEOUT_MS = 120_000L;
     private static final long MMPROJ_WAIT_STEP_MS = 1_000L;
+    /**
+     * 等待配套文件（mmproj）就绪的超时：对齐初始化总超时（15 分钟）。
+     * 1GB 级主模型从备用源（ModelScope）下载可能远超 120s，固定 120s 会在下载中途误报"文件未就绪"。
+     * 配合 modelFailed / mmprojFailed 标志可提前中断，无需真的等满。
+     */
+    private static final long MMPROJ_WAIT_TIMEOUT_MS = 15 * 60 * 1000L;
     private static final long INIT_TIMEOUT_MS = 15 * 60 * 1000L; // 初始化总超时 15 分钟，超时强制复位互斥
     /** 文件完整性阈值：实际大小 >= 预期大小 * 该比例 视为完整 */
     private static final double INTEGRITY_THRESHOLD = 0.90;
@@ -228,7 +233,7 @@ public final class AIServiceInitializer {
                                 // 两步分离：下载完成不自动加载（大模型加载卡 UI），等用户点「加载模型」
                                 new Thread(() -> {
                                     waitForFiles(app, modelFileName, mmprojFileName,
-                                            modelExpectedBytes, mmprojExpectedBytes);
+                                            modelExpectedBytes, mmprojExpectedBytes, null, null);
                                     pendingModelFile = modelFileName;
                                     pendingMmprojFile = mmprojFileName;
                                     notifyProgress(callback, "下载完成，点击「加载模型」开始使用", 100);
@@ -261,17 +266,13 @@ public final class AIServiceInitializer {
                 return;
             }
 
-            // 模型与 mmproj 齐备 → 直接配置加载
-            AILogger.i(TAG, "模型已存在，直接加载: " + modelFileName);
-            notifyProgress(callback, "模型已就绪，正在加载 " + preset.name + " …", 100);
-            new Thread(() -> {
-                boolean ok = configureAndLoad(app, modelFileName, mmprojFileName);
-                if (ok) {
-                    finishInit(callback, modelFileName, false, null);
-                } else {
-                    finishInit(callback, null, false, "模型加载失败，请重试或检查模型文件");
-                }
-            }, "ai-init-load").start();
+            // 模型与 mmproj 齐备 → 统一走两步分离：不自动加载（大模型加载是重操作，会卡 UI/长时间无响应），
+            // 通知下载完成，等用户点「加载模型」。与下载流程（分支 A1/B）保持一致，避免"太卡"。
+            AILogger.i(TAG, "模型已存在，两步分离等用户点加载: " + modelFileName);
+            pendingModelFile = modelFileName;
+            pendingMmprojFile = mmprojFileName;
+            notifyProgress(callback, "模型已就绪，点击「加载模型」开始使用", 100);
+            notifyDownloadReady(callback, preset.name, modelFileName);
             return;
         }
 
@@ -282,6 +283,13 @@ public final class AIServiceInitializer {
         downloadManager.downloadPresetModel(modelId, preset, new ModelDownloadManager.DownloadCallback() {
             // 主模型与 mmproj 联动下载共用本回调；mmproj 的 id 以 "_mmproj" 结尾
             private final java.util.concurrent.atomic.AtomicBoolean loadStarted =
+                    new java.util.concurrent.atomic.AtomicBoolean(false);
+            // mmproj 下载失败标志：置位后 waitForFiles 提前结束（不再干等），走文本对话降级
+            private final java.util.concurrent.atomic.AtomicBoolean mmprojFailed =
+                    new java.util.concurrent.atomic.AtomicBoolean(false);
+            // 主模型下载失败标志：置位后 waitForFiles 提前结束（避免 mmproj 先完成触发 onComplete 后，
+            // waitForFiles 干等主模型 15 分钟，而主模型实际已失败）
+            private final java.util.concurrent.atomic.AtomicBoolean modelFailed =
                     new java.util.concurrent.atomic.AtomicBoolean(false);
 
             private boolean isMmproj(String id) {
@@ -302,7 +310,7 @@ public final class AIServiceInitializer {
             @Override
             public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
                 if (isMmproj(id)) {
-                    notifySecondaryProgress(callback, "视觉模块", -1, 0, 0);
+                    // 视觉模块不需要速度心跳：直接忽略，避免 (0,0) 覆盖 onProgress 已设置的下载量/总量
                     return;
                 }
                 String msg = "正在下载 " + preset.name + "（" + formatSpeed(speedBps);
@@ -320,13 +328,16 @@ public final class AIServiceInitializer {
                     AILogger.i(TAG, "下载完成回调 id=" + id + " path=" + filePath);
                     new Thread(() -> {
                         boolean ready = waitForFiles(app, modelFileName, mmprojFileName,
-                                modelExpectedBytes, mmprojExpectedBytes);
+                                modelExpectedBytes, mmprojExpectedBytes, mmprojFailed, modelFailed);
                         if (!ready) {
-                            AILogger.w(TAG, "下载完成但文件未就绪（可能超时），仍通知用户尝试加载");
+                            AILogger.w(TAG, "下载完成但文件未就绪（主模型失败或超时），通知结果");
+                            // 主模型失败：初始化已由 onError 结束，这里不重复通知
+                            if (modelFailed.get()) return;
                         }
                         // 两步分离：下载完成不自动加载（大模型加载卡 UI），等待用户点「加载模型」
                         pendingModelFile = modelFileName;
-                        pendingMmprojFile = mmprojFileName;
+                        // mmproj 失败时标记为缺失，加载时 AIService 自动跳过视觉（文本对话可用）
+                        pendingMmprojFile = mmprojFailed.get() ? null : mmprojFileName;
                         notifyProgress(callback, "下载完成，点击「加载模型」开始使用", 100);
                         notifyDownloadReady(callback, preset.name, modelFileName);
                     }, "ai-init-download").start();
@@ -336,11 +347,13 @@ public final class AIServiceInitializer {
             @Override
             public void onError(String id, String error) {
                 if (isMmproj(id)) {
-                    // mmproj 失败可降级（文本对话可用），主模型已就绪 → 通知下载完成，等用户加载
+                    // mmproj 失败可降级（文本对话可用）。置位失败标志，让 onComplete 的 waitForFiles 提前结束，
+                    // 避免用户干等 120s。主模型若尚未触发 onComplete，则走独立的降级通知。
                     AILogger.w(TAG, "mmproj 下载失败，降级提示: " + error);
+                    mmprojFailed.set(true);
                     if (loadStarted.compareAndSet(false, true)) {
                         new Thread(() -> {
-                            waitForFiles(app, modelFileName, null, modelExpectedBytes, 0);
+                            waitForFiles(app, modelFileName, null, modelExpectedBytes, 0, mmprojFailed, modelFailed);
                             pendingModelFile = modelFileName;
                             pendingMmprojFile = null; // mmproj 失败/缺失，不标记，加载时 AIService 自动跳过视觉
                             notifyProgress(callback, "视觉模块下载失败，文本对话可用。点击「加载模型」", 100);
@@ -348,6 +361,8 @@ public final class AIServiceInitializer {
                         }, "ai-init-mmproj-fallback").start();
                     }
                 } else {
+                    // 主模型下载失败：置位失败标志（让已触发的 onComplete waitForFiles 提前结束），整体初始化失败
+                    modelFailed.set(true);
                     finishInit(callback, null, false, "下载失败：" + error);
                 }
             }
@@ -374,14 +389,19 @@ public final class AIServiceInitializer {
     /** 初始化结束：复位互斥锁并派发结果 */
     private static void finishInit(InitCallback callback, String modelName,
                                    boolean downloaded, String error) {
-        synchronized (INIT_LOCK) {
-            initializing = false;
-            initStartTime = 0L;
-        }
+        releaseInitLock();
         if (error != null) {
             notifyError(callback, error);
         } else {
             notifyComplete(callback, modelName, downloaded);
+        }
+    }
+
+    /** 释放全局初始化互斥（供提前 return 的失败路径调用，避免锁被长期占用） */
+    private static void releaseInitLock() {
+        synchronized (INIT_LOCK) {
+            initializing = false;
+            initStartTime = 0L;
         }
     }
 
@@ -394,6 +414,16 @@ public final class AIServiceInitializer {
         if (app == null) {
             notifyError(callback, "上下文无效");
             return;
+        }
+        // 加载阶段同样需要互斥保护：防止用户在加载大模型期间再次触发其他初始化/加载
+        synchronized (INIT_LOCK) {
+            if (initializing) {
+                AILogger.i(TAG, "已有任务进行中，拒绝重复加载");
+                notifyError(callback, "已有任务进行中，请稍候");
+                return;
+            }
+            initializing = true;
+            initStartTime = System.currentTimeMillis();
         }
         final String modelFile = pendingModelFile;
         final String mmprojFile = pendingMmprojFile;
@@ -414,12 +444,14 @@ public final class AIServiceInitializer {
             }
         }
         if (resolvedModel == null) {
+            releaseInitLock();
             notifyError(callback, "未找到已下载的模型文件，请重新初始化");
             return;
         }
         // 加载前重新校验模型文件完整性（下载完成后文件可能被外部改动/损坏，避免加载时报错无明确提示）
         if (!modelFileExists(app, resolvedModel, expectedBytesForModelName(app, resolvedModel))) {
             AILogger.w(TAG, "loadDownloadedModel: 模型文件不完整: " + resolvedModel);
+            releaseInitLock();
             notifyError(callback, "模型文件不完整，请重新初始化");
             return;
         }
@@ -428,6 +460,11 @@ public final class AIServiceInitializer {
         AILogger.i(TAG, "loadDownloadedModel: " + fModel + " mmproj=" + fMmproj);
         notifyProgress(callback, "正在加载模型 " + fModel + " …", -1);
         new Thread(() -> {
+            // native 模型加载是 CPU/内存密集操作：降低线程优先级，避免挤占 UI 渲染/主线程导致"卡顿"
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            } catch (Exception ignored) {
+            }
             boolean ok = configureAndLoad(app, fModel, fMmproj);
             if (ok) {
                 pendingModelFile = null;
@@ -463,13 +500,22 @@ public final class AIServiceInitializer {
         }
     }
 
-    /** 等待主模型 / mmproj 文件就绪（限时轮询；含完整性校验）。就绪返回 true；超时返回 false 并打日志。 */
+    /** 等待主模型 / mmproj 文件就绪（限时轮询；含完整性校验）。就绪返回 true；超时返回 false 并打日志。
+     *  @param mmprojFailed 视觉模块下载失败标志（置位后不再等待 mmproj，直接判定主模型就绪即返回）
+     *  @param modelFailed  主模型下载失败标志（置位后立即返回 false，避免干等超时） */
     private static boolean waitForFiles(Context app, String modelFileName, String mmprojFileName,
-                                        long modelExpectedBytes, long mmprojExpectedBytes) {
+                                        long modelExpectedBytes, long mmprojExpectedBytes,
+                                        java.util.concurrent.atomic.AtomicBoolean mmprojFailed,
+                                        java.util.concurrent.atomic.AtomicBoolean modelFailed) {
         long deadline = System.currentTimeMillis() + MMPROJ_WAIT_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
+            if (modelFailed != null && modelFailed.get()) {
+                return false;
+            }
             if (modelFileExistsInternal(app, modelFileName, modelExpectedBytes)
-                    && (mmprojFileName == null || modelFileExistsInternal(app, mmprojFileName, mmprojExpectedBytes))) {
+                    && (mmprojFileName == null
+                    || (mmprojFailed != null && mmprojFailed.get())
+                    || modelFileExistsInternal(app, mmprojFileName, mmprojExpectedBytes))) {
                 return true;
             }
             try {
@@ -481,7 +527,7 @@ public final class AIServiceInitializer {
             }
         }
         AILogger.w(TAG, "waitForFiles 超时: model=" + modelFileName
-                + " mmproj=" + mmprojFileName);
+                + " mmproj=" + mmprojFileName + " mmprojFailed=" + (mmprojFailed != null && mmprojFailed.get()));
         return false;
     }
 
@@ -572,7 +618,9 @@ public final class AIServiceInitializer {
         }
     }
 
-    /** 根据模型文件名从 preset 解析期望 SHA-256（无 preset 匹配返回 null） */
+    /** 根据模型文件名从 preset 解析期望 SHA-256（无 preset 匹配返回 null）。
+     *  优先匹配主源 URL 的哈希；再匹配备用源 URL 的哈希（多源容灾下文件可能来自 ModelScope，
+     *  其哈希与主源不同——实际文件哈希以 sidecar 为准，此值仅在无 sidecar 时兜底）。 */
     private static String expectedShaForFileName(Context app, String fileName) {
         if (fileName == null || fileName.isEmpty()) return null;
         try {
@@ -584,6 +632,10 @@ public final class AIServiceInitializer {
                     if (p.downloadUrl != null && fileName.equals(fileNameFromUrl(p.downloadUrl))) return p.sha256;
                     if (p.mmprojUrl != null && !p.mmprojUrl.isEmpty()
                             && fileName.equals(fileNameFromUrl(p.mmprojUrl))) return p.mmprojSha256;
+                    if (p.backupUrl != null && !p.backupUrl.isEmpty()
+                            && fileName.equals(fileNameFromUrl(p.backupUrl))) return p.backupSha256;
+                    if (p.backupMmprojUrl != null && !p.backupMmprojUrl.isEmpty()
+                            && fileName.equals(fileNameFromUrl(p.backupMmprojUrl))) return p.backupMmprojSha256;
                 }
             }
         } catch (Exception e) {
@@ -681,6 +733,12 @@ public final class AIServiceInitializer {
     }
 
     private static void notifyDownloadReady(final InitCallback cb, final String modelName, final String modelFileName) {
+        // 两步分离：下载阶段结束即释放全局互斥——用户可能退出页面稍后再加载，不长期占用初始化锁
+        //（否则用户退出后 15 分钟内无法再次初始化）。加载阶段由 loadDownloadedModel 另行占用互斥。
+        synchronized (INIT_LOCK) {
+            initializing = false;
+            initStartTime = 0L;
+        }
         if (cb == null) return;
         if (Looper.myLooper() == Looper.getMainLooper()) {
             cb.onDownloadReady(modelName, modelFileName);

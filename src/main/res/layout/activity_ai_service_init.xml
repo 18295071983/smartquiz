@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AI 服务一键初始化 — 全屏精美引导界面 -->
+<!-- AI 服务一键初始化 — 全屏引导界面（v2 重构：清晰分区 + 卡片化下载详情 + 双进度独立） -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -52,27 +52,27 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center_horizontal"
-            android:paddingStart="32dp"
-            android:paddingEnd="32dp"
-            android:paddingTop="72dp"
-            android:paddingBottom="40dp">
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp"
+            android:paddingTop="64dp"
+            android:paddingBottom="32dp">
 
-            <!-- AI 徽标 -->
+            <!-- ═══════════ 顶部品牌区 ═══════════ -->
             <FrameLayout
                 android:id="@+id/logo_container"
-                android:layout_width="132dp"
-                android:layout_height="132dp">
+                android:layout_width="108dp"
+                android:layout_height="108dp">
 
                 <View
                     android:id="@+id/logo_glow"
-                    android:layout_width="132dp"
-                    android:layout_height="132dp"
+                    android:layout_width="108dp"
+                    android:layout_height="108dp"
                     android:background="@drawable/ai_init_logo_glow" />
 
                 <View
                     android:id="@+id/logo_circle"
-                    android:layout_width="84dp"
-                    android:layout_height="84dp"
+                    android:layout_width="70dp"
+                    android:layout_height="70dp"
                     android:layout_gravity="center"
                     android:background="@drawable/ai_init_logo_circle" />
 
@@ -82,17 +82,16 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="⚡"
-                    android:textSize="36sp" />
+                    android:textSize="32sp" />
             </FrameLayout>
 
-            <!-- 标题 -->
             <TextView
                 android:id="@+id/tv_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
-                android:text="正在初始化 AI 服务"
-                android:textSize="24sp"
+                android:layout_marginTop="20dp"
+                android:text="AI 服务初始化"
+                android:textSize="23sp"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold" />
 
@@ -100,17 +99,17 @@
                 android:id="@+id/tv_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
                 android:text="自动下载并配置本地模型 · 离线也能用"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textColor="#B0FFFFFF" />
 
-            <!-- 选择模型区（初始化前显示，开始后隐藏） -->
+            <!-- ═══════════ 模型选择区（初始化前显示，开始后隐藏）═══════════ -->
             <LinearLayout
                 android:id="@+id/model_picker_section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="20dp"
                 android:orientation="vertical"
                 android:visibility="visible">
 
@@ -138,12 +137,11 @@
                         android:textColor="#90FFFFFF" />
                 </LinearLayout>
 
-                <!-- 模型卡片列表（滚动） -->
                 <ScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:maxHeight="300dp"
+                    android:layout_marginTop="10dp"
+                    android:maxHeight="280dp"
                     android:scrollbars="none">
 
                     <LinearLayout
@@ -154,11 +152,11 @@
                 </ScrollView>
             </LinearLayout>
 
-            <!-- 推理参数（LM Studio 式参数面板入口） -->
+            <!-- ═══════════ 推理参数入口 ═══════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="14dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
@@ -190,30 +188,30 @@
                     android:ellipsize="end" />
             </LinearLayout>
 
-            <!-- 进度环 -->
+            <!-- ═══════════ 进度展示区 ═══════════ -->
             <com.oilquiz.app.ui.widget.GradientRingProgress
                 android:id="@+id/ring_progress"
-                android:layout_width="210dp"
-                android:layout_height="210dp"
-                android:layout_marginTop="28dp" />
+                android:layout_width="190dp"
+                android:layout_height="190dp"
+                android:layout_marginTop="22dp" />
 
-            <!-- 步骤指示（动态添加） -->
             <LinearLayout
                 android:id="@+id/steps_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
                 android:orientation="horizontal" />
 
-            <!-- 视觉模块（mmproj）独立进度：与主模型进度分离，互不回退 -->
+            <!-- ═══════════ 下载详情卡片（主模型 + 视觉模块 双进度独立）═══════════ -->
             <LinearLayout
-                android:id="@+id/mmproj_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="18dp"
+                android:background="@drawable/ai_init_download_card"
                 android:orientation="vertical"
-                android:visibility="gone">
+                android:padding="14dp">
 
+                <!-- 主模型 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -221,37 +219,88 @@
                     android:gravity="center_vertical">
 
                     <TextView
-                        android:id="@+id/tv_mmproj_label"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🧩 视觉模块"
+                        android:text="📦 主模型"
                         android:textSize="13sp"
-                        android:textColor="#C8FFFFFF"
+                        android:textColor="#FFFFFF"
                         android:textStyle="bold" />
 
                     <TextView
-                        android:id="@+id/tv_mmproj_status"
+                        android:id="@+id/tv_model_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0 / 0 MB"
+                        android:text="0%"
                         android:textSize="12sp"
                         android:textColor="#90FFFFFF" />
                 </LinearLayout>
 
                 <ProgressBar
-                    android:id="@+id/mmproj_progress"
+                    android:id="@+id/model_progress"
                     style="?android:attr/progressBarStyleHorizontal"
                     android:layout_width="match_parent"
                     android:layout_height="6dp"
                     android:layout_marginTop="8dp"
                     android:max="100"
                     android:progress="0"
-                    android:progressTint="#8E6CFF"
+                    android:progressTint="#6EC6FF"
                     android:progressBackgroundTint="#26FFFFFF" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="14dp"
+                    android:background="#1AFFFFFF" />
+
+                <!-- 视觉模块（mmproj） -->
+                <LinearLayout
+                    android:id="@+id/mmproj_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_mmproj_label"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="🧩 视觉模块"
+                            android:textSize="13sp"
+                            android:textColor="#C8FFFFFF"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_mmproj_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0 / 0 MB"
+                            android:textSize="12sp"
+                            android:textColor="#90FFFFFF" />
+                    </LinearLayout>
+
+                    <ProgressBar
+                        android:id="@+id/mmproj_progress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:layout_marginTop="8dp"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressTint="#8E6CFF"
+                        android:progressBackgroundTint="#26FFFFFF" />
+                </LinearLayout>
             </LinearLayout>
 
-            <!-- 状态文案 -->
+            <!-- ═══════════ 状态文案 ═══════════ -->
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="match_parent"
@@ -263,7 +312,7 @@
                 android:textColor="#D0FFFFFF"
                 android:textSize="14sp" />
 
-            <!-- 操作按钮 -->
+            <!-- ═══════════ 操作按钮 ═══════════ -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_action"
                 android:layout_width="match_parent"

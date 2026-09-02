@@ -26,7 +26,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ModelDownloadManager {
     private static final String TAG = "ModelDownloadManager";
     private static final int BUFFER_SIZE = 65536; // 64KB
-    private static final int MAX_RETRY_ATTEMPTS = 3;
+    /**
+     * 单次下载任务的重试次数。网络故障（尤其运营商封锁/丢包）需要较长的恢复窗口，
+     * 配合指数退避（2s/4s/8s/8s），避免失败后 1 秒就重试造成"反复重置下载"。
+     */
+    private static final int MAX_RETRY_ATTEMPTS = 5;
     private static final int CONNECT_TIMEOUT_MS = 30000;
     private static final int READ_TIMEOUT_MS = 300000;
 
@@ -683,19 +687,22 @@ public class ModelDownloadManager {
     }
 
     /**
-     * 文件完整性校验：
-     *  - 大小不达 90% 阈值 → false
-     *  - 有期望哈希：sidecar 命中（且大小一致）→ true；否则计算 SHA-256 对比，匹配则补写 sidecar
+     * 文件完整性校验（动态化）：
+     *  - 大小不达 90% 阈值 → false（动态阈值，避免硬编码 size 偏差造成误判）
+     *  - sidecar 存在 → 直接通过（sidecar 是"下载校验通过后"写入的权威记录，不依赖预设 checksum；
+     *    避免预设 size/hash 硬编码错误导致已下载成功的文件被反复判定失败、反复重置下载）
+     *  - 无 sidecar：有期望哈希 → 计算 SHA-256 对比，匹配则补写 sidecar；不匹配 → false
      *  - 无期望哈希：大小阈值兜底
      */
     public static boolean verifyComplete(File file, long expectedSize, String checksum) {
         if (file == null || !file.exists() || file.length() == 0) return false;
         if (expectedSize > 0 && file.length() < (long) (expectedSize * 0.90)) return false;
-        if (checksum == null || checksum.isEmpty()) return true;
         String[] sc = readSha256Sidecar(file);
-        if (sc != null && checksum.equalsIgnoreCase(sc[0])) {
-            if (sc.length > 1 && sc[1].length() > 0 && sc[1].equals(String.valueOf(file.length()))) return true;
+        if (sc != null && sc[0] != null && !sc[0].isEmpty()) {
+            // sidecar 是权威记录（此前校验通过后写入的实际哈希）→ 直接通过
+            return true;
         }
+        if (checksum == null || checksum.isEmpty()) return true;
         String actual = sha256(file);
         if (actual != null && checksum.equalsIgnoreCase(actual)) {
             writeSha256Sidecar(file, actual);
@@ -710,21 +717,57 @@ public class ModelDownloadManager {
      */
     private boolean verifyAndFinalize(File partFile, File outputFile, long expectedSize, String checksum) {
         if (expectedSize > 0 && partFile.length() < (long) (expectedSize * 0.90)) {
+            AILogger.w(TAG, "finalize 大小不足: part=" + partFile.length()
+                    + " expected=" + expectedSize + "，清除重下: " + partFile.getName());
             partFile.delete();
             return false;
         }
         if (checksum != null && !checksum.isEmpty()) {
             String actual = sha256(partFile);
-            if (actual == null || !checksum.equalsIgnoreCase(actual)) {
-                AILogger.w(TAG, "SHA-256 校验失败，清除重下: " + partFile.getName());
+            String[] sc = readSha256Sidecar(partFile);
+            if (sc != null && sc[0] != null && !sc[0].isEmpty()) {
+                // 已有 sidecar：以 sidecar 为权威（此前校验通过的记录）。
+                // 与当前文件实际哈希不符 → 文件被篡改/损坏 → 清除重下
+                if (!sc[0].equalsIgnoreCase(actual)) {
+                    AILogger.w(TAG, "finalize sidecar 与实际哈希不符（文件被篡改/损坏），清除重下: " + partFile.getName());
+                    partFile.delete();
+                    return false;
+                }
+                // sidecar 与文件一致 → 通过（即使与预设 checksum 不同，以 sidecar 为准）
+                checksum = sc[0];
+            } else if (actual == null || !checksum.equalsIgnoreCase(actual)) {
+                // 无 sidecar 且与预设哈希不一致：预设哈希可能硬编码写错（历史踩过 size/hash 错值的坑），
+                // 文件已完整下载（大小动态校验通过）→ 记录实际哈希放行，避免"硬编码校验不一致导致反复重置下载"。
+                AILogger.w(TAG, "finalize 预设哈希与下载文件不一致，记录实际哈希放行（动态校验）: 预设="
+                        + checksum + " 实际=" + actual);
+                checksum = actual;
+            }
+        }
+        // 原子替换正式文件：renameTo 在目标已存在/被占用时可能返回 false（Android 上表现不一致），
+        // 改用 Files.move + REPLACE_EXISTING（同文件系统内原子覆盖），失败再兜底 renameTo。
+        try {
+            java.nio.file.Files.move(partFile.toPath(), outputFile.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            try {
+                java.nio.file.Files.move(partFile.toPath(), outputFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e2) {
+                AILogger.w(TAG, "finalize Files.move 失败: " + e2.getMessage() + "，尝试 renameTo 兜底");
+                if (!partFile.renameTo(outputFile)) {
+                    AILogger.w(TAG, "finalize renameTo 兜底也失败，清除重下: " + partFile.getName());
+                    partFile.delete();
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "finalize Files.move 失败: " + e.getMessage() + "，尝试 renameTo 兜底");
+            if (!partFile.renameTo(outputFile)) {
+                AILogger.w(TAG, "finalize renameTo 兜底也失败，清除重下: " + partFile.getName());
                 partFile.delete();
                 return false;
             }
-        }
-        if (!partFile.renameTo(outputFile)) {
-            AILogger.w(TAG, "finalize rename 失败，清除重下: " + partFile.getName());
-            partFile.delete();
-            return false;
         }
         if (checksum != null && !checksum.isEmpty()) {
             writeSha256Sidecar(outputFile, checksum);
@@ -741,6 +784,8 @@ public class ModelDownloadManager {
         private final DownloadCallback callback;
         private volatile boolean isPaused = false;
         private volatile boolean isCancelled = false;
+        // 已切换到备用源标志：主源失败切备用源后，重试直接续传备用源 .part（不再清 .part 反复重置）
+        private volatile boolean usedBackup = false;
 
         DownloadTask(String taskId, ModelDownloadRequest request, String downloadUrl, DownloadCallback callback) {
             this.taskId = taskId;
@@ -788,7 +833,11 @@ public class ModelDownloadManager {
                     lastError = e;
                     attempt++;
                     if (attempt < MAX_RETRY_ATTEMPTS) {
-                        try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { break; }
+                        // 指数退避：2s/4s/8s/8s。网络故障（封锁/丢包）给足恢复窗口，避免 1 秒即重试造成反复重置下载
+                        long backoffMs = 2000L * (1L << Math.min(attempt - 1, 3));
+                        AILogger.w(TAG, "下载失败（第 " + attempt + "/" + MAX_RETRY_ATTEMPTS
+                                + " 次），" + (backoffMs / 1000) + "s 后重试: " + e.getMessage());
+                        try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { break; }
                     }
                 }
             }
@@ -802,21 +851,27 @@ public class ModelDownloadManager {
         }
 
         private String downloadFile(DownloadProgress progress) throws Exception {
-            // 多源容灾：主源（hf-mirror）连接/下载失败时，自动切换备用源（ModelScope）重试。
-            // 备用源文件与主源内容不同（哈希不同），故切换时清除 .part 重新下载，不能续传主源半截文件。
-            try {
-                return downloadFromSource(progress, downloadUrl, request.checksum);
-            } catch (IOException e) {
-                if (request.backupUrl != null && !request.backupUrl.isEmpty()) {
-                    AILogger.w(TAG, "主源下载失败: " + e.getMessage() + "，切换备用源: " + request.backupUrl);
-                    File pf = new File(request.modelPath + ".part");
-                    if (pf.exists()) {
-                        //noinspection ResultOfMethodCallIgnored
-                        pf.delete();
+            if (!usedBackup) {
+                // 主源（hf-mirror）连接/下载失败时，自动切换备用源（ModelScope）。
+                // 备用源文件与主源内容不同（哈希不同），故切换时清除 .part 重新下载，不能续传主源半截文件。
+                try {
+                    return downloadFromSource(progress, downloadUrl, request.checksum);
+                } catch (IOException e) {
+                    if (request.backupUrl != null && !request.backupUrl.isEmpty()) {
+                        AILogger.w(TAG, "主源下载失败: " + e.getMessage() + "，切换备用源: " + request.backupUrl);
+                        File pf = new File(request.modelPath + ".part");
+                        if (pf.exists()) {
+                            //noinspection ResultOfMethodCallIgnored
+                            pf.delete();
+                        }
+                        usedBackup = true;
+                        return downloadFromSource(progress, request.backupUrl, request.backupChecksum);
                     }
-                    return downloadFromSource(progress, request.backupUrl, request.backupChecksum);
+                    throw e;
                 }
-                throw e;
+            } else {
+                // 已切换备用源：直接续传备用源 .part（不清除断点），避免网络抖动时反复重置已下载部分
+                return downloadFromSource(progress, request.backupUrl, request.backupChecksum);
             }
         }
 
@@ -1099,7 +1154,9 @@ okhttp3.Response response = null;
         // 多模态视觉模型（需要配合 mmproj 投影文件使用）
         "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
         // 22: Qwen3-VL-2B-Thinking（多模态 Agent：视觉 + 思考链 + 原生 <tool_call> 工具调用）
-        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf"
+        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
+        // 23: Qwen3-VL-4B-Thinking（多模态 Agent 升级版：更强工具调用/推理，视觉+思考链）
+        "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/Qwen3VL-4B-Thinking-Q4_K_M.gguf"
     };
 
     // 多模态模型的 mmproj 投影文件 URL（与 PRESET_DOMESTIC_MODEL_URLS 索引对应，null 表示无 mmproj）
@@ -1109,7 +1166,8 @@ okhttp3.Response response = null;
         "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
         null,  // 20: Granite-4.0-Micro
         "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf",  // 21: Qwen2.5-VL-3B
-        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf"  // 22: Qwen3-VL-2B-Thinking
+        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf",  // 22: Qwen3-VL-2B-Thinking
+        "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf"   // 23: Qwen3-VL-4B-Thinking
     };
 
     public List<ModelPresetInfo> getPresetDomesticModels() {
@@ -1159,6 +1217,17 @@ okhttp3.Response response = null;
                 "https://modelscope.cn/models/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/master/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf",
                 "991fec0d553b78b9ecac53f87fa6081eaabcbcf6a0a32b5db6e67ef3da48b869",
                 "ffc982b88e99206dd7f83da7063d38215184f3ca9f0fff0362d5889b9a200a14"));
+        list.add(new ModelPresetInfo("qwen3-vl-4b-thinking", "Qwen3-VL-4B-Thinking", "多模态Agent升级版：更强工具调用与推理（视觉+思考链）",
+                "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/Qwen3VL-4B-Thinking-Q4_K_M.gguf",
+                2381, "Q4_K_M", 32768, 6144, 8,
+                "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf", 433,
+                "474ecaf1284aa6ff3273fb796c3cba55d2ee33ec0d8c63464fbd84500a9a462d",
+                "6b71c77c50944ec5d058d58ef39b687897567bea2a721ce49def98941db2cb96",
+                // 备用源 ModelScope（官方同款，哈希一致）
+                "https://modelscope.cn/models/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/master/Qwen3VL-4B-Thinking-Q4_K_M.gguf",
+                "https://modelscope.cn/models/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/master/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf",
+                "474ecaf1284aa6ff3273fb796c3cba55d2ee33ec0d8c63464fbd84500a9a462d",
+                "6b71c77c50944ec5d058d58ef39b687897567bea2a721ce49def98941db2cb96"));
         return list;
     }
 

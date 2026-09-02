@@ -5,6 +5,7 @@ import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -682,6 +683,11 @@ public class LlamaHelper {
     }
 
     private static native void nativeChatJson(byte[] requestJson, JsonCallback callback);
+    // ===== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====
+    private static native boolean nativeKvMemPreload(long handle, String text);
+    private static native byte[] nativeKvMemSave(long handle);
+    private static native boolean nativeKvMemRestore(long handle, byte[] data);
+    private static native String nativeKvMemAsk(long handle, String question, int maxTokens, float temperature);
 
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
@@ -1685,6 +1691,41 @@ public class LlamaHelper {
         }
     }
 
+    // ===== KV 记忆引擎公开 API（长文档 KV 持久化，living-kv 方案）=====
+    /** 预加载长文本到 KV 记忆（独立 seq 1）。文档会被模型"读"一遍，KV 可随后 kvMemSave 落盘。 */
+    public static boolean kvMemPreload(String text) {
+        if (!libraryLoaded || chatContextHandle == 0) return false;
+        if (text == null || text.isEmpty()) return false;
+        try { return nativeKvMemPreload(chatContextHandle, text); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemPreload: " + e.getMessage(), e); return false; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemPreload: " + e.getMessage(), e); return false; }
+    }
+
+    /** 保存 KV 记忆状态为字节数组（写入文件后即可释放内存，需时再 restore）。 */
+    public static byte[] kvMemSave() {
+        if (!libraryLoaded || chatContextHandle == 0) return null;
+        try { return nativeKvMemSave(chatContextHandle); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemSave: " + e.getMessage(), e); return null; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemSave: " + e.getMessage(), e); return null; }
+    }
+
+    /** 从字节数组恢复 KV 记忆状态（模型重新"记得"文档，无需重新 prefill）。 */
+    public static boolean kvMemRestore(byte[] data) {
+        if (!libraryLoaded || chatContextHandle == 0 || data == null || data.length == 0) return false;
+        try { return nativeKvMemRestore(chatContextHandle, data); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemRestore: " + e.getMessage(), e); return false; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemRestore: " + e.getMessage(), e); return false; }
+    }
+
+    /** 在已恢复的 KV 记忆上提问并生成回答（不重放文档，直接基于记忆续写）。 */
+    public static String kvMemAsk(String question, int maxTokens, float temperature) {
+        if (!libraryLoaded || chatContextHandle == 0) return null;
+        if (question == null) question = "";
+        try { return nativeKvMemAsk(chatContextHandle, question, maxTokens, temperature); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemAsk: " + e.getMessage(), e); return null; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemAsk: " + e.getMessage(), e); return null; }
+    }
+
     public static boolean chatAddAssistantToolCall(String toolCallContent) {
         if (!libraryLoaded || chatContextHandle == 0) return false;
         if (toolCallContent == null || toolCallContent.isEmpty()) {
@@ -1968,6 +2009,46 @@ public class LlamaHelper {
     private static native boolean nativeHasEnoughContextSpace(long handle, int promptTokens, int maxOutputTokens);
     private static native void nativeClearContextForInference(long handle);
     private static native void nativeCleanupCallback();
+    private static native String nativeGetThinkingTags();
+
+    /** 模板思考标签缓存：模型固定后标签不变，避免渲染/逐 token 重复走 JNI */
+    private static volatile ThinkingTagConfig cachedThinkingTags = null;
+
+    /**
+     * 获取当前模型 chat template 声明的思考标签 —— 标签来自模板，不硬编码。
+     *
+     * <p>native 在模型加载时（nativeInitModel）已从 GGUF 内置模板提取并缓存，
+     * 覆盖 Qwen3（{@code <think>}）、DeepSeek（{@code [THINK]}）、
+     * GPT-OSS（{@code <|channel|>analysis<|message|>}）、MiniMax、Llama3
+     * 等各自不同的写法。chatJson 路径还会通过 meta 事件再下发一次。</p>
+     *
+     * @return 模板标签配置；模型未加载或模板未声明思考段时返回 isAvailable()==false 的配置，
+     *         调用方应据此跳过思考段识别，而不是回退到硬编码
+     */
+    public static ThinkingTagConfig getThinkingTags() {
+        if (!libraryLoaded) return ThinkingTagConfig.empty();
+        // 命中缓存直接返回（仅缓存"已就绪"结果；模型未加载时返回空但下次重试，避免永久缓存空结果）
+        if (cachedThinkingTags != null) return cachedThinkingTags;
+        try {
+            String json = nativeGetThinkingTags();
+            ThinkingTagConfig cfg = json == null ? ThinkingTagConfig.empty() : ThinkingTagConfig.fromJson(json);
+            if (cfg.isAvailable()) cachedThinkingTags = cfg;
+            return cfg;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetThinkingTags unavailable: " + e.getMessage());
+            return ThinkingTagConfig.empty();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getThinkingTags failed: " + t.getMessage());
+            return ThinkingTagConfig.empty();
+        }
+    }
+
+    /**
+     * 模型（重新）加载后调用，清除标签缓存，下次 getThinkingTags 重新读取。
+     */
+    public static void invalidateThinkingTagsCache() {
+        cachedThinkingTags = null;
+    }
 
     public static int handleMemoryPressure(int level) {
         if (!libraryLoaded) return 0;

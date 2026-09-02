@@ -43,6 +43,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
+
 public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int VIEW_TYPE_USER = 0;
@@ -930,11 +933,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (displayContent != null && !displayContent.isEmpty()) {
             holder.thinkingLabel.setVisibility(View.VISIBLE);
 
-            // 清理思考标签并格式化内容
-            String cleanedContent = displayContent
-                .replaceAll("<think[^>]*>", "")
-                .replace("</think>", "")
-                .trim();
+            // 清理思考标签并格式化内容（标签来自 chat template，不硬编码）
+            String cleanedContent = stripThinkingTagMarkers(displayContent);
 
             // 如果内容为空，隐藏思考区域
             if (cleanedContent.isEmpty()) {
@@ -2592,6 +2592,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         notifyItemChanged(position, PAYLOAD_STATUS_UPDATE);
     }
 
+    /**
+     * 去除思考标签标记（保留内容），用于渲染思考气泡时兜底清理模板声明的标签。
+     * 优先用 chat template 的标签（非硬编码）；模板不可用时回退到旧的 <think> 系正则，
+     * 保持对未识别模型的兼容。
+     */
+    private static String stripThinkingTagMarkers(String content) {
+        if (content == null || content.isEmpty()) return content;
+        ThinkingTagConfig cfg = LlamaHelper.getThinkingTags();
+        String cleaned = cfg.removeTagMarkers(content);
+        if (!cfg.isAvailable()) {
+            cleaned = content.replaceAll("<think[^>]*>", "").replace("</think>", "").replace("<think>", "");
+        }
+        return cleaned.trim();
+    }
+
     public void updateMessageThinkingContent(int position, String thinkingContent) {
         if (position < 0 || position >= messages.size()) return;
         ChatMessage message = messages.get(position);
@@ -2884,12 +2899,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (messageText != null) {
                 String displayContent = "";
                 if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
-                    // 清理思考标签
-                    displayContent = message.thinkingContent
-                        .replaceAll("<think[^>]*>", "")
-                        .replace("</think>", "")
-                        .replace("<think>", "")
-                        .trim();
+                    // 清理思考标签（标签来自 chat template，不硬编码）
+                    displayContent = stripThinkingTagMarkers(message.thinkingContent);
                 }
                 if (displayContent.isEmpty() && message.content != null) {
                     displayContent = message.content;

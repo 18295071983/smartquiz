@@ -626,7 +626,14 @@ public class AIChatViewModel extends AndroidViewModel {
         mainHandler.post(() -> {
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatMessages.size()) {
                 ChatMessage msg = chatMessages.get(currentStreamingMessageIndex);
-                msg.content = fullText != null ? fullText : currentStreamingContent.toString();
+                // 终态正文优先用流式累积的干净 content；不能用 native onComplete 的 fullText 直接覆盖——
+                // 它含原始 <think>…</think> 思考段（本路径只认 [THINK_BEGIN]/[THINK_END] 协议标记，
+                // 模型直接输出的标签会漏分），直接赋值会把思考永久绑进主消息气泡。
+                // 统一再走一遍模板标签剥离兜底：正文干净时 stripThinking 是无操作，不改变行为。
+                String body = currentStreamingContent.length() > 0
+                        ? currentStreamingContent.toString()
+                        : (fullText != null ? fullText : "");
+                msg.content = com.oilquiz.app.ai.jni.LlamaHelper.getThinkingTags().stripThinking(body);
                 msg.status = ChatMessage.MessageStatus.COMPLETED;
                 msg.inferenceProgress = null;
                 chatMessages.notifyItemChanged(currentStreamingMessageIndex);

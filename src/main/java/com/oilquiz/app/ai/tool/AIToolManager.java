@@ -1465,7 +1465,13 @@ public class AIToolManager {
             if (defs != null) {
                 for (com.oilquiz.app.ai.tool.openai.ParamDefinition def : defs) {
                     String type = def.getType() != null && !def.getType().isEmpty() ? def.getType() : "string";
-                    if (def.getDefaultValue() != null) {
+                    // 已知枚举参数覆盖：普通 AITool（无结构化参数）的 action/type 等枚举参数，
+                    // 手动补上枚举值，让模型看到全部可选 action（否则 2B 模型只敢用第一个值）
+                    List<String> enumOverride = getParamEnumOverride(tool.getName(), def.getName());
+                    if (enumOverride != null) {
+                        builder.addParameter(def.getName(), type, def.getDescription(),
+                                def.isRequired(), def.getDefaultValue(), enumOverride);
+                    } else if (def.getDefaultValue() != null) {
                         builder.addParameter(def.getName(), type, def.getDescription(),
                                 def.isRequired(), def.getDefaultValue(), def.getEnumValues());
                     } else if (def.getEnumValues() != null && !def.getEnumValues().isEmpty()) {
@@ -1482,6 +1488,34 @@ public class AIToolManager {
             Log.e(TAG, "Error creating ToolDefinition from AITool: " + e.getMessage());
             return null;
         }
+    }
+
+    /** 已知工具的枚举参数覆盖表（工具名 → 参数名 → 枚举值列表）。
+     *  仅用于普通 AITool（getParameterDescriptions 无结构化枚举）的常见枚举参数，补充模型可见性。 */
+    private static final Map<String, Map<String, List<String>>> PARAM_ENUM_OVERRIDES = buildParamEnumOverrides();
+
+    private static Map<String, Map<String, List<String>>> buildParamEnumOverrides() {
+        Map<String, Map<String, List<String>>> map = new HashMap<>();
+        Map<String, List<String>> weather = new HashMap<>();
+        weather.put("action", Arrays.asList("current", "forecast", "hourly",
+                "air_quality", "alerts", "indices", "all"));
+        map.put("ai_weather", weather);
+        Map<String, List<String>> chart = new HashMap<>();
+        chart.put("action", Arrays.asList("bar", "line", "pie", "scatter",
+                "radar", "heatmap", "area", "table"));
+        map.put("python_chart", chart);
+        Map<String, List<String>> appToolkit = new HashMap<>();
+        appToolkit.put("action", Arrays.asList("weather", "calculate", "ocr",
+                "image", "web", "search", "translate", "unit_convert"));
+        map.put("app_toolkit", appToolkit);
+        return map;
+    }
+
+    /** 查询工具参数的枚举覆盖（无覆盖返回 null） */
+    private static List<String> getParamEnumOverride(String toolName, String paramName) {
+        Map<String, List<String>> params = PARAM_ENUM_OVERRIDES.get(toolName);
+        if (params == null) return null;
+        return params.get(paramName);
     }
     
     /**

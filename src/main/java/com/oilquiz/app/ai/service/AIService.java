@@ -1023,19 +1023,39 @@ public class AIService implements ComponentCallbacks2 {
 
             // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
             long availMemMB = memoryInfo.availableMemoryMB;
+            // ---- 4B 级大模型内存预检：宁可明确失败/慢跑，也不硬加载导致 OOM 或系统卡死 ----
+            if (modelSizeMB > 1800) {
+                if (availMemMB > 0 && availMemMB < 2200) {
+                    // 可用内存极低：2.3GB 权重 + KV 无论如何装不下，硬加载必然卡死/被杀。
+                    // 明确拒绝并提示，保证"功能正常"（不静默卡死）。
+                    String memErr = "可用内存不足(" + availMemMB + "MB)，无法加载 " + modelSizeMB + "MB 的模型。请释放内存或切换更小模型（如 Qwen3-VL-2B）";
+                    AILogger.e(TAG, "4B model precheck failed: " + memErr);
+                    serviceState.setError(memErr);
+                    notifyError(memErr);
+                    return false;
+                } else if (availMemMB > 0 && availMemMB < 3200) {
+                    // 内存偏紧：GPU offload + 大 KV 有风险，降级为 CPU-only + 更小 context，保证能跑（慢但正常）
+                    AILogger.w(TAG, "4B model with tight memory (" + availMemMB + "MB): forcing CPU-only + smaller context to guarantee functionality");
+                    gpuLayers = 0;
+                    contextSize = Math.min(contextSize, 6144);
+                }
+            }
+            // 4B 级及以上模型（>1800MB）：共享内存 GPU 全量 offload 不增内存总量，且
+            // 半吊子卸载（如 36 层只卸 20，剩 16 层 CPU）会造成每 token CPU-GPU 交替，
+            // 实测仅 8-11 tok/s 且不稳。故内存不足时优先放宽 GPU 层（context 降档已控 KV 内存），
+            // 宁可慢也要避免 CPU-GPU 交替导致的"功能不正常"。
+            boolean bigModel = modelSizeMB > 1800;
             if (gpuLayers > 0 && availMemMB > 0) {
                 int originalGpuLayers = gpuLayers;
                 if (availMemMB < 800) {
-                    // 可用内存极低：大幅降低 GPU 层数，优先保证系统稳定
-                    gpuLayers = Math.min(gpuLayers, 10);
+                    // 可用内存极低：大模型降 context 后仍不足 → 保留较少 GPU 层，优先保证系统稳定
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 14 : 10);
                     AILogger.w(TAG, "Low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
                 } else if (availMemMB < 1500) {
-                    // 可用内存较低：限制到 15 层
-                    gpuLayers = Math.min(gpuLayers, 15);
-                    AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 22 : 15);
+                    AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 } else if (availMemMB < 2500) {
-                    // 可用内存一般：限制到 20 层
-                    gpuLayers = Math.min(gpuLayers, 20);
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 30 : 20);
                     AILogger.i(TAG, "Moderate available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 }
                 if (gpuLayers != originalGpuLayers) {
@@ -1092,9 +1112,20 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "Set memory pool size to " + memoryPoolSize + "MB (KV cache budget)");
 
             // KV cache 类型：默认 F16（最稳）。
-            // Q8_0 量化（setKvCacheType(0)）在部分设备解码时触发 SIGABRT（Vulkan kernel assert），
-            // 暂不自动启用；setKvCacheType API 保留供未来按设备白名单手动开启。
-            int kvCacheType = 1; // F16
+            // Q8_0 量化（setKvCacheType(0)）KV 内存 -50%（8B@6144ctx：0.9GB→0.45GB），native 已做
+            // 初始化失败自动回退 F16 + 异常捕获（Adreno shader 不兼容时安全降级）。
+            // 【判断逻辑修正】不能用"加载时可用内存"决定：加载那一刻内存可能充足，但 4B 模型
+            // 本身 2.3GB+，加载后必然推高系统内存（实测 90%+，可用仅 ~1GB），此时 F16 KV 是压垮
+            // 内存的隐患。故 4B 级模型（>1800MB）一律启用 Q8_0，KV 减半是确定收益。
+            int kvCacheType = 1; // F16 默认
+            if (modelSizeMB > 1800) {
+                // 4B 级模型：无条件启用 Q4_0（KV -75%）。Qwen3 hybrid-attention 模型上 Q4_0 KV 近无损
+                // （llama.cpp 官方实证 BLEU 1.000 @4x 压缩）；不能用"加载时可用内存"判断——加载那一刻
+                // 内存可能显得充足，但模型加载后必然推高系统内存（实测 91-93%），Q8_0 都降不下来。
+                // native 有 Q4_0→Q8_0→F16 逐级回退兜底，shader 不兼容自动降级，不会崩。
+                kvCacheType = 2; // Q4_0：4B 无条件，KV 内存 -75%
+                AILogger.i(TAG, "4B model: enabling Q4_0 KV cache (KV memory ~75% saved, modelSize=" + modelSizeMB + "MB)");
+            }
             LlamaHelper.setKvCacheType(kvCacheType);
 
             int result = LlamaHelper.initModel(
@@ -2592,6 +2623,11 @@ public class AIService implements ComponentCallbacks2 {
         } else if (modelSizeMB >= 3000) {
             contextSize = Math.min(contextSize, 8192);
             AILogger.i(TAG, "Mid-large model (" + modelSizeMB + "MB): context capped to " + contextSize);
+        } else if (modelSizeMB >= 1800) {
+            // 4B 级（Qwen3-VL-4B Q4≈2381MB）也降档：KV 是 2B 的 ~1.6 倍（nLayer 28→36、nEmbd 2048→2560），
+            // 同 context 下内存压力显著更高，且 Agent 场景 8K 足够（历史有压缩）。
+            contextSize = Math.min(contextSize, 8192);
+            AILogger.i(TAG, "4B-level model (" + modelSizeMB + "MB): context capped to " + contextSize);
         }
 
         AILogger.i(TAG, "calculateOptimalContextSize: mode=" + optimizationMode.displayName 

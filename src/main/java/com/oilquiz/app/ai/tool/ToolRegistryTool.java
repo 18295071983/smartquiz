@@ -164,6 +164,10 @@ public class ToolRegistryTool implements AITool {
                     prop.put("description", p.getDescription() != null ? p.getDescription() : "");
                     prop.put("required", p.isRequired());
                     if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
+                    // 枚举值一并返回：模型探测工具时能看清 action/type 的全部可选值，不被限制为默认值
+                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                        prop.put("enum", new JSONArray(p.getEnumValues()));
+                    }
                     parameters.put(p.getName(), prop);
                 }
             }

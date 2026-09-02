@@ -235,41 +235,45 @@ static std::string sanitizeUtf8(const std::string& input) {
 }
 
 /**
- * 剥离 think/thought 标签（及其内容）：模型未闭合或误输出思考标签时，
- * 把 <think>...</think> / <thought>...</thought> 整段剥掉，剩余内容作为正文。
- * 支持未闭合（无结束标记）的 think 块：剥离 <think> 到结尾的全部内容。
+ * 剥离思考标签及其内容（标签源参数化，不硬编码）。
+ * startTag / endTags 来自 chat template（mThinkStartTag / mThinkEndTags），由调用方传入；
+ * 换用 GPT-OSS / MiniMax / Llama3 等非 <think> 模板时无需改动本函数。
+ * 支持未闭合（无结束标记）的思考块：剥掉 startTag 到结尾的全部内容。
+ * 模板未提供标签（startTag 为空）时原样返回——不猜测、不硬编码回退。
  */
-static std::string stripThinkTags(const std::string& input) {
+static std::string stripThinkTags(const std::string& input,
+                                  const std::string& startTag,
+                                  const std::vector<std::string>& endTags) {
     if (input.empty()) return input;
+    if (startTag.empty() || endTags.empty()) return input;
     std::string out;
     out.reserve(input.size());
     size_t pos = 0;
     const size_t len = input.size();
     while (pos < len) {
-        // 查找 think/thought 开始标记
-        size_t start = input.find("<think>", pos);
-        size_t startAlt = input.find("<thought>", pos);
-        size_t useStart = std::string::npos;
-        std::string openTag;
-        if (start != std::string::npos && (startAlt == std::string::npos || start < startAlt)) {
-            useStart = start; openTag = "<think>";
-        } else if (startAlt != std::string::npos) {
-            useStart = startAlt; openTag = "<thought>";
-        }
-        if (useStart == std::string::npos) {
+        // 查找思考开始标记（单一，来自模板）
+        size_t start = input.find(startTag, pos);
+        if (start == std::string::npos) {
             out.append(input, pos, len - pos);
             break;
         }
         // 开始标记之前的内容保留
-        out.append(input, pos, useStart - pos);
-        // 找对应结束标记
-        std::string closeTag = (openTag == "<think>") ? "</think>" : "</thought>";
-        size_t close = input.find(closeTag, useStart + openTag.size());
+        out.append(input, pos, start - pos);
+        // 找最早出现的任一结束标记（模板可定义多个，如 Qwen3 的 </think> + <tool_call>）
+        size_t close = std::string::npos;
+        size_t closeLen = 0;
+        for (const auto& tag : endTags) {
+            size_t p = input.find(tag, start + startTag.size());
+            if (p != std::string::npos && (close == std::string::npos || p < close)) {
+                close = p;
+                closeLen = tag.size();
+            }
+        }
         if (close == std::string::npos) {
             // 未闭合：剥掉开始标记到结尾的全部内容（视为思考残留）
             break;
         }
-        pos = close + closeTag.size();
+        pos = close + closeLen;
     }
     // 清理可能残留的 <|im_start|>assistant 等模板标记
     std::string cleaned = out;
@@ -1039,17 +1043,67 @@ private:
     // generateStreamIncremental 专用：Agent 增量缓存独立封装于 agent_kv_cache.h，
     // 记账/判定/失效逻辑全部收敛在该类，避免散落成员导致"记账与实际KV脱节"类 bug。
     AgentKvCache kvCache;
+
+    // ===== 思考标签（来自 chat template，统一标签源，不硬编码）=====
+    // 由 generateWithTools / chatJson 在 common_chat_templates_apply 后设置；
+    // 空时表示模板未提供思考标签，调用方回退旧行为（不剥离思考段）。
+    std::string mThinkStartTag;
+    std::vector<std::string> mThinkEndTags;
     
 public:
     // 函数前向声明
     std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart);
+
+    /**
+     * 从模型内置 chat template 提取思考标签，缓存到 mThinkStartTag / mThinkEndTags。
+     * 用一条最小 user 消息 apply 一次模板即可拿到模板声明的 thinking_*_tag。
+     *
+     * 作用：chatSend / generateStream 这类路径不经过 common_chat_templates_apply，
+     * 此前拿不到模板标签，Java 侧只能硬编码 <think>。模型加载后主动调用一次，
+     * 即可让 nativeGetThinkingTags 对所有推理路径都返回正确标签。
+     *
+     * 失败时保持原缓存不变，不影响推理（调用方按"无标签"处理）。
+     */
+    bool refreshThinkingTags() {
+        if (model == nullptr) {
+            LOGW("refreshThinkingTags: model not loaded");
+            return false;
+        }
+        auto tmpl = common_chat_templates_init(model, "");
+        if (!tmpl) {
+            LOGW("refreshThinkingTags: failed to init chat templates");
+            return false;
+        }
+        common_chat_templates_inputs inputs;
+        inputs.use_jinja = true;
+        inputs.add_generation_prompt = false;
+        common_chat_msg probe;
+        probe.role = "user";
+        probe.content = "";
+        inputs.messages.push_back(probe);
+        try {
+            common_chat_params params = common_chat_templates_apply(tmpl.get(), inputs);
+            mThinkStartTag = params.thinking_start_tag;
+            mThinkEndTags = params.thinking_end_tags;
+            LOGI("refreshThinkingTags: start='%s', %zu end tag(s)",
+                 mThinkStartTag.c_str(), mThinkEndTags.size());
+            return true;
+        } catch (const std::exception& e) {
+            LOGW("refreshThinkingTags: template apply failed: %s", e.what());
+            return false;
+        }
+    }
+
+    /** 当前缓存的模板思考标签（未提取到时为空，表示"该模型无思考段"） */
+    std::string getThinkStartTag() const { return mThinkStartTag; }
+    std::vector<std::string> getThinkEndTags() const { return mThinkEndTags; }
 
     InferenceContext() : model(nullptr), ctx(nullptr), vocab(nullptr), 
                          contextSize(0), threadCount(0), gpuLayers(0), 
                          memoryPoolSize(0), batchSize(32), kvCacheType(1), shouldStop(false),
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
-                         modelType("unknown"), chatTemplate("") {
+                         modelType("unknown"), chatTemplate(""), mThinkStartTag("") {
         LOGI("InferenceContext created");
         
         setupGGMLBackendPath();
@@ -1428,12 +1482,22 @@ public:
         ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
         LOGI("Flash Attention set to AUTO (fallback-safe)");
 
+        // kv_unified：统一 seq 管理（living-kv 前提：多 seq 时 seq_cp 需要 kv_unified，否则 abort）。
+        // 同时为 KV 记忆引擎（独立 seq 1，长文档 KV 持久化）提供多 seq 能力。
+        ctx_params.kv_unified = true;
+        LOGI("KV cache unified seq management enabled (kv_unified=true)");
+
         // KV cache 量化：Q8_0 减半 KV 内存（8B@6144ctx：约0.9GB→0.45GB），精度损失极小
-        // 默认 F16（kvCacheType=1）；Java 侧大模型/低内存时设为 0（Q8_0）
+        // 默认 F16（kvCacheType=1）；Java 侧大模型/低内存时设为 0（Q8_0）或 2（Q4_0，极低内存场景）
+        // Qwen3 系列为 hybrid-attention 模型，Q4_0 KV 近无损（llama.cpp 官方实证 BLEU 1.000 @4x 压缩）
         if (this->kvCacheType == 0) {
             ctx_params.type_k = GGML_TYPE_Q8_0;
             ctx_params.type_v = GGML_TYPE_Q8_0;
             LOGI("KV cache quantized to Q8_0 (memory ~50%% saved)");
+        } else if (this->kvCacheType == 2) {
+            ctx_params.type_k = GGML_TYPE_Q4_0;
+            ctx_params.type_v = GGML_TYPE_Q4_0;
+            LOGI("KV cache quantized to Q4_0 (memory ~75%% saved, hybrid model near-lossless)");
         } else {
             ctx_params.type_k = GGML_TYPE_F16;
             ctx_params.type_v = GGML_TYPE_F16;
@@ -1482,8 +1546,37 @@ public:
         } catch (const std::exception& e) {
             LOGE("llama_init_from_model threw: %s (kvCacheType=%d, gpuLayers=%d)", e.what(), this->kvCacheType, this->gpuLayers);
             ctx = nullptr;
-            // Q8_0 KV 在部分 GPU（Adreno Vulkan）shader 不兼容：回退 F16 重试一次
-            if (this->kvCacheType == 0) {
+            // Q8_0/Q4_0 KV 在部分 GPU（Adreno Vulkan）shader 不兼容：按 "Q4_0→Q8_0→F16" 逐级回退
+            if (this->kvCacheType == 2) {
+                LOGI("KV Q4_0 shader failed, retrying with Q8_0 KV cache...");
+                this->kvCacheType = 0;
+                ctx_params.type_k = GGML_TYPE_Q8_0;
+                ctx_params.type_v = GGML_TYPE_Q8_0;
+                try {
+                    ctx = llama_init_from_model(model, ctx_params);
+                } catch (const std::exception& e2) {
+                    LOGE("llama_init_from_model Q8_0 retry threw: %s", e2.what());
+                    ctx = nullptr;
+                } catch (...) {
+                    LOGE("llama_init_from_model Q8_0 retry threw unknown exception");
+                    ctx = nullptr;
+                }
+                if (ctx == nullptr) {
+                    LOGI("KV Q8_0 retry failed, falling back to F16 KV cache...");
+                    this->kvCacheType = 1;
+                    ctx_params.type_k = GGML_TYPE_F16;
+                    ctx_params.type_v = GGML_TYPE_F16;
+                    try {
+                        ctx = llama_init_from_model(model, ctx_params);
+                    } catch (const std::exception& e3) {
+                        LOGE("llama_init_from_model F16 retry threw: %s", e3.what());
+                        ctx = nullptr;
+                    } catch (...) {
+                        LOGE("llama_init_from_model F16 retry threw unknown exception");
+                        ctx = nullptr;
+                    }
+                }
+            } else if (this->kvCacheType == 0) {
                 LOGI("KV Q8_0 shader failed, retrying with F16 KV cache...");
                 this->kvCacheType = 1;
                 ctx_params.type_k = GGML_TYPE_F16;
@@ -2145,6 +2238,50 @@ public:
             }
         }
         return hold;
+    }
+
+    /**
+     * 思考段剥离（统一标签源：mThinkStartTag / mThinkEndTags，来自 chat template，不硬编码）。
+     * 输入一段已 decode 的文本 chunk，返回剥离思考段（含标签）后的正文；
+     * 思考内容丢弃（reasoning 由生成完成后的 common_chat_parse 提取）。
+     * inThinking 为跨 chunk 思考状态（调用方维护，初始 false）。
+     * 模板未提供标签（mThinkStartTag 为空）时原样返回，不影响非思考模型。
+     */
+    std::string stripThinkingChunk(const std::string& chunk, bool& inThinking) {
+        if (chunk.empty()) return "";
+        if (mThinkStartTag.empty() || mThinkEndTags.empty()) return chunk;
+        std::string out;
+        out.reserve(chunk.size());
+        size_t pos = 0;
+        while (pos < chunk.size()) {
+            if (!inThinking) {
+                size_t open = chunk.find(mThinkStartTag, pos);
+                if (open == std::string::npos) {
+                    out.append(chunk, pos, std::string::npos);
+                    break;
+                }
+                out.append(chunk, pos, open - pos);
+                inThinking = true;
+                pos = open + mThinkStartTag.size();
+            } else {
+                // 找最早出现的任一结束标签（模板可能定义多个，如 Qwen3 的 <|thinking_end|> + <|im_end|>）
+                size_t close = std::string::npos;
+                size_t closeLen = 0;
+                for (const auto& tag : mThinkEndTags) {
+                    size_t p = chunk.find(tag, pos);
+                    if (p != std::string::npos && (close == std::string::npos || p < close)) {
+                        close = p;
+                        closeLen = tag.size();
+                    }
+                }
+                if (close == std::string::npos) {
+                    break;   // 思考未在本 chunk 结束：丢弃全部（思考内容不发给 UI）
+                }
+                inThinking = false;
+                pos = close + closeLen;
+            }
+        }
+        return out;
     }
     
     bool generateStream(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
@@ -2921,6 +3058,11 @@ public:
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGI("Chat template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+            // 提取模板思考标签（统一标签源），供流式思考段剥离
+            mThinkStartTag = chat_params.thinking_start_tag;
+            mThinkEndTags = chat_params.thinking_end_tags;
+            LOGI("Thinking tags from template: start='%s', %zu end tag(s)",
+                 mThinkStartTag.c_str(), mThinkEndTags.size());
         } catch (const std::exception& e) {
             LOGW("Failed to apply chat template with tools: %s, falling back", e.what());
             return generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
@@ -2940,9 +3082,11 @@ public:
         // 解析结果通过结构体传给 JNI 层，JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调，
         // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通。
 
-        // 用包装回调收集 fullText，拦截 onComplete 以便在 common_chat_parse 解析后再发送
+        // 用包装回调收集 fullText，拦截 onComplete 以便在 common_chat_parse 解析后再发送。
+        // 同时按模板思考标签剥离思考段：思考内容不流式发给 UI（reasoning 由 common_chat_parse 提取）。
         std::string collectedText;
-        auto wrappedCallback = [&callback, &collectedText](const std::string& text, bool isComplete, const std::string& error) {
+        bool thinkActive = false;   // 跨 chunk 思考状态（模板标签式，非 generateStream 思考分支）
+        auto wrappedCallback = [this, &callback, &collectedText, &thinkActive](const std::string& text, bool isComplete, const std::string& error) {
             if (!isComplete && !error.empty()) {
                 callback(text, isComplete, error);
                 return;
@@ -2953,7 +3097,10 @@ public:
                 return;
             }
             if (!isComplete) {
-                callback(text, isComplete, error);
+                std::string stripped = stripThinkingChunk(text, thinkActive);
+                if (!stripped.empty()) {
+                    callback(stripped, false, "");
+                }
             }
         };
 
@@ -3095,6 +3242,11 @@ public:
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGI("chatJson: template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+            // 提取模板思考标签（统一标签源），供流式思考段剥离
+            mThinkStartTag = chat_params.thinking_start_tag;
+            mThinkEndTags = chat_params.thinking_end_tags;
+            LOGI("chatJson: thinking tags from template: start='%s', %zu end tag(s)",
+                 mThinkStartTag.c_str(), mThinkEndTags.size());
             // 调试：打印模板 prompt 开头与末尾，排查"模型输出模板前缀/双前缀"问题
             std::string p0 = chat_params.prompt.substr(0, 250);
             std::string p1 = chat_params.prompt.size() > 250
@@ -3213,14 +3365,24 @@ public:
                 utf8Buffer = splitUtf8Complete(combined, completePart);
 
                 // ===== 思考段流式识别 =====
-                // 处理完整前缀中的 <think>/</think>：进入/退出思考态，标签不发给 UI
+                // 用模板标签（mThinkStartTag/mThinkEndTags）识别完整前缀中的思考段：
+                // 进入/退出思考态，标签不发给 UI（标签种类随模型模板变化，不硬编码）
                 if (!completePart.empty()) {
                     std::string filtered;       // 剥离标签后的正文（非思考部分）
                     filtered.reserve(completePart.size());
                     size_t pos = 0;
-                    const std::string thinkOpen = "<think>";
-                    const std::string thinkClose = "</think>";
-                    while (pos < completePart.size()) {
+                    // 思考标签统一用模板标签源（mThinkStartTag/mThinkEndTags）。
+                    // 模板未提供标签时不剥离，整段按正文下发——不再回退到 " thinking"/
+                    // " response" 这类硬编码 ChatML 片段：不同模板写法不同，猜错会把
+                    // 正文误判为思考而吞掉（或反过来把思考泄漏到正文）。
+                    const bool tagsAvailable = !mThinkStartTag.empty() && !mThinkEndTags.empty();
+                    const std::string& thinkOpen = mThinkStartTag;
+                    const std::vector<std::string>& endTags = mThinkEndTags;
+                    if (!tagsAvailable) {
+                        // 无模板标签：不做思考段识别，整段作为正文
+                        filtered.append(completePart);
+                    }
+                    while (tagsAvailable && pos < completePart.size()) {
                         if (!isInThinking) {
                             size_t open = completePart.find(thinkOpen, pos);
                             if (open == std::string::npos) {
@@ -3233,13 +3395,21 @@ public:
                                 pos = open + thinkOpen.size();
                             }
                         } else {
-                            size_t close = completePart.find(thinkClose, pos);
+                            size_t close = std::string::npos;
+                            size_t closeLen = 0;
+                            for (const auto& et : endTags) {
+                                size_t pp = completePart.find(et, pos);
+                                if (pp != std::string::npos && (close == std::string::npos || pp < close)) {
+                                    close = pp;
+                                    closeLen = et.size();
+                                }
+                            }
                             if (close == std::string::npos) {
                                 pos = completePart.size();   // 思考内容不发（折叠显示由 Java 端收集）
                             } else {
                                 isInThinking = false;
                                 LOGI("chatJson: thinking END detected");
-                                pos = close + thinkClose.size();
+                                pos = close + closeLen;
                             }
                         }
                     }
@@ -3254,6 +3424,20 @@ public:
                 if (!error.empty()) genError = error;   // R7-1：生成失败（isComplete+error）
             }
         };
+
+        // ===== step 6.5：meta 事件（首个 token 前下发）=====
+        // 把 chat template 推导出的思考标签交给 Java，Java 侧据此识别/剥离思考段，
+        // 不再硬编码 <think>/</think>。模板未提供标签时下发空串 + 空数组，
+        // Java 侧据此判定"该模型无思考段"，跳过剥离。
+        {
+            nlohmann::ordered_json meta;
+            meta["type"] = "meta";
+            meta["thinking_start_tag"] = mThinkStartTag;
+            meta["thinking_end_tags"] = mThinkEndTags;
+            jsonCallback(meta.dump());
+            LOGI("chatJson: meta event sent, thinking_start_tag='%s', %zu end tag(s)",
+                 mThinkStartTag.c_str(), mThinkEndTags.size());
+        }
 
         bool genOk = false;
         try {
@@ -3314,8 +3498,16 @@ public:
                 // 无 think 标签保护：仅当模型实际输出并闭合了 think 标记时才广播 reasoning。
                 // 否则（模型未输出 think 标签 / 未闭合，内容被 common_chat_parse 划入 reasoning）
                 // 不广播 reasoning，避免"无思考时把相同信息重新广播"；内容走下方 complete 兜底。
-                bool hasThinkEnd = collectedText.find("</think>") != std::string::npos
-                                || collectedText.find("</thought>") != std::string::npos;
+                // 用模板标签判定，不再硬编码 </think>/</thought>：GPT-OSS / MiniMax /
+                // Llama3 等模板的结束标记各不相同，硬编码会让 reasoning 被误抑制、
+                // 思考内容泄漏进正文。模板未提供标签时保持"不广播"行为。
+                bool hasThinkEnd = false;
+                for (const auto& tag : mThinkEndTags) {
+                    if (!tag.empty() && collectedText.find(tag) != std::string::npos) {
+                        hasThinkEnd = true;
+                        break;
+                    }
+                }
                 if (hasThinkEnd) {
                     nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", parsed.reasoning_content}};
                     jsonCallback(j.dump());
@@ -3331,7 +3523,7 @@ public:
                 // 保证内容只作为正文广播一次（不丢失、不重复）
                 std::string finalContent = parsed.content;
                 if (finalContent.empty() && !collectedText.empty()) {
-                    finalContent = stripThinkTags(collectedText);
+                    finalContent = stripThinkTags(collectedText, mThinkStartTag, mThinkEndTags);
                 }
                 nlohmann::ordered_json j = {{"type", "complete"}, {"content", finalContent}};
                 jsonCallback(j.dump());
@@ -3909,6 +4101,11 @@ private:
     llama_pos current_pos;
     int total_tokens_in_kv;
 
+    // ===== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====
+    static const llama_seq_id KV_SEQ = 1;
+    bool kvMemReady = false;      // KV 记忆 seq 1 是否已有内容
+    llama_pos kvMemNextPos = 0;   // 下一个可写位置（restore 后 = 恢复的 pos_max + 1）
+
     std::vector<llama_token> tokenize(const std::string& text, bool addBos = true) {
         int n_tokens = -llama_tokenize(vocab, text.c_str(), text.size(), NULL, 0, addBos, true);
         if (n_tokens < 0) return {};
@@ -4087,6 +4284,151 @@ private:
     }
 
 public:
+    // ===================== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====================
+    llama_context* getKvMemCtx() { return ctx; }
+    const llama_vocab* getKvMemVocab() { return vocab; }
+    bool isKvMemReady() const { return kvMemReady; }
+
+    /** 预加载长文本到 KV 记忆 seq 1：tokenize + decode，KV 写入 seq 1（独立于主 chat seq 0） */
+    bool kvMemPreload(const std::string& text) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (!ctx || !vocab) { LOGE("kvMemPreload: ctx/vocab null"); return false; }
+        std::vector<llama_token> tokens;
+        int n = -llama_tokenize(vocab, text.c_str(), text.size(), NULL, 0, true, true);
+        if (n <= 0) { LOGE("kvMemPreload: tokenize failed"); return false; }
+        tokens.resize(n);
+        if (llama_tokenize(vocab, text.c_str(), text.size(), tokens.data(), tokens.size(), true, true) < 0) {
+            LOGE("kvMemPreload: tokenize(2) failed"); return false;
+        }
+        const int nBatch = llama_n_batch(ctx);
+        const int bSize = nBatch > 0 ? nBatch : 256;
+        llama_pos pos = kvMemNextPos;
+        for (size_t off = 0; off < tokens.size(); off += (size_t)bSize) {
+            size_t cnt = std::min((size_t)bSize, tokens.size() - off);
+            llama_batch b = llama_batch_init((int)cnt, 0, 1);
+            for (size_t i = 0; i < cnt; i++) {
+                b.token[i] = tokens[off + i];
+                b.pos[i] = pos + (llama_pos)i;
+                b.seq_id[i][0] = KV_SEQ;
+                b.n_seq_id[i] = 1;
+            }
+            int rc = llama_decode(ctx, b);
+            llama_batch_free(b);
+            if (rc != 0) { LOGE("kvMemPreload: decode failed rc=%d off=%zu", rc, off); return false; }
+            pos += (llama_pos)cnt;
+        }
+        kvMemNextPos = pos;
+        kvMemReady = true;
+        LOGI("KV mem preloaded: %zu tokens -> seq1, nextPos=%d", tokens.size(), (int)kvMemNextPos);
+        return true;
+    }
+
+    /** 保存 KV 记忆 seq 1 完整 state 到 out（供落盘） */
+    bool kvMemGetState(std::vector<uint8_t>& out) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (!ctx) { LOGE("kvMemGetState: ctx null"); return false; }
+        size_t size = llama_state_seq_get_size(ctx, KV_SEQ);
+        if (size == 0) { LOGW("kvMemGetState: empty seq state"); return false; }
+        out.resize(size);
+        size_t n = llama_state_seq_get_data(ctx, out.data(), size, KV_SEQ);
+        LOGI("KV mem save: %zu bytes (seq1)", n);
+        return n == size && n > 0;
+    }
+
+    /** 从磁盘数据恢复 KV 记忆 seq 1；restore 前先 decode anchor 建立 cell（living-kv gotcha） */
+    bool kvMemRestore(const uint8_t* data, size_t size) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (!ctx || !vocab) { LOGE("kvMemRestore: ctx/vocab null"); return false; }
+        // living-kv gotcha：restore 需要附近已有 cell，fresh cache + far position 会 rc=-1。
+        // 先 decode 一个 anchor token 到 seq 1 pos0 建立 cell。
+        {
+            llama_batch anchor = llama_batch_init(1, 0, 1);
+            int bos = llama_vocab_bos(vocab);
+            anchor.token[0] = bos >= 0 ? bos : 151644;
+            anchor.pos[0] = 0;
+            anchor.seq_id[0][0] = KV_SEQ;
+            anchor.n_seq_id[0] = 1;
+            int rc = llama_decode(ctx, anchor);
+            llama_batch_free(anchor);
+            if (rc != 0) LOGW("kvMemRestore: anchor decode rc=%d (continue)", rc);
+        }
+        size_t n = llama_state_seq_set_data(ctx, data, size, KV_SEQ);
+        if (n == 0) { LOGE("kvMemRestore: set_data failed"); return false; }
+        llama_memory_t mem = llama_get_memory(ctx);
+        llama_pos pmax = mem ? llama_memory_seq_pos_max(mem, KV_SEQ) : 0;
+        kvMemNextPos = pmax + 1;
+        kvMemReady = true;
+        LOGI("KV mem restored: %zu bytes, posMax=%d, nextPos=%d", n, (int)pmax, (int)kvMemNextPos);
+        return true;
+    }
+
+    /** 在 KV 记忆 seq 1 上提问题并生成回答（基于已 restore/preload 的 KV，不重放历史） */
+    bool kvMemAsk(const std::string& question, int maxTokens, float temperature, std::string& out) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (!ctx || !vocab || !kvMemReady) { LOGE("kvMemAsk: not ready (kvMemReady=%d)", kvMemReady); return false; }
+        std::vector<llama_token> qtokens;
+        int n = -llama_tokenize(vocab, question.c_str(), question.size(), NULL, 0, false, true);
+        if (n <= 0) { LOGE("kvMemAsk: question tokenize failed"); return false; }
+        qtokens.resize(n);
+        if (llama_tokenize(vocab, question.c_str(), question.size(), qtokens.data(), qtokens.size(), false, true) < 0) return false;
+        const int nBatch = llama_n_batch(ctx);
+        const int bSize = nBatch > 0 ? nBatch : 256;
+        llama_pos pos = kvMemNextPos;
+        for (size_t off = 0; off < qtokens.size(); off += (size_t)bSize) {
+            size_t cnt = std::min((size_t)bSize, qtokens.size() - off);
+            llama_batch b = llama_batch_init((int)cnt, 0, 1);
+            for (size_t i = 0; i < cnt; i++) {
+                b.token[i] = qtokens[off + i];
+                b.pos[i] = pos + (llama_pos)i;
+                b.seq_id[i][0] = KV_SEQ;
+                b.n_seq_id[i] = 1;
+            }
+            int rc = llama_decode(ctx, b);
+            llama_batch_free(b);
+            if (rc != 0) { LOGE("kvMemAsk: question decode failed rc=%d", rc); return false; }
+            pos += (llama_pos)cnt;
+        }
+        kvMemNextPos = pos;
+        auto sparams = llama_sampler_chain_default_params();
+        sparams.no_perf = true;
+        llama_sampler* smpl = llama_sampler_chain_init(sparams);
+        if (temperature <= 0.0f) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+        } else {
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        }
+        int n_ctx_max = llama_n_ctx(ctx);
+        int n_decode = 0;
+        out = "";
+        while (n_decode < maxTokens && !shouldStop) {
+            if (kvMemNextPos >= n_ctx_max - 4) { LOGW("kvMemAsk: context full"); break; }
+            llama_token id = llama_sampler_sample(smpl, ctx, -1);
+            llama_sampler_accept(smpl, id);
+            if (llama_vocab_is_eog(vocab, id)) break;
+            char buf[128];
+            int k = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
+            if (k < 0) break;
+            std::string s(buf, k);
+            if (s.find("<|im_end|") != std::string::npos || s.find("</s>") != std::string::npos ||
+                s.find("<|endoftext|") != std::string::npos) break;
+            out += s;
+            llama_batch b1 = llama_batch_init(1, 0, 1);
+            b1.token[0] = id;
+            b1.pos[0] = kvMemNextPos;
+            b1.seq_id[0][0] = KV_SEQ;
+            b1.n_seq_id[0] = 1;
+            int rc = llama_decode(ctx, b1);
+            llama_batch_free(b1);
+            if (rc != 0) { LOGE("kvMemAsk: decode failed rc=%d", rc); break; }
+            kvMemNextPos++;
+            n_decode++;
+        }
+        llama_sampler_free(smpl);
+        LOGI("KV mem ask done: %d tokens, outLen=%zu", n_decode, out.size());
+        return !out.empty();
+    }
+
     NativeChatContext() : model(nullptr), ctx(nullptr), vocab(nullptr),
                           n_ctx(0), n_threads(4), shouldStop(false), isGenerating(false),
                           ownsModel(false), ownsContext(false),
@@ -5261,6 +5603,91 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatGetInfo(
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemPreload(
+    JNIEnv* env, jclass, jlong handle, jstring text) {
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeKvMemPreload: invalid handle");
+        return JNI_FALSE;
+    }
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeKvMemPreload: invalid chat context");
+        return JNI_FALSE;
+    }
+    const char* str = text ? env->GetStringUTFChars(text, nullptr) : nullptr;
+    if (!str) { LOGE("nativeKvMemPreload: text null"); return JNI_FALSE; }
+    std::string content(str);
+    env->ReleaseStringUTFChars(text, str);
+    bool ok = chatCtx->kvMemPreload(content);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemSave(
+    JNIEnv* env, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeKvMemSave: invalid handle");
+        return nullptr;
+    }
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeKvMemSave: invalid chat context");
+        return nullptr;
+    }
+    std::vector<uint8_t> state;
+    if (!chatCtx->kvMemGetState(state)) {
+        LOGE("nativeKvMemSave: kvMemGetState failed");
+        return nullptr;
+    }
+    jbyteArray arr = env->NewByteArray((jsize)state.size());
+    if (!arr) { LOGE("nativeKvMemSave: NewByteArray failed"); return nullptr; }
+    env->SetByteArrayRegion(arr, 0, (jsize)state.size(), reinterpret_cast<const jbyte*>(state.data()));
+    return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemRestore(
+    JNIEnv* env, jclass, jlong handle, jbyteArray data) {
+    if (!isValidChatHandle(handle)) {
+        LOGE("nativeKvMemRestore: invalid handle");
+        return JNI_FALSE;
+    }
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        LOGE("nativeKvMemRestore: invalid chat context");
+        return JNI_FALSE;
+    }
+    if (!data) { LOGE("nativeKvMemRestore: data null"); return JNI_FALSE; }
+    jsize len = env->GetArrayLength(data);
+    if (len <= 0) { LOGE("nativeKvMemRestore: empty data"); return JNI_FALSE; }
+    std::vector<uint8_t> buf((size_t)len);
+    env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
+    bool ok = chatCtx->kvMemRestore(buf.data(), buf.size());
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemAsk(
+    JNIEnv* env, jclass, jlong handle, jstring question, jint maxTokens, jfloat temperature) {
+    if (!isValidChatHandle(handle)) {
+        return env->NewStringUTF("No chat context");
+    }
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (!chatCtx || !chatCtx->isValid()) {
+        return env->NewStringUTF("No chat context");
+    }
+    const char* qstr = question ? env->GetStringUTFChars(question, nullptr) : nullptr;
+    if (!qstr) return env->NewStringUTF("Empty question");
+    std::string q(qstr);
+    env->ReleaseStringUTFChars(question, qstr);
+    std::string out;
+    if (!chatCtx->kvMemAsk(q, maxTokens > 0 ? maxTokens : 128, temperature, out)) {
+        return env->NewStringUTF("");
+    }
+    return env->NewStringUTF(out.c_str());
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
     JNIEnv* env, jclass, jlong handle, jstring globalPrompt, jstring systemPrompt, jstring normalPrompt) {
     LOGI("nativeChatUpdatePrompts called");
@@ -5523,9 +5950,36 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
         s_helperContext = nullptr;
         return -1;
     }
-    
+
+    // 模型加载后立刻提取模板思考标签并缓存：chatSend / generateStream 等推理路径
+    // 不经过 common_chat_templates_apply，靠这次预提取才能让 nativeGetThinkingTags
+    // 对它们同样有效（否则 Java 侧只能硬编码 <think>）。
+    s_helperContext->refreshThinkingTags();
+
     LOGI("LlamaHelper: Model initialized successfully");
     return 0;
+}
+
+// Forward decl: utf8StringToJstring defined later in this file.
+// nativeGetThinkingTags uses it before its definition; C++ needs the declaration first.
+static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str);
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetThinkingTags(JNIEnv* env, jclass /* clazz */) {
+    // 返回 {"thinking_start_tag":"<think>","thinking_end_tags":["</think>","<tool_call>"]}
+    // 模板未提供标签时返回空串 + 空数组，Java 侧据此判定"该模型无思考段"。
+    std::string start;
+    std::vector<std::string> ends;
+    if (s_helperContext != nullptr) {
+        start = s_helperContext->getThinkStartTag();
+        ends = s_helperContext->getThinkEndTags();
+    } else {
+        LOGW("nativeGetThinkingTags: helper context not initialized");
+    }
+    nlohmann::ordered_json j;
+    j["thinking_start_tag"] = start;
+    j["thinking_end_tags"] = ends;
+    return utf8StringToJstring(env, j.dump());
 }
 
 JNIEXPORT jstring JNICALL
@@ -6046,7 +6500,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetKvCacheType(
     JNIEnv* env,
     jclass /* clazz */,
     jint kvCacheType) {
-    LOGI("LlamaHelper: Setting KV cache type to %d (0=Q8_0省内存, 1=F16)", kvCacheType);
+    LOGI("LlamaHelper: Setting KV cache type to %d (0=Q8_0, 1=F16, 2=Q4_0)", kvCacheType);
     if (s_helperContext != nullptr) {
         s_helperContext->setKvCacheType(kvCacheType);
     }

@@ -53,6 +53,8 @@ public class AIServiceInitActivity extends BaseActivity {
     private View mmprojContainer;
     private ProgressBar mmprojProgress;
     private TextView tvMmprojStatus;
+    private ProgressBar modelProgress;
+    private TextView tvModelStatus;
 
     private final List<StepItem> steps = new ArrayList<>();
     private boolean running = false;
@@ -87,6 +89,8 @@ public class AIServiceInitActivity extends BaseActivity {
         mmprojContainer = findViewById(R.id.mmproj_container);
         mmprojProgress = findViewById(R.id.mmproj_progress);
         tvMmprojStatus = findViewById(R.id.tv_mmproj_status);
+        modelProgress = findViewById(R.id.model_progress);
+        tvModelStatus = findViewById(R.id.tv_model_status);
         modelPickerSection = findViewById(R.id.model_picker_section);
         modelPickerContainer = findViewById(R.id.model_picker_container);
         tvPickerHint = findViewById(R.id.tv_picker_hint);
@@ -529,6 +533,9 @@ public class AIServiceInitActivity extends BaseActivity {
                     tvStatus.setText(message);
                     int p = (int) Math.max(0f, Math.min(100f, percent < 0 ? ringProgress.getCurrentProgress() : (float) percent));
                     ringProgress.setProgress(p);
+                    // 主模型条形进度 + 百分比同步（与进度环一致）
+                    if (modelProgress != null) modelProgress.setProgress(p);
+                    if (tvModelStatus != null) tvModelStatus.setText(p + "%");
                     updateStepsByProgress(p, message);
                 });
             }
@@ -583,7 +590,8 @@ public class AIServiceInitActivity extends BaseActivity {
                     if (percent >= 0 && mmprojProgress != null) {
                         mmprojProgress.setProgress(Math.max(0, Math.min(100, percent)));
                     }
-                    if (tvMmprojStatus != null) {
+                    // 只在有效数据时更新文本（percent<0 为心跳，不覆盖真实下载量/总量，避免 0/0 闪回）
+                    if (tvMmprojStatus != null && totalMB > 0) {
                         tvMmprojStatus.setText(downloadedMB + " / " + totalMB + " MB");
                     }
                 });
@@ -656,13 +664,34 @@ public class AIServiceInitActivity extends BaseActivity {
         completed = false;
         // 重新显示模型选择区，允许用户换模型重试
         if (modelPickerSection != null) modelPickerSection.setVisibility(View.VISIBLE);
-        tvStatus.setText("❌ " + error);
+        tvStatus.setText("❌ " + friendlyError(error));
         tvTitle.setText("初始化未完成");
         if (btnAction != null) {
             btnAction.setEnabled(true);
             btnAction.setText("重试");
         }
         if (tvHint != null) tvHint.setText("可前往「模型下载」页面手动下载，或检查网络后重试");
+    }
+
+    /** 把底层技术化错误映射成用户可读的友好提示（下载失败/校验失败/存储不足等分类） */
+    private String friendlyError(String error) {
+        if (error == null || error.trim().isEmpty()) return "未知错误，请重试";
+        String e = error.toLowerCase();
+        if (e.contains("finalize") || e.contains("rename") || e.contains("校验") || e.contains("sha-256")) {
+            return "文件校验/保存失败，已自动重新下载，请稍后重试";
+        }
+        if (e.contains("connect") || e.contains("timeout") || e.contains("reset")
+                || e.contains("refused") || e.contains("unreachable") || e.contains("network")
+                || e.contains("网络") || e.contains("socket") || e.contains("dns")) {
+            return "网络连接失败，已自动切换备用下载源，请检查网络后重试";
+        }
+        if (e.contains("空间") || e.contains("no space") || e.contains("enospc")) {
+            return "存储空间不足，请清理后重试";
+        }
+        if (e.contains("cancel") || e.contains("取消")) {
+            return "已取消初始化";
+        }
+        return error;
     }
 
     // ==================== 动效 ====================

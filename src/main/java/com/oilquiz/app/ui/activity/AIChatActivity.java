@@ -95,6 +95,7 @@ import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
 import com.oilquiz.app.ai.chat.lifecycle.GenerationLifecycleManager;
 import com.oilquiz.app.ai.chat.streaming.StreamingTokenPipeline;
 import com.oilquiz.app.ai.chat.parser.OutputRouter;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ui.base.BaseActivity;
 
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -249,6 +250,8 @@ public class AIChatActivity extends BaseActivity {
     private OnlineModelManager.ModelChangeListener modelChangeListener;
     private volatile boolean isInTag = false;
     private volatile StringBuilder tagBuffer = null;
+    /** 模板思考标签（来自 chat template），供 legacy 兜底路径判断思考起止，不硬编码 */
+    private volatile ThinkingTagConfig legacyThinkingTags = ThinkingTagConfig.empty();
     // 流式 UI 更新节流：避免高频 token 导致主线程过载卡顿
     private static final long UI_UPDATE_THROTTLE_MS = 120;
     private volatile long lastTokenUiUpdateTime = 0;
@@ -4007,11 +4010,17 @@ public class AIChatActivity extends BaseActivity {
         final String msgId = java.util.UUID.randomUUID().toString();
         ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
         aiMsg.status = ChatMessage.MessageStatus.GENERATING;
-        chatHistory.add(aiMsg);
-        final int aiIndex = chatHistory.size() - 1;
-        if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
-        scrollToBottom();
-        beginGeneration();
+        // 本方法可能被后台线程调用（附件保存回调链 AttachmentManager→CompletableFuture→handleMultimodalImage），
+        // chatHistory/notifyItemInserted/scrollToBottom 必须在 UI 线程执行，否则抛
+        // IllegalStateException "Cannot call this method while RecyclerView is computing a layout or scrolling"
+        final int[] aiIndexRef = { -1 };
+        runOnUiThread(() -> {
+            chatHistory.add(aiMsg);
+            aiIndexRef[0] = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndexRef[0]);
+            scrollToBottom();
+            beginGeneration();
+        });
 
         new Thread(() -> {
             final StringBuilder full = new StringBuilder();
@@ -4021,7 +4030,7 @@ public class AIChatActivity extends BaseActivity {
                     runOnUiThread(() -> {
                         aiMsg.content = "图片识别失败: 本地视觉模型未就绪（mmproj 未加载或模型已切换），请稍后重试";
                         aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                         endGeneration();
                     });
                     return;
@@ -4034,14 +4043,14 @@ public class AIChatActivity extends BaseActivity {
                                 synchronized (full) { full.append(token); }
                                 runOnUiThread(() -> {
                                     synchronized (full) { aiMsg.content = full.toString(); }
-                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 });
                             }
                             @Override public void onComplete(String fullText) {
                                 runOnUiThread(() -> {
                                     aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
                                     aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                     endGeneration();
                                     scrollToBottom();
                                     saveHistoryAsync();
@@ -4051,7 +4060,7 @@ public class AIChatActivity extends BaseActivity {
                                 runOnUiThread(() -> {
                                     aiMsg.content = "图片识别失败: " + error;
                                     aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                     endGeneration();
                                 });
                             }
@@ -4061,7 +4070,7 @@ public class AIChatActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     aiMsg.content = "图片处理异常: " + e.getMessage();
                     aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                     endGeneration();
                 });
             }
@@ -4332,11 +4341,16 @@ public class AIChatActivity extends BaseActivity {
             final String msgId = java.util.UUID.randomUUID().toString();
             ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
             aiMsg.status = ChatMessage.MessageStatus.GENERATING;
-            chatHistory.add(aiMsg);
-            final int aiIndex = chatHistory.size() - 1;
-            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
-            scrollToBottom();
-            beginGeneration();
+            final int[] aiIndexRef = { -1 };
+            // 可能被后台线程调用（附件回调链 AttachmentManager→CompletableFuture→handleOnlineMultimodalImage），
+            // notifyItemInserted/scrollToBottom 必须在 UI 线程执行
+            runOnUiThread(() -> {
+                chatHistory.add(aiMsg);
+                aiIndexRef[0] = chatHistory.size() - 1;
+                if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndexRef[0]);
+                scrollToBottom();
+                beginGeneration();
+            });
 
             final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
             com.oilquiz.app.ai.service.OnlineInferenceService ois =
@@ -4344,10 +4358,12 @@ public class AIChatActivity extends BaseActivity {
             OnlineModelManager.OnlineModelConfig active =
                     onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
             if (ois == null || active == null) {
-                aiMsg.content = "在线模型未配置";
-                aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                endGeneration();
+                runOnUiThread(() -> {
+                    aiMsg.content = "在线模型未配置";
+                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                    if (aiIndexRef[0] >= 0 && chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                    endGeneration();
+                });
                 return;
             }
 
@@ -4374,14 +4390,14 @@ public class AIChatActivity extends BaseActivity {
                             if (token == null) return;
                             runOnUiThread(() -> {
                                 aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                             });
                         }
                         @Override public void onComplete(String fullText) {
                             runOnUiThread(() -> {
                                 aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : aiMsg.content;
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 endGeneration();
                                 scrollToBottom();
                                 saveHistoryAsync();
@@ -4393,7 +4409,7 @@ public class AIChatActivity extends BaseActivity {
                             runOnUiThread(() -> {
                                 aiMsg.content = "在线图片识别失败: " + error + "\n自动改用本地高精度 OCR 识别...";
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 endGeneration();
                                 // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
                                 processMessageWithAttachmentsViaAgent(originalMessage,
@@ -4767,6 +4783,8 @@ public class AIChatActivity extends BaseActivity {
         if (outputRouter != null) {
             outputRouter.reset();
             outputRouter.setThinkingEnabled(enableThinking);
+            outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
+            legacyThinkingTags = LlamaHelper.getThinkingTags();
         }
         isInThinking = enableThinking;
 
@@ -5024,6 +5042,8 @@ public class AIChatActivity extends BaseActivity {
             if (outputRouter != null) {
                 outputRouter.reset();
                 outputRouter.setThinkingEnabled(enableThinking);
+                outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
+                legacyThinkingTags = LlamaHelper.getThinkingTags();
             }
             isInThinking = enableThinking;
             // 每轮新执行前重置回调完成标志（AgentChatHandler 复用，防止上一轮的 completed=true
@@ -6034,9 +6054,18 @@ public class AIChatActivity extends BaseActivity {
 
     private void processTagBuffer(String tagContent) {
         if (tagContent == null) return;
-        if (tagContent.contains("think")) {
-            isInThinking = !tagContent.contains("/");
+        ThinkingTagConfig cfg = legacyThinkingTags;
+        if (cfg.isAvailable()) {
+            if (tagContent.contains(cfg.getStartTag())) {
+                isInThinking = true;
+            } else {
+                for (String end : cfg.getEndTags()) {
+                    if (tagContent.contains(end)) { isInThinking = false; break; }
+                }
+            }
         }
+        // 模板未提供标签时不切换思考状态：旧逻辑 tagContent.contains("think") 过于宽松，
+        // 会把普通含 "think" 字样的文本误判为思考起止，已弃用。
         if (tagBuffer != null) tagBuffer.setLength(0);
         isInTag = false;
     }
@@ -6072,9 +6101,9 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 boolean success = result != null && result.success;
                 String resultStr = result != null ? result.result : "无结果";
-                // 完成时传简略摘要（如"北京 26℃ 晴"），执行后的工具行不再空白
+                // 聊天记录存完整工具结果（可追溯）；卡片显示时由 ToolCallCardView 自行 summarize 成单行摘要
                 appendAgentToolCall(toolCallId, toolName, success ? "success" : "failed", null,
-                        com.oilquiz.app.ai.chat.component.ToolCallCardView.summarize(resultStr));
+                        resultStr);
                 setAgentStepStatus(success ? "✅ " + toolName + " 完成" : "⚠️ " + toolName + " 失败");
                 updateAgentStatusBar("✅ " + toolName + " 完成", false);
                 // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新

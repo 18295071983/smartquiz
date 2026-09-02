@@ -28,6 +28,10 @@
 - CV：**TFLite**（`Interpreter` + `MappedByteBuffer`）；OCR：**MLKit**。项目**未使用 MNN**。
 - 语音：`SpeechManager` 门面 + `TtsEngine` 策略（OpenAiTtsEngine / DashScopeTtsEngine / SystemTtsEngine）。
   在线 ASR 走 OpenAI 兼容 `/audio/transcriptions`；在线 TTS 走 `/audio/speech` 或 DashScope 原生。
+- 思考标签检测：**统一走模板，不硬编码**。native 从 GGUF 内置 chat template 提取
+  `mThinkStartTag`/`mThinkEndTags`（`refreshThinkingTags` + `nativeGetThinkingTags` JNI）；
+  Java 侧经 `LlamaHelper.getThinkingTags()` → `ThinkingTagConfig` 供 `OutputRouter` /
+  `ChatAdapter` 等使用。chatJson 路径另发 `{"type":"meta"}` 事件。
 
 ## 待办 / 已知问题
 

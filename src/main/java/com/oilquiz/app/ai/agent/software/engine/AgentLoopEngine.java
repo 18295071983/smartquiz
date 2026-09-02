@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
@@ -51,19 +52,25 @@ import java.util.regex.Pattern;
 public class AgentLoopEngine {
 
     private static final String TAG = "AgentLoopEngine";
-    /** Agent 总轮次上限（与上下文容量联动：8K 历史容量≈8-10轮完整保留，
-     *  12 轮为平衡点——再多则旧历史被裁剪、模型"忘前面"，轮次白给） */
-    private static final int MAX_ITERATIONS_BASE = 12;
+    /** Agent 总轮次上限（与上下文容量联动：32K 上下文预算≈26K，放宽到 16 轮，
+     *  复杂多步任务（搜索→读→分析→生成）不因轮次中途卡死；工具轮仍由
+     *  MAX_TOOL_ROUNDS=6 单独保护，防止小模型空转；旧历史由 trim+历史要点保留） */
+    private static final int MAX_ITERATIONS_BASE = 16;
     /** 循环保护：实际工具调用轮次上限（两跳检索+多工具链≈6轮够用，
-     *  6 覆盖 95% 任务且防小模型空转；去重/重复检测/时间预算仍兜底） */
-    private static final int MAX_TOOL_ROUNDS = 6;
-    /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理） */
-    private static final long TOTAL_TIME_BUDGET_MS = 180000;
+     *  提到 8 给"搜索→读→分析→生成"类多步任务余量；去重/重复检测/时间预算仍兜底） */
+    private static final int MAX_TOOL_ROUNDS = 8;
+    /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理）。
+     *  180s→300s：Qwen3VL-4B-Thinking 思考链 + 工具调用 + 最终整合在内存紧张
+     *  的真机上实测需 4-6 分钟，180s 会在思考中途被强制结束（虽走 unified exit
+     *  优雅降级，但回答完整性打折）。用户已确认"速度可以慢、功能正常优先"，
+     *  故放宽到 5 分钟；思考链冗长问题由规则 1 强约束抑制。 */
+    private static final long TOTAL_TIME_BUDGET_MS = 300000;
     /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
     private static final double PROMPT_BUDGET_RATIO = 0.8;
-    /** 工具结果最大字符数（超长时截断，节省上下文；2000→1200：network_search 等
-     *  大结果塞满上下文导致 prefill 变慢，12K 上下文下 1200 字符足够模型理解） */
-    private static final int MAX_TOOL_RESULT_LENGTH = 1200;
+    /** 工具结果最大字符数（超长时截断，节省上下文；放宽到 6000：天气/搜索等
+     *  结果不再因 1200 截断丢失关键数值——上一轮天气问题的根因。trim 阶段会把
+     *  更早的工具结果压缩到 2500，最近的保持完整，平衡信息完整性与上下文占用） */
+    private static final int MAX_TOOL_RESULT_LENGTH = 6000;
     /** 最终回复最大生成 token：放宽到 4000，长回答/长篇输出不被截断 */
     private static final int FINAL_RESPONSE_MAX_TOKENS = 4000;
     /** 普通对话（意图未命中）最大生成 token：放宽到 2000 */
@@ -76,8 +83,10 @@ public class AgentLoopEngine {
     private static final long SYNC_TIMEOUT_MS = 420000;
     /** 单轮推理最大生成 token（工具判断轮）：放宽到 800 */
     private static final int ITER_MAX_TOKENS = 800;
-    /** 单次执行最多注入的工具数（常驻 3 + 关键词命中，保证组合工具能力） */
-    private static final int MAX_TOOLS_PER_RUN = 5;
+    /** 单次执行最多注入的工具数（常驻 5 + 关键词命中，保证组合工具能力；
+     *  从 5 提到 7：扩大的常驻池（天气/搜索/计算/时间/位置）加关键词命中后
+     *  仍能全部注入，减少"查了才能调"的依赖） */
+    private static final int MAX_TOOLS_PER_RUN = 7;
     /** 工具 schema 的 token 预算：描述已截断为精简版（≤150 字符/工具），
      *  2000 token 可容纳全部 ~40 个工具注入——模型一眼看全工具池，
      *  减少 tool_registry 检索跳数；关键词命中工具仍排最前优先注入 */
@@ -164,7 +173,9 @@ public class AgentLoopEngine {
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
     /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
-    private static final String[] DEFAULT_CORE_TOOLS = {"ai_weather", "network_search"};
+    private static final String[] DEFAULT_CORE_TOOLS = {
+            "ai_weather", "network_search", "calculator", "time_date", "location"
+    };
 
     /** 动态工具关键词路由表：程序硬编码，消息命中关键词即注入对应动态工具
      *  （不依赖模型猜工具名；工具需已注册，未注册自动跳过） */
@@ -185,6 +196,11 @@ public class AgentLoopEngine {
     private LoopCallback callback;
     /** 最近一次 chatJson 生成是否已有正文 token 流式输出到 UI（防重复回复，见 run()） */
     private volatile boolean lastStreamed = false;
+    /**
+     * 当前模型的思考标签（来自 chat template，由 native meta 事件下发）。
+     * 未收到 meta 时为 empty，此时思考提取回退到旧的正则/字面量路径。
+     */
+    private volatile ThinkingTagConfig thinkingTags = ThinkingTagConfig.empty();
 
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
@@ -640,7 +656,7 @@ public class AgentLoopEngine {
                 if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
                 AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")
-                        + ": " + truncate(resultStr, 100));
+                        + ": " + truncate(resultStr, 800));
             }
 
             // 上下文长度兜底校验（trim 后理论上不会触发，作为安全网）
@@ -905,6 +921,11 @@ public class AgentLoopEngine {
                     JSONObject event = new JSONObject(json);
                     String type = event.optString("type", "");
                     switch (type) {
+                        case "meta":
+                            // 思考标签由 native 从 chat template 推导后下发，首个 token 前到达。
+                            // 每次生成都会覆盖，换模型/换模板时自动更新，无需 Java 侧硬编码。
+                            thinkingTags = ThinkingTagConfig.fromJson(event);
+                            break;
                         case "token":
                             // is_tool_call=true 的 token（tool_call JSON 片段）吞掉不渲染（§5.2）
                             if (!event.optBoolean("is_tool_call", false)) {
@@ -1215,20 +1236,45 @@ public class AgentLoopEngine {
      * 从完整文本中分离思考）和回答内容。
      */
     private String[] splitThinkingAndContent(String fullText) {
+        if (fullText == null) return new String[]{"", ""};
+
+        // 优先用模板标签（native meta 事件下发），换模型无需改代码；
+        // 未收到 meta 事件（老路径）时回退到 <think> 字面量
+        ThinkingTagConfig tags = thinkingTags;
+        final String startTag;
+        final List<String> endTags;
+        if (tags.isAvailable()) {
+            startTag = tags.getStartTag();
+            endTags = tags.getEndTags();
+        } else {
+            startTag = "<think>";
+            endTags = java.util.Collections.singletonList("</think>");
+        }
+
         String thinking = "";
         String content = fullText;
 
-        String thinkStartTag = "<think>";
-        String thinkEndTag = "</think>";
-        int thinkStart = fullText.indexOf(thinkStartTag);
-        int thinkEnd = fullText.indexOf(thinkEndTag);
+        int thinkStart = fullText.indexOf(startTag);
+        if (thinkStart < 0) return new String[]{content, thinking};
 
-        if (thinkStart >= 0 && thinkEnd > thinkStart) {
-            thinking = fullText.substring(thinkStart + thinkStartTag.length(), thinkEnd).trim();
-            content = fullText.substring(0, thinkStart) + fullText.substring(thinkEnd + thinkEndTag.length());
-            content = content.trim();
-        } else if (thinkStart >= 0 && thinkEnd < 0) {
-            thinking = fullText.substring(thinkStart + thinkStartTag.length()).trim();
+        int contentStart = thinkStart + startTag.length();
+        // 多个结束标签取最早出现者
+        int close = -1;
+        int closeLen = 0;
+        for (String tag : endTags) {
+            int p = fullText.indexOf(tag, contentStart);
+            if (p >= 0 && (close < 0 || p < close)) {
+                close = p;
+                closeLen = tag.length();
+            }
+        }
+
+        if (close >= 0) {
+            thinking = fullText.substring(contentStart, close).trim();
+            content = (fullText.substring(0, thinkStart) + fullText.substring(close + closeLen)).trim();
+        } else {
+            // 未闭合：开始标签之后全部视为思考残留
+            thinking = fullText.substring(contentStart).trim();
             content = fullText.substring(0, thinkStart).trim();
         }
 
@@ -1363,7 +1409,7 @@ public class AgentLoopEngine {
      * 预算 = prompt 预算 - 输出预留(1000) - 固定预留(512：system+用户问题+总结指令)；
      * 中文≈1 token/字符，故字符数直接取可用 token 数（保守上限）；
      * 至少保留 128 token 给工具结果，失败回退 MAX_TOOL_RESULT_LENGTH。
-     * 注：注入的是 user 消息（绕过 trim 对 tool 消息的 400 字符压缩），
+     * 注：注入的是 user 消息（绕过 trim 对 tool 消息的 2500 字符压缩），
      * 因此必须在注入时就按预算截断，否则 4K/8K 上下文下会撞预算。
      */
     private int toolResultInjectionLimitChars() {
@@ -1428,21 +1474,44 @@ public class AgentLoopEngine {
         AILogger.w(TAG, "Trimming history: " + total + " > " + budgetTokens + " tokens");
         List<ChatMessage> trimmed = new ArrayList<>(history);
 
-        // 1) 压缩工具结果（最占空间），从早到晚
+        // 1) 压缩工具结果（最占空间），从早到晚；阈值放宽到 2500：
+        //    最近一条工具结果在注入时已是完整 6000，这里只压更早的旧结果，
+        //    保证模型推理时手里拿着的是完整数据，而非被压到 400 的残片
         for (int i = 0; i < trimmed.size() && total > budgetTokens; i++) {
             ChatMessage m = trimmed.get(i);
-            if ("tool".equals(m.role) && m.content != null && m.content.length() > 400) {
-                trimmed.set(i, new ChatMessage(m.role, truncate(m.content, 400)));
+            if ("tool".equals(m.role) && m.content != null && m.content.length() > 2500) {
+                trimmed.set(i, new ChatMessage(m.role, truncate(m.content, 2500)));
                 total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
             }
         }
 
-        // 2) 仍超：从最旧消息开始丢弃（移除 index 1，system 之后第一个），
-        //    保留 system + 最新 N 轮。注意不能用 remove(size-2)：那会从中间删，
-        //    留下"最旧+最新"两条、丢掉中间较新的上下文（与注释宣称的保留最新 N 轮相反）
-        while (trimmed.size() > 3 && total > budgetTokens) {
-            trimmed.remove(1);
+        // 2) 仍超：从最旧消息开始，把要丢弃的非工具对话压缩成一条"历史要点"
+        //    （保留多轮指代上下文，如"那明天呢/多少钱"），而非直接丢弃丢光——
+        //    在线引擎用模型摘要历史，本地用轻量要点拼接兜底，保留关键事实。
+        //    保留 system + 最新 N 轮（注意不能用 remove(size-2)：那会从中间删，
+        //    留下"最旧+最新"两条、丢掉中间较新的上下文）
+        List<ChatMessage> evicted = new ArrayList<>();
+        while (trimmed.size() > 4 && total > budgetTokens) {
+            ChatMessage old = trimmed.remove(1);
+            if (old != null) evicted.add(old);
             total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
+        }
+        if (!evicted.isEmpty()) {
+            // 生成历史要点：只取最接近当前的多轮对话（最新优先，最多 4 条非工具），
+            // 每条截断 90 字符，作为一条 user 消息插入 system 之后，保留指代上下文
+            StringBuilder summary = new StringBuilder("【历史对话要点】(较早对话已压缩)");
+            int kept = 0;
+            for (int i = evicted.size() - 1; i >= 0 && kept < 4; i--) {
+                ChatMessage m = evicted.get(i);
+                if ("tool".equals(m.role) || m.content == null || m.content.trim().isEmpty()) continue;
+                String c = truncate(m.content, 90);
+                summary.append("\n").append("user".equals(m.role) ? "用户" : "助手").append(": ").append(c);
+                kept++;
+            }
+            if (kept > 0) {
+                trimmed.add(1, new ChatMessage("user", summary.toString()));
+                total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
+            }
         }
 
         AILogger.i(TAG, "History trimmed to " + trimmed.size() + " messages, " + total + " tokens");
@@ -1477,7 +1546,13 @@ public class AgentLoopEngine {
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         sb.append("你是答题宝AI助手，可用工具完成任务，中文简洁回答。\n\n");
-        // FC 模式不注入环境上下文：时间/位置经工具获取（见规则 3）
+        // FC 模式同样注入环境上下文：当前时间/位置为权威事实，模型直接采用，
+        // 避免被训练数据中的时间（如旧年份）或位置认知误导（例如误判"今天"的日期）。
+        try {
+            sb.append(buildEnvironmentContext()).append("\n");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
+        }
 
         // 工具能力速查表：让模型知道工具池里有什么（4B 模型不知道工具存在就永远不会调用；
         // 列表精简，完整工具经 tool_registry(list) 获取）。未注入的工具仍可直接调用，
@@ -1489,12 +1564,18 @@ public class AgentLoopEngine {
         sb.append("Excel→excel_tool；读文件→file_reader；工作区→workspace；题库→database；\n");
         sb.append("记住→memory；更多工具→tool_registry(list)。\n\n");
 
-        sb.append("【规则】\n");
-        sb.append("1. 需要工具时按模板输出 tool_call（一轮可多个并行）；收到结果后继续推理，信息齐备即直接回答，不再输出 tool_call。已注入的工具即本次最相关工具，优先直接用，勿为了凑数调用无关工具。\n");
-        sb.append("2. 上表之外的工具或不确定参数→tool_registry(list/search/get)，name 必须用列表或检索结果中的准确工具名，勿猜测缩写；UI控件参数→control_lookup；建UI→ui_component；图片/图表生成后必须用 ui_component(component_type=image) 展示。\n");
-        sb.append("3. 时间/日期/位置先调 time_date/dynamic_clock/location，禁止编造。查天气时缺城市/经纬度就不要传 city，程序会自动补当前位置（勿猜北京/上海等默认城市）；若用户明确说了城市则用用户说的。\n");
-        sb.append("4. 结构信息优先 ui_component 卡片展示；先结论后细节；说明工具来源。工具失败/报错时必须换替代方案：先看错误原因，再选【可用工具】表里的替代工具重试（如 ai_weather 失败→network_search 搜天气；file_reader 失败→python_file_ops；calculator 失败→python_calculate），不要直接放弃或重复调用同一失败工具。\n");
-        sb.append("5. 可多轮推理，每轮判断是否完成：完成→结论，未完成→继续，勿重复已执行调用；需用户输入时用 choice/input 组件询问。\n");
+        sb.append("【工作方式】\n");
+        sb.append("1. 简短思考（思考≤3句，想完就做），直接行动：【环境上下文】里的时间/位置直接采用，不要反复纠结\"是否已过时/要不要再调 time_date/location\"（除非用户明确要求精确到秒/实时定位）；一次调用一个最合适的工具；收到结果再决定下一步；信息齐备立即直接回答，不要连环调用无关工具、不要重复已执行过的调用。\n");
+        sb.append("2. 用【可用工具】表里的工具：常用工具的调用参数已在对话中给出，直接用；参数不确定的工具，先 tool_registry(get=工具名) 查参数再调，不要猜参数、不要自造工具名（名称以【可用工具】表或 tool_registry 返回为准）。\n");
+        sb.append("3. 收到工具结果后：信息足够→直接给出结论；不够→修正参数重试一次或换替代工具（如 ai_weather 失败→network_search 搜天气；file_reader 失败→python_file_ops；calculator 失败→python_calculate），不要反复重试同一个失败调用。\n");
+        sb.append("\n【环境事实】\n");
+        sb.append("4. \"今天/现在/几点/附近\"等指代一律以【环境上下文】给出的时间与位置为准，禁止凭训练记忆猜测年份或默认城市；环境上下文中的日期时间可能已过时，需要精确/实时的时间位置时再调 time_date/location。\n");
+        sb.append("5. 天气（ai_weather）：按用户问题选 action——问当前/现在天气→action=current；问明天/未来几天/预报→action=forecast；问每小时→action=hourly；问空气质量/雾霾→action=air_quality；问生活指数/穿衣→action=indices；未指定时默认 current。用户没说城市就勿传 city（程序自动用当前位置）；用户明确说了城市才传用户的。\n");
+        sb.append("\n【回答】\n");
+        sb.append("6. 中文、简洁、先结论后细节；结构信息用文本或简单表格展示即可，仅当用户明确要\"卡片/图表\"时才用 ui_component（其参数复杂，先 tool_registry(get=ui_component) 拿参数，填不对就退回文本）。\n");
+        sb.append("7. image_gen 生成的图片会自动内联显示在对话中，无需再调 ui_component；python_chart 生成的图表保存到工作区 files/，用文本告知保存路径即可。\n");
+        sb.append("8. 使用工具时简单说明数据来源；不确定的信息不要编造。\n");
+        sb.append("9. 需要用户补充信息时，用简短文本提问即可。\n");
         sb.append("\n");
         sb.append("【记忆】\n");
         sb.append("跨会话记忆（memory 工具）：用户要求记住或主动告知个人信息/偏好时 save（key 用英文短词）；回忆用 recall/list；忘记用 delete。\n");
@@ -1548,7 +1629,7 @@ public class AgentLoopEngine {
         if (location != null && !location.isEmpty()) {
             sb.append("当前位置：").append(location).append("\n");
         }
-        sb.append("（以上环境信息已自动获取，回答时可据此理解\"今天\"、\"附近\"等指代；时间/日期无需再调工具）");
+        sb.append("（以上环境信息已自动获取，回答时可据此理解\"今天\"、\"附近\"等指代；环境信息可能已过时，需要精确/实时的时间位置时请调 time_date/location 工具）");
         return sb.toString();
     }
 
@@ -1679,6 +1760,11 @@ public class AgentLoopEngine {
                     prop.put("type", p.getType());
                     prop.put("description", p.getDescription());
                     if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
+                    // 枚举值必须写入 schema：否则模型只能猜 action/type 等枚举参数，
+                    // 2B 模型容易只用第一个值（如 ai_weather 只用 current）
+                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                        prop.put("enum", new JSONArray(p.getEnumValues()));
+                    }
                     props.put(p.getName(), prop);
                     if (p.isRequired()) required.put(p.getName());
                 }
@@ -1785,6 +1871,13 @@ public class AgentLoopEngine {
 
     private String extractThought(String response) {
         if (response == null) return null;
+        // 优先用模板标签（native meta 事件下发）：换模型/换模板无需改 Java 代码
+        ThinkingTagConfig tags = thinkingTags;
+        if (tags.isAvailable()) {
+            String thought = extractBetweenTags(response, tags.getStartTag(), tags.getEndTags());
+            if (thought != null) return thought;
+        }
+        // 回退：未收到 meta 事件（老路径 generateWithToolsSync）时沿用旧正则
         Matcher m = THOUGHT_PATTERN.matcher(response);
         if (m.find()) {
             // 优先取 <think> 内容（group 1），其次取 <thought> 内容（group 2）
@@ -1792,6 +1885,28 @@ public class AgentLoopEngine {
             return think != null ? think.trim() : (m.group(2) != null ? m.group(2).trim() : null);
         }
         return null;
+    }
+
+    /**
+     * 按模板标签提取首个思考段内容（不含标签本身）。
+     * 多个结束标签取最早出现者；未闭合时取开始标签到结尾。
+     */
+    private String extractBetweenTags(String text, String startTag, List<String> endTags) {
+        if (text == null || text.isEmpty() || startTag.isEmpty()) return null;
+        int start = text.indexOf(startTag);
+        if (start < 0) return null;
+        int contentStart = start + startTag.length();
+        int close = -1;
+        for (String tag : endTags) {
+            if (tag.isEmpty()) continue;
+            int p = text.indexOf(tag, contentStart);
+            if (p >= 0 && (close < 0 || p < close)) close = p;
+        }
+        String thought = (close < 0)
+                ? text.substring(contentStart)
+                : text.substring(contentStart, close);
+        thought = thought.trim();
+        return thought.isEmpty() ? null : thought;
     }
 
     /**
