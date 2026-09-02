@@ -210,6 +210,7 @@ public final class AIServiceInitializer {
                 // 避免下载到错误版本/半截文件被误判为已就绪。
                 downloadManager.downloadFromCustomUrl(modelId + "_mmproj", preset.mmprojUrl,
                         mmprojExpectedBytes, preset.mmprojSha256,
+                        preset.backupMmprojUrl, preset.backupMmprojSha256,
                         new ModelDownloadManager.DownloadCallback() {
                             @Override
                             public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
