@@ -321,8 +321,8 @@ public class AgentLoopEngine {
                 String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
                 String locParam = cityId != null ? cityId : city;
                 sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
-                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索，由你按情况选。"
-                        + "若工具返回的城市与用户原意不符，再按用户原话选最合理的地名重查。\n";
+                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索。"
+                        + "工具返回的城市与用户原意不符时，按用户原话重查。\n";
             } else {
                 // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
                 sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，ai_weather 用经纬度查询最准——先用 location 工具定位拿 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
@@ -1586,27 +1586,26 @@ public class AgentLoopEngine {
 
         // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
         sb.append("【工具】\n");
-        sb.append("以下为常用对应，不限于此——同一需求可用不同/多个工具，由你按信息质量自主选择：\n");
+        sb.append("以下为常用对应，同一需求可用多个工具，选信息最准的：\n");
         sb.append("查天气→ai_weather（数据全：action 按需选 current/forecast/hourly/air_quality/indices/alerts/all；查当前位置实时天气用经纬度最准——先用 location 定位拿 lat/lon；查具体城市用 city 城市名或和风城市编码如101170101），也可 network_search 搜索；\n");
-        sb.append("查实时/新闻/百科→network_search 或 smart_research；查时间/日期→time_date（实时获取，即使环境上下文未注入也可调用）；查位置/坐标→location（实时定位）；\n");
+        sb.append("查实时/新闻/百科→network_search 或 smart_research；查时间/日期→time_date（实时获取）；查位置/坐标→location（实时定位）；\n");
         sb.append("计算→calculator 或 python_calculate；单位换算→unit_converter；文本处理→text_tools；\n");
         sb.append("画图→image_gen 或 dashscope_media；数据图表→python_chart；朗读→speech_synthesis；\n");
         sb.append("读/写文件→file_reader/file_generator；管理文件→workspace；题库→database；\n");
         sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n");
         sb.append("工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合；\n\n");
-        sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；不确定完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
+        sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
 
         sb.append("【做法】\n");
-        sb.append("1. 想清楚要什么，直接调对应的工具；用户给的参数（城市/编码/时间/位置等）直接照用先调用——工具会解析并返回结果，以工具返回为准，不要在调用前反复验证参数对不对。\n");
-        sb.append("2. 拿到工具结果就回答；需要补充信息就继续调，直到能回答为止。\n");
-        sb.append("   已知信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
-        sb.append("3. 工具失败换一个工具（如 ai_weather 失败→network_search），不重试同一个。\n");
-        sb.append("4. 不知道用什么工具→tool_registry(list)；不确定参数→tool_registry(get=工具名)。\n");
-        sb.append("5. 查时间/日期用 time_date，查位置/坐标用 location，不确定就直接调工具获取，不要依赖训练知识推断。\n");
-        sb.append("6. 推荐主动调用工具确认实际信息：时间/位置/天气/实时数据等，直接调对应工具拿真实结果，以工具返回为准，不依赖训练知识推断。\n\n");
+        sb.append("1. 直接调用工具。用户给的参数（城市/编码/时间/位置等）直接照用，先调用。\n");
+        sb.append("2. 工具返回的数据是准确实时的，直接采纳。\n");
+        sb.append("3. 信息不足时调用 network_search 或 smart_research 搜索补全再回答。\n");
+        sb.append("4. 工具失败换一个工具继续（ai_weather 失败→network_search）。\n");
+        sb.append("5. 查时间用 time_date，查位置用 location，查天气用 ai_weather。\n");
+        sb.append("6. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调工具。\n\n");
 
         sb.append("【回答】\n");
-        sb.append("中文简洁，先结论后细节；不确定的事直说不知道，不编造。\n");
+        sb.append("中文简洁，先结论后细节；没把握时直说不知道。\n");
         sb.append("有结构的信息（列表/表格）用文本或简单表格展示。\n\n");
 
         if (appContext != null) {

@@ -122,30 +122,13 @@ public class AIToolUsageGuide {
         sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
         sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
         sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
-        sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，以工具返回结果为准；不要在调用前反复验证参数是否正确——工具会解析并返回结果，参数有误时工具会返回错误，届时再按工具结果调整。\n");
-        sb.append("  13. 推荐主动调用工具确认实际信息：时间/位置/天气/实时数据等直接调对应工具拿真实结果，以工具返回为准，不依赖环境上下文或训练知识推断。\n\n");
+        sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
+        sb.append("  13. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n\n");
 
-        // 4. 典型调用示例
-        sb.append("【四、典型调用示例】\n");
-        sb.append("  以下示例示范各场景的常用用法（同一需求也可用其他工具，由你判断；调用时以原生 function calling 输出，不要构造 JSON 封装）：\n\n");
+        // 4. 典型调用示例（示例已删除：让模型根据工具定义自行组织调用，不照抄示例）
+        sb.append("【四、调用方式】\n");
         sb.append("  【选参原则】多数工具支持多种操作类型（action）与多种参数方式：先按用户当前需求选最匹配的 action，再填对应参数；\n");
-        sb.append("  如天气可查 current/forecast/hourly/air_quality/indices/alerts，位置可用 city(城市名或和风城市编码) 或 lat+lon；网络搜索可 search/ask/read_url/summarize。\n");
-        sb.append("  不确定某工具完整参数时，输出 [TOOL_INFO: 工具名] 或调用 tool_registry(action=get) 查看定义后再调用，不要只重复默认参数。\n\n");
-        sb.append("  示例1 查询天气：使用 ai_weather，按需选 action 与位置方式——\n");
-        sb.append("     · 当前天气(当前位置最准): action=current、lat/lon 用 location 定位或环境上下文经纬度\n");
-        sb.append("     · 当前天气(指定城市): action=current、city=北京（也可填和风编码或 lat/lon 经纬度）\n");
-        sb.append("     · 未来几天: action=forecast、city=北京\n");
-        sb.append("     · 逐小时: action=hourly、city=北京\n");
-        sb.append("     · 空气质量: action=air_quality、city=北京\n");
-        sb.append("     · 生活指数/预警: action=indices 或 alerts\n");
-        sb.append("  示例2 网络搜索并阅读：使用 network_search，参数 action=search_and_read、query=量子计算最新进展、limit=5\n");
-        sb.append("  示例3 数学计算：可用 calculator（简单计算）或 python_calculate（复杂计算），参数 expression=3.14*5*5\n");
-        sb.append("  示例4 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
-        sb.append("  示例5 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
-        sb.append("  示例6 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n");
-        sb.append("  示例7 生成图片：使用 image_gen，参数 prompt=一只在雪地里打滚的橘猫（描述越具体越好，可含风格）、width=1024、height=1024、model=flux（可选 flux-realism写实/flux-anime动漫/turbo快速）、style=photorealistic（可选）\n");
-        sb.append("  示例8 语音输入：使用 voice_input，参数 action=record_and_recognize、duration_seconds=15（先确保已授权录音权限）\n");
-        sb.append("  示例9 语音合成：使用 speech_synthesis，参数 text=你好，欢迎使用智能答题助手\n\n");
+        sb.append("  完整参数可调用 tool_registry(action=get) 查看定义后再调用。\n\n");
 
         // 5. 错误处理
         sb.append("【五、错误处理】\n");
