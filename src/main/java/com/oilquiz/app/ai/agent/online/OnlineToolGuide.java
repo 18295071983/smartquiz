@@ -124,7 +124,10 @@ public class OnlineToolGuide {
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
         sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
         sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
-        sb.append("  6. 如果已有足够信息，直接回答用户，不要调用不必要的工具\n\n");
+        sb.append("  6. 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时放心调用，是否调用由你自主判断；信息已足够时自然回答即可\n");
+        sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");
+        sb.append("     例如 ai_weather 可 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；network_search 可 search/ask/read_url/summarize。\n");
+        sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 

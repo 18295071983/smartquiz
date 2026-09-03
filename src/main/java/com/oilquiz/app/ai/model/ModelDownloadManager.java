@@ -637,6 +637,17 @@ public class ModelDownloadManager {
         return activeDownloads.get();
     }
 
+    /** 所有进行中（DOWNLOADING）下载任务的进度快照（供 UI 监控后台下载） */
+    public List<DownloadProgress> getActiveDownloadProgress() {
+        List<DownloadProgress> out = new ArrayList<>();
+        for (DownloadProgress p : downloadProgress.values()) {
+            if (p != null && p.state == DownloadState.DOWNLOADING) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
     public void cleanup() {
         executor.shutdown();
     }

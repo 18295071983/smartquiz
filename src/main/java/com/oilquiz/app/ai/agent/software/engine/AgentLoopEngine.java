@@ -440,13 +440,13 @@ public class AgentLoopEngine {
                     genResult = generateWithChatJsonSync(requestJson, streamedThisIteration);
                 } else {
                     // 回退开关：旧 generateWithTools 路径
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.7f, enableThinking);
                 }
             } catch (UnsatisfiedLinkError e) {
                 // §10.2：chatJson 不可用 → 自动切回旧路径；仍失败则本轮失败（模型原生 FC，无标签兜底）
                 AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
                 try {
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.6f, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.7f, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
                     AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
                 }
@@ -760,7 +760,7 @@ public class AgentLoopEngine {
             }
             // 旧路径：不带工具生成（native 层 tools 为空 → tool_choice=NONE）
             return generateWithToolsSync(summaryHistory, new byte[0],
-                    FINAL_RESPONSE_MAX_TOKENS, 0.6f, enableThinking);
+                    FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
         } catch (UnsatisfiedLinkError e) {
             AILogger.w(TAG, "Final answer generation: native unavailable: " + e.getMessage());
             return null;
@@ -786,7 +786,7 @@ public class AgentLoopEngine {
                 return generateWithChatJsonSync(requestJson, null);
             }
             return generateWithToolsSync(trimmed, new byte[0],
-                    PLAIN_CHAT_MAX_TOKENS, 0.6f, enableThinking);
+                    PLAIN_CHAT_MAX_TOKENS, 0.7f, enableThinking);
         } catch (Exception e) {
             AILogger.e(TAG, "Plain chat generation failed: " + e.getMessage());
             return null;
@@ -929,6 +929,7 @@ public class AgentLoopEngine {
         final boolean[] streamJsonDone = {false};
         final StringBuilder streamCloseBuf = new StringBuilder();
         final boolean[] done = {false};   // F10：幂等标志，error/complete 后忽略迟到事件
+        final boolean[] thinkingStreamedAgent = {false};   // 思考已实时累积（thinking 事件），reasoning 全文跳过防重复
 
         LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
             @Override
@@ -966,7 +967,20 @@ public class AgentLoopEngine {
                         case "tool_call":
                             toolCallsHolder.add(parseToolCallEvent(event));
                             break;
+                        case "thinking":
+                            // 实时思考增量事件：native 思考段每累积一段下发，思考区实时显示
+                            {
+                                String tk = event.optString("content", "");
+                                if (!tk.isEmpty()) {
+                                    thinkingStreamedAgent[0] = true;
+                                    reasoningBuf.append(tk);
+                                    if (callback != null) callback.onThinkingUpdate(tk);
+                                }
+                            }
+                            break;
                         case "reasoning":
+                            // 思考已实时累积（thinkingStreamedAgent）则全文跳过防重复
+                            if (thinkingStreamedAgent[0]) break;
                             String reasoning = event.optString("content", "");
                             if (!reasoning.isEmpty()) {
                                 reasoningBuf.append(reasoning);
@@ -1238,7 +1252,7 @@ public class AgentLoopEngine {
             req.put("tool_choice", toolChoice);
             req.put("enable_thinking", enableThinking);   // R8-1：调用方传入（Agent 模式默认 false）
             req.put("max_tokens", maxTokens);
-            req.put("temperature", 0.6f);
+            req.put("temperature", 0.7f);   // R8-2：本地 Agent 统一 0.7（Qwen3 官方默认）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
             req.put("top_p", 0.9f);
             req.put("top_k", 40);
 
@@ -1580,16 +1594,17 @@ public class AgentLoopEngine {
 
         // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
         sb.append("【工具】\n");
-        sb.append("查天气→ai_weather，参数 city=用户说的城市名（如 city=五台县），直接查，不用先查位置；\n");
+        sb.append("查天气→ai_weather：按需选 action（current当前/forecast未来几天/hourly逐小时/air_quality空气/indices生活指数/alerts预警/all全部），位置填 city=城市名 或 lat+lon 经纬度，直接查，不用先查位置；\n");
         sb.append("查实时/新闻→network_search；查时间→time_date；查位置→location；\n");
         sb.append("计算→calculator；单位换算→unit_converter；文本处理→text_tools；\n");
         sb.append("画图→image_gen；数据图表→python_chart；朗读→speech_synthesis；\n");
         sb.append("读/写文件→file_reader/file_generator；管理文件→workspace；题库→database；\n");
         sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n\n");
+        sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；不确定完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
 
         sb.append("【做法】\n");
-        sb.append("1. 想清楚要什么，只调 1 个最合适的工具；参数按【工具】提示填。\n");
-        sb.append("2. 拿到工具结果就回答；不够再补调，不要连环调用无关工具。\n");
+        sb.append("1. 想清楚要什么，直接调对应的工具；参数按【工具】提示填。\n");
+        sb.append("2. 拿到工具结果就回答；需要补充信息就继续调，直到能回答为止。\n");
         sb.append("3. 工具失败换一个工具（如 ai_weather 失败→network_search），不重试同一个。\n");
         sb.append("4. 不知道用什么工具→tool_registry(list)；不确定参数→tool_registry(get=工具名)。\n");
         sb.append("5. 时间/位置问题直接用【环境上下文】里的信息。\n\n");
@@ -1651,7 +1666,9 @@ public class AgentLoopEngine {
         // 肯定句收尾：删除原"环境信息可能已过时…"警告句——该否定句式会被 2B 小模型
         // 当作思考模板反复复读（实测复读几十次），是"乱思考"的直接触发源。
         // 时间/位置问题直接采用，不再诱导模型怀疑环境信息。
-        sb.append("（以上信息已自动获取，回答时间/位置问题时直接采用）");
+        // 信任强化：当前日期/位置是系统实时值，工具返回数据是实时权威，直接采用。
+        sb.append("（以上为系统实时获取的当前日期与位置，是当前权威事实；回答今天/现在/最新/几号等问题直接以此为准。");
+        sb.append("工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气等）也直接采用，不需要按训练时的旧信息推断）");
         return sb.toString();
     }
 

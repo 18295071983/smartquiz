@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AI 服务一键初始化 — 全屏引导界面（v2 重构：清晰分区 + 卡片化下载详情 + 双进度独立） -->
+<!-- AI 服务初始化 — 单屏引导（功能控件组合：步骤指示器 + 模型选择 + 下载进度 + 已下载列表） -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0D0A28">
 
-    <!-- 极光背景：渐变 + 流动光晕 + 粒子 -->
+    <!-- 极光背景 -->
     <com.oilquiz.app.ui.widget.AuroraBackgroundView
         android:id="@+id/aurora_bg"
         android:layout_width="match_parent"
@@ -40,7 +40,6 @@
         android:insetBottom="0dp"
         style="@style/Widget.Material3.Button.IconButton" />
 
-    <!-- 主内容 -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -52,46 +51,43 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center_horizontal"
-            android:paddingStart="28dp"
-            android:paddingEnd="28dp"
-            android:paddingTop="64dp"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingTop="44dp"
             android:paddingBottom="32dp">
 
-            <!-- ═══════════ 顶部品牌区 ═══════════ -->
+            <!-- ═══════════ 品牌区 ═══════════ -->
             <FrameLayout
                 android:id="@+id/logo_container"
-                android:layout_width="108dp"
-                android:layout_height="108dp">
+                android:layout_width="60dp"
+                android:layout_height="60dp">
 
                 <View
-                    android:id="@+id/logo_glow"
-                    android:layout_width="108dp"
-                    android:layout_height="108dp"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
                     android:background="@drawable/ai_init_logo_glow" />
 
                 <View
-                    android:id="@+id/logo_circle"
-                    android:layout_width="70dp"
-                    android:layout_height="70dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:layout_gravity="center"
                     android:background="@drawable/ai_init_logo_circle" />
 
                 <TextView
-                    android:id="@+id/logo_emoji"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="⚡"
-                    android:textSize="32sp" />
+                    android:textSize="22sp" />
             </FrameLayout>
 
             <TextView
                 android:id="@+id/tv_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="8dp"
                 android:text="AI 服务初始化"
-                android:textSize="23sp"
+                android:textSize="20sp"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold" />
 
@@ -99,43 +95,67 @@
                 android:id="@+id/tv_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="自动下载并配置本地模型 · 离线也能用"
-                android:textSize="13sp"
+                android:layout_marginTop="4dp"
+                android:text="下载模型 · 选择启用 · 初始化服务"
+                android:textSize="12sp"
                 android:textColor="#B0FFFFFF" />
 
-            <!-- ═══════════ 模型选择区（初始化前显示，开始后隐藏）═══════════ -->
+            <!-- ═══════════ 步骤指示器控件 ═══════════ -->
+            <com.oilquiz.app.ui.widget.InitStepIndicatorView
+                android:id="@+id/step_indicator"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp" />
+
+            <!-- ═══════════ 检测状态区（进入时短暂显示）═══════════ -->
+            <LinearLayout
+                android:id="@+id/check_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:indeterminateTint="#8E6CFF" />
+
+                <TextView
+                    android:id="@+id/tv_check_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="正在检测当前配置状态…"
+                    android:textSize="14sp"
+                    android:textColor="#D0FFFFFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 模型选择控件（选下载模型）═══════════ -->
             <LinearLayout
                 android:id="@+id/model_picker_section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="12dp"
                 android:orientation="vertical"
-                android:visibility="visible">
+                android:visibility="gone">
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:text="🎯 选择要下载的模型"
+                    android:textSize="15sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="🎯 选择要初始化的模型"
-                        android:textSize="15sp"
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tv_picker_hint"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="已选：1 个"
-                        android:textSize="12sp"
-                        android:textColor="#90FFFFFF" />
-                </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text="选择一个模型开始下载，下载完成后可进入下一步启用。"
+                    android:textSize="12sp"
+                    android:textColor="#90FFFFFF" />
 
                 <ScrollView
                     android:layout_width="match_parent"
@@ -144,197 +164,171 @@
                     android:maxHeight="280dp"
                     android:scrollbars="none">
 
-                    <LinearLayout
-                        android:id="@+id/model_picker_container"
+                    <com.oilquiz.app.ui.widget.ModelPickerView
+                        android:id="@+id/model_picker"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical" />
+                        android:layout_height="wrap_content" />
                 </ScrollView>
+
+                <TextView
+                    android:id="@+id/tv_pick_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="12sp"
+                    android:textColor="#8E6CFF" />
             </LinearLayout>
 
-            <!-- ═══════════ 推理参数入口 ═══════════ -->
+            <!-- ═══════════ 下载/初始化进度控件 ═══════════ -->
+            <com.oilquiz.app.ui.widget.DownloadProgressView
+                android:id="@+id/download_progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+
+            <!-- ═══════════ 已下载模型列表区 ═══════════ -->
+            <LinearLayout
+                android:id="@+id/select_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="✅ 下载完成 · 选择要启用的模型"
+                    android:textSize="15sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text="从已下载的模型列表中选择一个，点击后开始初始化服务。"
+                    android:textSize="12sp"
+                    android:textColor="#90FFFFFF" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/model_list_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:overScrollMode="never"
+                    android:scrollbars="none"
+                    android:clipToPadding="false"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp" />
+
+                <TextView
+                    android:id="@+id/tv_select_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textColor="#8E6CFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 完成态 ═══════════ -->
+            <LinearLayout
+                android:id="@+id/done_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="✅"
+                    android:textSize="52sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="AI 服务已就绪"
+                    android:textSize="19sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_done_model"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textColor="#8E6CFF"
+                    android:maxLines="2"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:text="本地模型已加载，现在可以离线对话、识图与智能问答了"
+                    android:textSize="13sp"
+                    android:textColor="#B0FFFFFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 底部导航 ═══════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="20dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_params"
+                    android:id="@+id/btn_prev"
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_height="52dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
                     android:minWidth="0dp"
-                    android:minHeight="0dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:text="⚙️ 推理参数"
-                    android:textSize="13sp"
-                    android:textColor="#B3E5FC" />
-
-                <TextView
-                    android:id="@+id/tv_params_summary"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:text="自动参数（推荐）"
-                    android:textSize="12sp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="上一步"
+                    android:textSize="14sp"
                     android:textColor="#90FFFFFF"
-                    android:maxLines="2"
-                    android:ellipsize="end" />
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_action"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/ai_init_btn_bg"
+                    android:text="开始下载"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="26dp"
+                    app:rippleColor="#33FFFFFF"
+                    android:textAllCaps="false"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
             </LinearLayout>
-
-            <!-- ═══════════ 进度展示区 ═══════════ -->
-            <com.oilquiz.app.ui.widget.GradientRingProgress
-                android:id="@+id/ring_progress"
-                android:layout_width="190dp"
-                android:layout_height="190dp"
-                android:layout_marginTop="22dp" />
-
-            <LinearLayout
-                android:id="@+id/steps_container"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal" />
-
-            <!-- ═══════════ 下载详情卡片（主模型 + 视觉模块 双进度独立）═══════════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:background="@drawable/ai_init_download_card"
-                android:orientation="vertical"
-                android:padding="14dp">
-
-                <!-- 主模型 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="📦 主模型"
-                        android:textSize="13sp"
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tv_model_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0%"
-                        android:textSize="12sp"
-                        android:textColor="#90FFFFFF" />
-                </LinearLayout>
-
-                <ProgressBar
-                    android:id="@+id/model_progress"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="6dp"
-                    android:layout_marginTop="8dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressTint="#6EC6FF"
-                    android:progressBackgroundTint="#26FFFFFF" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="14dp"
-                    android:background="#1AFFFFFF" />
-
-                <!-- 视觉模块（mmproj） -->
-                <LinearLayout
-                    android:id="@+id/mmproj_container"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/tv_mmproj_label"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="🧩 视觉模块"
-                            android:textSize="13sp"
-                            android:textColor="#C8FFFFFF"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tv_mmproj_status"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0 / 0 MB"
-                            android:textSize="12sp"
-                            android:textColor="#90FFFFFF" />
-                    </LinearLayout>
-
-                    <ProgressBar
-                        android:id="@+id/mmproj_progress"
-                        style="?android:attr/progressBarStyleHorizontal"
-                        android:layout_width="match_parent"
-                        android:layout_height="6dp"
-                        android:layout_marginTop="8dp"
-                        android:max="100"
-                        android:progress="0"
-                        android:progressTint="#8E6CFF"
-                        android:progressBackgroundTint="#26FFFFFF" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- ═══════════ 状态文案 ═══════════ -->
-            <TextView
-                android:id="@+id/tv_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:gravity="center"
-                android:minHeight="42dp"
-                android:text="准备就绪，即将开始…"
-                android:textColor="#D0FFFFFF"
-                android:textSize="14sp" />
-
-            <!-- ═══════════ 操作按钮 ═══════════ -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_action"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="16dp"
-                android:background="@drawable/ai_init_btn_bg"
-                android:text="开始初始化"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                app:cornerRadius="26dp"
-                app:rippleColor="#33FFFFFF"
-                android:textAllCaps="false"
-                android:insetTop="0dp"
-                android:insetBottom="0dp" />
 
             <TextView
                 android:id="@+id/tv_hint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="请保持网络畅通 · 首次约需下载 1.5 GB"
+                android:layout_marginTop="10dp"
+                android:text="需要网络下载模型，之后完全离线可用"
                 android:textSize="12sp"
                 android:textColor="#80FFFFFF" />
         </LinearLayout>

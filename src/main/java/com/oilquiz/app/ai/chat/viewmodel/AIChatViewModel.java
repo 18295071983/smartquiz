@@ -215,11 +215,15 @@ public class AIChatViewModel extends AndroidViewModel {
     private final MutableLiveData<Boolean> generatingStateLiveData = new MutableLiveData<>(false);
     private final MutableLiveData<String> errorLiveData = new MutableLiveData<>();
     private final MutableLiveData<Boolean> initializationLiveData = new MutableLiveData<>(false);
+    /** 在线思考实时流：postValue 增量 token；postValue(null) 表示思考结束（顶部单行据此显示/隐藏） */
+    private final MutableLiveData<String> onlineThinkingStream = new MutableLiveData<>();
 
     // 流式生成状态
     private StringBuilder currentStreamingContent;
     private StringBuilder currentThinkingContent;
     private boolean isInThinking = false;
+    /** 本轮是否已实时收到 thinking 增量事件：思考区已实时累积，reasoning 全文跳过防重复 */
+    private volatile boolean thinkingStreamedLocal = false;
     private int currentStreamingMessageIndex = -1;
 
     @Inject
@@ -500,13 +504,25 @@ public class AIChatViewModel extends AndroidViewModel {
                     }
 
                     @Override
+                    public void onThinkingToken(String token) {
+                        // 在线思考：气泡思考区（handleThinkingToken 同步 msg.thinkingContent）
+                        // + 顶部单行实时流（增量 token，null 由 onComplete 发）
+                        if (token != null && !token.isEmpty()) {
+                            handleThinkingToken(token);
+                            onlineThinkingStream.postValue(token);
+                        }
+                    }
+
+                    @Override
                     public void onComplete(String fullText) {
                         completeGeneration(fullText);
+                        onlineThinkingStream.postValue(null);   // 思考结束，顶部单行隐藏
                     }
 
                     @Override
                     public void onError(String error) {
                         handleGenerationError(error);
+                        onlineThinkingStream.postValue(null);
                     }
                 });
             } catch (Exception e) {
@@ -522,6 +538,7 @@ public class AIChatViewModel extends AndroidViewModel {
 
     private void startLocalInference(String message) {
         try {
+        thinkingStreamedLocal = false;
         executor.execute(() -> {
             try {
                 int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
@@ -545,7 +562,17 @@ public class AIChatViewModel extends AndroidViewModel {
                                     if (!token.isEmpty()) handleStreamingToken(token);
                                     break;
                                 }
+                                case "thinking": {
+                                    String tk = event.optString("content", "");
+                                    if (!tk.isEmpty()) {
+                                        thinkingStreamedLocal = true;
+                                        handleThinkingToken(tk);
+                                    }
+                                    break;
+                                }
                                 case "reasoning": {
+                                    // 思考已实时累积（thinkingStreamedLocal）则全文跳过防重复
+                                    if (thinkingStreamedLocal) break;
                                     String reasoning = event.optString("content", "");
                                     if (!reasoning.isEmpty()) handleThinkingToken(reasoning);
                                     break;
@@ -589,6 +616,16 @@ public class AIChatViewModel extends AndroidViewModel {
             org.json.JSONObject req = new org.json.JSONObject();
             req.put("action", "chat");
             org.json.JSONArray msgs = new org.json.JSONArray();
+            // 注入当前日期（权威事实）：防止模型用训练截止时间回答"今天几号/最新"类问题
+            try {
+                org.json.JSONObject sys = new org.json.JSONObject();
+                sys.put("role", "system");
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                        "yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+                sys.put("content", "当前日期：" + sdf.format(new java.util.Date())
+                        + "。这是系统实时提供的当前时间，回答今天/几号/当前时间/最新等问题以它为准，不要使用训练数据中的旧时间。");
+                msgs.put(sys);
+            } catch (Exception ignored) {}
             int historyEnd = currentStreamingMessageIndex >= 0 ? currentStreamingMessageIndex : chatMessages.size();
             List<ChatMessage> snapshot = chatMessages.toImmutableList();
             int start = Math.max(0, historyEnd - 20);
@@ -889,6 +926,10 @@ public class AIChatViewModel extends AndroidViewModel {
     /**
      * 获取生成状态（可观察）
      */
+    public LiveData<String> getOnlineThinkingStream() {
+        return onlineThinkingStream;
+    }
+
     public LiveData<Boolean> isGenerating() {
         return generatingStateLiveData;
     }

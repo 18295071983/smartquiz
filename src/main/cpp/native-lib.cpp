@@ -1050,6 +1050,10 @@ private:
     int decodeTokenCount;                                   // 纯 decode 速度：正文生成 token 数
     std::chrono::steady_clock::time_point thinkingStartTime; // 思考段速度：计时起点
     int thinkingTokenCount;                                 // 思考段速度：思考 token 数
+    std::chrono::steady_clock::time_point prefillStartTime;  // PREPROCESS 阶段：prefill 计时起点
+    int prefillDoneTokens;                                   // PREPROCESS 阶段：已处理 prompt token 数
+    int prefillTotalTokens;                                  // PREPROCESS 阶段：本轮 eval token 总数
+    int promptTotalTokens;                                   // 本轮完整 prompt token 数（含历史，用于统计显示）
     std::string thinkingBuffer_;                            // 实时思考内容监控：当前推理思考段累积
     std::string modelType;
     std::string chatTemplate;
@@ -1187,6 +1191,7 @@ public:
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
                          decodeTokenCount(0), thinkingTokenCount(0),
+                         prefillDoneTokens(0), prefillTotalTokens(0), promptTotalTokens(0),
                          modelType("unknown"), chatTemplate(""), mThinkStartTag("") {
         LOGI("InferenceContext created");
         
@@ -1547,9 +1552,9 @@ public:
         // 之前 8K 上下文 512 曾触发 OOM（模型 2.4GB 常驻 + KV buffer），现 12K 上下文
         // 内存池 2048MB、KV 峰值 1080MB 有余量；如仍 OOM 回退 256。
         int n_batch_actual = batchSize;
-        if (this->gpuLayers > 0 && n_batch_actual < 512) {
-            n_batch_actual = 512;
-            LOGI("GPU mode: increasing batch size to %d for better throughput", n_batch_actual);
+        if (this->gpuLayers > 0 && n_batch_actual < 1024) {
+            n_batch_actual = 1024;
+            LOGI("GPU mode: increasing batch size to %d for better prefill throughput", n_batch_actual);
         }
         if (n_batch_actual > MAX_BATCH_SIZE) {
             n_batch_actual = MAX_BATCH_SIZE;
@@ -2260,9 +2265,28 @@ public:
             }
             case GenPhase::GENERATING:
                 return getDecodeSpeed();
+            case GenPhase::PREPROCESS: {
+                // prefill 吞吐：已处理 prompt token / prefill 耗时
+                if (prefillDoneTokens == 0) return 0.0f;
+                auto endTime = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - prefillStartTime).count();
+                if (elapsed == 0) return 0.0f;
+                return (prefillDoneTokens * 1000.0f) / elapsed;
+            }
             default:
                 return 0.0f;
         }
+    }
+
+    // PREPROCESS 进度 JSON：{done, total, pct}
+    std::string getPrefillProgress() {
+        char buf[160];
+        int pct = prefillTotalTokens > 0
+            ? (int)((prefillDoneTokens * 100L) / prefillTotalTokens) : 0;
+        if (pct > 100) pct = 100;
+        snprintf(buf, sizeof(buf), "{\"done\":%d,\"total\":%d,\"pct\":%d,\"prompt\":%d}",
+                 prefillDoneTokens, prefillTotalTokens, pct, promptTotalTokens);
+        return std::string(buf);
     }
     
     int getTokenCount() {
@@ -2726,6 +2750,10 @@ public:
 
     bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
         setPhase(GenPhase::PREPROCESS, "incr:entry");
+        prefillStartTime = std::chrono::steady_clock::now();  // PREPROCESS：prefill 计时起点
+        prefillDoneTokens = 0;
+        prefillTotalTokens = 0;
+        promptTotalTokens = 0;
         if (isGenerating.exchange(true)) {
             LOGE("generateStreamIncremental: already generating, rejecting concurrent call");
             callback("", true, "Generation already in progress");
@@ -2835,6 +2863,7 @@ public:
 
         int n_ctx = llama_n_ctx(ctx);
         kvCache.setContextSize(n_ctx);   // KV 监控：记录 n_ctx 供上下文占用率计算
+        promptTotalTokens = (int)tokens_list.size();   // 完整 prompt 大小（含历史），供状态条统计显示
         LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
         // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
         // 只校验 prompt 本体是否放得下，预留固定生成余量。
@@ -2855,8 +2884,10 @@ public:
         LOG_MEM("before_prompt_decode");
 
         int ret = 0;
+        prefillTotalTokens = (int)evalTokens.size();
         for (size_t offset = 0; offset < evalTokens.size(); offset += batchSize) {
             size_t nTokens = std::min((size_t)batchSize, evalTokens.size() - offset);
+            prefillDoneTokens += (int)nTokens;   // PREPROCESS：逐块累积已处理 prompt token
             llama_batch prompt_batch = llama_batch_get_one(evalTokens.data() + offset, (int)nTokens);
             ret = llama_decode(ctx, prompt_batch);
             if (ret != 0) {
@@ -3463,14 +3494,19 @@ public:
             return false;
         }
 
-        // ===== step 7：生成阶段（generateStreamIncremental，enableThinking 恒传 false 交给模板）=====
+        // ===== step 7：生成阶段（阶段化处理器 + 状态机驱动）=====
         clearThinkingContent();             // 实时思考内容监控：新推理清空上一轮
+        // 状态机 GenPhase 是本阶段的单一事实源：
+        //   THINKING   → ThinkingStage：思考段识别/剥离/累积（思考内容监控）
+        //   GENERATING → GeneratingStage：tool_call 增量检测 + 发 token
+        // generateStreamIncremental 按 enableThinking=false 会在 gen_loop 置 GENERATING，
+        // 本层每个 token 回调后由 ThinkingStage 校正为实际阶段，保证 UI/监控对齐。
         std::string collectedText;          // 完整输出（原始字节，供 parse）
         std::string utf8Buffer;             // R9-1：token 级 UTF-8 完整性缓冲
         std::string genError;               // 生成失败信息（R7-1）
         // §5.2 第一阶段：required → 所有 token 标记 is_tool_call=true；auto/none → false
         bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
-        // 思考态识别：模板 enable_thinking=true 时模型会输出 <think>...</think>，
+        // 思考态识别：模板 enable_thinking=true 时模型会输出  thinking... response，
         // 生成循环 thinking=0（思考交给模板），故流式阶段需自行识别思考段——
         // 思考 token 标记 is_thinking=true（UI 折叠显示、不朗读），标签本身剥离
         // 关键：Qwen 模板把思考起始标签预置到 assistant 前缀（prompt 以 start tag 结尾），
@@ -3496,6 +3532,114 @@ public:
         const int PARTIAL_PARSE_INTERVAL = 4;   // 每收 N 个 token 检测一次（16→4：缩短泄漏窗口）
         int partialParseCounter = 0;
 
+        // ---- 阶段A：ThinkingStage —— 思考段流式识别（THINKING 阶段）----
+        // 用模板标签（mThinkStartTag/mThinkEndTags）识别完整前缀中的思考段：
+        // 进入/退出思考态，标签不发给 UI（标签种类随模型模板变化，不硬编码）；
+        // 思考内容累积到 thinkingBuffer_（实时思考内容监控），状态机校正为实际阶段。
+        auto thinkingStage = [&](const std::string& completePart, std::string& filtered) -> void {
+            filtered.reserve(completePart.size());
+            const bool tagsAvailable = !mThinkStartTag.empty() && !mThinkEndTags.empty();
+            if (!tagsAvailable) {
+                // 无模板标签：不做思考段识别，整段作为正文
+                filtered.append(completePart);
+                return;
+            }
+            const std::string& thinkOpen = mThinkStartTag;
+            const std::vector<std::string>& endTags = mThinkEndTags;
+            size_t pos = 0;
+            while (pos < completePart.size()) {
+                if (!isInThinking) {
+                    size_t open = completePart.find(thinkOpen, pos);
+                    if (open == std::string::npos) {
+                        filtered.append(completePart, pos, std::string::npos);
+                        pos = completePart.size();
+                    } else {
+                        filtered.append(completePart, pos, open - pos);
+                        isInThinking = true;
+                        setPhase(GenPhase::THINKING, "chatJson:think_start");
+                        LOGI("chatJson: thinking START detected");
+                        pos = open + thinkOpen.size();
+                    }
+                } else {
+                    // 思考中：确保状态机 THINKING。
+                    // gen_loop 按 enableThinking=0 曾置 GENERATING，覆盖 init_think 的 THINKING，
+                    // 若不纠正，UI 的 THINKING 分支（实时思考内容预览）永远不触发。
+                    setPhase(GenPhase::THINKING, "chatJson:think_monitor");
+                    size_t close = std::string::npos;
+                    size_t closeLen = 0;
+                    for (const auto& et : endTags) {
+                        size_t pp = completePart.find(et, pos);
+                        if (pp != std::string::npos && (close == std::string::npos || pp < close)) {
+                            close = pp;
+                            closeLen = et.size();
+                        }
+                    }
+                    if (close == std::string::npos) {
+                        // 思考内容不发流式 token（折叠显示由 Java 端收集），但实时累积供监控；
+                        // 同时实时下发 thinking 增量事件 → Java 思考区（msg.thinkingContent）实时滚动
+                        size_t sLen = thinkingBuffer_.size();
+                        thinkingBuffer_.append(completePart, pos, std::string::npos);
+                        if (thinkingBuffer_.size() > sLen) {
+                            nlohmann::ordered_json tj = {{"type", "thinking"},
+                                                         {"content", thinkingBuffer_.substr(sLen)}};
+                            jsonCallback(tj.dump());
+                        }
+                        pos = completePart.size();
+                    } else {
+                        size_t sLen = thinkingBuffer_.size();
+                        thinkingBuffer_.append(completePart, pos, close - pos);  // 实时思考内容监控
+                        if (thinkingBuffer_.size() > sLen) {
+                            nlohmann::ordered_json tj = {{"type", "thinking"},
+                                                         {"content", thinkingBuffer_.substr(sLen)}};
+                            jsonCallback(tj.dump());
+                        }
+                        isInThinking = false;
+                        setPhase(GenPhase::GENERATING, "chatJson:think_end");
+                        LOGI("chatJson: thinking END detected");
+                        pos = close + closeLen;
+                    }
+                }
+            }
+        };
+
+        // ---- 阶段B：GeneratingStage —— 正文 + 工具调用（GENERATING 阶段）----
+        // 增量检测 tool_call 起始并锁定 is_tool_call 标记；剥离后的正文发流式 token。
+        auto generatingStage = [&](const std::string& filtered) -> void {
+            if (filtered.empty()) return;
+            // 增量检测：仅 auto/none 且尚未进入 tool_call 时启用
+            if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
+                // 快速路径：collectedText 出现 tool_call 标签特征立即锁定，
+                // 不等 PARTIAL_PARSE_INTERVAL——避免 `<tool_call>` 前几个 token
+                // 以 is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）
+                if (collectedText.find("<tool_call>") != std::string::npos
+                        || collectedText.find("<tool_call") != std::string::npos
+                        || collectedText.find("<toolcall") != std::string::npos
+                        || collectedText.find("tool_call") != std::string::npos) {
+                    isInToolCall = true;
+                    LOGI("chatJson: fast-path detected tool_call output");
+                } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
+                    partialParseCounter = 0;
+                    try {
+                        common_chat_parser_params pp(chat_params);
+                        pp.parse_tool_calls = true;
+                        common_chat_msg partial = common_chat_parse(collectedText, true, pp);
+                        if (!partial.tool_calls.empty()) {
+                            isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
+                            LOGI("chatJson: is_partial detected tool_call output");
+                        }
+                    } catch (const std::exception& e) {
+                        LOGW("chatJson: partial parse failed (ignored): %s", e.what());
+                    }
+                }
+            }
+            // 思考内容本身不发流式 token（Java 端经 complete 的 reasoning 字段获取），
+            // 只发剥离标签后的正文；工具调用中标记 is_tool_call=true（UI 不朗读）
+            nlohmann::ordered_json j = {{"type", "token"}, {"content", filtered},
+                                        {"is_tool_call", isInToolCall}};
+            jsonCallback(j.dump());
+        };
+
+        // ---- tokenCallback：收集 → UTF-8 完整 → 阶段路由 ----
         auto tokenCallback = [&](const std::string& text, bool isComplete, const std::string& error) {
             if (!isComplete) {
                 if (!error.empty()) {
@@ -3503,106 +3647,20 @@ public:
                     return;
                 }
                 collectedText += text;
-                // 第二阶段增量检测：仅 auto/none 且尚未进入 tool_call 时启用
-                if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
-                    // 快速路径：collectedText 出现 tool_call 标签特征立即锁定，
-                    // 不等 PARTIAL_PARSE_INTERVAL——避免 `<tool_call>` 前几个 token
-                    // 以 is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）
-                    if (collectedText.find("<tool_call>") != std::string::npos
-                            || collectedText.find("<tool_call") != std::string::npos
-                            || collectedText.find("<toolcall") != std::string::npos
-                            || collectedText.find("tool_call") != std::string::npos) {
-                        isInToolCall = true;
-                        LOGI("chatJson: fast-path detected tool_call output");
-                    } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
-                        partialParseCounter = 0;
-                        try {
-                            common_chat_parser_params pp(chat_params);
-                            pp.parse_tool_calls = true;
-                            common_chat_msg partial = common_chat_parse(collectedText, true, pp);
-                            if (!partial.tool_calls.empty()) {
-                                isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
-                                LOGI("chatJson: is_partial detected tool_call output");
-                            }
-                        } catch (const std::exception& e) {
-                            LOGW("chatJson: partial parse failed (ignored): %s", e.what());
-                        }
-                    }
-                }
                 // R9-1：UTF-8 完整性——只发完整前缀，不完整尾部留在 buffer
                 std::string combined = utf8Buffer + text;
                 std::string completePart;
                 utf8Buffer = splitUtf8Complete(combined, completePart);
-
-                // ===== 思考段流式识别 =====
-                // 用模板标签（mThinkStartTag/mThinkEndTags）识别完整前缀中的思考段：
-                // 进入/退出思考态，标签不发给 UI（标签种类随模型模板变化，不硬编码）
-                if (!completePart.empty()) {
-                    std::string filtered;       // 剥离标签后的正文（非思考部分）
-                    filtered.reserve(completePart.size());
-                    size_t pos = 0;
-                    // 思考标签统一用模板标签源（mThinkStartTag/mThinkEndTags）。
-                    // 模板未提供标签时不剥离，整段按正文下发——不再回退到 " thinking"/
-                    // " response" 这类硬编码 ChatML 片段：不同模板写法不同，猜错会把
-                    // 正文误判为思考而吞掉（或反过来把思考泄漏到正文）。
-                    const bool tagsAvailable = !mThinkStartTag.empty() && !mThinkEndTags.empty();
-                    const std::string& thinkOpen = mThinkStartTag;
-                    const std::vector<std::string>& endTags = mThinkEndTags;
-                    if (!tagsAvailable) {
-                        // 无模板标签：不做思考段识别，整段作为正文
-                        filtered.append(completePart);
-                    }
-                    while (tagsAvailable && pos < completePart.size()) {
-                        if (!isInThinking) {
-                            size_t open = completePart.find(thinkOpen, pos);
-                            if (open == std::string::npos) {
-                                filtered.append(completePart, pos, std::string::npos);
-                                pos = completePart.size();
-                            } else {
-                                filtered.append(completePart, pos, open - pos);
-                                isInThinking = true;
-                                setPhase(GenPhase::THINKING, "chatJson:think_start");
-                                LOGI("chatJson: thinking START detected");
-                                pos = open + thinkOpen.size();
-                            }
-                        } else {
-                            // 思考中：确保状态机标记 THINKING。
-                            // gen_loop 曾按 enableThinking=0 置 GENERATING，覆盖 init_think 的 THINKING，
-                            // 若不纠正，UI 的 THINKING 分支（实时思考内容预览）永远不触发。
-                            setPhase(GenPhase::THINKING, "chatJson:think_monitor");
-                            size_t close = std::string::npos;
-                            size_t closeLen = 0;
-                            for (const auto& et : endTags) {
-                                size_t pp = completePart.find(et, pos);
-                                if (pp != std::string::npos && (close == std::string::npos || pp < close)) {
-                                    close = pp;
-                                    closeLen = et.size();
-                                }
-                            }
-                            if (close == std::string::npos) {
-                                // 思考内容不发流式 token（折叠显示由 Java 端收集），但实时累积供监控
-                                thinkingBuffer_.append(completePart, pos, std::string::npos);
-                                pos = completePart.size();
-                            } else {
-                                thinkingBuffer_.append(completePart, pos, close - pos);  // 实时思考内容监控
-                                isInThinking = false;
-                                setPhase(GenPhase::GENERATING, "chatJson:think_end");
-                                LOGI("chatJson: thinking END detected");
-                                pos = close + closeLen;
-                            }
-                        }
-                    }
-                    // 思考内容本身不发流式 token（Java 端经 complete 的 reasoning 字段获取），
-                    // 只发剥离标签后的正文；思考段用 reasoning 事件另行广播
-                    if (!filtered.empty()) {
-                        nlohmann::ordered_json j = {{"type", "token"}, {"content", filtered}, {"is_tool_call", false}};
-                        jsonCallback(j.dump());
-                    }
-                }
+                if (completePart.empty()) return;
+                // 阶段路由：ThinkingStage（思考剥离+状态机）→ GeneratingStage（tool_call+发 token）
+                std::string filtered;
+                thinkingStage(completePart, filtered);
+                generatingStage(filtered);
             } else {
                 if (!error.empty()) genError = error;   // R7-1：生成失败（isComplete+error）
             }
         };
+
 
         // ===== step 6.5：meta 事件（首个 token 前下发）=====
         // 把 chat template 推导出的思考标签交给 Java，Java 侧据此识别/剥离思考段，
@@ -6849,6 +6907,17 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetDecodeSpeed(
         return s_helperContext->getDecodeSpeed();
     }
     return 0.0f;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetPrefillProgress(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    if (s_helperContext != nullptr && s_helperContext->isValid()) {
+        std::string info = s_helperContext->getPrefillProgress();
+        return env->NewStringUTF(info.c_str());
+    }
+    return env->NewStringUTF("{\"done\":0,\"total\":0,\"pct\":0,\"prompt\":0}");
 }
 
 JNIEXPORT jint JNICALL

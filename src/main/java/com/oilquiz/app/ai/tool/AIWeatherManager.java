@@ -29,23 +29,27 @@ import java.util.HashMap;
 
 @Tool(
     value = "ai_weather",
-    description = "天气查询工具，获取指定城市的天气信息",
+    description = "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数。"
+            + "按用户需求选 action：current(实时,默认)/forecast(未来几天)/hourly(逐小时)/"
+            + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
+            + "位置用 city=城市名(如北京) 或 lat+lon 经纬度(二选一)。"
+            + "要未来天气→forecast，要空气质量→air_quality，要生活指数→indices。",
     category = "weather",
     aliases = {"weather", "get_weather"},
     actions = {
-        @Action(name = "current", description = "Get current weather"),
-        @Action(name = "forecast", description = "Get weather forecast"),
-        @Action(name = "hourly", description = "Get hourly weather"),
-        @Action(name = "air_quality", description = "Get air quality"),
-        @Action(name = "alerts", description = "Get weather alerts"),
-        @Action(name = "indices", description = "Get life indices"),
-        @Action(name = "all", description = "Get all weather info")
+        @Action(name = "current", description = "Get current weather (实时天气，默认)"),
+        @Action(name = "forecast", description = "Get weather forecast (未来几天预报)"),
+        @Action(name = "hourly", description = "Get hourly weather (逐小时天气)"),
+        @Action(name = "air_quality", description = "Get air quality (空气质量)"),
+        @Action(name = "alerts", description = "Get weather alerts (天气预警)"),
+        @Action(name = "indices", description = "Get life indices (生活指数)"),
+        @Action(name = "all", description = "Get all weather info (全部)")
     },
     params = {
-        @Param(name = "city", type = "string", description = "City name", required = false),
-        @Param(name = "lat", type = "float", description = "Latitude", required = false),
-        @Param(name = "lon", type = "float", description = "Longitude", required = false),
-        @Param(name = "action", type = "string", description = "Action type: current/forecast/hourly/air_quality/alerts/indices/all", required = false)
+        @Param(name = "city", type = "string", description = "City name 城市名(如北京、上海)，与经纬度二选一", required = false),
+        @Param(name = "lat", type = "float", description = "Latitude 纬度(与city二选一，配合lon)", required = false),
+        @Param(name = "lon", type = "float", description = "Longitude 经度(与city二选一，配合lat)", required = false),
+        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", required = false)
     }
 )
 public class AIWeatherManager implements AITool {

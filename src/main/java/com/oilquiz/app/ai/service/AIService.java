@@ -1068,6 +1068,14 @@ public class AIService implements ComponentCallbacks2 {
             int batchSize = resourceConfig.getOptimalBatchSize(LlamaHelper.getBatchSize());
             int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(LlamaHelper.getMemoryPoolSize());
 
+            // 4B 级模型（>1800MB）统一收紧：batch 减半降 prefill 峰值计算内存，
+            // 内存池收紧避免 native 按预算放行过大 KV（权重 2.4GB 常驻，需给系统留余量）。
+            if (modelSizeMB > 1800) {
+                batchSize = Math.min(batchSize, 512);
+                memoryPoolSize = Math.min(memoryPoolSize, 1200);
+                AILogger.i(TAG, "4B model: batch capped to " + batchSize + ", memory pool capped to " + memoryPoolSize + "MB");
+            }
+
             AILogger.i(TAG, "Initializing model with optimized parameters: " +
                     "gpuLayers=" + gpuLayers +
                     ", contextSize=" + contextSize +
@@ -1127,11 +1135,11 @@ public class AIService implements ComponentCallbacks2 {
                 kvCacheType = 2; // Q4_0：4B 无条件，KV 内存 -75%
                 AILogger.i(TAG, "4B model: enabling Q4_0 KV cache (KV memory ~75% saved, modelSize=" + modelSizeMB + "MB)");
             } else if (gpuLayers >= 24) {
-                // 小模型 GPU 全量（>=24 层）时 KV 用 Q8_0：省 50% 内存支撑全量 offload，
-                // Qwen3 hybrid-attention 上 Q8_0 近无损（官方 BLEU 1.000 @2x 压缩），
-                // 消除 8 层 CPU 瓶颈的同时控制内存，避免 LMK。
-                kvCacheType = 0; // Q8_0
-                AILogger.i(TAG, "Small model with full GPU offload (layers=" + gpuLayers + "): enabling Q8_0 KV cache (KV memory ~50% saved)");
+                // 小模型 GPU 全量（>=24 层）：保持 F16 KV（默认，快）。
+                // 2B 级模型 F16 KV 仅 ~350MB，Adreno 840 空闲 4.4GB 充足；Q8_0 虽省 ~50%
+                // 但 prefill/decode 的 KV 量化反量化开销显著拖慢吞吐（实测 prefill ~110t/s）。
+                // 大模型内存保护已由上方 modelSizeMB>1800 -> Q4_0 分支负责。
+                // kvCacheType 保持 1（F16），不再强制 Q8_0。
             }
             LlamaHelper.setKvCacheType(kvCacheType);
 
@@ -2632,7 +2640,10 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "Mid-large model (" + modelSizeMB + "MB): context capped to " + contextSize);
         } else if (modelSizeMB >= 1800) {
             // 4B 级（Qwen3-VL-4B Q4≈2381MB）也降档：KV 是 2B 的 ~1.6 倍（nLayer 28→36、nEmbd 2048→2560），
-            // 同 context 下内存压力显著更高，且 Agent 场景 8K 足够（历史有压缩）。
+            // 同 context 下内存压力显著更高，且 Agent 场景 6K 足够（历史有压缩）。
+            // 保持 8192（Agent 兼容底线）：Agent 第 1 轮 prompt 实测 ~6974 tokens（2B），
+            // 6144 减生成预留后仅 5632 可用会 Prompt too long。Q4_0 KV @8192 ≈ 288MB
+            // 可控；若 Q4_0 shader 回退 F16（≈768MB）再单独降档/换 Q8_0，不以牺牲 Agent 为代价。
             contextSize = Math.min(contextSize, 8192);
             AILogger.i(TAG, "4B-level model (" + modelSizeMB + "MB): context capped to " + contextSize);
         }

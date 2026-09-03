@@ -124,7 +124,15 @@ public class AIToolUsageGuide {
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");
         sb.append("  以下示例说明各场景应使用的工具与关键参数（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n\n");
-        sb.append("  示例1 查询天气：使用 ai_weather，参数 action=current、city=北京\n");
+        sb.append("  【选参原则】多数工具支持多种操作类型（action）与多种参数方式：先按用户当前需求选最匹配的 action，再填对应参数；\n");
+        sb.append("  如天气可查 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；网络搜索可 search/ask/read_url/summarize。\n");
+        sb.append("  不确定某工具完整参数时，输出 [TOOL_INFO: 工具名] 或调用 tool_registry(action=get) 查看定义后再调用，不要只重复默认参数。\n\n");
+        sb.append("  示例1 查询天气：使用 ai_weather，按需选 action 与位置方式——\n");
+        sb.append("     · 当前天气: action=current、city=北京（也可 lat/lon 经纬度）\n");
+        sb.append("     · 未来几天: action=forecast、city=北京\n");
+        sb.append("     · 逐小时: action=hourly、city=北京\n");
+        sb.append("     · 空气质量: action=air_quality、city=北京\n");
+        sb.append("     · 生活指数/预警: action=indices 或 alerts\n");
         sb.append("  示例2 网络搜索并阅读：使用 network_search，参数 action=search_and_read、query=量子计算最新进展、limit=5\n");
         sb.append("  示例3 数学计算：使用 python_calculate，参数 expression=3.14*5*5\n");
         sb.append("  示例4 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");

@@ -1016,6 +1016,22 @@ public class LlamaHelper {
 
     private static native float nativeGetPhaseSpeed();
 
+    /**
+     * PREPROCESS（prefill）阶段进度 JSON：{"done":已处理,"total":本轮总数,"pct":百分比}。
+     * 用于对话页状态条显示 prefill 进度；空闲返回 0/0。
+     */
+    public static String getPrefillProgress() {
+        if (!libraryLoaded) return null;
+        try {
+            return nativeGetPrefillProgress();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetPrefillProgress unavailable: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static native String nativeGetPrefillProgress();
+
     public static float getMemoryUsage() {
         if (!libraryLoaded) {
             AILogger.e(TAG, "Library not loaded, cannot get memory usage");

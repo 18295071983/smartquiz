@@ -44,7 +44,7 @@ public class OnlinePromptBuilder {
         sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");
         sb.append("  - tool_registry(action=search, keyword=关键词) 按需找工具\n");
         sb.append("  - tool_registry(action=get, tool=工具名) 取单个工具完整参数 schema\n");
-        sb.append("  不要凭空猜测工具名或参数，先查再调。\n\n");
+        sb.append("  工具名或参数拿不准时，用 tool_registry 查证后再调用。\n\n");
 
         sb.append(buildKnowledgeStrategySection());
 
@@ -67,9 +67,8 @@ public class OnlinePromptBuilder {
         sb.append("【推理能力】\n");
         sb.append("- 你可以多轮推理和调用工具，每次工具结果返回后你可以继续思考\n");
         sb.append("- 善用你的推理能力（reasoning），先思考再行动\n");
-        sb.append("- 如果已有足够信息，直接回答用户，不要调用不必要的工具\n");
-        sb.append("- 系统会对你每次回复进行评估询问，你需要明确判断是否完成任务\n");
-        sb.append("- 如果已完成，给出最终结论；如果还需要工作，继续调用工具或补充分析\n");
+        sb.append("- 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时直接调用，是否调用由你自主判断，不必犹豫\n");
+        sb.append("- 信息不足就继续调用工具或补充分析，信息足够就给出最终结论\n");
         sb.append("- 需要用户提供信息/做选择/确认时，用 ui_component 创建交互组件（choice/input/dialog 或带 actions 的卡片）问用户，再 get_result 取结果。\n");
 
         return sb.toString();
@@ -98,7 +97,7 @@ public class OnlinePromptBuilder {
         sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");
         sb.append("  - tool_registry(action=search, keyword=关键词) 按需找工具\n");
         sb.append("  - tool_registry(action=get, tool=工具名) 取单个工具完整参数 schema\n");
-        sb.append("  不要凭空猜测工具名或参数，先查再调。\n\n");
+        sb.append("  工具名或参数拿不准时，用 tool_registry 查证后再调用。\n\n");
 
         // 应用定制规则（模型内置知识没有这些，必须明确告知）
         sb.append("【调用规则】\n");

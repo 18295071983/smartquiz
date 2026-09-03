@@ -136,6 +136,12 @@ public class AIChatActivity extends BaseActivity {
     private TextView serviceStatusElapsed;
     private TextView tvGenPhase;
     private TextView tvKvStats;
+    // 顶部单行滚动切换：思考内容按行切段，轮播/跟随最新段显示
+    private java.util.List<String> thinkingSegments = new java.util.ArrayList<>();
+    private int thinkingSegmentIndex = 0;
+    private String lastThinkShown;
+    private int lastThinkLineCount = 0;   // 已动画的思考行数：换新行才触发滑入，同段增长仅实时更新
+    private final StringBuilder onlineThinkBuffer = new StringBuilder();  // 在线思考累积（顶部单行）
 
     // 状态条独立轮询：思考段不走 token 流式回调，需定时刷新 native 状态机 + KV
     private static final long STATE_POLL_INTERVAL_MS = 800L;
@@ -320,6 +326,22 @@ public class AIChatActivity extends BaseActivity {
             try {
                 ChatMessage msg = chatHistory.get(idx);
                 chatAdapter.updateMessageThinkingContent(idx, msg.thinkingContent);
+                // 顶部单行：thinking 事件驱动（120ms 节流），无 800ms 轮询限制。
+                // 连续性策略：同段内容增长只实时更新文本（不重启动画，自然连续）；
+                // 出现新行（换段）才刮刀式滑入动画，避免频繁重启造成的断续抖动。
+                if (isInThinking && tvGenPhase != null && tvGenPhase.getVisibility() == View.VISIBLE
+                        && msg.thinkingContent != null && !msg.thinkingContent.isEmpty()) {
+                    String disp = "💭 " + buildThinkingSegment(msg.thinkingContent);
+                    if (!disp.equals(lastThinkShown)) {
+                        tvGenPhase.setText(disp);
+                        lastThinkShown = disp;
+                        int lineCount = countThinkingLines(msg.thinkingContent);
+                        if (lineCount != lastThinkLineCount) {
+                            lastThinkLineCount = lineCount;
+                            startThinkingRollerAnim();
+                        }
+                    }
+                }
             } catch (IndexOutOfBoundsException e) {
                 currentStreamingMessageIndex = -1;
             }
@@ -798,6 +820,32 @@ public class AIChatActivity extends BaseActivity {
         chatViewModel.getInferenceProgress().observe(this, progress -> {
             if (progress == null) return;
             updateInferenceProgressUI(progress);
+        });
+
+        // 在线思考实时流 → 顶部单行显示（增量累积 + 段落切换动画；null 表示思考结束隐藏）
+        chatViewModel.getOnlineThinkingStream().observe(this, s -> {
+            try {
+                if (s == null) {
+                    onlineThinkBuffer.setLength(0);
+                    lastThinkShown = null;
+                    lastThinkLineCount = 0;
+                    if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
+                    return;
+                }
+                onlineThinkBuffer.append(s);
+                String full = onlineThinkBuffer.toString();
+                String disp = "💭 " + buildThinkingSegment(full);
+                if (!disp.equals(lastThinkShown) && tvGenPhase != null) {
+                    tvGenPhase.setVisibility(View.VISIBLE);
+                    tvGenPhase.setText(disp);
+                    lastThinkShown = disp;
+                    int lc = countThinkingLines(full);
+                    if (lc != lastThinkLineCount) {
+                        lastThinkLineCount = lc;
+                        startThinkingRollerAnim();
+                    }
+                }
+            } catch (Exception ignored) {}
         });
     }
 
@@ -7201,13 +7249,84 @@ public class AIChatActivity extends BaseActivity {
      * AgentKvCache 统计（JNI nativeGetKvCacheStats）。在线模型不适用 native 状态，
      * 自动隐藏。</p>
      */
+    /**
+     * 单行滚动切换：把思考内容按行切段，轮播/跟随最新段。
+     * 内容增长（新段出现）→ 跳到最新段（实时显示最新进展）；
+     * 内容停顿 → 轮播各段（滚动切换效果）。
+     */
+    private String buildThinkingSegment(String think) {
+        java.util.List<String> segs = new java.util.ArrayList<>();
+        for (String line : think.split("\n")) {
+            String t = line.trim();
+            if (!t.isEmpty()) segs.add(t);
+        }
+        if (segs.isEmpty()) {
+            segs.add(think);
+        }
+        int oldSize = thinkingSegments.size();
+        thinkingSegments = segs;
+        if (segs.size() > oldSize) {
+            // 内容增长：显示最新段（最新进展）
+            thinkingSegmentIndex = segs.size() - 1;
+        } else {
+            // 内容停顿：轮播到下一段（滚动切换）
+            thinkingSegmentIndex = (thinkingSegmentIndex + 1) % segs.size();
+        }
+        String seg = segs.get(thinkingSegmentIndex);
+        // 单行截断：保留最新尾部（最新思考）
+        if (seg.length() > 34) seg = seg.substring(seg.length() - 34);
+        return seg;
+    }
+
+    /** 思考文本按 \n 计行数（用于判断是否出现新段） */
+    private int countThinkingLines(String content) {
+        if (content == null) return 0;
+        int n = 1;
+        for (int i = 0; i < content.length(); i++) {
+            if (content.charAt(i) == '\n') n++;
+        }
+        return n;
+    }
+
+    /** 单行段落切换动画：新内容从左往右刮刀式滑入 + 柔和淡入（非跑马灯/打字机） */
+    private void startThinkingRollerAnim() {
+        try {
+            if (tvGenPhase == null) return;
+            android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
+            android.view.animation.TranslateAnimation ta = new android.view.animation.TranslateAnimation(
+                    android.view.animation.Animation.RELATIVE_TO_SELF, -0.6f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f);
+            ta.setDuration(320);
+            ta.setInterpolator(new android.view.animation.DecelerateInterpolator());
+            android.view.animation.AlphaAnimation aa = new android.view.animation.AlphaAnimation(0.3f, 1f);
+            aa.setDuration(320);
+            set.addAnimation(ta);
+            set.addAnimation(aa);
+            tvGenPhase.startAnimation(set);
+        } catch (Exception ignored) {}
+    }
+
+    /** 状态机阶段英文 → 中文显示 */
+    private String phaseToCn(String phase) {
+        if ("PREPROCESS".equals(phase)) return "预处理";
+        if ("THINKING".equals(phase)) return "思考中";
+        if ("GENERATING".equals(phase)) return "生成中";
+        if ("COMPLETE".equals(phase)) return "完成";
+        if ("ERROR".equals(phase)) return "出错";
+        if ("IDLE".equals(phase)) return "空闲";
+        return phase;
+    }
+
     private void refreshNativeStateUI() {
         try {
             // 在线模型：native 状态机不适用，隐藏
             boolean useOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
             if (useOnline) {
-                if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
                 if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
+                // tvGenPhase 在线由 onlineThinkingStream observe 实时驱动（思考时显示/结束后隐藏），
+                // 此处不强制 GONE，避免 800ms 轮询与实时 observe 互相覆盖闪烁；在线无 native 状态机/速度
                 return;
             }
             // 状态机栏：仅推理进行中显示；空闲/完成/无数据一律隐藏
@@ -7223,22 +7342,57 @@ public class AIChatActivity extends BaseActivity {
                         if ("GENERATING".equals(phase)) {
                             float ds = LlamaHelper.getDecodeSpeed();
                             if (ds > 0) {
-                                tvGenPhase.setText(String.format("⏳ %s · %.1f t/s", phase, ds));
+                                tvGenPhase.setText(String.format("⏳ 生成中 · %.1f t/s", ds));
                             } else {
-                                tvGenPhase.setText("⏳ " + phase);
+                                tvGenPhase.setText("⏳ 生成中");
                             }
-                        } else if ("THINKING".equals(phase)) {
-                            // 思考段实时显示模型思考内容预览（native 实时累积，截断防刷屏）
-                            String think = LlamaHelper.getThinkingContent();
-                            if (think != null && !think.isEmpty()) {
-                                String preview = think.replace('\n', ' ').replace('\r', ' ').trim();
-                                if (preview.length() > 60) preview = preview.substring(0, 60) + "…";
-                                tvGenPhase.setText("⏳ 思考中 " + preview);
+                        } else if ("PREPROCESS".equals(phase)) {
+                            // prefill 阶段：显示进度 + 吞吐（native 分块 decode 逐块统计）
+                            String pp = LlamaHelper.getPrefillProgress();
+                            if (pp != null && !pp.isEmpty()) {
+                                try {
+                                    org.json.JSONObject po = new org.json.JSONObject(pp);
+                                    int done = po.optInt("done", 0);
+                                    int total = po.optInt("total", 0);
+                                    int pct = po.optInt("pct", 0);
+                                    int prompt = po.optInt("prompt", 0);
+                                    if (total > 0) {
+                                        float ps = LlamaHelper.getPhaseSpeed();
+                                        if (ps > 0) {
+                                            if (prompt > 0) {
+                                                tvGenPhase.setText(String.format("⏳ 预处理 · %d tok · %d%% · %.1f t/s", prompt, pct, ps));
+                                            } else {
+                                                tvGenPhase.setText(String.format("⏳ 预处理 · %d%% · %.1f t/s", pct, ps));
+                                            }
+                                        } else {
+                                            if (prompt > 0) {
+                                                tvGenPhase.setText(String.format("⏳ 预处理 · %d tok · %d%%", prompt, pct));
+                                            } else {
+                                                tvGenPhase.setText(String.format("⏳ 预处理 · %d%%", pct));
+                                            }
+                                        }
+                                    } else {
+                                        tvGenPhase.setText("⏳ 预处理");
+                                    }
+                                } catch (Exception ignored) {
+                                    tvGenPhase.setText("⏳ 预处理");
+                                }
                             } else {
-                                tvGenPhase.setText("⏳ THINKING");
+                                tvGenPhase.setText("⏳ 预处理");
+                            }
+                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
+                            lastThinkLineCount = 0;
+                        } else if ("THINKING".equals(phase)) {
+                            // 顶部单行由 thinking 事件驱动（120ms 节流，无 800ms 轮询限制）：
+                            // 这里只负责首次进入思考时初始化显示，内容段落切换/动画交给 thinkingRefreshRunnable
+                            if (lastThinkShown == null) {
+                                tvGenPhase.setText("💭 ");
+                                lastThinkShown = "💭 ";
                             }
                         } else {
-                            tvGenPhase.setText("⏳ " + phase);
+                            tvGenPhase.setText("⏳ " + phaseToCn(phase));
+                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
+                            lastThinkLineCount = 0;
                         }
                         tvGenPhase.setVisibility(View.VISIBLE);
                         show = true;
@@ -7246,23 +7400,35 @@ public class AIChatActivity extends BaseActivity {
                 }
                 if (!show) tvGenPhase.setVisibility(View.GONE);
             }
-            // KV 缓存栏：有统计记录才显示
+            // KV 缓存栏：思考/生成（推理中）隐藏——位置留给思考内容/生成状态显示；
+            // 空闲时显示缓存状态（监控用，性能面板亦有完整卡片）
             if (tvKvStats != null) {
-                String j = LlamaHelper.getKvCacheStats();
-                boolean show = false;
-                if (j != null && !j.isEmpty()) {
-                    org.json.JSONObject o = new org.json.JSONObject(j);
-                    double hit = o.optDouble("hit_rate_pct", -1);
-                    double usage = o.optDouble("ctx_usage_pct", -1);
-                    int plans = o.optInt("plans", 0);
-                    if (hit >= 0 && plans > 0) {
-                        tvKvStats.setText(String.format("KV ⚡%.0f%% 占%.0f%%",
-                                hit, usage >= 0 ? usage : 0));
-                        tvKvStats.setVisibility(View.VISIBLE);
-                        show = true;
-                    }
+                boolean runningNow = false;
+                String gp = LlamaHelper.getGenPhase();
+                if (gp != null && !gp.isEmpty()) {
+                    try {
+                        runningNow = new org.json.JSONObject(gp).optBoolean("running", false);
+                    } catch (Exception ignored) {}
                 }
-                if (!show) tvKvStats.setVisibility(View.GONE);
+                if (runningNow) {
+                    tvKvStats.setVisibility(View.GONE);
+                } else {
+                    String j = LlamaHelper.getKvCacheStats();
+                    boolean show = false;
+                    if (j != null && !j.isEmpty()) {
+                        org.json.JSONObject o = new org.json.JSONObject(j);
+                        double hit = o.optDouble("hit_rate_pct", -1);
+                        double usage = o.optDouble("ctx_usage_pct", -1);
+                        int plans = o.optInt("plans", 0);
+                        if (hit >= 0 && plans > 0) {
+                            tvKvStats.setText(String.format("KV ⚡%.0f%% 占%.0f%%",
+                                    hit, usage >= 0 ? usage : 0));
+                            tvKvStats.setVisibility(View.VISIBLE);
+                            show = true;
+                        }
+                    }
+                    if (!show) tvKvStats.setVisibility(View.GONE);
+                }
             }
         } catch (Throwable t) {
             // 解析失败/异常：隐藏状态条，不影响主流程

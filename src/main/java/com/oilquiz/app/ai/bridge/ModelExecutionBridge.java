@@ -237,6 +237,8 @@ public class ModelExecutionBridge {
         private final StringBuilder bodyBuf = new StringBuilder();
         private final long startTime = System.currentTimeMillis();
         private int tokenCount = 0;
+        /** 本轮是否已实时收到 thinking 增量事件：思考区已实时累积，complete 的 reasoning 全文跳过防重复 */
+        private boolean thinkingStreamed = false;
 
         BridgeJsonCallback(String messageId, BridgeCallback callback) {
             this.messageId = messageId;
@@ -261,7 +263,23 @@ public class ModelExecutionBridge {
                         }
                         break;
                     }
+                    case "thinking": {
+                        // 实时思考增量事件：native 思考段每累积一段就下发，思考区实时滚动
+                        String tk = event.optString("content", "");
+                        if (!tk.isEmpty()) {
+                            thinkingStreamed = true;
+                            mainHandler.post(() -> {
+                                if (callback != null) {
+                                    callback.onThinkingUpdate(messageId, 1, "thinking", "思考", tk, 0);
+                                }
+                            });
+                        }
+                        break;
+                    }
                     case "reasoning": {
+                        // 若思考已实时累积（thinkingStreamed），全文不再追加（防思考区重复）；
+                        // 否则为 legacy 兜底（无 thinking 事件路径），照常一次性写入
+                        if (thinkingStreamed) break;
                         String reasoning = event.optString("content", "");
                         if (!reasoning.isEmpty()) {
                             mainHandler.post(() -> {

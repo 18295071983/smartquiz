@@ -393,6 +393,12 @@ public class InferenceRouter {
                     }
 
                     @Override
+                    public void onThinkingToken(String token) {
+                        // 转发在线思考（reasoning_content）增量
+                        callback.onThinkingToken(token);
+                    }
+
+                    @Override
                     public void onComplete(String fullText) {
                         callback.onComplete(fullText);
                     }
