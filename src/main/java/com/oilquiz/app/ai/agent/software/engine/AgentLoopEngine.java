@@ -320,8 +320,14 @@ public class AgentLoopEngine {
                     || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
             String city = extractCityFromMessage(userMessage);
             if (city != null && !city.isEmpty()) {
-                sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，直接用 ai_weather 工具，参数 city=" + city
-                        + "，action 按用户问法选（当前→current，预报→forecast，空气质量→air_quality，默认 current）。\n";
+                String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
+                String locParam = cityId != null ? cityId : city;
+                sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
+                        + "，这是 " + city + " 的和风城市编码，直接按编码查最精确；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索，由你按情况选。"
+                        + "若给出的城市与用户原意不符（带多余字/不像地名/明显错误），按用户原话选最合理的地名再查。\n";
+            } else {
+                // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
+                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，ai_weather 用经纬度查询最准——lat/lon 直接取【环境上下文】经纬度，或先用 location 工具定位拿坐标；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
             }
         }
         history.add(new ChatMessage("system", sysPrompt));
@@ -1594,20 +1600,23 @@ public class AgentLoopEngine {
 
         // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
         sb.append("【工具】\n");
-        sb.append("查天气→ai_weather：按需选 action（current当前/forecast未来几天/hourly逐小时/air_quality空气/indices生活指数/alerts预警/all全部），位置填 city=城市名 或 lat+lon 经纬度，直接查，不用先查位置；\n");
-        sb.append("查实时/新闻→network_search；查时间→time_date；查位置→location；\n");
-        sb.append("计算→calculator；单位换算→unit_converter；文本处理→text_tools；\n");
-        sb.append("画图→image_gen；数据图表→python_chart；朗读→speech_synthesis；\n");
+        sb.append("以下为常用对应，不限于此——同一需求可用不同/多个工具，由你按信息质量自主选择：\n");
+        sb.append("查天气→ai_weather（数据全：action 按需选 current/forecast/hourly/air_quality/indices/alerts/all；查当前位置实时天气用经纬度最准——lat/lon 直接取【环境上下文】经纬度，或先 location 定位拿坐标；查具体城市用 city 城市名或和风城市编码如101170101），也可 network_search 搜索；\n");
+        sb.append("查实时/新闻/百科→network_search 或 smart_research；查时间/日期→time_date（实时获取，即使环境上下文未注入也可调用）；查位置/坐标→location（实时定位）；\n");
+        sb.append("计算→calculator 或 python_calculate；单位换算→unit_converter；文本处理→text_tools；\n");
+        sb.append("画图→image_gen 或 dashscope_media；数据图表→python_chart；朗读→speech_synthesis；\n");
         sb.append("读/写文件→file_reader/file_generator；管理文件→workspace；题库→database；\n");
-        sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n\n");
+        sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n");
+        sb.append("工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合；\n\n");
         sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；不确定完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
 
         sb.append("【做法】\n");
         sb.append("1. 想清楚要什么，直接调对应的工具；参数按【工具】提示填。\n");
         sb.append("2. 拿到工具结果就回答；需要补充信息就继续调，直到能回答为止。\n");
+        sb.append("   已知信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
         sb.append("3. 工具失败换一个工具（如 ai_weather 失败→network_search），不重试同一个。\n");
         sb.append("4. 不知道用什么工具→tool_registry(list)；不确定参数→tool_registry(get=工具名)。\n");
-        sb.append("5. 时间/位置问题直接用【环境上下文】里的信息。\n\n");
+        sb.append("5. 时间/日期可用 time_date 工具实时获取，或直接用【环境上下文】；位置可用 location 或【环境上下文】，按需选择。\n\n");
 
         sb.append("【回答】\n");
         sb.append("中文简洁，先结论后细节；不确定的事直说不知道，不编造。\n");
@@ -1661,7 +1670,12 @@ public class AgentLoopEngine {
         }
         String location = getCachedLocation();
         if (location != null && !location.isEmpty()) {
-            sb.append("当前位置：").append(location).append("\n");
+            sb.append("当前位置：").append(location);
+            // 经纬度一并注入：查当前位置实时天气用经纬度最准，模型可直接取用（无需再调 location）
+            if (cachedLat != 0.0 || cachedLon != 0.0) {
+                sb.append("（经纬度 ").append(String.format(java.util.Locale.US, "%.4f,%.4f", cachedLon, cachedLat)).append("）");
+            }
+            sb.append("\n");
         }
         // 肯定句收尾：删除原"环境信息可能已过时…"警告句——该否定句式会被 2B 小模型
         // 当作思考模板反复复读（实测复读几十次），是"乱思考"的直接触发源。
@@ -2206,29 +2220,54 @@ public class AgentLoopEngine {
      * @param message 用户消息原文（可为空）
      * @return 城市名（含行政区后缀），无则返回 null
      */
+    /**
+     * 天气意图提取城市名：只用内置城市表做"消息内最长匹配"。
+     * 表上无该城市时返回 null（不猜测），由模型自行从用户消息提取城市名后调用 ai_weather。
+     */
     private String extractCityFromMessage(String message) {
         if (message == null || message.isEmpty()) return null;
         try {
-            // ① 带行政区后缀：五台县/北京市/金凤区/锡林郭勒盟/鄂尔多斯市
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("([\\u4e00-\\u9fa5]{2,8}?(?:自治州|地区|市|县|区|旗|盟))")
-                    .matcher(message);
-            if (m.find()) {
-                return m.group(1);
-            }
-            // ② 兜底："XX的天气/气温/温度"结构（XX 为 2-8 个汉字）
-            java.util.regex.Matcher m2 = java.util.regex.Pattern
-                    .compile("([\\u4e00-\\u9fa5]{2,8}?)(?:的)?(?:天气|气温|温度|天气预报|有没有雨|下不下雨)")
-                    .matcher(message);
-            if (m2.find()) {
-                String city = m2.group(1);
-                if (city != null
-                        && !city.matches("今天|明天|后天|这边|这里|那里|本地|附近|现在|当地|城里|外面|外面天气")) {
-                    return city;
+            // ① 内置城市表匹配（最长优先）：直接与 CSV 全量城市比对，不依赖正则，
+            //    避免"查询下/看一下/今天"等动词·时间词被吞进地名（"查询下五台县的天气"→"五台县"）
+            if (appContext != null) {
+                com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                        com.oilquiz.app.weather.QWeatherCityManager.getInstance(appContext);
+                java.util.List<String> hits = cityMgr.findCityNamesInMessage(message);
+                if (hits != null && !hits.isEmpty()) {
+                    return hits.get(0); // 最长 = 最精确
+                }
+                // ② 兜底：内置常用城市表（港澳台等 CSV 可能缺失）
+                for (String name : com.oilquiz.app.ai.tool.AIWeatherManager.getDefaultCityNames()) {
+                    if (name.length() >= 2 && message.contains(name)) {
+                        return name;
+                    }
                 }
             }
         } catch (Throwable t) {
             AILogger.w(TAG, "extractCityFromMessage failed: " + t.getMessage());
+        }
+        return null; // 表上无此城市 → 不猜，交由模型自行提取
+    }
+
+    /**
+     * 取城市名对应的和风城市编码（locationId），供 ai_weather 按编码查询（最精确，
+     * 避免"银川市/银川"等名称不匹配）。CSV 全量表 + 内置常用表都会查；无则 null。
+     */
+    private String getCityLocationId(String cityName) {
+        if (cityName == null || cityName.isEmpty()) return null;
+        try {
+            if (appContext != null) {
+                com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                        com.oilquiz.app.weather.QWeatherCityManager.getInstance(appContext);
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry = cityMgr.getCityByName(cityName);
+                if (entry != null && entry.locationId != null && !entry.locationId.isEmpty()) {
+                    return entry.locationId;
+                }
+                String id = com.oilquiz.app.ai.tool.AIWeatherManager.getDefaultCityId(cityName);
+                if (id != null && !id.isEmpty()) return id;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getCityLocationId failed for " + cityName + ": " + t.getMessage());
         }
         return null;
     }

@@ -122,12 +122,13 @@ public class OnlineToolGuide {
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
-        sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
+        sb.append("  4. 天气优先用 ai_weather（当前天气/多日预报完整返回；城市用 city，无城市可先 location 定位拿 lat/lon 配合查询），也可用 network_search 搜索天气；不要依赖注入的环境信息\n");
         sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
         sb.append("  6. 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时放心调用，是否调用由你自主判断；信息已足够时自然回答即可\n");
         sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");
         sb.append("     例如 ai_weather 可 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；network_search 可 search/ask/read_url/summarize。\n");
-        sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n\n");
+        sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n");
+        sb.append("  8. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造；不确定的时效性事实先查证再下结论。\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 

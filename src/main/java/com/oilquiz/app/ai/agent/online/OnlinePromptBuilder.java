@@ -33,7 +33,7 @@ public class OnlinePromptBuilder {
             // 降级：无指南时使用基础规范
             sb.append("【工具使用规范】\n");
             sb.append("1. 通过原生 function calling 调用工具，系统会自动执行并将结果返回。\n");
-            sb.append("2. 优先使用专用工具（如查询天气用 ai_weather，搜索用 network_search）。\n");
+            sb.append("2. 优先使用专用工具，不限于此：如查询天气可用 ai_weather 或 network_search，搜索用 network_search 或 smart_research，由你按情况选择。\n");
             sb.append("3. 工具可组合使用，可同时调用多个工具（并行）。\n");
             sb.append("4. 工具失败时分析原因：参数错误则修正重试，工具不适用则更换工具。\n");
             sb.append("5. 同一工具连续失败2次应更换策略或向用户澄清。\n\n");
@@ -104,7 +104,7 @@ public class OnlinePromptBuilder {
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
-        sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
+        sb.append("  4. 查询天气优先用 ai_weather（当前天气/多日预报完整返回；城市用 city，无城市可先 location 定位拿 lat/lon 配合查询），也可用 network_search 搜索；不要依赖注入的环境信息\n");
         sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n\n");
 
         sb.append(buildKnowledgeStrategySection());

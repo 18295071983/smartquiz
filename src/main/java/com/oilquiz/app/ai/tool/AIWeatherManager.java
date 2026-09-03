@@ -32,7 +32,8 @@ import java.util.HashMap;
     description = "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数。"
             + "按用户需求选 action：current(实时,默认)/forecast(未来几天)/hourly(逐小时)/"
             + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
-            + "位置用 city=城市名(如北京) 或 lat+lon 经纬度(二选一)。"
+            + "位置用 city=城市名(如北京) 或 和风城市编码(如101170101) 或 lat+lon 经纬度(二选一)。"
+            + "查当前位置实时天气用经纬度(lat+lon)最准，其次城市编码，其次城市名。"
             + "要未来天气→forecast，要空气质量→air_quality，要生活指数→indices。",
     category = "weather",
     aliases = {"weather", "get_weather"},
@@ -46,9 +47,9 @@ import java.util.HashMap;
         @Action(name = "all", description = "Get all weather info (全部)")
     },
     params = {
-        @Param(name = "city", type = "string", description = "City name 城市名(如北京、上海)，与经纬度二选一", required = false),
-        @Param(name = "lat", type = "float", description = "Latitude 纬度(与city二选一，配合lon)", required = false),
-        @Param(name = "lon", type = "float", description = "Longitude 经度(与city二选一，配合lat)", required = false),
+        @Param(name = "city", type = "string", description = "City name 城市名(如北京) 或 和风城市编码(如101170101)，与经纬度二选一", required = false),
+        @Param(name = "lat", type = "float", description = "Latitude 纬度(查当前位置实时天气用经纬度最准；与city二选一，配合lon)", required = false),
+        @Param(name = "lon", type = "float", description = "Longitude 经度(查当前位置实时天气用经纬度最准；与city二选一，配合lat)", required = false),
         @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", required = false)
     }
 )
@@ -900,7 +901,22 @@ public class AIWeatherManager implements AITool {
         put("澳门", "101330101");
     }};
 
+    /** 内置常用城市名列表（供天气意图提取兜底，覆盖 CSV 可能缺失的港澳台等） */
+    public static java.util.List<String> getDefaultCityNames() {
+        return new java.util.ArrayList<>(DEFAULT_CITY_IDS.keySet());
+    }
+
+    /** 内置常用城市表查询：城市名 → 和风城市编码；无则 null */
+    public static String getDefaultCityId(String name) {
+        return name == null ? null : DEFAULT_CITY_IDS.get(name);
+    }
+
     private String getHefengLocationId(String city) throws Exception {
+        // 0. 已是和风城市编码（纯数字 ID）→ 直接返回，不绕查询链路
+        if (city != null && city.matches("\\d{6,12}")) {
+            return city;
+        }
+
         // 1. 内置常用城市表
         String defaultId = DEFAULT_CITY_IDS.get(city);
         if (defaultId != null) {
@@ -3703,7 +3719,7 @@ public class AIWeatherManager implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
         descriptions.put("action", "操作类型: current(当前天气), forecast(天气预报), hourly(24小时预报), air_quality(空气质量), alerts(天气预警), indices(生活指数), all(全部信息), one_call(详细天气)");
-        descriptions.put("city", "城市名称（用于按城市查询）");
+        descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
         descriptions.put("lat", "纬度（用于按坐标查询）");
         descriptions.put("lon", "经度（用于按坐标查询）");
         descriptions.put("provider", "API提供商: hefeng(和风天气,默认), openweathermap");

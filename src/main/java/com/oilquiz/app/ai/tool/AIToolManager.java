@@ -994,15 +994,15 @@ public class AIToolManager {
                 return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
                         + "action: current(实时天气,默认)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
                         + "alerts(预警)/indices(生活指数)/all(全部)。"
-                        + "city=城市名(如北京/上海) 或 lat+lon=经纬度二选一。"
+                        + "city=城市名(如北京/上海) 或 和风城市编码(如101170101) 或 lat+lon=经纬度二选一。"
                         + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
                         + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
                         + "查询天气时优先用本工具（实时数据，禁止凭训练知识编造）。"
                         + "别名: get_weather/weather。")
                     .addParameter("action", "string", "操作类型: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", false, "current")
-                    .addParameter("city", "string", "城市名称，如：北京、上海（与经纬度二选一）", false)
-                    .addParameter("lat", "number", "纬度（与city二选一，配合lon）", false)
-                    .addParameter("lon", "number", "经度（与city二选一，配合lat）", false)
+                    .addParameter("city", "string", "城市名称(如北京) 或 和风城市编码(如101170101)（与经纬度二选一）", false)
+                    .addParameter("lat", "number", "纬度（查当前位置实时天气用经纬度最准；与city二选一，配合lon）", false)
+                    .addParameter("lon", "number", "经度（查当前位置实时天气用经纬度最准；与city二选一，配合lat）", false)
                     .category("weather")
                     .build();
             case "network_search":

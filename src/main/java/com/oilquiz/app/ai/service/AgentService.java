@@ -474,10 +474,10 @@ public class AgentService {
         StringBuilder sb = new StringBuilder();
         sb.append("[工具使用说明]\n\n");
         sb.append("当需要使用工具时，使用原生 function calling 直接输出工具调用（无需任何 JSON 封装或文本标记）。\n\n");
-        sb.append("常用工具示例（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n");
-        sb.append("  • 查天气：使用 ai_weather 工具，参数 city=北京、action=current\n");
-        sb.append("  • 计算器：使用 python_calculate 工具，参数 expression=3+5\n");
-        sb.append("  • 搜索：使用 network_search 工具，参数 query=人工智能\n\n");
+        sb.append("常用工具示例（调用时以原生 function calling 输出，不要构造 JSON 封装；同一需求可用不同工具，由你判断）：\n");
+        sb.append("  • 查天气：可用 ai_weather 工具（参数 city=北京，action 按需选 current/forecast/hourly/air_quality/indices；无城市可先 location 定位拿 lat/lon 配合查询），也可用 network_search 搜索\n");
+        sb.append("  • 计算：可用 calculator 或 python_calculate（参数 expression=3+5）\n");
+        sb.append("  • 搜索：可用 network_search 或 smart_research（参数 query=人工智能）\n\n");
         sb.append("可用工具列表：\n\n");
         Map<String, ToolSchema> uniqueTools = deduplicateTools();
         for (ToolSchema tool : uniqueTools.values()) {
@@ -486,7 +486,7 @@ public class AgentService {
         }
         sb.append("重要规则：\n");
         sb.append("1. 需要工具时，直接以原生 function calling 格式输出工具调用\n");
-        sb.append("2. 每次只调用一个工具\n");
+        sb.append("2. 按需调用工具，可多轮/并行调用直到拿到足够信息\n");
         sb.append("3. 不需要工具时，直接回答用户问题\n");
         sb.append("4. 工具返回结果后，基于结果回答用户\n");
         sb.append("5. 参数名必须与工具定义一致\n");

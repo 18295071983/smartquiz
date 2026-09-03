@@ -108,33 +108,36 @@ public class AIToolUsageGuide {
 
         // 3. 调用规则
         sb.append("【三、调用规则】\n");
-        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit。例如天气用 ai_weather，搜索用 network_search。\n");
+        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit。天气优先 ai_weather（结构化完整；查当前位置实时天气用经纬度最准——直接用 location 定位或环境上下文的 lat/lon；查具体城市用 city，可填城市名或和风城市编码），也可用 network_search 搜索；由你按情况判断。\n");
         sb.append("  2. app_toolkit 仅在需要 OCR/图像处理/文件解析/网页解析等聚合能力时使用，通过 action 指定子操作。\n");
-        sb.append("  3. 数学计算使用 python_calculate，复杂数据分析使用 python_analyze_data，Python代码执行使用 python_execute。\n");
+        sb.append("  3. 数学计算可用 calculator 或 python_calculate，复杂数据分析用 python_analyze_data，任意 Python 代码用 python_execute，由你按场景选择。\n");
         sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回文件不存在。\n");
         sb.append("  5. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
         sb.append("  6. 工具结果可能被自动摘要/截断，如需完整内容请细化查询条件。\n");
         sb.append("  7. 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n");
-        sb.append("  8. 【重要】生成图片优先调用 image_gen 工具（会自动下载并内联显示在对话中），或直接输出 image_grid 组件标记展示图片。\n");
+        sb.append("  8. 【重要】生成图片优先调用 image_gen 工具（会自动下载并内联显示在对话中），或 dashscope_media（通义万相）；也可直接输出 image_grid 组件标记展示图片。\n");
         sb.append("     尽量避免用 python_execute 拼 URL、用 system_resource open_url 打开浏览器等方式绕路（这些方式图片无法在对话内展示）。\n");
         sb.append("     图片生成后直接内联展示给用户，不要让用户离开对话去浏览器查看。\n");
         sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
-        sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n\n");
+        sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
+        sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
+        sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n\n");
 
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");
-        sb.append("  以下示例说明各场景应使用的工具与关键参数（调用时以原生 function calling 输出，不要构造 JSON 封装）：\n\n");
+        sb.append("  以下示例示范各场景的常用用法（同一需求也可用其他工具，由你判断；调用时以原生 function calling 输出，不要构造 JSON 封装）：\n\n");
         sb.append("  【选参原则】多数工具支持多种操作类型（action）与多种参数方式：先按用户当前需求选最匹配的 action，再填对应参数；\n");
-        sb.append("  如天气可查 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；网络搜索可 search/ask/read_url/summarize。\n");
+        sb.append("  如天气可查 current/forecast/hourly/air_quality/indices/alerts，位置可用 city(城市名或和风城市编码) 或 lat+lon；网络搜索可 search/ask/read_url/summarize。\n");
         sb.append("  不确定某工具完整参数时，输出 [TOOL_INFO: 工具名] 或调用 tool_registry(action=get) 查看定义后再调用，不要只重复默认参数。\n\n");
         sb.append("  示例1 查询天气：使用 ai_weather，按需选 action 与位置方式——\n");
-        sb.append("     · 当前天气: action=current、city=北京（也可 lat/lon 经纬度）\n");
+        sb.append("     · 当前天气(当前位置最准): action=current、lat/lon 用 location 定位或环境上下文经纬度\n");
+        sb.append("     · 当前天气(指定城市): action=current、city=北京（也可填和风编码或 lat/lon 经纬度）\n");
         sb.append("     · 未来几天: action=forecast、city=北京\n");
         sb.append("     · 逐小时: action=hourly、city=北京\n");
         sb.append("     · 空气质量: action=air_quality、city=北京\n");
         sb.append("     · 生活指数/预警: action=indices 或 alerts\n");
         sb.append("  示例2 网络搜索并阅读：使用 network_search，参数 action=search_and_read、query=量子计算最新进展、limit=5\n");
-        sb.append("  示例3 数学计算：使用 python_calculate，参数 expression=3.14*5*5\n");
+        sb.append("  示例3 数学计算：可用 calculator（简单计算）或 python_calculate（复杂计算），参数 expression=3.14*5*5\n");
         sb.append("  示例4 读取文件：使用 file_reader，参数 action=read、file_path=/storage/emulated/0/note.txt\n");
         sb.append("  示例5 OCR识别（聚合工具）：使用 app_toolkit，参数 action=ocr_recognize、image_path=/storage/emulated/0/test.jpg\n");
         sb.append("  示例6 智能研究（搜索→阅读→摘要全流程）：使用 smart_research，参数 topic=可再生能源发展现状、depth=2、maxResults=5\n");
