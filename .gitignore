@@ -229,3 +229,9 @@ __pycache__/
 
 # 临时截图
 ui_check.png
+
+# ============ 超限大文件/构建产物/日志（不入库，本地保留） ============
+src/main/assets/asr/*.onnx
+src/main/cpp/build-*/
+logcat*.txt
+viewer/src/main/jniLibs/**/liblo-native-code.so
