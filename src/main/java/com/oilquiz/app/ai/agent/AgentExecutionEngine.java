@@ -82,8 +82,9 @@ public class AgentExecutionEngine {
 
     /**
      * 启动Agent执行 - 在后台线程运行
+     * @param enableThinking 是否启用思考：由上层（UI 深度思考开关）传入，引擎不硬编码
      */
-    public void execute(String messageId, String userMessage, ExecutionEventListener listener) {
+    public void execute(String messageId, String userMessage, boolean enableThinking, ExecutionEventListener listener) {
         if (messageId == null || userMessage == null) {
             AILogger.e(TAG, "execute: invalid params");
             return;
@@ -107,7 +108,7 @@ public class AgentExecutionEngine {
         // 后台线程执行
         executor.execute(() -> {
             try {
-                runAgentLoop(messageId, userMessage, state);
+                runAgentLoop(messageId, userMessage, enableThinking, state);
             } catch (Throwable t) {
                 AILogger.e(TAG, "Agent execution crashed: " + messageId, t);
                 state.fail(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
@@ -122,7 +123,7 @@ public class AgentExecutionEngine {
      * Agent执行主循环 - 在后台线程运行
      * 直接使用AgentSoftwareLayer（只需Context，不依赖Activity）
      */
-    private void runAgentLoop(String messageId, String userMessage, AgentExecutionState state) {
+    private void runAgentLoop(String messageId, String userMessage, boolean enableThinking, AgentExecutionState state) {
         AILogger.i(TAG, "Starting agent loop: " + messageId);
 
         // 标记开始
@@ -151,8 +152,8 @@ public class AgentExecutionEngine {
         softwareLayer.setCallback(createSoftwareCallback(messageId, state));
         softwareLayerMap.put(messageId, softwareLayer);
 
-        // 在后台执行（R8-1：Agent 模式 enableThinking=false，与产品决策一致）
-        softwareLayer.processMessage(userMessage, false);
+        // 在后台执行（思考开关由上层传入 enableThinking，引擎不硬编码）
+        softwareLayer.processMessage(userMessage, enableThinking);
     }
 
     /**

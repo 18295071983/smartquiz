@@ -81,8 +81,6 @@ public class AgentLoopEngine {
     private static final int MAX_RETRIES = 1;
     /** 同步调用超时（毫秒）：必须大于 C++ 生成超时(400s)，否则 Java 先放弃导致回答被掐断 */
     private static final long SYNC_TIMEOUT_MS = 420000;
-    /** 单轮推理最大生成 token（工具判断轮）：放宽到 800 */
-    private static final int ITER_MAX_TOKENS = 800;
     /** 单次执行最多注入的工具数（常驻 5 + 关键词命中，保证组合工具能力；
      *  从 5 提到 7：扩大的常驻池（天气/搜索/计算/时间/位置）加关键词命中后
      *  仍能全部注入，减少"查了才能调"的依赖） */
@@ -172,7 +170,7 @@ public class AgentLoopEngine {
             {"file_generator", "生成文件,写文件,创建文件,保存为,导出文档,生成md,写markdown"},
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
-    /** 常驻基础工具：关键词命中后补入（时间不再需要，环境上下文已注入） */
+    /** 常驻基础工具：关键词命中后补入（时间/位置用 time_date/location 工具获取，不注入环境上下文） */
     private static final String[] DEFAULT_CORE_TOOLS = {
             "ai_weather", "network_search", "calculator", "time_date", "location"
     };
@@ -323,11 +321,11 @@ public class AgentLoopEngine {
                 String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
                 String locParam = cityId != null ? cityId : city;
                 sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
-                        + "，这是 " + city + " 的和风城市编码，直接按编码查最精确；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索，由你按情况选。"
-                        + "若给出的城市与用户原意不符（带多余字/不像地名/明显错误），按用户原话选最合理的地名再查。\n";
+                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索，由你按情况选。"
+                        + "若工具返回的城市与用户原意不符，再按用户原话选最合理的地名重查。\n";
             } else {
                 // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
-                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，ai_weather 用经纬度查询最准——lat/lon 直接取【环境上下文】经纬度，或先用 location 工具定位拿坐标；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
+                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，ai_weather 用经纬度查询最准——先用 location 工具定位拿 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
             }
         }
         history.add(new ChatMessage("system", sysPrompt));
@@ -433,7 +431,9 @@ public class AgentLoopEngine {
             // （输出模板标签/重复文本而非 tool_call，FcTest 实证 tool_calls=0 + 乱码），
             // auto 让模型按提示词与工具定义自行判断，需要时自然输出原生 tool_call
             String toolChoice = "auto";
-            int iterMaxTokens = iteration == 1 ? ITER_MAX_TOKENS : FINAL_RESPONSE_MAX_TOKENS;
+            // 不限制思考量：统一用 FINAL_RESPONSE_MAX_TOKENS（原第一轮 800 会让 enableThinking
+            // 模型思考就被截断，触发"使用更强大的模型"兜底；具体安全值由 buildRequestJson 按上下文钳制）
+            int iterMaxTokens = FINAL_RESPONSE_MAX_TOKENS;
             String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
             if (requestJson == null) {
                 AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
@@ -445,14 +445,14 @@ public class AgentLoopEngine {
                     // 新协议：chatJson → 统一 onJson 事件
                     genResult = generateWithChatJsonSync(requestJson, streamedThisIteration);
                 } else {
-                    // 回退开关：旧 generateWithTools 路径
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.7f, enableThinking);
+                    // 回退开关：旧 generateWithTools 路径（不限制思考量）
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
                 }
             } catch (UnsatisfiedLinkError e) {
                 // §10.2：chatJson 不可用 → 自动切回旧路径；仍失败则本轮失败（模型原生 FC，无标签兜底）
                 AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
                 try {
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, 1500, 0.7f, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
                     AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
                 }
@@ -1559,17 +1559,10 @@ public class AgentLoopEngine {
 
     private String buildSystemPrompt() {
         // 极简提示词：意图命中走程序化输出（不经模型），意图未命中走普通对话
-        // （模型直接回答、不注入工具），因此提示词只保留身份 + 环境上下文，
+        // （模型直接回答、不注入工具），因此提示词只保留身份，
         // 工具调用规则/回答格式等指令段全部移除（模型已不再调用工具）。
         StringBuilder sb = new StringBuilder();
         sb.append("你是答题宝AI助手，用中文简洁自然地与用户对话。\n\n");
-
-        // 环境上下文注入（当前时间/位置）：模型可直接回答"今天几号/现在几点/附近"等，无需调工具
-        try {
-            sb.append(buildEnvironmentContext()).append("\n");
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
-        }
 
         return sb.toString();
     }
@@ -1591,17 +1584,10 @@ public class AgentLoopEngine {
         StringBuilder sb = new StringBuilder();
         sb.append("你是答题宝AI助手，用中文简洁回答。需要信息时调用工具。\n\n");
 
-        // 环境上下文注入：当前时间/位置为权威事实，直接采用
-        try {
-            sb.append(buildEnvironmentContext()).append("\n");
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
-        }
-
         // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
         sb.append("【工具】\n");
         sb.append("以下为常用对应，不限于此——同一需求可用不同/多个工具，由你按信息质量自主选择：\n");
-        sb.append("查天气→ai_weather（数据全：action 按需选 current/forecast/hourly/air_quality/indices/alerts/all；查当前位置实时天气用经纬度最准——lat/lon 直接取【环境上下文】经纬度，或先 location 定位拿坐标；查具体城市用 city 城市名或和风城市编码如101170101），也可 network_search 搜索；\n");
+        sb.append("查天气→ai_weather（数据全：action 按需选 current/forecast/hourly/air_quality/indices/alerts/all；查当前位置实时天气用经纬度最准——先用 location 定位拿 lat/lon；查具体城市用 city 城市名或和风城市编码如101170101），也可 network_search 搜索；\n");
         sb.append("查实时/新闻/百科→network_search 或 smart_research；查时间/日期→time_date（实时获取，即使环境上下文未注入也可调用）；查位置/坐标→location（实时定位）；\n");
         sb.append("计算→calculator 或 python_calculate；单位换算→unit_converter；文本处理→text_tools；\n");
         sb.append("画图→image_gen 或 dashscope_media；数据图表→python_chart；朗读→speech_synthesis；\n");
@@ -1611,12 +1597,13 @@ public class AgentLoopEngine {
         sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；不确定完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
 
         sb.append("【做法】\n");
-        sb.append("1. 想清楚要什么，直接调对应的工具；参数按【工具】提示填。\n");
+        sb.append("1. 想清楚要什么，直接调对应的工具；用户给的参数（城市/编码/时间/位置等）直接照用先调用——工具会解析并返回结果，以工具返回为准，不要在调用前反复验证参数对不对。\n");
         sb.append("2. 拿到工具结果就回答；需要补充信息就继续调，直到能回答为止。\n");
         sb.append("   已知信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
         sb.append("3. 工具失败换一个工具（如 ai_weather 失败→network_search），不重试同一个。\n");
         sb.append("4. 不知道用什么工具→tool_registry(list)；不确定参数→tool_registry(get=工具名)。\n");
-        sb.append("5. 时间/日期可用 time_date 工具实时获取，或直接用【环境上下文】；位置可用 location 或【环境上下文】，按需选择。\n\n");
+        sb.append("5. 查时间/日期用 time_date，查位置/坐标用 location，不确定就直接调工具获取，不要依赖训练知识推断。\n");
+        sb.append("6. 推荐主动调用工具确认实际信息：时间/位置/天气/实时数据等，直接调对应工具拿真实结果，以工具返回为准，不依赖训练知识推断。\n\n");
 
         sb.append("【回答】\n");
         sb.append("中文简洁，先结论后细节；不确定的事直说不知道，不编造。\n");
@@ -1640,7 +1627,7 @@ public class AgentLoopEngine {
         return sb.toString();
     }
 
-    // ==================== 环境上下文注入 ====================
+    // ==================== 位置缓存（供 ai_weather 缺位置时兜底） ====================
 
     /** 位置缓存有效期（毫秒）：10 分钟内不重复定位 */
     private static final long LOCATION_CACHE_TTL_MS = 10 * 60 * 1000L;
@@ -1653,38 +1640,6 @@ public class AgentLoopEngine {
      *  直接查询，绕开和风 geo/city lookup（该端点无 JWT 权限时 403，此前错误兜底北京） */
     private volatile double cachedLat = 0;
     private volatile double cachedLon = 0;
-
-    /**
-     * 构建环境上下文：当前日期时间（必含）+ 位置（缓存+短超时+权限检查，失败静默跳过）。
-     * 与在线引擎一致（OnlineAgentEngine.buildEnvironmentContext）。
-     */
-    private String buildEnvironmentContext() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("【环境上下文】\n");
-        try {
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                    "yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA);
-            sb.append("当前日期：").append(sdf.format(new java.util.Date())).append("\n");
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Format time failed: " + t.getMessage());
-        }
-        String location = getCachedLocation();
-        if (location != null && !location.isEmpty()) {
-            sb.append("当前位置：").append(location);
-            // 经纬度一并注入：查当前位置实时天气用经纬度最准，模型可直接取用（无需再调 location）
-            if (cachedLat != 0.0 || cachedLon != 0.0) {
-                sb.append("（经纬度 ").append(String.format(java.util.Locale.US, "%.4f,%.4f", cachedLon, cachedLat)).append("）");
-            }
-            sb.append("\n");
-        }
-        // 肯定句收尾：删除原"环境信息可能已过时…"警告句——该否定句式会被 2B 小模型
-        // 当作思考模板反复复读（实测复读几十次），是"乱思考"的直接触发源。
-        // 时间/位置问题直接采用，不再诱导模型怀疑环境信息。
-        // 信任强化：当前日期/位置是系统实时值，工具返回数据是实时权威，直接采用。
-        sb.append("（以上为系统实时获取的当前日期与位置，是当前权威事实；回答今天/现在/最新/几号等问题直接以此为准。");
-        sb.append("工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气等）也直接采用，不需要按训练时的旧信息推断）");
-        return sb.toString();
-    }
 
     /** 获取位置（缓存+超时+权限检查）：无权限/失败/超时返回 null 静默跳过。
      *  同时缓存经纬度（cachedLat/cachedLon），供 ai_weather 缺坐标时直接按经纬度查询 */

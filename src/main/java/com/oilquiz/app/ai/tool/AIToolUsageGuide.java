@@ -121,7 +121,9 @@ public class AIToolUsageGuide {
         sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
         sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
         sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
-        sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n\n");
+        sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
+        sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，以工具返回结果为准；不要在调用前反复验证参数是否正确——工具会解析并返回结果，参数有误时工具会返回错误，届时再按工具结果调整。\n");
+        sb.append("  13. 推荐主动调用工具确认实际信息：时间/位置/天气/实时数据等直接调对应工具拿真实结果，以工具返回为准，不依赖环境上下文或训练知识推断。\n\n");
 
         // 4. 典型调用示例
         sb.append("【四、典型调用示例】\n");

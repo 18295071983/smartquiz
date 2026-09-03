@@ -125,10 +125,11 @@ public class OnlineToolGuide {
         sb.append("  4. 天气优先用 ai_weather（当前天气/多日预报完整返回；城市用 city，无城市可先 location 定位拿 lat/lon 配合查询），也可用 network_search 搜索天气；不要依赖注入的环境信息\n");
         sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
         sb.append("  6. 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时放心调用，是否调用由你自主判断；信息已足够时自然回答即可\n");
-        sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");
-        sb.append("     例如 ai_weather 可 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；network_search 可 search/ask/read_url/summarize。\n");
+        sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");        sb.append("     例如 ai_weather 可 current/forecast/hourly/air_quality/indices/alerts，位置可用 city 或 lat+lon；network_search 可 search/ask/read_url/summarize。\n");
         sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n");
-        sb.append("  8. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造；不确定的时效性事实先查证再下结论。\n\n");
+        sb.append("  8. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造；不确定的时效性事实先查证再下结论。\n");
+        sb.append("  9. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，以工具返回结果为准；不要在调用前反复验证参数是否正确——工具会解析并返回结果，参数有误时工具会返回错误，届时再按工具结果调整。\n");
+        sb.append("  10. 推荐主动调用工具确认实际信息：时间/位置/天气/实时数据等直接调对应工具拿真实结果，以工具返回为准，不依赖环境上下文或训练知识推断。\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 
