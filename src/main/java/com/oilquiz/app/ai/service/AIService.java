@@ -1055,7 +1055,8 @@ public class AIService implements ComponentCallbacks2 {
                     gpuLayers = Math.min(gpuLayers, bigModel ? 22 : 15);
                     AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 } else if (availMemMB < 2500) {
-                    gpuLayers = Math.min(gpuLayers, bigModel ? 30 : 20);
+                    // 非 bigModel 允许 28 层全量（Qwen3VL-2B 28 层全 offload，消除 CPU-GPU 交替瓶颈）
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 30 : 28);
                     AILogger.i(TAG, "Moderate available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 }
                 if (gpuLayers != originalGpuLayers) {
@@ -1125,6 +1126,12 @@ public class AIService implements ComponentCallbacks2 {
                 // native 有 Q4_0→Q8_0→F16 逐级回退兜底，shader 不兼容自动降级，不会崩。
                 kvCacheType = 2; // Q4_0：4B 无条件，KV 内存 -75%
                 AILogger.i(TAG, "4B model: enabling Q4_0 KV cache (KV memory ~75% saved, modelSize=" + modelSizeMB + "MB)");
+            } else if (gpuLayers >= 24) {
+                // 小模型 GPU 全量（>=24 层）时 KV 用 Q8_0：省 50% 内存支撑全量 offload，
+                // Qwen3 hybrid-attention 上 Q8_0 近无损（官方 BLEU 1.000 @2x 压缩），
+                // 消除 8 层 CPU 瓶颈的同时控制内存，避免 LMK。
+                kvCacheType = 0; // Q8_0
+                AILogger.i(TAG, "Small model with full GPU offload (layers=" + gpuLayers + "): enabling Q8_0 KV cache (KV memory ~50% saved)");
             }
             LlamaHelper.setKvCacheType(kvCacheType);
 

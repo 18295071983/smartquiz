@@ -52,6 +52,35 @@ public class AgentChatHandler {
 
     private InferenceMode currentInferenceMode = InferenceMode.REACT;
 
+    /**
+     * 本地 Agent 流式正文的思考拆分器。native chatJson 对本地模型从不分离思考
+     * （reasoning 恒为 0，思考被当普通 token 流入正文），这里用模板标签在 Java 侧把
+     * &lt;think&gt;…&lt;/think&gt; 从正文流中拆出：内容进 onToken、思考进 onThinkingToken，
+     * 使深度思考的思考内容能实时显示在思考区而不是主消息气泡。
+     */
+    private final com.oilquiz.app.ai.chat.parser.OutputRouter thinkingRouter =
+            new com.oilquiz.app.ai.chat.parser.OutputRouter(
+                    new com.oilquiz.app.ai.chat.parser.OutputRouter.OutputHandler() {
+                        @Override public void onTextOutput(String text, boolean isComplete) {
+                            if (isValid() && text != null && !text.isEmpty()) {
+                                AgentChatHandler.this.callback.onToken(text);
+                            }
+                        }
+                        @Override public void onThinkingStart() { }
+                        @Override public void onThinkingContent(String content) {
+                            if (isValid() && content != null && !content.isEmpty()) {
+                                AgentChatHandler.this.callback.onThinkingToken(content);
+                            }
+                        }
+                        @Override public void onThinkingEnd() {
+                            if (isValid()) AgentChatHandler.this.callback.onThinkingEnd();
+                        }
+                        @Override public void onToolCall(String toolName, org.json.JSONObject parameters) { }
+                        @Override public void onStructuredData(String dataType, org.json.JSONObject data) { }
+                        @Override public void onError(String error) { }
+                        @Override public void onStreamComplete(String fullContent) { }
+                    });
+
     public AgentChatHandler(Activity activity, AIService aiService, AgentService agentService, AgentChatCallback callback) {
         this(activity, aiService, null, agentService, callback, false);
     }
@@ -110,7 +139,10 @@ public class AgentChatHandler {
             @Override
             public void onToken(String token) {
                 if (isValid() && token != null) {
-                    callback.onToken(token);
+                    // 本地 Agent 流式中 native 不分离思考（reasoning 恒空，思考混在正文 token），
+                    // 用模板标签在 Java 侧拆分：思考→onThinkingToken，正文→onToken。
+                    thinkingRouter.setThinkingTags(com.oilquiz.app.ai.jni.LlamaHelper.getThinkingTags());
+                    thinkingRouter.processToken(token);
                 }
             }
 
@@ -313,6 +345,8 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
     public void startAgentLoop(String message, int maxTokens, boolean enableThinking,
                                java.util.List<AgentLoopEngine.HistoryEntry> history) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
+        // 新一轮开始前重置思考拆分器状态（防止上一轮未闭合的思考段串到本轮）
+        thinkingRouter.reset();
 
         // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎
         boolean useLocalAgent = aiConfig != null && aiConfig.isLocalAgentEnabled()

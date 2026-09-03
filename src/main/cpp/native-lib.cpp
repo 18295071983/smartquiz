@@ -552,6 +552,16 @@ static void setupGGMLBackendPath() {
         LOGI("Setting GGML_BACKEND_PATH to: %s", libDir.c_str());
         setenv("GGML_BACKEND_PATH", libDir.c_str(), 1);
 
+        // ===== OpenCL kernel 编译缓存 =====
+        // llama.cpp ggml-opencl 在 Android 上 default_cache_dir() 依赖 TMPDIR，
+        // TMPDIR 未设置时缓存被禁用 -> 每次启动都重新编译全部 FA kernels（实测 ~9s）。
+        // 显式指定 App 私有可写目录：首次编译后缓存 <sha256>.clbin（key 含设备/驱动/
+        // 编译参数，驱动或参数变化自动失效重建），后续启动直接 HIT 加载，显著缩短
+        // GPU 初始化耗时。
+        const char* kOpenclCacheDir = "/data/user/0/com.oilquiz.app/cache/llama-cl";
+        setenv("GGML_OPENCL_KERNEL_CACHE_DIR", kOpenclCacheDir, 1);
+        LOGI("OpenCL kernel cache dir set to: %s", kOpenclCacheDir);
+
         // ===== OpenCL flash attention 运行时开关 =====
         // 背景：llama.cpp OpenCL FA 的 cluster-parallel (c8) kernel 默认仅对 Adreno
         // X2E/X1E 启用；A8X(830/840) 的 work-group 上限 128 使 stock kernel(需 256/192)
@@ -1036,6 +1046,11 @@ private:
     int totalTokenCount;
     std::chrono::steady_clock::time_point inferenceStartTime;
     int currentTokenCount;
+    std::chrono::steady_clock::time_point decodeStartTime;  // 纯 decode 速度：正文生成计时起点
+    int decodeTokenCount;                                   // 纯 decode 速度：正文生成 token 数
+    std::chrono::steady_clock::time_point thinkingStartTime; // 思考段速度：计时起点
+    int thinkingTokenCount;                                 // 思考段速度：思考 token 数
+    std::string thinkingBuffer_;                            // 实时思考内容监控：当前推理思考段累积
     std::string modelType;
     std::string chatTemplate;
     
@@ -1049,8 +1064,76 @@ private:
     // 空时表示模板未提供思考标签，调用方回退旧行为（不剥离思考段）。
     std::string mThinkStartTag;
     std::vector<std::string> mThinkEndTags;
-    
+
+    // ===== 生成流程状态机（native）=====
+    // 统一管理生成阶段与停止原因，替代散落的布尔/字符串状态，
+    // 保证 IDLE -> PREPROCESS -> THINKING/GENERATING -> COMPLETE/ERROR 迁移显式可观测。
+    enum class GenPhase {
+        IDLE,       // 空闲
+        PREPROCESS, // prompt 构建/tokenize/eval
+        THINKING,   // 思考段生成中
+        GENERATING, // 正文生成中
+        COMPLETE,   // 正常完成（EOS/stop_word/ctx_full/timeout/max_tokens/user_stop）
+        ERROR       // 出错
+    };
+    enum class StopCause {
+        NONE, EOS, STOP_WORD, CTX_FULL, TIMEOUT, TOKEN_LIMIT, USER_STOP, MAX_TOKENS, ERROR
+    };
+    GenPhase phase = GenPhase::IDLE;
+    StopCause stopCause = StopCause::NONE;
+
+    static const char* phaseName(GenPhase p) {
+        switch (p) {
+            case GenPhase::IDLE: return "IDLE";
+            case GenPhase::PREPROCESS: return "PREPROCESS";
+            case GenPhase::THINKING: return "THINKING";
+            case GenPhase::GENERATING: return "GENERATING";
+            case GenPhase::COMPLETE: return "COMPLETE";
+            case GenPhase::ERROR: return "ERROR";
+        }
+        return "?";
+    }
+    static const char* stopName(StopCause c) {
+        switch (c) {
+            case StopCause::NONE: return "NONE";
+            case StopCause::EOS: return "EOS";
+            case StopCause::STOP_WORD: return "STOP_WORD";
+            case StopCause::CTX_FULL: return "CTX_FULL";
+            case StopCause::TIMEOUT: return "TIMEOUT";
+            case StopCause::TOKEN_LIMIT: return "TOKEN_LIMIT";
+            case StopCause::USER_STOP: return "USER_STOP";
+            case StopCause::MAX_TOKENS: return "MAX_TOKENS";
+            case StopCause::ERROR: return "ERROR";
+        }
+        return "?";
+    }
+    void setPhase(GenPhase p, const char* where) {
+        if (phase != p) {
+            LOGI("[GenSM] %s: %s -> %s", where, phaseName(phase), phaseName(p));
+            phase = p;
+        }
+    }
+    void setStop(StopCause c, const char* where) {
+        stopCause = c;
+        LOGI("[GenSM] stop cause: %s (%s)", stopName(c), where);
+    }
+
 public:
+    // KV 增量缓存引用（供 JNI 监控查询；AgentKvCache 为 private 成员，须经此访问）
+    AgentKvCache& getKvCacheRef() { return kvCache; }
+
+    // 状态机阶段/停止原因（供 JNI 查询；phase/phaseName 为 private 成员，须经此访问）
+    const char* genPhaseName() const { return phaseName(phase); }
+    const char* genStopName() const { return stopName(stopCause); }
+    bool genRunning() const {
+        return phase == GenPhase::THINKING || phase == GenPhase::GENERATING || phase == GenPhase::PREPROCESS;
+    }
+
+    // 实时思考内容监控：思考段累积/读取（供 JNI 与 UI 轮询查看模型思考过程）
+    void clearThinkingContent() { thinkingBuffer_.clear(); }
+    void appendThinkingContent(const std::string& s) { thinkingBuffer_ += s; }
+    const std::string& getThinkingContent() const { return thinkingBuffer_; }
+
     // 函数前向声明
     std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart);
 
@@ -1103,6 +1186,7 @@ public:
                          memoryPoolSize(0), batchSize(32), kvCacheType(1), shouldStop(false),
                          isGenerating(false),
                          lastError(""), totalTokenCount(0), currentTokenCount(0),
+                         decodeTokenCount(0), thinkingTokenCount(0),
                          modelType("unknown"), chatTemplate(""), mThinkStartTag("") {
         LOGI("InferenceContext created");
         
@@ -1888,9 +1972,11 @@ public:
         
         int n_ctx = llama_n_ctx(ctx);
         LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, prompt_tokens.size(), maxTokens);
-        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
-        if ((int)prompt_tokens.size() + maxTokens > n_ctx) {
-            LOGE("Prompt too long: %zu tokens + maxTokens %d > n_ctx %d", prompt_tokens.size(), maxTokens, n_ctx);
+        // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
+        // 只校验 prompt 本体是否放得下，预留固定生成余量。
+        const int GENERATION_RESERVE = 512;
+        if ((int)prompt_tokens.size() > n_ctx - GENERATION_RESERVE) {
+            LOGE("Prompt too long: %zu tokens >= %d", prompt_tokens.size(), n_ctx - GENERATION_RESERVE);
             setLastError("Prompt too long for context window");
             return false;
         }
@@ -2152,6 +2238,32 @@ public:
         }
         return (currentTokenCount * 1000.0f) / elapsed;
     }
+
+    // 纯 decode 速度：正文生成阶段 token / 耗时（思考段不计，think_end 后计时）
+    float getDecodeSpeed() {
+        if (decodeTokenCount == 0) return 0.0f;
+        auto endTime = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - decodeStartTime).count();
+        if (elapsed == 0) return 0.0f;
+        return (decodeTokenCount * 1000.0f) / elapsed;
+    }
+
+    // 当前阶段速度（tokens/s）：按状态机阶段返回 THINKING 思考速度 / GENERATING 解码速度
+    float getPhaseSpeed() {
+        switch (phase) {
+            case GenPhase::THINKING: {
+                if (thinkingTokenCount == 0) return 0.0f;
+                auto endTime = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - thinkingStartTime).count();
+                if (elapsed == 0) return 0.0f;
+                return (thinkingTokenCount * 1000.0f) / elapsed;
+            }
+            case GenPhase::GENERATING:
+                return getDecodeSpeed();
+            default:
+                return 0.0f;
+        }
+    }
     
     int getTokenCount() {
         return totalTokenCount;
@@ -2374,10 +2486,12 @@ public:
         
         int n_ctx = llama_n_ctx(ctx);
         LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
-        // 预留生成空间：prompt + maxTokens 不得超过 n_ctx，防止 KV cache 溢出触发 ggml_abort 崩溃
-        if ((int)tokens_list.size() + maxTokens > n_ctx) {
-            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens + maxTokens "
-                + std::to_string(maxTokens) + " > n_ctx " + std::to_string(n_ctx);
+        // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
+        // 只校验 prompt 本体是否放得下，预留固定生成余量。
+        const int GENERATION_RESERVE = 512;
+        if ((int)tokens_list.size() > n_ctx - GENERATION_RESERVE) {
+            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens >= "
+                + std::to_string(n_ctx - GENERATION_RESERVE);
             LOGE("%s", error.c_str());
             setLastError(error);
             callback("", true, error);
@@ -2611,6 +2725,7 @@ public:
      */
 
     bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
+        setPhase(GenPhase::PREPROCESS, "incr:entry");
         if (isGenerating.exchange(true)) {
             LOGE("generateStreamIncremental: already generating, rejecting concurrent call");
             callback("", true, "Generation already in progress");
@@ -2719,10 +2834,14 @@ public:
         }
 
         int n_ctx = llama_n_ctx(ctx);
+        kvCache.setContextSize(n_ctx);   // KV 监控：记录 n_ctx 供上下文占用率计算
         LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
-        if ((int)tokens_list.size() + maxTokens > n_ctx) {
-            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens + maxTokens "
-                + std::to_string(maxTokens) + " > n_ctx " + std::to_string(n_ctx);
+        // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
+        // 只校验 prompt 本体是否放得下，预留固定生成余量。
+        const int GENERATION_RESERVE = 512;
+        if ((int)tokens_list.size() > n_ctx - GENERATION_RESERVE) {
+            std::string error = "Prompt too long: " + std::to_string(tokens_list.size()) + " tokens >= "
+                + std::to_string(n_ctx - GENERATION_RESERVE);
             LOGE("%s", error.c_str());
             setLastError(error);
             callback("", true, error);
@@ -2757,6 +2876,11 @@ public:
         // 中途失败时缓存保持上一轮状态，由下轮 seq_pos_max 校验兜底为全量。
 
         // ===== 生成循环（与 generateStream 一致）=====
+        setPhase(enableThinking ? GenPhase::THINKING : GenPhase::GENERATING, "incr:gen_loop");
+        if (enableThinking) {
+            thinkingStartTime = std::chrono::steady_clock::now();  // 思考段速度计时起点
+            thinkingTokenCount = 0;
+        }
         int n_remain = maxTokens;
         int n_decode = 0;
         int n_past = (int)tokens_list.size();
@@ -2773,6 +2897,8 @@ public:
         std::string stopReason = "normal";
 
         auto start = std::chrono::steady_clock::now();
+        decodeStartTime = std::chrono::steady_clock::now();  // decode 速度计时起点
+        decodeTokenCount = 0;
         // 首次 token 计时（诊断首轮 prefill 预热效果）：首个正文 token 回调时记录
         bool firstTokenLogged = false;
         auto firstTokenTime = start;
@@ -2781,6 +2907,8 @@ public:
         while (n_remain > 0 && !shouldStop) {
             if (n_past >= n_ctx - 4) {
                 LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                setStop(StopCause::CTX_FULL, "incr:ctx_full");
+                setPhase(GenPhase::COMPLETE, "incr:ctx_full");
                 stopReason = "ctx_full";
                 break;
             }
@@ -2788,6 +2916,8 @@ public:
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
             if (elapsed > TIMEOUT_SECONDS) {
                 LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                setStop(StopCause::TIMEOUT, "incr:timeout");
+                setPhase(GenPhase::COMPLETE, "incr:timeout");
                 stopReason = "timeout";
                 break;
             }
@@ -2797,12 +2927,16 @@ public:
 
             if (llama_vocab_is_eog(vocab, new_token_id)) {
                 LOGI("EOS token detected, stopping generation");
+                setStop(StopCause::EOS, "incr:eog");
+                setPhase(GenPhase::COMPLETE, "incr:eog");
                 stopReason = "eos";
                 break;
             }
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
                 new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
                 LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                setStop(StopCause::EOS, "incr:eos_id");
+                setPhase(GenPhase::COMPLETE, "incr:eos_id");
                 stopReason = "eos";
                 break;
             }
@@ -2816,12 +2950,15 @@ public:
                 token.find("</s>") != std::string::npos ||
                 token.find("<|im_sep|>") != std::string::npos) {
                 LOGI("Stop word detected in token, stopping generation");
+                setStop(StopCause::STOP_WORD, "incr:stop_word");
+                setPhase(GenPhase::COMPLETE, "incr:stop_word");
                 stopReason = "stop_word";
                 break;
             }
 
             if (inThinking && !thinkingEnded) {
                 thinkingTokens++;
+                thinkingTokenCount++;  // 分阶段速度：思考段 token 计数
                 thinkingPending += token;
                 if (!firstTokenLogged) {
                     firstTokenLogged = true;
@@ -2835,6 +2972,9 @@ public:
                         callback(thinkingPending.substr(0, markerPos), false, "");
                     }
                     thinkingEnded = true;
+                    setPhase(GenPhase::GENERATING, "incr:think_end_marker");
+                    decodeStartTime = std::chrono::steady_clock::now();
+                    decodeTokenCount = 0;
                     callback("[THINK_END]", false, "");
                     std::string rest = thinkingPending.substr(markerPos + markerLen);
                     thinkingPending.clear();
@@ -2849,6 +2989,10 @@ public:
                         thinkingPending.clear();
                     }
                     thinkingEnded = true;
+                    setPhase(GenPhase::GENERATING, "incr:think_limit");
+                    decodeStartTime = std::chrono::steady_clock::now();
+                    decodeTokenCount = 0;
+                    setStop(StopCause::TOKEN_LIMIT, "incr:think_limit");
                     LOGI("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                     callback("[THINK_END]", false, "");
                 } else {
@@ -2877,12 +3021,15 @@ public:
 
             if (ret != 0) {
                 LOGE("llama_decode failed with code: %d", ret);
+                setStop(StopCause::ERROR, "incr:decode_fail");
+                setPhase(GenPhase::ERROR, "incr:decode_fail");
                 break;
             }
             generatedTokens.push_back(new_token_id);   // KV 增量记账：记录已 decode 进 KV 的输出 token
             n_remain--;
             n_decode++;
             currentTokenCount++;
+            if (!inThinking) decodeTokenCount++;  // 纯 decode 速度：仅正文生成阶段计数
         }
 
         llama_sampler_free(smpl);
@@ -2908,6 +3055,9 @@ public:
             }
             callback("[THINK_END]", false, "");
             thinkingEnded = true;
+            setPhase(GenPhase::GENERATING, "incr:think_fallback_end");
+        decodeStartTime = std::chrono::steady_clock::now();
+        decodeTokenCount = 0;
         }
 
         callback(fullText, true, "");
@@ -2920,11 +3070,14 @@ public:
         auto end = std::chrono::steady_clock::now();
         auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
         LOGI("=== STREAM GENERATE INCREMENTAL END ===");
-        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental());
+        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d, phase=%s)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental(), phaseName(phase));
+        setPhase(GenPhase::COMPLETE, "incr:end");
 
         return true;
         } catch (const std::exception& e) {
             LOGE("Exception in generateStreamIncremental: %s", e.what());
+            setPhase(GenPhase::ERROR, "incr:exception");
+            setStop(StopCause::ERROR, "incr:exception");
             llama_sampler_free(smpl);
             std::string error = std::string("Generation exception: ") + e.what();
             setLastError(error);
@@ -3311,6 +3464,7 @@ public:
         }
 
         // ===== step 7：生成阶段（generateStreamIncremental，enableThinking 恒传 false 交给模板）=====
+        clearThinkingContent();             // 实时思考内容监控：新推理清空上一轮
         std::string collectedText;          // 完整输出（原始字节，供 parse）
         std::string utf8Buffer;             // R9-1：token 级 UTF-8 完整性缓冲
         std::string genError;               // 生成失败信息（R7-1）
@@ -3319,7 +3473,23 @@ public:
         // 思考态识别：模板 enable_thinking=true 时模型会输出 <think>...</think>，
         // 生成循环 thinking=0（思考交给模板），故流式阶段需自行识别思考段——
         // 思考 token 标记 is_thinking=true（UI 折叠显示、不朗读），标签本身剥离
-        bool isInThinking = false;
+        // 关键：Qwen 模板把思考起始标签预置到 assistant 前缀（prompt 以 start tag 结尾），
+        // 模型直接续写思考内容而不会再次输出起始标签——此时流式须初始处于思考态，
+        // 否则思考内容被当作正文下发（泄漏到 UI/TTS）。
+        bool promptTailInThinking = false;
+        {
+            std::string tail = chat_params.prompt;
+            size_t lastNs = tail.find_last_not_of(" \t\r\n");
+            if (lastNs != std::string::npos) tail = tail.substr(0, lastNs + 1);
+            promptTailInThinking = !mThinkStartTag.empty()
+                && tail.size() >= mThinkStartTag.size()
+                && tail.compare(tail.size() - mThinkStartTag.size(), mThinkStartTag.size(), mThinkStartTag) == 0;
+        }
+        bool isInThinking = promptTailInThinking;
+        if (isInThinking) {
+            setPhase(GenPhase::THINKING, "chatJson:init_think");
+            LOGI("chatJson: initial thinking state (prompt tail ends with start tag)");
+        }
         std::string thinkingAccum;   // 用于检测标签边界（跨 token 的标签片段）
         // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
         // 检测到后锁定 is_tool_call=true，减少 UI 短暂闪烁（已发出的前几个 token 无法撤回）
@@ -3391,10 +3561,15 @@ public:
                             } else {
                                 filtered.append(completePart, pos, open - pos);
                                 isInThinking = true;
+                                setPhase(GenPhase::THINKING, "chatJson:think_start");
                                 LOGI("chatJson: thinking START detected");
                                 pos = open + thinkOpen.size();
                             }
                         } else {
+                            // 思考中：确保状态机标记 THINKING。
+                            // gen_loop 曾按 enableThinking=0 置 GENERATING，覆盖 init_think 的 THINKING，
+                            // 若不纠正，UI 的 THINKING 分支（实时思考内容预览）永远不触发。
+                            setPhase(GenPhase::THINKING, "chatJson:think_monitor");
                             size_t close = std::string::npos;
                             size_t closeLen = 0;
                             for (const auto& et : endTags) {
@@ -3405,9 +3580,13 @@ public:
                                 }
                             }
                             if (close == std::string::npos) {
-                                pos = completePart.size();   // 思考内容不发（折叠显示由 Java 端收集）
+                                // 思考内容不发流式 token（折叠显示由 Java 端收集），但实时累积供监控
+                                thinkingBuffer_.append(completePart, pos, std::string::npos);
+                                pos = completePart.size();
                             } else {
+                                thinkingBuffer_.append(completePart, pos, close - pos);  // 实时思考内容监控
                                 isInThinking = false;
+                                setPhase(GenPhase::GENERATING, "chatJson:think_end");
                                 LOGI("chatJson: thinking END detected");
                                 pos = close + closeLen;
                             }
@@ -3483,6 +3662,34 @@ public:
         }
 
         // step 8/10 互斥：complete 事件全轮只发一次（R5-2/A5）
+        // step 8 增强：common_chat_parse 对 Qwen3 空格分隔 thinking 标签解析不出
+        // reasoning_content（思考段混入正文）。用模板标签手动提取思考段，保证：
+        // 思考 → reasoning 事件（UI 折叠显示），正文 → complete（干净）。
+        std::string manualThinking;
+        std::string manualContent;
+        const bool tagsOk = !mThinkStartTag.empty() && !mThinkEndTags.empty();
+        if (tagsOk) {
+            size_t open = collectedText.find(mThinkStartTag);
+            if (open != std::string::npos) {
+                size_t cs = open + mThinkStartTag.size();
+                size_t close = std::string::npos;
+                size_t closeLen = 0;
+                for (const auto& et : mThinkEndTags) {
+                    size_t pp = collectedText.find(et, cs);
+                    if (pp != std::string::npos && (close == std::string::npos || pp < close)) {
+                        close = pp; closeLen = et.size();
+                    }
+                }
+                if (close != std::string::npos) {
+                    manualThinking = collectedText.substr(cs, close - cs);
+                    manualContent = collectedText.substr(0, open) + collectedText.substr(close + closeLen);
+                } else {
+                    manualThinking = collectedText.substr(cs);
+                    manualContent = collectedText.substr(0, open);
+                }
+            }
+        }
+
         if (parseOk) {
             for (auto& tc : parsed.tool_calls) {
                 nlohmann::ordered_json j = {
@@ -3494,7 +3701,10 @@ public:
                 jsonCallback(j.dump());
                 LOGI("chatJson: tool_call id=%s name=%s", tc.id.c_str(), tc.name.c_str());
             }
-            if (!parsed.reasoning_content.empty()) {
+            // 思考内容：common_chat_parse 解析出 reasoning_content 则用之，否则用模板标签
+            // 手动提取的思考段（Qwen3 空格分隔 thinking 标签 parse 常解析不出）
+            const std::string reasoningText = !parsed.reasoning_content.empty() ? parsed.reasoning_content : manualThinking;
+            if (!reasoningText.empty()) {
                 // 无 think 标签保护：仅当模型实际输出并闭合了 think 标记时才广播 reasoning。
                 // 否则（模型未输出 think 标签 / 未闭合，内容被 common_chat_parse 划入 reasoning）
                 // 不广播 reasoning，避免"无思考时把相同信息重新广播"；内容走下方 complete 兜底。
@@ -3509,9 +3719,9 @@ public:
                     }
                 }
                 if (hasThinkEnd) {
-                    nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", parsed.reasoning_content}};
+                    nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", reasoningText}};
                     jsonCallback(j.dump());
-                    LOGI("chatJson: reasoning (%zu chars)", parsed.reasoning_content.size());
+                    LOGI("chatJson: reasoning (%zu chars)", reasoningText.size());
                 } else {
                     LOGW("chatJson: reasoning suppressed (no think end marker), content merged to body");
                 }
@@ -3521,7 +3731,8 @@ public:
                 // 正文兜底：模型未输出 think 标签时 common_chat_parse 可能把内容划入 reasoning
                 // 导致 parsed.content 为空——此时用 collectedText 剥掉 think 标签作为正文，
                 // 保证内容只作为正文广播一次（不丢失、不重复）
-                std::string finalContent = parsed.content;
+                // 思考已手动提取时正文用剥离后的内容，避免思考混入正文
+                std::string finalContent = !manualContent.empty() ? manualContent : parsed.content;
                 if (finalContent.empty() && !collectedText.empty()) {
                     finalContent = stripThinkTags(collectedText, mThinkStartTag, mThinkEndTags);
                 }
@@ -5983,6 +6194,64 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetThinkingTags(JNIEnv* env, jclas
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetKvCacheStats(JNIEnv* env, jclass /* clazz */) {
+    // 返回 KV 增量缓存状态与上下文占用监控：
+    // {"strategy":"FULL","matched_len":0,"cached_npast":0,"ctx_size":12288,
+    //  "ctx_usage_pct":0.0,"plans":3,"inc":0,"part":0,"full":3,"hit_rate_pct":0.0,
+    //  "valid":false,"full_reason":"first_call_or_invalidated"}
+    nlohmann::ordered_json j;
+    if (s_helperContext != nullptr) {
+        auto& kc = s_helperContext->getKvCacheRef();
+        const char* strat = "FULL";
+        if (kc.isIncremental()) strat = "INCREMENTAL";
+        else if (kc.isPartial()) strat = "PARTIAL";
+        j["strategy"] = strat;
+        j["matched_len"] = kc.matchedLen();
+        j["cached_npast"] = kc.cachedNPast();
+        j["ctx_size"] = kc.contextSize();
+        j["ctx_usage_pct"] = kc.ctxUsage() * 100.0;
+        j["plans"] = kc.planCount();
+        j["inc"] = kc.incCount();
+        j["part"] = kc.partCount();
+        j["full"] = kc.fullCount();
+        j["hit_rate_pct"] = kc.hitRate() * 100.0;
+        j["valid"] = kc.valid();
+        j["full_reason"] = kc.fullEvalReason();
+    } else {
+        LOGW("nativeGetKvCacheStats: helper context not initialized");
+        j["error"] = "not_initialized";
+    }
+    return utf8StringToJstring(env, j.dump());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetThinkingContent(JNIEnv* env, jclass /* clazz */) {
+    // 返回当前推理已累积的思考内容（实时监控模型思考过程，供 UI 轮询显示）
+    if (s_helperContext != nullptr) {
+        return utf8StringToJstring(env, s_helperContext->getThinkingContent());
+    }
+    return utf8StringToJstring(env, "");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetGenPhase(JNIEnv* env, jclass /* clazz */) {
+    // 返回 native 生成流程状态机的当前阶段（对话界面顶部状态条展示）：
+    // {"phase":"THINKING","stop_cause":"EOS","running":true}
+    // phase: IDLE/PREPROCESS/THINKING/GENERATING/COMPLETE/ERROR
+    nlohmann::ordered_json j;
+    if (s_helperContext != nullptr) {
+        j["phase"] = s_helperContext->genPhaseName();
+        j["stop_cause"] = s_helperContext->genStopName();
+        j["running"] = s_helperContext->genRunning();
+    } else {
+        j["phase"] = "IDLE";
+        j["stop_cause"] = "NONE";
+        j["running"] = false;
+    }
+    return utf8StringToJstring(env, j.dump());
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
     JNIEnv* env,
     jclass /* clazz */,
@@ -6553,11 +6822,31 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetModelInfo(
 }
 
 JNIEXPORT jfloat JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetPhaseSpeed(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    if (s_helperContext != nullptr && s_helperContext->isValid()) {
+        return s_helperContext->getPhaseSpeed();
+    }
+    return 0.0f;
+}
+
+JNIEXPORT jfloat JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetInferenceSpeed(
     JNIEnv* env,
     jclass /* clazz */) {
     if (s_helperContext != nullptr && s_helperContext->isValid()) {
         return s_helperContext->getInferenceSpeed();
+    }
+    return 0.0f;
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetDecodeSpeed(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    if (s_helperContext != nullptr && s_helperContext->isValid()) {
+        return s_helperContext->getDecodeSpeed();
     }
     return 0.0f;
 }

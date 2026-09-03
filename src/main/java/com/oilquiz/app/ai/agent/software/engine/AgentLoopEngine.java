@@ -202,6 +202,9 @@ public class AgentLoopEngine {
      */
     private volatile ThinkingTagConfig thinkingTags = ThinkingTagConfig.empty();
 
+    /** 最近一次用户消息原文：供 ai_weather 缺城市参数时提取城市名兜底（如"五台县的天气"→city=五台县） */
+    private volatile String lastUserMessage = "";
+
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
         void onIterationEnd(int iteration, String response);
@@ -274,6 +277,8 @@ public class AgentLoopEngine {
             AILogger.w(TAG, "User message too long, truncating to " + MAX_USER_MESSAGE_CHARS);
             userMessage = userMessage.substring(0, MAX_USER_MESSAGE_CHARS) + "…";
         }
+        // 记录最近用户消息：ai_weather 缺城市参数时程序从原文提取城市名兜底
+        this.lastUserMessage = userMessage != null ? userMessage : "";
 
         // 按需动态注入：初始只注入与本次问题相关（关键词命中）的工具 + 检索入口，
         // 不一股脑全量注入。FC 循环中模型实际调用/检索到的工具，会按需加入注入集
@@ -307,7 +312,19 @@ public class AgentLoopEngine {
         boolean modelFcMode = aiConfig != null && aiConfig.isFcEnabled();
 
         List<ChatMessage> history = new ArrayList<>();
-        history.add(new ChatMessage("system", modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt()));
+        String sysPrompt = modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt();
+        // 天气场景直给：命中 ai_weather 且用户消息含城市名时，把"本次任务"写进 system 提示词，
+        // 2B 模型无需自己推断该查哪个城市，直接照做（根治"五台县"卡死：不调 location、直接 city=五台县）
+        if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
+                && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
+                    || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
+            String city = extractCityFromMessage(userMessage);
+            if (city != null && !city.isEmpty()) {
+                sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，直接用 ai_weather 工具，参数 city=" + city
+                        + "，action 按用户问法选（当前→current，预报→forecast，空气质量→air_quality，默认 current）。\n";
+            }
+        }
+        history.add(new ChatMessage("system", sysPrompt));
         // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
         // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
         if (priorHistory != null) {
@@ -1538,47 +1555,49 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词（精简版，控制 prompt 体积→推理速度）。
-     * 要点：llama.cpp 的 Qwen chat 模板注入 tools 后自带工具调用指令与格式，
-     * 此处只保留模板不覆盖的关键行为（检索/UI/时间/展示/记忆），
-     * 删掉重复的格式长文与示例（省 ~1200 token/轮）。
+     * FC 模式的 system 提示词（本地小模型精简版 v2）。
+     *
+     * 设计要点（针对 2B 小模型"乱思考"问题，2026-09-03 重构）：
+     * 1. 全部用肯定句、短句；删除"可能已过时/不要反复纠结/禁止猜测"等否定警告句——
+     *    这些句式会被小模型当作思考模板复读（实测"环境上下文中的日期时间可能已过时"
+     *    被复读几十次），是"乱思考"的直接触发源。
+     * 2. "场景→工具"直给，并写明关键参数用法（如 ai_weather 的 city 直接用用户说的
+     *    城市名），避免模型在"要不要先定位/要不要查参数"上钻牛角尖（五台县卡死案例）。
+     * 3. 动作规则压缩为 4 条短句（调1个→看结果→失败换工具→不知道就查），
+     *    不再给冗长的工具行为规范；llama.cpp Qwen chat 模板注入 tools 后自带调用格式。
+     * 4. 完整工具能力/参数仍经 tool_registry 按需获取；未注入的工具仍可直接调用。
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是答题宝AI助手，可用工具完成任务，中文简洁回答。\n\n");
-        // FC 模式同样注入环境上下文：当前时间/位置为权威事实，模型直接采用，
-        // 避免被训练数据中的时间（如旧年份）或位置认知误导（例如误判"今天"的日期）。
+        sb.append("你是答题宝AI助手，用中文简洁回答。需要信息时调用工具。\n\n");
+
+        // 环境上下文注入：当前时间/位置为权威事实，直接采用
         try {
             sb.append(buildEnvironmentContext()).append("\n");
         } catch (Throwable t) {
             AILogger.w(TAG, "Environment context injection failed: " + t.getMessage());
         }
 
-        // 工具能力速查表：让模型知道工具池里有什么（4B 模型不知道工具存在就永远不会调用；
-        // 列表精简，完整工具经 tool_registry(list) 获取）。未注入的工具仍可直接调用，
-        // 调用后程序会自动注入其 schema。
-        sb.append("【可用工具】\n");
-        sb.append("天气→ai_weather；位置→location；时间→time_date；搜索→network_search；\n");
-        sb.append("计算→calculator；换算→unit_converter；文本处理→text_tools；\n");
-        sb.append("画图→image_gen；图表→python_chart；朗读→speech_synthesis；\n");
-        sb.append("Excel→excel_tool；读文件→file_reader；工作区→workspace；题库→database；\n");
-        sb.append("记住→memory；更多工具→tool_registry(list)。\n\n");
+        // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
+        sb.append("【工具】\n");
+        sb.append("查天气→ai_weather，参数 city=用户说的城市名（如 city=五台县），直接查，不用先查位置；\n");
+        sb.append("查实时/新闻→network_search；查时间→time_date；查位置→location；\n");
+        sb.append("计算→calculator；单位换算→unit_converter；文本处理→text_tools；\n");
+        sb.append("画图→image_gen；数据图表→python_chart；朗读→speech_synthesis；\n");
+        sb.append("读/写文件→file_reader/file_generator；管理文件→workspace；题库→database；\n");
+        sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n\n");
 
-        sb.append("【工作方式】\n");
-        sb.append("1. 简短思考（思考≤3句，想完就做），直接行动：【环境上下文】里的时间/位置直接采用，不要反复纠结\"是否已过时/要不要再调 time_date/location\"（除非用户明确要求精确到秒/实时定位）；一次调用一个最合适的工具；收到结果再决定下一步；信息齐备立即直接回答，不要连环调用无关工具、不要重复已执行过的调用。\n");
-        sb.append("2. 用【可用工具】表里的工具：常用工具的调用参数已在对话中给出，直接用；参数不确定的工具，先 tool_registry(get=工具名) 查参数再调，不要猜参数、不要自造工具名（名称以【可用工具】表或 tool_registry 返回为准）。\n");
-        sb.append("3. 收到工具结果后：信息足够→直接给出结论；不够→修正参数重试一次或换替代工具（如 ai_weather 失败→network_search 搜天气；file_reader 失败→python_file_ops；calculator 失败→python_calculate），不要反复重试同一个失败调用。\n");
-        sb.append("\n【环境事实】\n");
-        sb.append("4. \"今天/现在/几点/附近\"等指代一律以【环境上下文】给出的时间与位置为准，禁止凭训练记忆猜测年份或默认城市；环境上下文中的日期时间可能已过时，需要精确/实时的时间位置时再调 time_date/location。\n");
-        sb.append("5. 天气（ai_weather）：按用户问题选 action——问当前/现在天气→action=current；问明天/未来几天/预报→action=forecast；问每小时→action=hourly；问空气质量/雾霾→action=air_quality；问生活指数/穿衣→action=indices；未指定时默认 current。用户没说城市就勿传 city（程序自动用当前位置）；用户明确说了城市才传用户的。\n");
-        sb.append("\n【回答】\n");
-        sb.append("6. 中文、简洁、先结论后细节；结构信息用文本或简单表格展示即可，仅当用户明确要\"卡片/图表\"时才用 ui_component（其参数复杂，先 tool_registry(get=ui_component) 拿参数，填不对就退回文本）。\n");
-        sb.append("7. image_gen 生成的图片会自动内联显示在对话中，无需再调 ui_component；python_chart 生成的图表保存到工作区 files/，用文本告知保存路径即可。\n");
-        sb.append("8. 使用工具时简单说明数据来源；不确定的信息不要编造。\n");
-        sb.append("9. 需要用户补充信息时，用简短文本提问即可。\n");
-        sb.append("\n");
-        sb.append("【记忆】\n");
-        sb.append("跨会话记忆（memory 工具）：用户要求记住或主动告知个人信息/偏好时 save（key 用英文短词）；回忆用 recall/list；忘记用 delete。\n");
+        sb.append("【做法】\n");
+        sb.append("1. 想清楚要什么，只调 1 个最合适的工具；参数按【工具】提示填。\n");
+        sb.append("2. 拿到工具结果就回答；不够再补调，不要连环调用无关工具。\n");
+        sb.append("3. 工具失败换一个工具（如 ai_weather 失败→network_search），不重试同一个。\n");
+        sb.append("4. 不知道用什么工具→tool_registry(list)；不确定参数→tool_registry(get=工具名)。\n");
+        sb.append("5. 时间/位置问题直接用【环境上下文】里的信息。\n\n");
+
+        sb.append("【回答】\n");
+        sb.append("中文简洁，先结论后细节；不确定的事直说不知道，不编造。\n");
+        sb.append("有结构的信息（列表/表格）用文本或简单表格展示。\n\n");
+
         if (appContext != null) {
             try {
                 String memorySummary = com.oilquiz.app.ai.agent.online.AgentMemoryStore
@@ -1629,7 +1648,10 @@ public class AgentLoopEngine {
         if (location != null && !location.isEmpty()) {
             sb.append("当前位置：").append(location).append("\n");
         }
-        sb.append("（以上环境信息已自动获取，回答时可据此理解\"今天\"、\"附近\"等指代；环境信息可能已过时，需要精确/实时的时间位置时请调 time_date/location 工具）");
+        // 肯定句收尾：删除原"环境信息可能已过时…"警告句——该否定句式会被 2B 小模型
+        // 当作思考模板反复复读（实测复读几十次），是"乱思考"的直接触发源。
+        // 时间/位置问题直接采用，不再诱导模型怀疑环境信息。
+        sb.append("（以上信息已自动获取，回答时间/位置问题时直接采用）");
         return sb.toString();
     }
 
@@ -1826,7 +1848,8 @@ public class AgentLoopEngine {
 
     private String cleanResponse(String response) {
         if (response == null) return "";
-        String cleaned = response
+        String cleaned = stripThinkingSections(response);
+        cleaned = cleaned
                 .replaceAll("(?s)<thought>.*?</thought>", "")
                 .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
@@ -1848,6 +1871,23 @@ public class AgentLoopEngine {
         // 去掉模型可能重复输出的"用户:"/"assistant:"等对话角色前缀，防止自问自答式续写
         cleaned = cleaned.replaceAll("(?i)^(user|assistant|system|用户|助手)\\s*[:：]\\s*", "");
         return cleaned.trim();
+    }
+
+    /**
+     * 循环剥离思考段（含未闭合、空格分隔的 Qwen  thinking... response 格式）。
+     * 复用 splitThinkingAndContent 的模板标签逻辑；多段思考循环剥离，最多 8 段。
+     */
+    private String stripThinkingSections(String text) {
+        if (text == null || text.isEmpty()) return "";
+        String s = text;
+        for (int guard = 0; guard < 8; guard++) {
+            String[] parts = splitThinkingAndContent(s);
+            String content = parts[0];
+            if (content.equals(s)) return content;   // 无思考段，剥离完成
+            s = content;
+            if (content.trim().isEmpty()) break;
+        }
+        return s;
     }
 
     /**
@@ -2072,8 +2112,8 @@ public class AgentLoopEngine {
         if (params == null) return AIToolResult.fail("参数解析失败");
 
         // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前位置。
-        // 优先填经纬度（绕开和风 geo/city lookup）；先用 getCachedLocation 从
-        // 主界面天气缓存加载坐标（banner 已定位可复用），无坐标才用城市名。
+        // 优先填经纬度（绕开和风 geo/city lookup）；坐标无缓存时，优先从用户消息
+        // 提取城市名（用户明确问的城市 > 当前位置），避免"五台县"场景首轮无 city 报错。
         if ("ai_weather".equals(toolName)
                 && !params.containsKey("city") && !params.containsKey("lat") && !params.containsKey("lon")) {
             // 确保坐标从主界面缓存加载（getCachedLocation 内部会先读 weather_location_cache）
@@ -2085,8 +2125,13 @@ public class AgentLoopEngine {
                 params.put("lon", cachedLon);
                 AILogger.i(TAG, "ai_weather: auto-filled lat/lon=" + cachedLat + "," + cachedLon);
             } else {
-                String city = getCachedLocation();
-                if (city != null && !city.isEmpty() && !"当前位置".equals(city)) {
+                // 无坐标：优先用户消息里明确说的城市名（如"五台县的天气"→五台县）
+                String city = extractCityFromMessage(lastUserMessage);
+                if (city == null || city.isEmpty()) {
+                    city = getCachedLocation();
+                    if ("当前位置".equals(city)) city = null;
+                }
+                if (city != null && !city.isEmpty()) {
                     params.put("city", city);
                     AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
                 }
@@ -2134,6 +2179,41 @@ public class AgentLoopEngine {
         AIToolResult result = holder.get();
         if (result != null) return result;
         return AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
+    }
+
+    /**
+     * 从用户消息中提取城市名（ai_weather 兜底 + 天气场景直给用）。
+     * 优先匹配"XX市/县/区/旗/盟/自治州/地区"等行政区后缀（如"五台县"），
+     * 其次匹配"XX的天气"结构；排除"今天/这边"等指代词，不误伤无城市问题。
+     *
+     * @param message 用户消息原文（可为空）
+     * @return 城市名（含行政区后缀），无则返回 null
+     */
+    private String extractCityFromMessage(String message) {
+        if (message == null || message.isEmpty()) return null;
+        try {
+            // ① 带行政区后缀：五台县/北京市/金凤区/锡林郭勒盟/鄂尔多斯市
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("([\\u4e00-\\u9fa5]{2,8}?(?:自治州|地区|市|县|区|旗|盟))")
+                    .matcher(message);
+            if (m.find()) {
+                return m.group(1);
+            }
+            // ② 兜底："XX的天气/气温/温度"结构（XX 为 2-8 个汉字）
+            java.util.regex.Matcher m2 = java.util.regex.Pattern
+                    .compile("([\\u4e00-\\u9fa5]{2,8}?)(?:的)?(?:天气|气温|温度|天气预报|有没有雨|下不下雨)")
+                    .matcher(message);
+            if (m2.find()) {
+                String city = m2.group(1);
+                if (city != null
+                        && !city.matches("今天|明天|后天|这边|这里|那里|本地|附近|现在|当地|城里|外面|外面天气")) {
+                    return city;
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "extractCityFromMessage failed: " + t.getMessage());
+        }
+        return null;
     }
 
     private Map<String, Object> jsonToMap(JSONObject args) {

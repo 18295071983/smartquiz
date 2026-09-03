@@ -79,7 +79,9 @@ public class AgentSoftwareLayer {
                             .replaceAll("(?s)<think>.*?</think>", "")
                             .replaceAll("(?s)<thought>.*?</thought>", "")
                             .trim();
-                    callback.onThinkingUpdate("第 " + iteration + " 轮: " + truncate(clean, 80));
+                    // 第 N 轮结束仅作状态栏进度提示（onStepUpdate），不再把正文摘要当思考更新：
+                    // 思考区只接收 onThinkingUpdate 的真实 reasoning 事件，避免正文污染思考气泡
+                    callback.onStepUpdate("第 " + iteration + " 轮", truncate(clean, 40));
                 }
             }
 

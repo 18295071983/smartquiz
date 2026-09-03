@@ -82,17 +82,29 @@ public class WebViewAPKExporter implements Exporter {
             Log.i(TAG, "HTML exported to: " + indexFile.getAbsolutePath() + 
                 ", size: " + indexFile.length() + " bytes");
 
+            // 用"背题"壳机制打包成可安装 APK（HTML → dt.jet → 壳模板 → apksig 签名）
+            String safeName = fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+            File apkFile = new File(exportDir, safeName + ".apk");
+            try {
+                ApkPacker.buildApk(context, indexFile, apkFile);
+                Log.i(TAG, "APK built: " + apkFile.getAbsolutePath() + ", size: " + apkFile.length());
+            } catch (Exception apkEx) {
+                Log.e(TAG, "APK build failed, falling back to HTML only", apkEx);
+                // APK 打包失败时回退：仍返回 HTML，不中断导出
+                apkFile = indexFile;
+            }
+
             // 发送广播通知
             try {
                 android.content.Intent intent = new android.content.Intent("com.oilquiz.app.EXPORT_COMPLETE");
-                intent.putExtra("file_path", indexFile.getAbsolutePath());
+                intent.putExtra("file_path", apkFile.getAbsolutePath());
                 intent.putExtra("export_type", "webview");
                 context.sendBroadcast(intent);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to send broadcast", e);
             }
 
-            return indexFile;
+            return apkFile;
         } catch (Exception e) {
             Log.e(TAG, "Export failed", e);
             // 出错时清理临时目录
@@ -232,12 +244,12 @@ public class WebViewAPKExporter implements Exporter {
 
     @Override
     public String getFormatName() {
-        return "WebView 离线包";
+        return "WebView APK 应用";
     }
 
     @Override
     public String getFileExtension() {
-        return "html";
+        return "apk";
     }
 
     @Override

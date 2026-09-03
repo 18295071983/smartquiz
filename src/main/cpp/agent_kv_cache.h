@@ -100,6 +100,25 @@ public:
     /** 全量时的原因（诊断用） */
     const char* fullEvalReason() const { return fullEvalReason_; }
 
+    // ---- 监控统计（命中率 / 上下文占用）----
+    // 记录每次 plan 的策略分布，计算 KV 增量缓存命中率；周期性输出聚合日志，
+    // 供诊断"为什么没吃到增量缓存"（普通对话每轮新 prompt 多走 FULL，需可观测）。
+    void setContextSize(int ctx) { ctxSize_ = ctx; }
+    long planCount() const { return planCount_; }
+    int incCount() const { return incCount_; }
+    int partCount() const { return partCount_; }
+    int fullCount() const { return fullCount_; }
+    int contextSize() const { return ctxSize_; }
+    double hitRate() const {
+        return planCount_ > 0 ? (double)(incCount_ + partCount_) / (double)planCount_ : 0.0;
+    }
+    /** 上下文占用比例（0.0-1.0）：cachedNPast / n_ctx */
+    double ctxUsage() const {
+        return ctxSize_ > 0 ? (double)cachedNPast_ / (double)ctxSize_ : 0.0;
+    }
+    /** 输出聚合统计摘要（每次 plan 都累加，每 STATS_INTERVAL 次打印一次） */
+    void dumpStats();
+
 private:
     // KV 中实际已 eval 的完整 token 序列（prompt + 生成输出）
     std::vector<llama_token> cachedTokens_;
@@ -109,6 +128,14 @@ private:
     Strategy strategy_ = Strategy::FULL;
     int matchedLen_ = 0;
     const char* fullEvalReason_ = "unknown";
+
+    // ---- 监控统计状态 ----
+    static const int STATS_INTERVAL = 10;  // 每 N 次 plan 打印一次统计摘要
+    int ctxSize_ = 0;              // n_ctx（上下文总长）
+    long planCount_ = 0;           // plan 总调用次数
+    int incCount_ = 0;             // INCREMENTAL 次数
+    int partCount_ = 0;            // PARTIAL 次数
+    int fullCount_ = 0;            // FULL 次数
 };
 
 #endif // AGENT_KV_CACHE_H

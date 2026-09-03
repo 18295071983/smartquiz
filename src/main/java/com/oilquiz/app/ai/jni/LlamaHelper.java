@@ -489,8 +489,10 @@ public class LlamaHelper {
         AILogger.i(TAG, "[generateStream-Messages] Token检查: promptTokens=" + promptTokens
             + ", maxTokens=" + maxTokens + ", safeRef=" + safeRef
             + ", thread=" + threadName);
-        if (promptTokens + maxTokens >= safeRef) {
-            AILogger.w(TAG, "[generateStream-Messages] ❌ Prompt过长: " + promptTokens + "+" + maxTokens + ">=" + safeRef
+        // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+        final int GENERATION_RESERVE = 512;
+        if (promptTokens >= safeRef - GENERATION_RESERVE) {
+            AILogger.w(TAG, "[generateStream-Messages] ❌ Prompt过长: " + promptTokens + ">=" + (safeRef - GENERATION_RESERVE)
                 + ", thread=" + threadName);
             if (callback != null) {
                 callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
@@ -584,9 +586,11 @@ public class LlamaHelper {
             if (toolsJson != null && toolsJson.length > 0) {
                 promptTokens += countTokens(new String(toolsJson, StandardCharsets.UTF_8));
             }
-            if (promptTokens + maxTokens >= safeRef) {
-                AILogger.e(TAG, "[generateWithTools] ❌ Prompt过长: " + promptTokens + "+" + maxTokens
-                        + " >= " + safeRef + "，拒绝生成避免 native 崩溃");
+            // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.e(TAG, "[generateWithTools] ❌ Prompt过长: " + promptTokens
+                        + " >= " + (safeRef - GENERATION_RESERVE) + "，拒绝生成避免 native 崩溃");
                 if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
                 return;
             }
@@ -645,10 +649,14 @@ public class LlamaHelper {
         try {
             int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
             int promptTokens = estimateChatJsonPromptTokens(requestJson);
-            int maxTokens = extractJsonMaxTokens(requestJson);
-            if (promptTokens + maxTokens >= safeRef) {
-                AILogger.e(TAG, "[chatJson] ❌ Prompt过长: " + promptTokens + "+" + maxTokens
-                        + " >= " + safeRef + "，拒绝生成避免 native 崩溃");
+            // 修复：max_tokens 是生成停止上限，不是 context 预算的一部分。
+            // 原 promptTokens + maxTokens 会把大 max_tokens（如 16384 > n_ctx 12288）
+            // 误判为超长，导致 11 token 的短 prompt 也被拒绝。这里只校验 prompt
+            // 本体是否超出安全窗口，预留固定生成余量（生成到顶时自然截断）。
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.e(TAG, "[chatJson] ❌ Prompt过长: " + promptTokens
+                        + " >= " + (safeRef - GENERATION_RESERVE) + "，拒绝生成避免 native 崩溃");
                 if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
                 return;
             }
@@ -719,9 +727,11 @@ public class LlamaHelper {
         try {
             int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
             int promptTokens = countTokens(new String(request.getFullPromptUtf8(), StandardCharsets.UTF_8));
-            if (promptTokens + request.getMaxTokens() >= safeRef) {
-                AILogger.w(TAG, "[generateStream-ChatRequest] ❌ Prompt过长: " + promptTokens + "+"
-                        + request.getMaxTokens() + ">=" + safeRef + ", thread=" + threadName);
+            // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.w(TAG, "[generateStream-ChatRequest] ❌ Prompt过长: " + promptTokens + ">="
+                        + (safeRef - GENERATION_RESERVE) + ", thread=" + threadName);
                 if (callback != null) {
                     callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
                 }
@@ -972,6 +982,39 @@ public class LlamaHelper {
     }
 
     private static native float nativeGetInferenceSpeed();
+
+    /**
+     * 纯 decode 速度（tokens/s）：仅统计正文生成阶段（思考段不计），
+     * think_end 后开始计时，反映模型实际解码正文的速度。
+     */
+    public static float getDecodeSpeed() {
+        if (!libraryLoaded) return 0;
+        try {
+            return nativeGetDecodeSpeed();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetDecodeSpeed unavailable: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static native float nativeGetDecodeSpeed();
+
+    /**
+     * 当前阶段速度（tokens/s）：按 native 状态机阶段返回对应速度。
+     * THINKING → 思考段速度；GENERATING → 正文解码速度；其他阶段返回 0。
+     * 用于对话页 ⚡ t/s 随推理阶段切换显示。
+     */
+    public static float getPhaseSpeed() {
+        if (!libraryLoaded) return 0;
+        try {
+            return nativeGetPhaseSpeed();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetPhaseSpeed unavailable: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static native float nativeGetPhaseSpeed();
 
     public static float getMemoryUsage() {
         if (!libraryLoaded) {
@@ -2010,6 +2053,24 @@ public class LlamaHelper {
     private static native void nativeClearContextForInference(long handle);
     private static native void nativeCleanupCallback();
     private static native String nativeGetThinkingTags();
+    private static native String nativeGetKvCacheStats();
+    private static native String nativeGetGenPhase();
+
+    /**
+     * 获取当前推理已累积的思考内容（实时监控模型思考过程）。
+     * chatJson 思考段 token 实时累积到 native 缓冲区，UI 轮询此接口展示模型在想什么。
+     */
+    public static String getThinkingContent() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetThinkingContent();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetThinkingContent unavailable: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private static native String nativeGetThinkingContent();
 
     /** 模板思考标签缓存：模型固定后标签不变，避免渲染/逐 token 重复走 JNI */
     private static volatile ThinkingTagConfig cachedThinkingTags = null;
@@ -2040,6 +2101,53 @@ public class LlamaHelper {
         } catch (Throwable t) {
             AILogger.w(TAG, "getThinkingTags failed: " + t.getMessage());
             return ThinkingTagConfig.empty();
+        }
+    }
+
+    /**
+     * 获取 KV 增量缓存状态与上下文占用监控（native AgentKvCache 统计）。
+     *
+     * <p>返回 JSON：strategy(INCREMENTAL/PARTIAL/FULL)、matched_len、cached_npast、
+     * ctx_size、ctx_usage_pct（上下文占用率）、plans/inc/part/full（策略分布）、
+     * hit_rate_pct（增量命中率）、valid、full_reason（全量原因）。</p>
+     *
+     * <p>用于诊断"为什么没吃到 KV 增量缓存"（普通对话每轮新 prompt 多走 FULL）
+     * 与监控长对话上下文占用（KV 逼近 n_ctx 时的裁剪决策依据）。</p>
+     *
+     * @return JSON 字符串；模型未加载或 JNI 不可用时返回空串
+     */
+    public static String getKvCacheStats() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetKvCacheStats();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetKvCacheStats unavailable: " + e.getMessage());
+            return "";
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getKvCacheStats failed: " + t.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * 获取 native 生成流程状态机的当前阶段（GenPhase + StopCause）。
+     *
+     * <p>返回 JSON：{"phase":"THINKING","stop_cause":"EOS","running":true}。
+     * phase 取值 IDLE/PREPROCESS/THINKING/GENERATING/COMPLETE/ERROR，
+     * 用于对话界面顶部实时展示推理处于思考段还是正文生成、以及完成原因。</p>
+     *
+     * @return JSON 字符串；模型未加载或 JNI 不可用时返回空串
+     */
+    public static String getGenPhase() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetGenPhase();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetGenPhase unavailable: " + e.getMessage());
+            return "";
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getGenPhase failed: " + t.getMessage());
+            return "";
         }
     }
 

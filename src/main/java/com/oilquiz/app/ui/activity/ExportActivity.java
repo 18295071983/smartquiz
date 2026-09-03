@@ -537,6 +537,15 @@ public class ExportActivity extends AppCompatActivity {
         final ExportManager.ExportFormat exportFormat = selectedFormat;
         Log.i(LOG_PREFIX, "Format to export: " + exportFormat);
 
+        doExport(exportFormat);
+    }
+
+    /**
+     * 执行导出（获取题目数据后导出）
+     */
+    private void doExport(final ExportManager.ExportFormat exportFormat) {
+        Log.i(LOG_PREFIX, "doExport called: " + exportFormat);
+
         // 同步获取题目数据（先获取数据，确保成功后再导出）
         final int[] totalQuestions = {0};
         final List<Question>[] allQuestions = new ArrayList[1];
@@ -808,17 +817,42 @@ public class ExportActivity extends AppCompatActivity {
     }
 
     /**
-     * 显示 WebView 导出完成对话框（带预览按钮）
+     * 显示 WebView APK 导出完成对话框（产物为可安装 APK）
      */
     private void showWebViewExportCompleteDialog(File file, String savedPath, List<Question> questions) {
-        // 自动启动 WebView 预览
-        previewWebViewFile(file);
-        
-        // 异步显示提示消息（不阻塞）
+        // 异步显示完成对话框（不阻塞）
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                Toast.makeText(ExportActivity.this, "HTML 文件生成成功，已自动打开预览。\n文件也保存在：\n" + (savedPath != null ? savedPath : "下载/OilQuiz"), Toast.LENGTH_LONG).show();
+                AlertDialog.Builder builder = new AlertDialog.Builder(ExportActivity.this);
+                builder.setTitle("导出完成");
+                String message = "已生成独立 APK 应用（可直接安装到手机）！\n\n";
+                if (savedPath != null) {
+                    message += "文件已保存到：\n" + savedPath + "\n\n";
+                }
+                message += "文件大小: " + (file.length() / 1024) + " KB\n\n";
+                message += "该 APK 内置当前题库，安装后即可离线刷题。";
+                builder.setMessage(message);
+
+                builder.setPositiveButton("安装", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        openFile(file);
+                    }
+                });
+                builder.setNeutralButton("分享", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        shareFile(file);
+                    }
+                });
+                builder.setNegativeButton("确定", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.dismiss();
+                    }
+                });
+                builder.show();
             }
         });
     }
@@ -845,6 +879,11 @@ public class ExportActivity extends AppCompatActivity {
      * 打开文件
      */
     private void openFile(File file) {
+        // APK 直接调起系统包安装器（不经过选择器）
+        if (file.getName().toLowerCase().endsWith(".apk")) {
+            installApk(file);
+            return;
+        }
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             Uri uri;
@@ -874,6 +913,29 @@ public class ExportActivity extends AppCompatActivity {
         } catch (Exception e) {
             Toast.makeText(this, "无法打开文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * 安装 APK：直接调起系统包安装器
+     */
+    private void installApk(File file) {
+        try {
+            Uri uri;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                uri = FileProvider.getUriForFile(this, "com.oilquiz.app.fileprovider", file);
+            } else {
+                uri = Uri.fromFile(file);
+            }
+            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+            intent.setData(uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(LOG_PREFIX, "无法安装 APK", e);
+            Toast.makeText(this, "无法安装 APK: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 

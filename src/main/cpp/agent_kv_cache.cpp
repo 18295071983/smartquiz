@@ -32,14 +32,17 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
 
     if (incremental) {
         strategy_ = Strategy::INCREMENTAL;
+        incCount_++;
         AGENT_KV_LOGI("HIT: matched %d tokens, delta eval %zu tokens",
                       matchedLen_, tokensList.size() - matchedLen_);
     } else if (partialIncremental) {
         strategy_ = Strategy::PARTIAL;
+        partCount_++;
         AGENT_KV_LOGI("PARTIAL: matched %d/%d tokens, delta eval %zu tokens",
                       matchedLen_, cachedNPast_, tokensList.size() - matchedLen_);
     } else {
         // ---- 3. MISS 原因细分（诊断：区分"该清"与"意外清掉"）----
+        fullCount_++;
         if (!kvCacheValid_) fullEvalReason_ = "first_call_or_invalidated";
         else if (matchedLen_ == 0) fullEvalReason_ = "no_prefix_match";
         else if (mem == nullptr) fullEvalReason_ = "memory_null";
@@ -48,6 +51,22 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
                       fullEvalReason_, (int)kvCacheValid_, cachedTokens_.size(),
                       matchedLen_, tokensList.size(), cachedNPast_);
     }
+
+    // ---- 监控：周期性输出聚合统计 ----
+    planCount_++;
+    if (planCount_ % STATS_INTERVAL == 0) {
+        dumpStats();
+    }
+}
+
+void AgentKvCache::dumpStats() {
+    long total = planCount_;
+    double hit = hitRate();
+    double usage = ctxUsage();
+    AGENT_KV_LOGI("KV-STATS: plans=%ld inc=%d part=%d full=%d hit=%.1f%% "
+                  "ctx_usage=%.1f%% (cachedNPast=%d/%d)",
+                  total, incCount_, partCount_, fullCount_, hit * 100.0,
+                  usage * 100.0, cachedNPast_, ctxSize_);
 }
 
 bool AgentKvCache::truncate(llama_memory_t mem) {
@@ -68,8 +87,8 @@ void AgentKvCache::record(const std::vector<llama_token>& promptTokens,
     cachedTokens_.insert(cachedTokens_.end(), generatedTokens.begin(), generatedTokens.end());
     cachedNPast_ = (int)cachedTokens_.size();
     kvCacheValid_ = true;
-    AGENT_KV_LOGI("bookkeeping updated: cachedNPast=%d (prompt=%zu + generated=%zu)",
-                  cachedNPast_, promptTokens.size(), generatedTokens.size());
+    AGENT_KV_LOGI("bookkeeping updated: cachedNPast=%d (prompt=%zu + generated=%zu), ctx_usage=%.1f%%",
+                  cachedNPast_, promptTokens.size(), generatedTokens.size(), ctxUsage() * 100.0);
 }
 
 void AgentKvCache::invalidate() {

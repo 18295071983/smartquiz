@@ -128,6 +128,36 @@
                             android:textStyle="bold"
                             android:visibility="gone"/>
                     </LinearLayout>
+
+                    <!-- 行3：native 状态机阶段 + KV 缓存状态（命中率/上下文占用） -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_3"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_gen_phase"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="状态机: --"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="@color/text_secondary"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/tv_kv_stats"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:text="KV: --"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="@color/text_secondary"
+                            android:visibility="gone"/>
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 

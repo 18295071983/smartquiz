@@ -21,6 +21,7 @@ import com.oilquiz.app.ai.gpu.MemoryUsageInfo;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ui.activity.ModelSelectorActivity;
+import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,12 +37,16 @@ import java.util.List;
  */
 public class PerformanceDashboardFragment extends Fragment {
 
+    private static final String TAG = "PerformanceDashboard";
+
     private TextView tpsValue;
     private TextView latencyValue;
     private TextView gpuUsageValue;
     private TextView memoryUsageValue;
     private TextView temperatureValue;
     private TextView performanceScoreValue;
+    private TextView kvHitRateValue;
+    private TextView kvCtxUsageValue;
     private WebView tpsChart;
     private RecyclerView optimizationSuggestions;
     private MaterialButton oneClickOptimizeBtn;
@@ -83,6 +88,8 @@ public class PerformanceDashboardFragment extends Fragment {
         memoryUsageValue = view.findViewById(R.id.memory_usage_value);
         temperatureValue = view.findViewById(R.id.temperature_value);
         performanceScoreValue = view.findViewById(R.id.performance_score_value);
+        kvHitRateValue = view.findViewById(R.id.kv_hit_rate_value);
+        kvCtxUsageValue = view.findViewById(R.id.kv_ctx_usage_value);
         tpsChart = view.findViewById(R.id.tps_chart);
         optimizationSuggestions = view.findViewById(R.id.optimization_suggestions);
         oneClickOptimizeBtn = view.findViewById(R.id.one_click_optimize_btn);
@@ -195,12 +202,54 @@ public class PerformanceDashboardFragment extends Fragment {
             performanceScoreValue.setText(String.valueOf(PerformanceRuleEngine.calculateScore(s)));
         }
 
+        refreshKvCacheStats();
+
         // TPS 历史
         tpsHistory.add(s.tps);
         if (tpsHistory.size() > 60) {
             tpsHistory.remove(0);
         }
         updateTpsChart();
+    }
+
+    /**
+     * 刷新 KV 增量缓存状态：命中率 + 上下文占用（native AgentKvCache 统计）。
+     * 数据来源：LlamaHelper.getKvCacheStats()（JNI nativeGetKvCacheStats）。
+     * 用于诊断"为什么没吃到 KV 增量缓存"与监控长对话上下文逼近 n_ctx。
+     */
+    private void refreshKvCacheStats() {
+        if (kvHitRateValue == null && kvCtxUsageValue == null) return;
+        String json = LlamaHelper.getKvCacheStats();
+        if (json == null || json.isEmpty()) {
+            if (kvHitRateValue != null) kvHitRateValue.setText("--");
+            if (kvCtxUsageValue != null) kvCtxUsageValue.setText("--");
+            return;
+        }
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            double hit = o.optDouble("hit_rate_pct", -1);
+            double usage = o.optDouble("ctx_usage_pct", -1);
+            String strat = o.optString("strategy", "");
+            int plans = o.optInt("plans", 0);
+            if (kvHitRateValue != null) {
+                if (hit >= 0 && plans > 0) {
+                    kvHitRateValue.setText(String.format("%.0f%%", hit));
+                } else {
+                    kvHitRateValue.setText("--");
+                }
+            }
+            if (kvCtxUsageValue != null) {
+                if (usage >= 0) {
+                    kvCtxUsageValue.setText(String.format("%.0f%% · %s", usage, strat));
+                } else {
+                    kvCtxUsageValue.setText("--");
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "refreshKvCacheStats parse failed: " + e.getMessage());
+            if (kvHitRateValue != null) kvHitRateValue.setText("--");
+            if (kvCtxUsageValue != null) kvCtxUsageValue.setText("--");
+        }
     }
 
     // ========== 规则分析 & 建议 ==========

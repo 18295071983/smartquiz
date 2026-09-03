@@ -169,6 +169,8 @@ public final class ExportFileSaver {
                 return "image/jpeg";
             case "zip":
                 return "application/zip";
+            case "apk":
+                return "application/vnd.android.package-archive";
             default:
                 return "application/octet-stream";
         }

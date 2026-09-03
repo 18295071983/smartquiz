@@ -277,9 +277,9 @@ public class ResourceConfig {
         if (gpuMemoryMB <= 0) {
             // GPU 显存未知：保守估算。不能按系统总内存拍高层数——系统内存≠GPU显存，
             // 大内存+小显存设备按内存估 30 层会让 GPU 驱动过载（Vulkan/OpenCL 崩溃高危）。
-            // 档位整体下调：8GB+→20、6-8GB→16、4-6GB→12、<4GB→8。
+            // 档位整体下调：8GB+→28、6-8GB→16、4-6GB→12、<4GB→8。
             if (totalMemoryMB >= 8192) {
-                gpuLayers = 20;
+                gpuLayers = 28;
             } else if (totalMemoryMB >= 6144) {
                 gpuLayers = 16;
             } else if (totalMemoryMB >= 4096) {
@@ -302,14 +302,11 @@ public class ResourceConfig {
         // 确保不超过上限和模型总层数
         int finalLayers = Math.max(MIN_GPU_LAYERS, Math.min(Math.min(MAX_GPU_LAYERS, totalLayers), gpuLayers));
 
-        // 小模型（<3B）优化：减少 GPU 层数，避免 GPU 带宽瓶颈
-        // 3B 模型建议使用 20-25 层，而不是全部层数
-        if (totalLayers <= 26 && finalLayers > 25) {
-            int suggestedLayers = (int)(totalLayers * 0.8); // 使用 80% 的层数
-            AILogger.i(TAG, "Small model optimization: reducing GPU layers from " + finalLayers +
-                    " to " + suggestedLayers + " (80% of " + totalLayers + " layers)");
-            finalLayers = suggestedLayers;
-        }
+        // 小模型全量 offload：Adreno 8xx 等 SoC GPU 带宽充足，全量 GPU 消除 CPU-GPU 交替
+        // 瓶颈（每 token 跨端同步是 decode 慢的主因）。显存支撑能力已由 usableGpuMemoryMB
+        // 在上文钳制（Calculated layers → clamp totalLayers），不再额外砍 80% 层数。
+        // 注：旧逻辑对小模型按 80% 层数削减（如 26→20），在本设备上导致 6 层 CPU 拖慢 decode，
+        // 故移除。
 
         AILogger.i(TAG, "========== GPU LAYERS RESULT ==========");
         AILogger.i(TAG, "  Final layers: " + finalLayers + "/" + totalLayers);
