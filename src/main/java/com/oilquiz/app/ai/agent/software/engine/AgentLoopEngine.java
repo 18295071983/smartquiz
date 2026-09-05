@@ -85,13 +85,6 @@ public class AgentLoopEngine {
      *  从 5 提到 7：扩大的常驻池（天气/搜索/计算/时间/位置）加关键词命中后
      *  仍能全部注入，减少"查了才能调"的依赖） */
     private static final int MAX_TOOLS_PER_RUN = 7;
-    /** 工具 schema 的 token 预算：描述已截断为精简版（≤150 字符/工具），
-     *  2000 token 可容纳全部 ~40 个工具注入——模型一眼看全工具池，
-     *  减少 tool_registry 检索跳数；关键词命中工具仍排最前优先注入 */
-    private static final int MAX_SCHEMA_TOKENS = 2000;
-    /** 注入的工具描述最大字符数：超过则截断为精简版（完整描述经
-     *  tool_registry(get=工具名) 按需获取），缩小注入 schema 让更多工具进预算 */
-    private static final int MAX_TOOL_DESC_CHARS = 150;
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
@@ -325,7 +318,7 @@ public class AgentLoopEngine {
                         + "工具返回的城市与用户原意不符时，按用户原话重查。\n";
             } else {
                 // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
-                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，ai_weather 用经纬度查询最准——先用 location 工具定位拿 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
+                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，用 ai_weather 工具，参数用 location 工具定位获取的 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
             }
         }
         history.add(new ChatMessage("system", sysPrompt));
@@ -665,8 +658,14 @@ public class AgentLoopEngine {
                 } else {
                     result = AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
                 }
-                boolean success = result.isSuccess();
+                // 成功判定统一走 isToolSuccess：AIWeatherManager 等工具会把
+                // "查询失败: 无法定位城市"包装成 success 结果，须识别失败语义并降级为失败，
+                // 触发替代方案提示，让模型继续多轮补充信息而非直接收尾。
+                boolean success = isToolSuccess(result);
                 String resultStr = success ? String.valueOf(result.getResult()) : result.getErrorMessage();
+                if (!success && resultStr == null) {
+                    resultStr = extractResultText(result);
+                }
                 // 工具失败时附加替代工具提示：引导模型换工具而非放弃（4B 模型需要明确指引）
                 if (!success) {
                     String alt = getAlternativeTool(tc.toolName);
@@ -1568,41 +1567,37 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词（本地小模型精简版 v2）。
+     * FC 模式的 system 提示词（本地小模型精简版 v3，2026-09-05 参考厂商设计重构）。
      *
-     * 设计要点（针对 2B 小模型"乱思考"问题，2026-09-03 重构）：
-     * 1. 全部用肯定句、短句；删除"可能已过时/不要反复纠结/禁止猜测"等否定警告句——
-     *    这些句式会被小模型当作思考模板复读（实测"环境上下文中的日期时间可能已过时"
-     *    被复读几十次），是"乱思考"的直接触发源。
-     * 2. "场景→工具"直给，并写明关键参数用法（如 ai_weather 的 city 直接用用户说的
-     *    城市名），避免模型在"要不要先定位/要不要查参数"上钻牛角尖（五台县卡死案例）。
-     * 3. 动作规则压缩为 4 条短句（调1个→看结果→失败换工具→不知道就查），
-     *    不再给冗长的工具行为规范；llama.cpp Qwen chat 模板注入 tools 后自带调用格式。
-     * 4. 完整工具能力/参数仍经 tool_registry 按需获取；未注入的工具仍可直接调用。
+     * 参考依据：
+     * - Hermes 2 Pro 官方 function calling system prompt："You are a function calling AI
+     *   model... You may call one or more functions... Don't make assumptions about what
+     *   values to plug into functions... If no function call is needed, answer normally"
+     *   ——本地模型最熟悉的训练格式，直接用其精神：可调多个、不假设参数值、不需要就不调。
+     * - Qwen 官方：system = 角色/任务 + 工具说明 + 调用格式 + 输出要求（四要素）。
+     * - DeepSeek：小模型参数结构越简单越准确，短肯定句。
+     * - 用户硬性偏好：零引导（不绑场景→工具、不限制单一工具、不放默认值、无示例），
+     *   确定肯定句，实时信息一律工具获取，不确定时用工具测试。
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是答题宝AI助手，用中文简洁回答。需要信息时调用工具。\n\n");
+        sb.append("你是答题宝AI助手，用中文简洁回答，需要信息时调用工具。\n\n");
 
-        // 工具速查：场景→工具直给（与注入集对齐；完整参数经 tool_registry 获取）
+        // 工具说明：不引导场景→工具映射，模型根据注入的工具定义自行选择
         sb.append("【工具】\n");
-        sb.append("以下为常用对应，同一需求可用多个工具，选信息最准的：\n");
-        sb.append("查天气→ai_weather（数据全：action 按需选 current/forecast/hourly/air_quality/indices/alerts/all；查当前位置实时天气用经纬度最准——先用 location 定位拿 lat/lon；查具体城市用 city 城市名或和风城市编码如101170101），也可 network_search 搜索；\n");
-        sb.append("查实时/新闻/百科→network_search 或 smart_research；查时间/日期→time_date（实时获取）；查位置/坐标→location（实时定位）；\n");
-        sb.append("计算→calculator 或 python_calculate；单位换算→unit_converter；文本处理→text_tools；\n");
-        sb.append("画图→image_gen 或 dashscope_media；数据图表→python_chart；朗读→speech_synthesis；\n");
-        sb.append("读/写文件→file_reader/file_generator；管理文件→workspace；题库→database；\n");
-        sb.append("记住→memory；查工具/参数→tool_registry(list/get)。\n");
-        sb.append("工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合；\n\n");
-        sb.append("多数工具支持多种操作（action）和参数方式，先按用户需求选最合适的 action，再填对应参数；完整参数→tool_registry(get=工具名) 查看后调用。\n\n");
+        sb.append("根据注入的工具定义（名称/功能/参数）自行选择调用；同一需求可用多个工具配合。\n");
+        sb.append("工具支持多种操作（action）与参数方式，按需选择；完整参数用 tool_registry(get=工具名) 查看后调用。\n");
+        sb.append("不需要工具时直接回答。\n\n");
 
         sb.append("【做法】\n");
         sb.append("1. 直接调用工具。用户给的参数（城市/编码/时间/位置等）直接照用，先调用。\n");
-        sb.append("2. 工具返回的数据是准确实时的，直接采纳。\n");
-        sb.append("3. 信息不足时调用 network_search 或 smart_research 搜索补全再回答。\n");
-        sb.append("4. 工具失败换一个工具继续（ai_weather 失败→network_search）。\n");
-        sb.append("5. 查时间用 time_date，查位置用 location，查天气用 ai_weather。\n");
-        sb.append("6. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调工具。\n\n");
+        sb.append("2. 工具调用后会返回结果。先分析结果内容：结果是否回答了用户问题？缺什么信息？据此决定下一步——已满足直接回答，不满足继续调工具补齐。\n");
+        sb.append("3. 工具返回的数据是准确实时的，直接采纳，不要编造结果里没有的数据。\n");
+        sb.append("4. 不确定时用工具测试：不确定参数、数据或结果时，直接调工具拿返回确认，以工具返回为准。\n");
+        sb.append("5. 信息不足时用搜索类工具补全再回答。\n");
+        sb.append("6. 工具失败换一个工具继续，不要因一次失败就放弃。\n");
+        sb.append("7. 可多轮调用：一次工具结果不够时继续调用，直到信息足够再回答。\n");
+        sb.append("8. 需要探索时主动用工具：结果不完整、不清晰或与用户问题不符时，换参数/换工具再试，直到拿到可用信息。\n\n");
 
         sb.append("【回答】\n");
         sb.append("中文简洁，先结论后细节；没把握时直说不知道。\n");
@@ -1750,14 +1745,8 @@ public class AgentLoopEngine {
                 tool.put("type", "function");
                 JSONObject function = new JSONObject();
                 function.put("name", def.getName());
-                // 结构优化：注入的 description 只保留精简版（≤150 字符）。
-                // 完整描述/参数仍经 tool_registry(get=工具名) 按需获取——
-                // 大幅缩小注入 schema，让更多工具挤进预算，模型需要细节时检索。
-                String desc = def.getDescription();
-                if (desc != null && desc.length() > MAX_TOOL_DESC_CHARS) {
-                    desc = desc.substring(0, MAX_TOOL_DESC_CHARS) + "…";
-                }
-                function.put("description", desc);
+                // 完整描述注入：不截断，让本地模型完整理解每个工具的能力边界。
+                function.put("description", def.getDescription());
                 JSONObject params = new JSONObject();
                 params.put("type", "object");
                 JSONObject props = new JSONObject();
@@ -1766,7 +1755,7 @@ public class AgentLoopEngine {
                     JSONObject prop = new JSONObject();
                     prop.put("type", p.getType());
                     prop.put("description", p.getDescription());
-                    if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
+                    // 不输出 default：避免引导模型只用默认参数（如 action 固定为 current）
                     // 枚举值必须写入 schema：否则模型只能猜 action/type 等枚举参数，
                     // 2B 模型容易只用第一个值（如 ai_weather 只用 current）
                     if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
@@ -1780,19 +1769,8 @@ public class AgentLoopEngine {
                 function.put("parameters", params);
                 tool.put("function", function);
 
-                // schema token 预算守卫：超出则停止追加更多工具
-                int addTokens = countTokensSafe(tool.toString());
-                if (schemaTokens + addTokens > MAX_SCHEMA_TOKENS && tools.length() > 0) {
-                    // 检索型工具豁免：tool_registry（工具发现）与 control_lookup
-                    // （低频 UI 控件参数）是全池注入被裁剪后模型按需检索的逃生口，
-                    // 被裁掉就失去了发现剩余工具/控件参数的能力
-                    String n = def.getName();
-                    if (!"tool_registry".equals(n) && !"control_lookup".equals(n)) {
-                        AILogger.w(TAG, "Schema token budget reached, dropping tool: " + name);
-                        continue;
-                    }
-                }
-                schemaTokens += addTokens;
+                // schema token 统计（仅日志，不再因预算裁掉工具——保证注入的工具数量完整）
+                schemaTokens += countTokensSafe(tool.toString());
                 tools.put(tool);
             } catch (Exception e) {
                 AILogger.w(TAG, "Build tool JSON failed: " + name);
@@ -2101,37 +2079,90 @@ public class AgentLoopEngine {
         // 提取城市名（用户明确问的城市 > 当前位置），避免"五台县"场景首轮无 city 报错。
         if ("ai_weather".equals(toolName)
                 && !params.containsKey("city") && !params.containsKey("lat") && !params.containsKey("lon")) {
-            // 确保坐标从主界面缓存加载（getCachedLocation 内部会先读 weather_location_cache）
-            if (cachedLat == 0 && cachedLon == 0) {
-                getCachedLocation();
-            }
-            if (cachedLat != 0 || cachedLon != 0) {
-                params.put("lat", cachedLat);
-                params.put("lon", cachedLon);
-                AILogger.i(TAG, "ai_weather: auto-filled lat/lon=" + cachedLat + "," + cachedLon);
-            } else {
-                // 无坐标：优先用户消息里明确说的城市名（如"五台县的天气"→五台县）
-                String city = extractCityFromMessage(lastUserMessage);
-                if (city == null || city.isEmpty()) {
-                    city = getCachedLocation();
-                    if ("当前位置".equals(city)) city = null;
-                }
-                if (city != null && !city.isEmpty()) {
-                    params.put("city", city);
-                    AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
-                }
-            }
+            fillWeatherLocation(params);
         }
 
         AIToolResult result = executeWithTimeout(toolName, params);
-        if (result.isSuccess()) return result;
+        if (isToolSuccess(result)) return result;
+
+        // 失败感知重试：模型可能把非城市词（"今天/这边/查询下"等）当 city 传进来
+        // （实测"查询下今天的天气"→city=今天→"无法定位城市: 今天"）。
+        // 判断"传了 city 但执行因无法定位失败" → 丢弃无效 city、改走位置兜底重试，
+        // 不依赖本地城市表覆盖度（geo 能查到的小城市不会被误伤）。
+        // 注意：AIWeatherManager 会把"无法定位城市"包装成 success 结果，须用 isToolSuccess
+        // 统一检测（含失败语义文本），不能只看 isSuccess()。
+        if ("ai_weather".equals(toolName)
+                && params.containsKey("city")
+                && !params.containsKey("lat") && !params.containsKey("lon")) {
+            if (containsToolFailure(extractResultText(result))) {
+                String badCity = String.valueOf(params.remove("city"));
+                AILogger.w(TAG, "ai_weather: model city '" + badCity
+                        + "' not locatable, retrying with location fallback");
+                fillWeatherLocation(params);
+                result = executeWithTimeout(toolName, params);
+                if (isToolSuccess(result)) return result;
+            }
+        }
 
         for (int r = 0; r < MAX_RETRIES; r++) {
             AILogger.w(TAG, "Retrying " + toolName);
             result = executeWithTimeout(toolName, params);
-            if (result.isSuccess()) return result;
+            if (isToolSuccess(result)) return result;
         }
         return result;
+    }
+
+    /** 工具结果是否视为成功：isSuccess() 且结果文本不含失败语义。
+     *  解决 AIWeatherManager 等把"查询失败/无法定位"包装成 success 的问题。 */
+    private boolean isToolSuccess(AIToolResult result) {
+        if (result == null || !result.isSuccess()) return false;
+        String text = extractResultText(result);
+        return !containsToolFailure(text);
+    }
+
+    /** 提取结果文本（成功取 result，失败取 errorMessage） */
+    private String extractResultText(AIToolResult result) {
+        if (result == null) return null;
+        if (result.isSuccess()) {
+            Object r = result.getResult();
+            return r != null ? String.valueOf(r) : null;
+        }
+        return result.getErrorMessage();
+    }
+
+    /** 结果文本是否含失败语义（工具常把失败文本包装进成功结果） */
+    private boolean containsToolFailure(String text) {
+        if (text == null || text.isEmpty()) return false;
+        return text.contains("查询失败") || text.contains("无法定位")
+                || text.contains("查询异常") || text.contains("获取失败")
+                || text.contains("缺少城市") || text.contains("缺少坐标")
+                || text.contains("请提供城市") || text.contains("请提供坐标")
+                || text.contains("无法获取") || text.contains("无结果")
+                || text.contains("超时");
+    }
+
+    /** ai_weather 位置兜底：优先经纬度缓存，其次用户消息城市，最后当前位置。 */
+    private void fillWeatherLocation(Map<String, Object> params) {
+        // 确保坐标从主界面缓存加载（getCachedLocation 内部会先读 weather_location_cache）
+        if (cachedLat == 0 && cachedLon == 0) {
+            getCachedLocation();
+        }
+        if (cachedLat != 0 || cachedLon != 0) {
+            params.put("lat", cachedLat);
+            params.put("lon", cachedLon);
+            AILogger.i(TAG, "ai_weather: auto-filled lat/lon=" + cachedLat + "," + cachedLon);
+        } else {
+            // 无坐标：优先用户消息里明确说的城市名（如"五台县的天气"→五台县）
+            String city = extractCityFromMessage(lastUserMessage);
+            if (city == null || city.isEmpty()) {
+                city = getCachedLocation();
+                if ("当前位置".equals(city)) city = null;
+            }
+            if (city != null && !city.isEmpty()) {
+                params.put("city", city);
+                AILogger.i(TAG, "ai_weather: auto-filled city=" + city);
+            }
+        }
     }
 
     private AIToolResult executeWithTimeout(String toolName, Map<String, Object> params) {

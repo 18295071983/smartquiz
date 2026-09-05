@@ -1436,8 +1436,28 @@ public class WebViewActivity extends BaseActivity {
                 AppLogger.d(TAG, "开始下载: " + url);
                 AppLogger.d(TAG, "文件类型: " + mimeType);
                 AppLogger.d(TAG, "文件大小: " + contentLength + " bytes");
-                
-                // 处理下载请求
+
+                // .gguf 模型文件：用 App 内部下载器下载到 ai_models 目录
+                if (url != null) {
+                    String cleanUrl = url;
+                    int qIdx = cleanUrl.indexOf('?');
+                    if (qIdx > 0) cleanUrl = cleanUrl.substring(0, qIdx);
+                    if (cleanUrl.toLowerCase().endsWith(".gguf")) {
+                        String fileName = cleanUrl.substring(cleanUrl.lastIndexOf('/') + 1);
+                        try {
+                            com.oilquiz.app.ai.model.ModelDownloadManager dm =
+                                com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(WebViewActivity.this);
+                            dm.downloadFromCustomUrl(fileName, url, null);
+                            android.widget.Toast.makeText(WebViewActivity.this,
+                                "已添加模型下载: " + fileName, android.widget.Toast.LENGTH_LONG).show();
+                            return;
+                        } catch (Exception e) {
+                            AppLogger.e(TAG, "模型下载失败: " + e.getMessage());
+                        }
+                    }
+                }
+
+                // 处理其他下载请求
                 android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
                 intent.setData(android.net.Uri.parse(url));
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);

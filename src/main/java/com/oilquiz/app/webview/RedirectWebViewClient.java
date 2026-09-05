@@ -83,11 +83,49 @@ public class RedirectWebViewClient extends WebViewClient {
     @Override
     @Nullable
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        // hf-mirror.com / huggingface.co：运营商 DNS 污染（解析到 127.0.0.1），
+        // 用带 SafeDns 的 OkHttp 代理请求，绕过 DNS 污染
+        Uri uri = request.getUrl();
+        String host = uri.getHost();
+        String urlStr = uri.toString();
+        // .gguf 模型文件 / resolve 下载链接：不拦截，让 WebView 触发 onDownloadStart
+        // （否则 shouldInterceptRequest 返回 application/octet-stream，WebView 尝试显示而不下载）
+        if (host != null && (host.contains("hf-mirror.com") || host.contains("huggingface.co"))) {
+            String path = uri.getPath() != null ? uri.getPath().toLowerCase() : "";
+            if (path.endsWith(".gguf") || path.contains("/resolve/") || path.endsWith(".bin") || path.endsWith(".safetensors")) {
+                Log.d(TAG, "跳过拦截模型文件下载: " + urlStr);
+                return null; // 不拦截，让 WebView 触发 onDownloadStart
+            }
+            try {
+                okhttp3.Request okRequest = new okhttp3.Request.Builder()
+                        .url(uri.toString())
+                        .header("User-Agent", view.getSettings().getUserAgentString())
+                        .build();
+                okhttp3.Response response = com.oilquiz.app.ai.model.ModelDownloadManager
+                        .getHttpClient().newCall(okRequest).execute();
+                okhttp3.ResponseBody body = response.body();
+                String mimeType = response.header("Content-Type", "text/html");
+                if (mimeType.contains(";")) {
+                    mimeType = mimeType.substring(0, mimeType.indexOf(';')).trim();
+                }
+                String encoding = "UTF-8";
+                int statusCode = response.code();
+                String reasonPhrase = response.message() != null ? response.message() : "OK";
+                Map<String, String> respHeaders = new HashMap<>();
+                for (String name : response.headers().names()) {
+                    respHeaders.put(name, response.header(name));
+                }
+                InputStream inputStream = body != null ? body.byteStream() : new java.io.ByteArrayInputStream(new byte[0]);
+                return new WebResourceResponse(mimeType, encoding, statusCode, reasonPhrase, respHeaders, inputStream);
+            } catch (Exception e) {
+                Log.e(TAG, "hf-mirror 代理请求失败: " + uri + " - " + e.getMessage());
+            }
+        }
+
         if (!fileRedirectEnabled) {
             return super.shouldInterceptRequest(view, request);
         }
 
-        Uri uri = request.getUrl();
         String url = uri.toString();
 
         // 只处理文件协议请求

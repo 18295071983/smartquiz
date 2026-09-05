@@ -100,12 +100,10 @@ public class MultiModelManager {
     private void initDefaultModels() {
         List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(context);
         for (ModelPresetConfig.ModelPreset preset : presets) {
-            if (!preset.id.matches("\\d+")) {
-                ModelInfo info = ModelPresetConfig.toModelInfo(preset);
-                info.recommendedGpuLayers = getRecommendedGpuLayers(info.sizeMB);
-                info.minRamMB = getMinRamMB(info.sizeMB);
-                addModel(info);
-            }
+            ModelInfo info = ModelPresetConfig.toModelInfo(preset);
+            info.recommendedGpuLayers = getRecommendedGpuLayers(info.sizeMB);
+            info.minRamMB = getMinRamMB(info.sizeMB);
+            addModel(info);
         }
         Log.i(TAG, "Default models initialized: " + modelMap.size() + " models");
     }

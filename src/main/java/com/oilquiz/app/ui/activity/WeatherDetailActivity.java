@@ -29,7 +29,6 @@ import androidx.core.app.ActivityCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.transition.TransitionManager;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ui.widget.CircularGaugeView;
@@ -242,8 +241,18 @@ public class WeatherDetailActivity extends AppCompatActivity {
             // ---------- 场景1：Intent 里已经带了明确的城市名（用户选择过的）----------
             // 直接用 API 返回的原名，去掉省/市前缀即可（truncateCityName 只去前缀不切中间）
             if (tvCity != null) tvCity.setText(truncateCityName(city));
-            // 有坐标也不要反解析！会把"银川市"变成"金凤区银川市"造成歧义！
-            updateLocationInfo();
+            // 顶部城市名保留用户选择，副行（tvLocationInfo）异步反解析具体地址（区+路），不覆盖顶部
+            // 有坐标时反解析具体地址，无坐标时只显示经纬度
+            if (hasLocation && lat != 0 && lon != 0) {
+                asyncResolveFullAddress(lat, lon, (cityName, detail) -> {
+                    // 只更新副行地址，不覆盖顶部已显示的城市名
+                    if (detail != null && !detail.isEmpty() && tvLocationInfo != null) {
+                        tvLocationInfo.setText(detail);
+                    }
+                });
+            } else {
+                updateLocationInfo();
+            }
             loadWeatherData();
         } else if (hasLocation) {
             // ---------- 场景2A：有坐标没城市名 → GPS/系统缓存定位成功 ----------
@@ -489,6 +498,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (alertBarClickable != null) {
             alertBarClickable.setOnClickListener(v -> {
+                // 预警常驻模式（有预警，bannerItems 为空）：多条预警点击切换下一条，单条展开/折叠
+                if (bannerItems.isEmpty() && currentAlertInfos != null && !currentAlertInfos.isEmpty()) {
+                    if (currentAlertInfos.size() > 1) {
+                        showAlertBanner(bannerIndex + 1);
+                    } else {
+                        toggleAlertExpand();
+                    }
+                    return;
+                }
                 // 如果当前是预警条目，展开/收起预警详情
                 if (!bannerItems.isEmpty() && bannerItems.get(bannerIndex).isAlert) {
                     toggleAlertExpand();
@@ -575,20 +593,14 @@ public class WeatherDetailActivity extends AppCompatActivity {
         bannerItems.clear();
         bannerIndex = 0;
 
-        // 1. 预警条目（最高优先级）
+        // 有预警时：预警常驻显示（不参与轮播），后续普通条目暂不显示
         if (!alertSummary.isEmpty() && currentAlertInfos != null && !currentAlertInfos.isEmpty()) {
-            for (AlertInfo ai : currentAlertInfos) {
-                String type = extractAlertType(ai.title);
-                String level = ai.level.isEmpty() ? extractAlertColor(ai.title) : ai.level;
-                String tagText = level.isEmpty() ? "预警" : level;
-                String summary = ai.description.isEmpty() ? ai.summary : ai.description;
-                if (summary.length() > 60) summary = summary.substring(0, 60) + "...";
-                int bg = alertBgDrawable(level);
-                bannerItems.add(new BannerItem("⚠️", type + "预警", tagText, summary, bg, R.drawable.weather_card_glass, true));
-            }
+            showAlertBanner(0);
+            return;
         }
 
-        // 2. 当前天气
+        // 无预警：普通条目轮播
+        // 1. 当前天气
         if (!currentWeatherText.isEmpty()) {
             String summary = currentTempVal + "° " + currentWeatherText;
             if (!currentFeelsLike.isEmpty()) summary += "，体感" + currentFeelsLike + "°";
@@ -675,6 +687,38 @@ public class WeatherDetailActivity extends AppCompatActivity {
             showBannerItem(0);
             startBannerRotation();
         }
+    }
+
+    /** 显示指定预警并常驻（不参与轮播），多条预警可点击切换 */
+    private void showAlertBanner(int alertIndex) {
+        if (currentAlertInfos == null || currentAlertInfos.isEmpty()) return;
+        alertIndex = Math.max(0, Math.min(alertIndex, currentAlertInfos.size() - 1));
+        bannerIndex = alertIndex;
+        AlertInfo ai = currentAlertInfos.get(alertIndex);
+        String type = extractAlertType(ai.title);
+        String level = ai.level.isEmpty() ? extractAlertColor(ai.title) : ai.level;
+        String tagText = level.isEmpty() ? "预警" : level;
+        String summary = ai.description.isEmpty() ? ai.summary : ai.description;
+        if (summary.length() > 60) summary = summary.substring(0, 60) + "...";
+        int bg = alertBgDrawable(level);
+
+        if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.VISIBLE);
+        if (bannerIcon != null) bannerIcon.setText("⚠️");
+        if (bannerTitle != null) bannerTitle.setText(type + "预警");
+        if (bannerSummary != null) bannerSummary.setText(summary);
+        if (bannerTag != null) {
+            bannerTag.setText(tagText);
+            bannerTag.setVisibility(View.VISIBLE);
+        }
+        if (alertBarClickable != null) alertBarClickable.setBackgroundResource(bg);
+        if (alertExpandArrow != null) alertExpandArrow.setVisibility(View.VISIBLE);
+
+        // 多条预警：点击卡片切换下一条；单条则展开/折叠
+        // 指示器圆点不显示（常驻模式）
+        if (bannerDots != null) bannerDots.removeAllViews();
+
+        // 停止轮播，预警常驻
+        stopBannerRotation();
     }
 
     /** 显示指定位置的横幅条目 */
@@ -773,12 +817,21 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private void toggleAlertExpand() {
         if (alertExpandedArea == null || alertExpandArrow == null) return;
         alertExpanded = !alertExpanded;
-        ViewGroup parent = (ViewGroup) alertExpandedArea.getParent();
-        if (parent != null) {
-            try { TransitionManager.beginDelayedTransition(parent); } catch (Exception ignored) {}
-        }
+        // 注意：这里不调用 TransitionManager.beginDelayedTransition——它与数据刷新时的
+        // removeAllViews+addView 交织会导致视图快照失效，折叠后展开区子视图丢失。
+        // 直接切换 visibility 最可靠。
         alertExpandedArea.setVisibility(alertExpanded ? View.VISIBLE : View.GONE);
         alertExpandArrow.animate().rotation(alertExpanded ? 180f : 0f).setDuration(220).start();
+
+        // 展开时暂停横幅轮播，避免5秒后自动切到非预警条目把展开区收起（表现为"过一会预警消失"）
+        if (alertExpanded) {
+            stopBannerRotation();
+        } else {
+            // 折叠后若有多条横幅才恢复轮播
+            if (bannerItems.size() > 1) {
+                startBannerRotation();
+            }
+        }
     }
 
     private void openPrecipMapDetail() {
@@ -1712,10 +1765,10 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 } else {
                     aqi = rest;
                 }
-            } else if (line.startsWith("PM2.5:") || line.startsWith("PM2p5:")) {
+            } else if (line.startsWith("PM2.5:") || line.startsWith("PM2p5:") || line.startsWith("PM 2.5:")) {
                 pm25 = cleanAirValue(line);
                 pm25Name = extractAirFullName(line);
-            } else if (line.startsWith("PM10:")) {
+            } else if (line.startsWith("PM10:") || line.startsWith("PM 10:")) {
                 pm10 = cleanAirValue(line);
                 pm10Name = extractAirFullName(line);
             } else if (line.startsWith("NO2:")) {
@@ -1733,7 +1786,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             } else if (line.startsWith("等级:")) {
                 if (category.equals("暂无数据")) category = line.substring(3).trim();
             } else if (line.startsWith("首要污染物:")) {
-                primaryPollutant = line.substring(5).trim();
+                primaryPollutant = line.substring("首要污染物:".length()).trim();
             } else if (line.startsWith("健康影响:")) {
                 if (healthAdvice.length() > 0) healthAdvice.append("\n");
                 healthAdvice.append(line.substring(5).trim());

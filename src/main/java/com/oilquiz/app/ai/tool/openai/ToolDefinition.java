@@ -55,9 +55,7 @@ public class ToolDefinition {
             JSONObject paramSchema = new JSONObject();
             paramSchema.put("type", param.getType());
             paramSchema.put("description", param.getDescription());
-            if (param.getDefaultValue() != null) {
-                paramSchema.put("default", param.getDefaultValue());
-            }
+            // 不输出 default：避免引导模型只用默认参数（如 action 固定为 current）
             if (param.getEnumValues() != null && !param.getEnumValues().isEmpty()) {
                 JSONArray enumArray = new JSONArray();
                 for (String enumVal : param.getEnumValues()) {
@@ -90,9 +88,6 @@ public class ToolDefinition {
             sb.append("  - ").append(param.getName());
             sb.append(" (").append(param.getType()).append(")");
             if (param.isRequired()) sb.append(" [必填]");
-            if (param.getDefaultValue() != null) {
-                sb.append(" 默认: ").append(param.getDefaultValue());
-            }
             sb.append(": ").append(param.getDescription()).append("\n");
         }
         return sb.toString();

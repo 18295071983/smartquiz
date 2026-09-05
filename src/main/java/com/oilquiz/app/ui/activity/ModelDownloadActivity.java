@@ -116,6 +116,8 @@ public class ModelDownloadActivity extends BaseActivity {
         setupToolbar("模型下载");
         
         searchView = findViewById(R.id.search_view);
+        searchView.setIconifiedByDefault(false); // 默认展开，不用点图标
+        searchView.setIconified(false);
         btnAddUrl = findViewById(R.id.btn_add_url);
         spinnerModelType = findViewById(R.id.spinner_model_type);
         spinnerCategory = findViewById(R.id.spinner_category);
@@ -200,9 +202,8 @@ public class ModelDownloadActivity extends BaseActivity {
                         updateDownloadStats();
                         return;
                     }
+                    // updateComplete 内部已更新对应 item 状态并调用 updateDownloadStats()
                     modelAdapter.updateComplete(modelId, filePath);
-                    updateDownloadStats();
-                    loadModels();
                 });
             }
 
@@ -230,7 +231,8 @@ public class ModelDownloadActivity extends BaseActivity {
             @Override
             public void onResumed(String modelId) {
                 runOnUiThread(() -> {
-                    modelAdapter.updateProgress(modelId, -1, 0, 0, 0);
+                    // 恢复下载后刷新该 item 状态（不能传 progress=-1，否则 updateProgress 里 if(progress>=0) 不执行）
+                    loadModels();
                 });
             }
         });
@@ -244,6 +246,9 @@ public class ModelDownloadActivity extends BaseActivity {
                 searchQuery = query.trim();
                 if (isValidUrl(searchQuery)) {
                     showCustomUrlDialog(searchQuery);
+                } else if (selectedModelType.equals("online")) {
+                    // 在线模型 tab：调用 HF 搜索 API 返回候选
+                    searchHuggingFaceModels(searchQuery);
                 } else {
                     filterModels();
                 }
@@ -433,116 +438,229 @@ public class ModelDownloadActivity extends BaseActivity {
 
     private void loadOnlineModels() {
         tvSearchHint.setVisibility(View.VISIBLE);
-        tvSearchHint.setText("提示：在搜索框输入 Hugging Face 模型名称（如：Salesforce/xLAM-1b-fc-r-gguf）或直接输入模型下载链接\n支持离线 Agent FC 专用模型（xLAM）");
-        
+        tvSearchHint.setText("提示：在搜索框输入 Hugging Face 模型名称（如：Qwen/Qwen3-8B-GGUF）或直接输入模型下载链接\nLLM 模型 tab 已包含常用国产模型，此处提供特殊量化版本与自定义下载");
+
         List<OnlineModelInfo> onlineModels = getPopularOnlineModels();
         allModelList.addAll(onlineModels);
     }
 
+    /**
+     * 在线搜索推荐模型：只保留 LLM 预设列表（models_presets.json）中没有的特殊量化/版本，
+     * 避免与"LLM 模型" tab 重复。常用国产模型统一在 LLM 模型 tab 下载。
+     */
     private List<OnlineModelInfo> getPopularOnlineModels() {
         List<OnlineModelInfo> models = new ArrayList<>();
-        
-        // ===== 离线 Agent FC 专用模型（带思考链 Reasoning，支持 Function Calling / Tool Use）=====
-        // 注意：xLAM 是 Salesforce 专为 Agent/Function Calling 训练的模型，
-        // 后缀 "-r" 表示带推理链（reasoning），可在本地完全离线执行工具调用
-        models.add(new OnlineModelInfo("xLAM-1b-fc-r", "Salesforce 离线 Agent FC 专用模型（1B，带思考链）", 
-            "https://hf-mirror.com/Salesforce/xLAM-1b-fc-r-gguf/resolve/main/xLAM-1b-fc-r.Q4_K_S.gguf", 
-            "Q4_K_S", "776 MB", "GGUF", "1B"));
-        
-        models.add(new OnlineModelInfo("xLAM-1b-fc-r-Q4K_M", "Salesforce 离线 Agent FC 专用模型（1B，带思考链，更高精度）", 
-            "https://hf-mirror.com/Salesforce/xLAM-1b-fc-r-gguf/resolve/main/xLAM-1b-fc-r.Q4_K_M.gguf", 
-            "Q4_K_M", "833 MB", "GGUF", "1B"));
-        
-        models.add(new OnlineModelInfo("xLAM-7b-fc-r", "Salesforce 离线 Agent FC 专用模型（7B，带思考链）", 
-            "https://hf-mirror.com/Salesforce/xLAM-7b-fc-r-gguf/resolve/main/xLAM-7b-fc-r.Q4_K_S.gguf", 
-            "Q4_K_S", "3.8 GB", "GGUF", "7B"));
-        
-        models.add(new OnlineModelInfo("xLAM-7b-fc-r-Q4K_M", "Salesforce 离线 Agent FC 专用模型（7B，带思考链，更高精度）", 
-            "https://hf-mirror.com/Salesforce/xLAM-7b-fc-r-gguf/resolve/main/xLAM-7b-fc-r.Q4_K_M.gguf", 
-            "Q4_K_M", "4 GB", "GGUF", "7B"));
-        
-        // ===== 在线搜索模型 =====
-        
-        // ===== 中文 Agent FC 专用模型（支持 Tool Use / Function Calling）=====
-        // 这些模型专为工具调用优化，支持 llama.cpp GGUF 格式
-        models.add(new OnlineModelInfo("Qwen3-4B-ToolCalling", "Qwen3 4B 工具调用专用模型（Function Calling 优化版）", 
-            "https://hf-mirror.com/Manojb/Qwen3-4B-toolcalling-gguf-codex/resolve/main/Qwen3-4B-Function-Calling-Pro.gguf", 
+
+        // 工具调用专用版
+        models.add(new OnlineModelInfo("Qwen3-4B-ToolCalling", "Qwen3 4B 工具调用专用模型（Function Calling 优化版）",
+            "https://hf-mirror.com/Manojb/Qwen3-4B-toolcalling-gguf-codex/resolve/main/Qwen3-4B-Function-Calling-Pro.gguf",
             "Q4_K_M", "4 GB", "GGUF", "4B"));
-        
-        models.add(new OnlineModelInfo("MiniCPM3-4B", "MiniCPM3 4B 中文能力出色（清华开源）", 
-            "https://hf-mirror.com/OpenBMB/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf", 
-            "Q4_K_M", "2.5 GB", "GGUF", "4B"));
-        
-        models.add(new OnlineModelInfo("Qwen3-0.6B-Q8", "Qwen3 0.6B 轻量中文模型（高精度量化）", 
-            "https://hf-mirror.com/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf", 
+
+        // 高精度量化版本（Q8_0 / Q5_K_M，预设列表只有 Q4_K_M）
+        models.add(new OnlineModelInfo("Qwen3-0.6B-Q8", "Qwen3 0.6B 轻量中文模型（高精度 Q8_0 量化）",
+            "https://hf-mirror.com/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
             "Q8_0", "610 MB", "GGUF", "0.6B"));
-        
-        // ===== 通义千问 2.5 系列 =====
-        models.add(new OnlineModelInfo("Qwen2.5-3B-Instruct", "通义千问2.5 3B 推理和代码能力强", 
-            "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "1.9 GB", "GGUF", "3B"));
-        
-        models.add(new OnlineModelInfo("Qwen2.5-3B-Instruct-Q5KM", "通义千问2.5 3B 更高精度（Q5_K_M）", 
-            "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q5_k_m.gguf", 
+
+        models.add(new OnlineModelInfo("Qwen2.5-3B-Instruct-Q5KM", "通义千问2.5 3B 更高精度（Q5_K_M）",
+            "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q5_k_m.gguf",
             "Q5_K_M", "2.3 GB", "GGUF", "3B"));
-        
-        models.add(new OnlineModelInfo("Qwen2.5-1.5B-Instruct-Q5KM", "通义千问2.5 1.5B 高精度（Q5_K_M）", 
-            "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q5_k_m.gguf", 
+
+        models.add(new OnlineModelInfo("Qwen2.5-1.5B-Instruct-Q5KM", "通义千问2.5 1.5B 高精度（Q5_K_M）",
+            "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q5_k_m.gguf",
             "Q5_K_M", "1.2 GB", "GGUF", "1.5B"));
-        
-        models.add(new OnlineModelInfo("Qwen2.5-1.5B-Instruct", "通义千问2.5 1.5B 中文能力出色", 
-            "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "1 GB", "GGUF", "1.5B"));
-        
-        models.add(new OnlineModelInfo("Qwen2.5-0.5B-Instruct", "通义千问2.5 0.5B 轻量级中文模型", 
-            "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "350 MB", "GGUF", "0.5B"));
-        
-        models.add(new OnlineModelInfo("Llama-3.2-1B-Instruct", "Meta Llama 3.2 1B 轻量级模型", 
-            "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "750 MB", "GGUF", "1B"));
-        
-        models.add(new OnlineModelInfo("Llama-3.2-3B-Instruct", "Meta Llama 3.2 3B 综合能力强", 
-            "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "2.1 GB", "GGUF", "3B"));
-        
-        models.add(new OnlineModelInfo("SmolLM2-360M-Instruct", "HuggingFace 超轻量模型", 
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf", 
-            "Q8_0", "370 MB", "GGUF", "360M"));
-        
-        models.add(new OnlineModelInfo("SmolLM2-1.7B-Instruct", "HuggingFace SmolLM2 1.7B 模型", 
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf", 
-            "Q4_K_M", "1.1 GB", "GGUF", "1.7B"));
-        
-        models.add(new OnlineModelInfo("DeepSeek-R1-Distill-Qwen-1.5B", "深度求索R1蒸馏模型，擅长推理", 
-            "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf", 
-            "Q4_K_M", "1.1 GB", "GGUF", "1.5B"));
-        
-        models.add(new OnlineModelInfo("MiniCPM3-4B", "面壁智能端侧模型，性能超越GPT-3.5", 
-            "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf", 
+
+        // 预设列表没有的型号
+        models.add(new OnlineModelInfo("GLM-Edge-4B-Chat", "智谱AI端侧模型，面向PC/平板",
+            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
             "Q4_K_M", "2.5 GB", "GGUF", "4B"));
-        
-        models.add(new OnlineModelInfo("GLM-Edge-1.5B-Chat", "智谱AI端侧模型，专为手机优化", 
-            "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf", 
+
+        models.add(new OnlineModelInfo("Yi-Coder-1.5B-Chat", "零一万物代码模型，支持52种编程语言",
+            "https://hf-mirror.com/MaziyarPanahi/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat.Q4_K_M.gguf",
             "Q4_K_M", "950 MB", "GGUF", "1.5B"));
-        
-        models.add(new OnlineModelInfo("GLM-Edge-4B-Chat", "智谱AI端侧模型，面向PC/平板", 
-            "https://hf-mirror.com/zai-org/glm-edge-4b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf", 
-            "Q4_K_M", "2.5 GB", "GGUF", "4B"));
-        
-        models.add(new OnlineModelInfo("Yi-Coder-1.5B-Chat", "零一万物代码模型，支持52种编程语言", 
-            "https://hf-mirror.com/MaziyarPanahi/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat.Q4_K_M.gguf", 
-            "Q4_K_M", "950 MB", "GGUF", "1.5B"));
-        
-        models.add(new OnlineModelInfo("Gemma-2-2B-IT", "Google Gemma 2 2B 指令版本", 
-            "https://hf-mirror.com/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf", 
-            "Q4_K_M", "1.5 GB", "GGUF", "2B"));
-        
-        models.add(new OnlineModelInfo("Phi-3.5-Mini-Instruct", "微软 Phi-3.5 Mini 推理模型", 
-            "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf", 
-            "Q4_K_M", "2.4 GB", "GGUF", "3.8B"));
-        
+
         return models;
+    }
+
+    // ==================== HuggingFace 在线搜索 ====================
+
+    // 搜索 API 和 resolve 路径根据当前镜像源动态生成，不硬编码
+    private String getSearchApi() {
+        ModelDownloadManager.MirrorSource mirror = modelDownloadManager.getCurrentMirrorSource();
+        if (mirror.baseUrl == null) return null;
+        String domain = mirror.domain;
+        if (!domain.contains("hf-mirror") && !domain.contains("huggingface")) return null;
+        return mirror.baseUrl + "/api/models?search=%s&limit=30";
+    }
+
+    private String getResolveBase() {
+        ModelDownloadManager.MirrorSource mirror = modelDownloadManager.getCurrentMirrorSource();
+        if (mirror.baseUrl == null) return "https://hf-mirror.com/%s/resolve/main/";
+        return mirror.baseUrl + "/%s/resolve/main/";
+    }
+
+    /**
+     * 调用当前镜像源的 HF 搜索 API，返回 GGUF 候选模型列表。
+     * 搜索结果的 downloadUrl 为 resolve/main/ 基础路径（无文件名），
+     * 点击「浏览文件」用 WebView 打开 repo 文件列表。
+     */
+    private void searchHuggingFaceModels(String keyword) {
+        android.util.Log.d("ModelDownload", "searchHuggingFaceModels called: keyword=" + keyword + " tab=" + selectedModelType);
+        if (TextUtils.isEmpty(keyword)) {
+            filterModels();
+            return;
+        }
+        showToast("正在搜索 " + modelDownloadManager.getCurrentMirrorSource().domain + "...");
+        final String query = keyword + " GGUF";
+        final String searchApi = getSearchApi();
+        if (searchApi == null) {
+            showToast("当前镜像源不支持在线搜索，请切换到 HF 镜像");
+            return;
+        }
+        final String resolveBase = getResolveBase();
+        new Thread(() -> {
+            String body = null;
+            Exception lastErr = null;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try {
+                    String apiUrl = String.format(searchApi, java.net.URLEncoder.encode(query, "UTF-8"));
+                    android.util.Log.d("ModelDownload", "search attempt " + (attempt+1) + "/3 start: " + apiUrl);
+                    long t0 = System.currentTimeMillis();
+                    okhttp3.OkHttpClient searchClient = new okhttp3.OkHttpClient.Builder()
+                            .dns(com.oilquiz.app.ai.model.ModelDownloadManager.getHttpClient().dns())
+                            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                            .build();
+                    okhttp3.Request okRequest = new okhttp3.Request.Builder()
+                            .url(apiUrl)
+                            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                            .header("Accept", "application/json")
+                            .build();
+                    okhttp3.Response response = searchClient.newCall(okRequest).execute();
+                    long t1 = System.currentTimeMillis();
+                    android.util.Log.d("ModelDownload", "search attempt " + (attempt+1) + " response in " + (t1-t0) + "ms code=" + response.code());
+                    int code = response.code();
+                    if (code != 200) {
+                        final int finalCode = code;
+                        runOnUiThread(() -> showToast("搜索失败 HTTP " + finalCode));
+                        response.close();
+                        return;
+                    }
+                    body = response.body() != null ? response.body().string() : "";
+                    response.close();
+                    break; // 成功，跳出重试循环
+                } catch (java.io.IOException e) {
+                    // connect reset / timeout / 网络异常 → 重试
+                    lastErr = e;
+                    android.util.Log.w("ModelDownload", "search attempt " + (attempt+1) + " failed: " + e.getMessage());
+                    if (attempt < 2) {
+                        try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                    }
+                } catch (Exception e) {
+                    lastErr = e;
+                    android.util.Log.e("ModelDownload", "search attempt " + (attempt+1) + " error", e);
+                    break; // 非 IO 异常不重试
+                }
+            }
+            if (body == null) {
+                final String err = lastErr != null ? lastErr.getMessage() : "unknown";
+                runOnUiThread(() -> showToast("搜索异常（已重试3次）: " + err));
+                return;
+            }
+
+            try {
+                android.util.Log.d("ModelDownload", "search raw body len=" + body.length() + " preview=" + body.substring(0, Math.min(500, body.length())));
+                org.json.JSONArray arr = new org.json.JSONArray(body);
+                final java.util.List<OnlineModelInfo> results = new java.util.ArrayList<>();
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject m = arr.getJSONObject(i);
+                    String repoId = m.optString("id", "");
+                    if (TextUtils.isEmpty(repoId)) continue;
+
+                    // 筛选 GGUF 模型：library_name=gguf 或 tags 含 gguf
+                    boolean isGguf = "gguf".equalsIgnoreCase(m.optString("library_name", ""));
+                    if (!isGguf) {
+                        org.json.JSONArray tags = m.optJSONArray("tags");
+                        if (tags != null) {
+                            for (int j = 0; j < tags.length(); j++) {
+                                if ("gguf".equalsIgnoreCase(tags.optString(j))) {
+                                    isGguf = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!isGguf) continue;
+
+                    int downloads = m.optInt("downloads", 0);
+                    int likes = m.optInt("likes", 0);
+                    String desc = "HF搜索结果 · 下载" + downloads + " · 赞" + likes;
+                    String resolveUrl = String.format(resolveBase, repoId);
+                    results.add(new OnlineModelInfo(repoId, desc, resolveUrl, "", "", "GGUF", ""));
+                }
+
+                runOnUiThread(() -> {
+                    if (results.isEmpty()) {
+                        showToast("未找到 GGUF 模型，试试其他关键词");
+                        return;
+                    }
+                    allModelList.clear();
+                    allModelList.addAll(results);
+                    currentModelList.clear();
+                    currentModelList.addAll(results);
+                    modelAdapter.notifyDataSetChanged();
+                    tvSearchHint.setText("搜索到 " + results.size() + " 个 GGUF 模型，点击「浏览文件」在网页上选择具体 .gguf 文件下载");
+                    tvSearchHint.setVisibility(View.VISIBLE);
+                    showToast("找到 " + results.size() + " 个候选");
+                });
+            } catch (Exception e) {
+                android.util.Log.e("ModelDownload", "search error", e);
+                final String err = e.getMessage();
+                runOnUiThread(() -> showToast("搜索异常: " + err));
+            }
+        }).start();
+    }
+
+    /**
+     * 搜索结果点击下载时弹出文件名输入框，补全 resolve/main/{filename}。
+     */
+    private void showFileNameDialog(String repoId, String baseResolveUrl) {
+        android.widget.EditText etFileName = new android.widget.EditText(this);
+        etFileName.setHint("输入 .gguf 文件名，如 qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        etFileName.setPadding(48, 24, 48, 24);
+        // 预填常见 q4_k_m 文件名（从 repo id 推断）
+        String guess = repoId.substring(repoId.lastIndexOf('/') + 1).toLowerCase();
+        if (!guess.endsWith(".gguf")) {
+            guess = guess.replace("-gguf", "").replace("_gguf", "") + "-q4_k_m.gguf";
+        }
+        etFileName.setText(guess);
+        etFileName.setSelection(etFileName.getText().length());
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("选择模型文件")
+            .setMessage("Repo: " + repoId + "\n\n镜像无法获取文件列表，请输入该 repo 下的具体 .gguf 文件名")
+            .setView(etFileName)
+            .setPositiveButton("下载", (d, w) -> {
+                String fileName = etFileName.getText().toString().trim();
+                if (TextUtils.isEmpty(fileName)) {
+                    showToast("请输入文件名");
+                    return;
+                }
+                String fullUrl = baseResolveUrl + fileName;
+                // 添加到列表并开始下载
+                OnlineModelInfo model = new OnlineModelInfo(fileName, "HF搜索下载", fullUrl, "", "", "GGUF", "");
+                currentModelList.add(0, model);
+                modelAdapter.notifyItemInserted(0);
+                recyclerView.scrollToPosition(0);
+                // 延迟一帧后开始下载（确保 ViewHolder 已绑定）
+                recyclerView.post(() -> {
+                    RecyclerView.ViewHolder vh = recyclerView.findViewHolderForAdapterPosition(0);
+                    if (vh instanceof ModelAdapter.ModelViewHolder) {
+                        ((ModelAdapter.ModelViewHolder) vh).startDownload(fullUrl, fullUrl);
+                    }
+                });
+            })
+            .setNegativeButton("取消", null)
+            .show();
     }
 
     private void loadLLMModels() {
@@ -806,8 +924,21 @@ public class ModelDownloadActivity extends BaseActivity {
         }
 
         void updateComplete(String modelId, String filePath) {
-            // 完成时全量刷新，确保状态正确
-            loadModels();
+            // 只更新对应 item，避免全量 loadModels() 导致列表闪烁和滚动位置丢失
+            for (int i = 0; i < currentModelList.size(); i++) {
+                Object model = currentModelList.get(i);
+                String id = getIdFromModel(model);
+                if (id != null && id.equals(modelId)) {
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
+                    if (holder instanceof ModelViewHolder) {
+                        ((ModelViewHolder) holder).bind(model);
+                    } else {
+                        notifyItemChanged(i);
+                    }
+                    break;
+                }
+            }
+            updateDownloadStats();
         }
 
         void updateError(String modelId, String error) {
@@ -1057,9 +1188,11 @@ public class ModelDownloadActivity extends BaseActivity {
 
             private void updateOnlineModelState(String downloadUrl) {
                 String fileName = getFileNameFromDownloadUrl(downloadUrl);
+                // 搜索结果：downloadUrl 是 resolve/main/ 基础路径，文件名为空，判定为未下载
+                boolean isSearchResult = TextUtils.isEmpty(fileName) || (downloadUrl != null && downloadUrl.endsWith("/resolve/main/"));
                 String modelPath = new File(getFilesDir(), "ai_models").getAbsolutePath() + File.separator + fileName;
                 
-                boolean isDownloaded = new File(modelPath).exists();
+                boolean isDownloaded = !isSearchResult && new File(modelPath).exists();
                 boolean isDownloading = modelDownloadManager.isDownloading(downloadUrl);
                 boolean isPaused = modelDownloadManager.isPaused(downloadUrl);
                 ModelDownloadManager.DownloadProgress progress = modelDownloadManager.getProgress(downloadUrl);
@@ -1107,10 +1240,30 @@ public class ModelDownloadActivity extends BaseActivity {
                     tvStatus.setText("在线");
                     tvStatus.setTextColor(0xFF2196F3);
                     llProgress.setVisibility(View.GONE);
-                    btnAction.setText("下载");
-                    btnAction.setOnClickListener(v -> {
-                        startDownload(downloadUrl, downloadUrl);
-                    });
+                    // 搜索结果：downloadUrl 是 resolve/main/ 基础路径 → 用 WebView 打开 repo 文件浏览页
+                    if (downloadUrl != null && downloadUrl.endsWith("/resolve/main/")) {
+                        btnAction.setText("浏览文件");
+                        btnAction.setOnClickListener(v -> {
+                            // 从 resolve/main/ 基础路径中提取 repoId（兼容任意镜像源）
+                            String repoId = downloadUrl;
+                            int schemeIdx = repoId.indexOf("://");
+                            if (schemeIdx >= 0) repoId = repoId.substring(schemeIdx + 3);
+                            int slashIdx = repoId.indexOf('/');
+                            if (slashIdx >= 0) repoId = repoId.substring(slashIdx + 1);
+                            repoId = repoId.replace("/resolve/main/", "");
+                            String mirrorBase = modelDownloadManager.getCurrentMirrorSource().baseUrl;
+                            if (mirrorBase == null) mirrorBase = "https://hf-mirror.com";
+                            String treeUrl = mirrorBase + "/" + repoId + "/tree/main";
+                            android.content.Intent intent = new android.content.Intent(ModelDownloadActivity.this, com.oilquiz.app.WebViewActivity.class);
+                            intent.putExtra("url", treeUrl);
+                            startActivity(intent);
+                        });
+                    } else {
+                        btnAction.setText("下载");
+                        btnAction.setOnClickListener(v -> {
+                            startDownload(downloadUrl, downloadUrl);
+                        });
+                    }
                 }
             }
 
@@ -1136,116 +1289,11 @@ public class ModelDownloadActivity extends BaseActivity {
                 ModelDownloadManager.ModelPresetInfo presetInfo = findPresetInfoByUrl(downloadUrl);
                 if (presetInfo != null) {
                     // 使用 downloadPresetModel，支持多模态投影文件下载
-                    modelDownloadManager.downloadPresetModel(modelId, presetInfo, 
-                        new ModelDownloadManager.DownloadCallback() {
-                            @Override
-                            public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateProgress(id, progress, downloadedMB * 1024 * 1024, totalMB * 1024 * 1024, 0);
-                                });
-                            }
-
-                            @Override
-                            public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateSpeed(id, speedBps, etaSeconds);
-                                });
-                            }
-
-                            @Override
-                            public void onComplete(String id, String filePath) {
-                                // 如果是 mmproj 文件下载完成，不更新 UI 状态
-                                if (id.endsWith("_mmproj")) {
-                                    return;
-                                }
-                                runOnUiThread(() -> {
-                                    updateDownloadStats();
-                                    loadModels();
-                                });
-                            }
-
-                            @Override
-                            public void onError(String id, String error) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateError(id, error);
-                                });
-                            }
-
-                            @Override
-                            public void onPaused(String id) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updatePaused(id);
-                                });
-                            }
-
-                            @Override
-                            public void onCancelled(String id) {
-                                runOnUiThread(() -> {
-                                    loadModels();
-                                });
-                            }
-
-                            @Override
-                            public void onResumed(String id) {
-                                runOnUiThread(() -> {
-                                    loadModels();
-                                });
-                            }
-                        });
+                    // 不传局部回调：全局 setGlobalCallback 已统一处理所有 UI 更新，避免双重触发
+                    modelDownloadManager.downloadPresetModel(modelId, presetInfo, null);
                 } else {
                     // 未找到预设模型，使用自定义 URL 下载
-                    modelDownloadManager.downloadFromCustomUrl(modelId, downloadUrl, 
-                        new ModelDownloadManager.DownloadCallback() {
-                            @Override
-                            public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateProgress(id, progress, downloadedMB * 1024 * 1024, totalMB * 1024 * 1024, 0);
-                                });
-                            }
-
-                            @Override
-                            public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateSpeed(id, speedBps, etaSeconds);
-                                });
-                            }
-
-                            @Override
-                            public void onComplete(String id, String filePath) {
-                                runOnUiThread(() -> {
-                                    updateDownloadStats();
-                                    loadModels();
-                                });
-                            }
-
-                            @Override
-                            public void onError(String id, String error) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updateError(id, error);
-                                });
-                            }
-
-                            @Override
-                            public void onPaused(String id) {
-                                runOnUiThread(() -> {
-                                    modelAdapter.updatePaused(id);
-                                });
-                            }
-
-                            @Override
-                            public void onCancelled(String id) {
-                                runOnUiThread(() -> {
-                                    loadModels();
-                                });
-                            }
-
-                            @Override
-                            public void onResumed(String id) {
-                                runOnUiThread(() -> {
-                                    loadModels();
-                                });
-                            }
-                        });
+                    modelDownloadManager.downloadFromCustomUrl(modelId, downloadUrl, null);
                 }
             }
             

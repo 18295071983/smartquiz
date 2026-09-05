@@ -255,7 +255,7 @@ public class AgentService {
     }
 
     private void registerDefaultTools() {
-        registerToolSchema("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。current返回温度/体感/天气现象/风力湿度/紫外线；forecast返回逐日预报；air_quality返回AQI/PM2.5。查询天气必须用本工具（实时数据，禁止凭知识编造）", "action(操作类型: current实时/forecast预报/hourly逐小时/air_quality空气质量/alerts预警/indices生活指数/all全部,默认current), city(城市名,如北京/上海,与经纬度二选一), lat(纬度,可选), lon(经度,可选)");
+        registerToolSchema("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。current返回温度/体感/天气现象/风力湿度/紫外线；forecast返回逐日预报；air_quality返回AQI/PM2.5。天气是实时数据，用本工具获取，训练数据不采纳", "action(操作类型: current实时/forecast预报/hourly逐小时/air_quality空气质量/alerts预警/indices生活指数/all全部，按需求选), city(城市名 或 和风城市编码，与经纬度二选一), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("get_weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("location", "位置查询工具：获取当前位置（经纬度/城市/地址）。get_current返回经纬度+城市+地址；get_city返回城市名；get_coordinates返回经纬度。位置服务未开启自动引导开启", "action(操作类型: get_current默认/get_city/get_coordinates)");
@@ -264,7 +264,7 @@ public class AgentService {
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(结果数量限制,默认5)");
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
-        registerToolSchema("calculator", "数学计算器：计算算术表达式(支持+ - * / % ^ 括号、小数)。除零/非法表达式返回明确错误。简单计算优先用本工具，复杂数据分析用python_calculate", "expression(算术表达式,必填,如 3.5*(2+4)/7 或 2^10)");
+        registerToolSchema("calculator", "数学计算器：计算算术表达式(支持+ - * / % ^ 括号、小数)。除零/非法表达式返回明确错误。简单计算用本工具，复杂数据分析用python_calculate", "expression(算术表达式,必填,如 3.5*(2+4)/7 或 2^10)");
         registerToolSchema("database", "数据库操作工具，支持任意SQL、表结构查看、题目查询与管理、用户管理、分数记录等", "action(操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), sql(SQL语句,execute_sql用), table_name(表名,get_table_schema用), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
         registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");

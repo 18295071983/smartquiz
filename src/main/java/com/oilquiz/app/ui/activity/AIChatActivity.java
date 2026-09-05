@@ -49,7 +49,6 @@ import com.oilquiz.app.ai.service.AIProcessingService;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
-import com.oilquiz.app.ai.tool.AIEntertainmentManager;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
@@ -88,7 +87,6 @@ import com.oilquiz.app.ai.chat.status.ServiceStatusManager;
 import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
 import com.oilquiz.app.ai.chat.history.ChatHistoryController;
 import com.oilquiz.app.ai.util.ConversationSession;
-import com.oilquiz.app.ai.chat.weather.WeatherBannerController;
 import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
 import com.oilquiz.app.ai.chat.input.ChatInputManager;
 import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
@@ -209,18 +207,6 @@ public class AIChatActivity extends BaseActivity {
     private View emptyStateView;
     private com.google.android.material.chip.ChipGroup emptyStateChips;
 
-    private View weatherBanner;
-    private TextView weatherIcon;
-    private TextView weatherCity;
-    private TextView weatherTemp;
-    private TextView weatherDesc;
-    private TextView weatherHumidity;
-    private TextView weatherWind;
-    private MaterialButton btnWeatherRefresh;
-    private MaterialButton btnWeatherClose;
-    private MaterialButton btnWeatherDetail;
-    // weatherBannerVisible, weatherBannerCity, weatherBannerLat, weatherBannerLon 已移至 WeatherBannerController
-
     private AIChatCoordinator coordinator;
     private AIChatViewModel chatViewModel;
     private AIService aiService;
@@ -235,7 +221,7 @@ public class AIChatActivity extends BaseActivity {
     private AttachmentAdapter attachmentAdapter;
     private FileContentExtractor fileContentExtractor;
     private AIToolManager aiToolManager;
-    private AIEntertainmentManager aiEntertainmentManager;
+    private AIWeatherManager weatherManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
     /** 当前 Agent 回调实例（随 AgentChatHandler 复用，每轮执行前需重置 completed 标志） */
@@ -245,7 +231,6 @@ public class AIChatActivity extends BaseActivity {
     private AIConfig aiConfig;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
-    private AIWeatherManager weatherManager;
     private LocalBroadcastManager localBroadcastManager;
     private AIResultReceiver aiResultReceiver;
     private AITokenReceiver aiTokenReceiver;
@@ -406,7 +391,6 @@ public class AIChatActivity extends BaseActivity {
     private ServiceStatusManager serviceStatusManager;
     private ChatDialogHelper dialogHelper;
     private ChatHistoryController historyController;
-    private WeatherBannerController weatherBannerController;
     private NativeRecoveryHandler recoveryHandler;
     private ChatInputManager inputManager;
     private AttachmentProcessor attachmentProcessor;
@@ -434,28 +418,6 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.jni.LlamaHelper.handleMemoryPressure(80);
             }
         }
-    };
-
-    private static final String[][] COMMAND_PATTERNS = {
-        {"生成题目", "app_toolkit"},
-        {"分析题目", "app_toolkit"},
-        {"学习计划", "app_toolkit"},
-        {"统计", "app_toolkit"},
-        {"搜索题目", "app_toolkit"},
-        {"天气", "weather"},
-        {"定位", "app_toolkit"},
-        {"我的位置", "app_toolkit"},
-        {"当前位置", "app_toolkit"},
-        {"导入题目", "app_toolkit"},
-        {"导出题目", "app_toolkit"},
-        {"数据库操作", "database"},
-        {"讲笑话", "entertainment"},
-        {"猜谜语", "entertainment"},
-        {"写诗", "entertainment"},
-        {"讲故事", "entertainment"},
-        {"知识问答", "entertainment"},
-        {"名言", "entertainment"},
-        {"游戏", "entertainment"},
     };
 
     @Override
@@ -525,16 +487,6 @@ public class AIChatActivity extends BaseActivity {
             emptyStateView = findViewById(R.id.empty_state_view);
             emptyStateChips = findViewById(R.id.empty_state_chips);
 
-            weatherBanner = findViewById(R.id.weather_banner);
-            weatherIcon = findViewById(R.id.weather_icon);
-            weatherCity = findViewById(R.id.weather_city);
-            weatherTemp = findViewById(R.id.weather_temp);
-            weatherDesc = findViewById(R.id.weather_desc);
-            weatherHumidity = findViewById(R.id.weather_humidity);
-            weatherWind = findViewById(R.id.weather_wind);
-            btnWeatherRefresh = findViewById(R.id.btn_weather_refresh);
-            btnWeatherClose = findViewById(R.id.btn_weather_close);
-            btnWeatherDetail = findViewById(R.id.btn_weather_detail);
             serviceStatusBar = findViewById(R.id.service_status_bar);
             serviceStatusIcon = findViewById(R.id.service_status_icon);
             serviceStatusText = findViewById(R.id.service_status_text);
@@ -667,7 +619,6 @@ public class AIChatActivity extends BaseActivity {
 
             cacheManager = new CacheManager(this);
             weatherManager = new AIWeatherManager(this, AIWeatherManager.WeatherProvider.HEFENG);
-            aiEntertainmentManager = new AIEntertainmentManager(this);
 
             // 初始化 Token 统计管理器
             TokenStatsManager.getInstance().registerCallback(tokenStatsCallback);
@@ -1223,26 +1174,7 @@ public class AIChatActivity extends BaseActivity {
             refreshHistoryDrawer();
         }
 
-        // 4. WeatherBannerController - 天气横幅管理
-        weatherBannerController = new WeatherBannerController(this, message -> showToast(message));
-        // 绑定基本视图
-        if (weatherBanner != null && weatherIcon != null && weatherCity != null 
-            && weatherTemp != null && weatherDesc != null) {
-            weatherBannerController.bindViews(weatherBanner, weatherIcon, weatherCity, weatherTemp, weatherDesc, weatherHumidity, weatherWind);
-        }
-        // 绑定详情区域
-        View weatherDetailContainer = findViewById(R.id.weather_detail_container);
-        TextView weatherFeelsLike = findViewById(R.id.weather_feels_like);
-        TextView weatherWindDir = findViewById(R.id.weather_wind_dir);
-        TextView weatherVisibility = findViewById(R.id.weather_visibility);
-        TextView weatherPressure = findViewById(R.id.weather_pressure);
-        if (weatherDetailContainer != null && weatherFeelsLike != null && weatherWindDir != null 
-            && weatherVisibility != null && weatherPressure != null) {
-            weatherBannerController.bindDetailViews(weatherDetailContainer, weatherFeelsLike,
-                    weatherHumidity, weatherWind, weatherWindDir, weatherVisibility, weatherPressure);
-        }
-
-        // 5. NativeRecoveryHandler - 原生层恢复管理
+        // 4. NativeRecoveryHandler - 原生层恢复管理
         recoveryHandler = new NativeRecoveryHandler(this, uiHandler, new NativeRecoveryHandler.Callback() {
             @Override public void onRecoveryStarted(String message) { addSystemMessage(message); }
             @Override public void onRecoveryProgress(String message, int progress) { if (serviceStatusManager != null) serviceStatusManager.updateRecoveryProgress(message, progress); }
@@ -1533,19 +1465,6 @@ public class AIChatActivity extends BaseActivity {
             });
             if (chipClearEmpty != null) chipClearEmpty.setOnClickListener(v -> {
                 clearChat();
-            });
-        }
-
-        if (btnWeatherRefresh != null) btnWeatherRefresh.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.loadWeather(true); });
-        if (btnWeatherClose != null) btnWeatherClose.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.hide(); });
-        if (btnWeatherDetail != null) btnWeatherDetail.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.toggleDetail(); });
-        if (weatherBanner != null) {
-            weatherBanner.setOnClickListener(v -> {
-                if (weatherBannerController == null) return;
-                Intent intent = new Intent(AIChatActivity.this, WeatherDetailActivity.class);
-                intent.putExtra("city", weatherBannerController.getCurrentCity());
-                if (weatherBannerController.getCurrentLat() != 0 && weatherBannerController.getCurrentLon() != 0) { intent.putExtra("lat", weatherBannerController.getCurrentLat()); intent.putExtra("lon", weatherBannerController.getCurrentLon()); }
-                startActivity(intent);
             });
         }
 
@@ -3428,18 +3347,6 @@ public class AIChatActivity extends BaseActivity {
 
         inputMessage.setText("");
 
-        if (!message.isEmpty()) {
-            if (message.equalsIgnoreCase("帮助") || message.equalsIgnoreCase("help")) {
-                if (dialogHelper != null) dialogHelper.showGuideDialog(); return;
-            }
-            for (String[] pattern : COMMAND_PATTERNS) {
-                if (message.startsWith(pattern[0])) {
-                    handlePrefixedCommand(message, pattern[0], pattern[1]);
-                    return;
-                }
-            }
-        }
-
         if (!savedAttachments.isEmpty()) {
             String agentMessage = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
             if (hasImageAttachment || shouldUseOnlineModel()) {
@@ -4701,66 +4608,6 @@ public class AIChatActivity extends BaseActivity {
         sb.append("请根据以上附件内容回答用户消息。");
 
         return sb.toString();
-    }
-
-    private void handlePrefixedCommand(String message, String prefix, String toolCategory) {
-        String params = message.substring(prefix.length()).trim();
-        if ("entertainment".equals(toolCategory)) {
-            String type = mapEntertainmentType(prefix);
-            if (type != null) executeEntertainment(type, params);
-        } else if ("weather".equals(toolCategory)) {
-            if (weatherBanner != null) {
-                weatherBanner.setVisibility(View.VISIBLE);
-                if (weatherBannerController != null) weatherBannerController.show();
-            }
-
-            // 如果参数为空且有定位权限，加载当前天气横幅
-            if (params.isEmpty() && LocationTool.hasLocationPermission(this) && weatherBannerController != null) {
-                weatherBannerController.loadWeather();
-                return;
-            }
-            
-            // 使用标准的工具调用方式
-            executeTool("ai_weather", params);
-        } else {
-            executeToolByPrefix(prefix, params);
-        }
-    }
-    
-    private String mapEntertainmentType(String prefix) {
-        switch (prefix) {
-            case "讲笑话": return AIEntertainmentManager.EntertainmentType.JOKE;
-            case "猜谜语": return AIEntertainmentManager.EntertainmentType.RIDDLE;
-            case "写诗": return AIEntertainmentManager.EntertainmentType.POEM;
-            case "讲故事": return AIEntertainmentManager.EntertainmentType.STORY;
-            case "知识问答": return AIEntertainmentManager.EntertainmentType.TRIVIA;
-            case "名言": return AIEntertainmentManager.EntertainmentType.QUOTE;
-            case "游戏": return AIEntertainmentManager.EntertainmentType.GAME;
-            default: return null;
-        }
-    }
-
-    private void executeToolByPrefix(String prefix, String params) {
-        String toolName = null;
-        if ("生成题目".equals(prefix)) toolName = "database";
-        else if ("分析题目".equals(prefix)) toolName = "python_calculate";
-        else if ("学习计划".equals(prefix)) toolName = "python_execute";
-        else if ("统计".equals(prefix)) toolName = "python_calculate";
-        else if ("搜索题目".equals(prefix)) toolName = "network_search";
-        else if ("导入题目".equals(prefix)) toolName = "file_reader";
-        else if ("导出题目".equals(prefix)) toolName = "database";
-        else if ("数据库操作".equals(prefix)) toolName = "database";
-        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = "ai_weather";
-
-        if (toolName != null) executeTool(toolName, params);
-        else processChatMessage(prefix + " " + params);
-    }
-
-    private void handleQuickAction(String action) {
-        if ("总结对话".equals(action)) {
-            addUserMessage("总结对话");
-            processChatMessage("总结我们的对话内容，提供一个简洁的概述");
-        } else showToast("请输入需要" + action + "的内容");
     }
 
     private void processChatMessage(String message) {
@@ -6703,17 +6550,6 @@ public class AIChatActivity extends BaseActivity {
         }).start();
     }
 
-    private void executeEntertainment(String type, String parameters) {
-        aiEntertainmentManager.executeEntertainment(type, parameters).thenAccept(result -> runOnUiThread(() -> {
-            addAIMessage(result);
-        })).exceptionally(throwable -> {
-            runOnUiThread(() -> {
-                addSystemMessage("娱乐功能出错: " + throwable.getMessage());
-            });
-            return null;
-        });
-    }
-    
     private Map<String, Object> parseParameters(String parameters) {
         Map<String, Object> params = new HashMap<>();
         if (parameters == null || parameters.isEmpty()) {

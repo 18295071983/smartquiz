@@ -30,27 +30,30 @@ import java.util.HashMap;
 @Tool(
     value = "ai_weather",
     description = "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数。"
-            + "按用户需求选 action：current(实时,默认)/forecast(未来几天)/hourly(逐小时)/"
+            + "按用户需求选 action：current(实时)/forecast(未来几天)/hourly(逐小时)/"
             + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
-            + "位置用 city=城市名(如北京) 或 和风城市编码(如101170101) 或 lat+lon 经纬度(二选一)。"
-            + "查当前位置实时天气用经纬度(lat+lon)最准，其次城市编码，其次城市名。"
+            + "位置用 city=城市名 或 和风城市编码 或 lat+lon 经纬度(二选一)。"
             + "要未来天气→forecast，要空气质量→air_quality，要生活指数→indices。",
     category = "weather",
     aliases = {"weather", "get_weather"},
     actions = {
-        @Action(name = "current", description = "Get current weather (实时天气，默认)"),
+        @Action(name = "current", description = "Get current weather (实时天气)"),
         @Action(name = "forecast", description = "Get weather forecast (未来几天预报)"),
         @Action(name = "hourly", description = "Get hourly weather (逐小时天气)"),
         @Action(name = "air_quality", description = "Get air quality (空气质量)"),
         @Action(name = "alerts", description = "Get weather alerts (天气预警)"),
         @Action(name = "indices", description = "Get life indices (生活指数)"),
-        @Action(name = "all", description = "Get all weather info (全部)")
+        @Action(name = "all", description = "Get all weather info (全部)"),
+        @Action(name = "one_call", description = "Get one-call weather (当前+逐时+逐日+警报+日出日落, 需经纬度)")
     },
     params = {
-        @Param(name = "city", type = "string", description = "City name 城市名(如北京) 或 和风城市编码(如101170101)，与经纬度二选一", required = false),
-        @Param(name = "lat", type = "float", description = "Latitude 纬度(查当前位置实时天气用经纬度最准；与city二选一，配合lon)", required = false),
-        @Param(name = "lon", type = "float", description = "Longitude 经度(查当前位置实时天气用经纬度最准；与city二选一，配合lat)", required = false),
-        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", required = false)
+        @Param(name = "city", type = "string", description = "City name 城市名 或 和风城市编码，与经纬度二选一", required = false),
+        @Param(name = "lat", type = "float", description = "Latitude 纬度(与city二选一，配合lon；别名latitude)", required = false),
+        @Param(name = "lon", type = "float", description = "Longitude 经度(与city二选一，配合lat；别名longitude)", required = false),
+        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)/one_call(详细天气,需经纬度)", required = false),
+        @Param(name = "exclude", type = "string", description = "one_call排除项(逗号分隔: current/minutely/hourly/daily/alerts)", required = false),
+        @Param(name = "units", type = "string", description = "单位(one_call用: metric/imperial)", required = false),
+        @Param(name = "lang", type = "string", description = "语言(one_call用，如zh_cn/en)", required = false)
     }
 )
 public class AIWeatherManager implements AITool {
@@ -316,6 +319,50 @@ public class AIWeatherManager implements AITool {
         return currentProvider;
     }
 
+    /**
+     * 为和风 API 请求添加 Android 应用标识头（X-Android-Package-Name / X-Android-Cert）。
+     * 官方 SDK 自动携带；第三方 HTTP 直连时若不携带，凭据一旦设置 Android 应用限制即被 403。
+     */
+    private void addAndroidAppHeaders(okhttp3.Request.Builder builder) {
+        try {
+            if (context == null) return;
+            String packageName = context.getPackageName();
+            if (packageName != null && !packageName.isEmpty()) {
+                builder.addHeader("X-Android-Package-Name", packageName);
+            }
+            String certSha1 = getAppCertSha1();
+            if (certSha1 != null && !certSha1.isEmpty()) {
+                builder.addHeader("X-Android-Cert", certSha1);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to add Android app headers: " + t.getMessage());
+        }
+    }
+
+    /** 获取应用签名的 SHA-1 指纹（十六进制大写，冒号分隔），供 X-Android-Cert 头使用 */
+    private String getAppCertSha1() {
+        try {
+            if (context == null) return null;
+            android.content.pm.PackageManager pm = context.getPackageManager();
+            String packageName = context.getPackageName();
+            android.content.pm.PackageInfo info = pm.getPackageInfo(packageName,
+                    android.content.pm.PackageManager.GET_SIGNATURES);
+            if (info.signatures == null || info.signatures.length == 0) return null;
+            byte[] cert = info.signatures[0].toByteArray();
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(cert);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < digest.length; i++) {
+                if (i > 0) sb.append(":");
+                sb.append(String.format(java.util.Locale.US, "%02X", digest[i]));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to get app cert SHA-1: " + t.getMessage());
+            return null;
+        }
+    }
+
     private String httpGet(String urlString) throws Exception {
         int maxRetries = 5;
         int retryCount = 0;
@@ -329,6 +376,9 @@ public class AIWeatherManager implements AITool {
                     .addHeader("Accept", "application/json")
                     .addHeader("Accept-Language", "zh-CN")
                     .addHeader("Accept-Encoding", "gzip, deflate");
+
+            // 和风第三方 API 调用要求携带 Android 应用标识头，否则凭据设置了应用限制时返回 403 Security Restriction
+            addAndroidAppHeaders(requestBuilder);
 
             String jwtToken = getHefengJwtToken();
             if (jwtToken != null) {
@@ -3722,7 +3772,7 @@ public class AIWeatherManager implements AITool {
         descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
         descriptions.put("lat", "纬度（用于按坐标查询）");
         descriptions.put("lon", "经度（用于按坐标查询）");
-        descriptions.put("provider", "API提供商: hefeng(和风天气,默认), openweathermap");
+        descriptions.put("provider", "API提供商: hefeng(和风天气), openweathermap");
         return descriptions;
     }
 

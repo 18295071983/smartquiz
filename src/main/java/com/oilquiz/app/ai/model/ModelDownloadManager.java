@@ -44,6 +44,11 @@ public class ModelDownloadManager {
             .build();
 
     private static volatile ModelDownloadManager INSTANCE;
+
+    /** 暴露带 SafeDns 的 OkHttp 客户端，供 WebView 等组件绕过 DNS 污染访问 hf-mirror */
+    public static OkHttpClient getHttpClient() {
+        return sHttpClient;
+    }
     private final Context context;
     private final Map<String, DownloadTask> downloadTasks = new ConcurrentHashMap<>();
     private final Map<String, DownloadProgress> downloadProgress = new ConcurrentHashMap<>();
@@ -1134,115 +1139,25 @@ okhttp3.Response response = null;
         return filtered;
     }
 
-    public static final String[] PRESET_DOMESTIC_MODEL_URLS = {
-        "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
-        "https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
-        "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf",
-        "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-        // Qwen3 系列：内置思考/非思考双模式（模板支持 enable_thinking，native 层按模板能力自动启用）
-        "https://hf-mirror.com/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-        // 原版 Qwen3-4B（官方仓库）：模板含 <think> 思考链 + enable_thinking 检测分支 + 原生 <tool_call> FC，
-        // 是本地 Agent（思考链 + 工具调用）的最佳 4B 选择。
-        // 注意：勿用 2507 版（Instruct-2507 模板无思考分支，且 llama.cpp 存在 false thinking detection bug，
-        // 见 ggml-org/llama.cpp issue #20809；Thinking-2507 有 <think> 标签缺失 bug）。
-        "https://hf-mirror.com/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
-        // 更多支持思考/推理的模型（均经 HEAD 验证可用）
-        "https://hf-mirror.com/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf",
-        "https://hf-mirror.com/Qwen/QwQ-32B-GGUF/resolve/main/qwq-32b-q4_k_m.gguf",
-        "https://hf-mirror.com/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
-        "https://hf-mirror.com/ibm-granite/granite-4.0-h-micro-GGUF/resolve/main/granite-4.0-h-micro-Q4_K_M.gguf",
-        // 多模态视觉模型（需要配合 mmproj 投影文件使用）
-        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
-        // 22: Qwen3-VL-2B-Thinking（多模态 Agent：视觉 + 思考链 + 原生 <tool_call> 工具调用）
-        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
-        // 23: Qwen3-VL-4B-Thinking（多模态 Agent 升级版：更强工具调用/推理，视觉+思考链）
-        "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/Qwen3VL-4B-Thinking-Q4_K_M.gguf"
-    };
-
-    // 多模态模型的 mmproj 投影文件 URL（与 PRESET_DOMESTIC_MODEL_URLS 索引对应，null 表示无 mmproj）
-    public static final String[] PRESET_MMPROJ_URLS = {
-        null, null, null, null, null, null, null, null, null, null, null,  // 0-10: 非多模态
-        null, null, null, null, null, null, null, null, null,
-        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
-        null,  // 20: Granite-4.0-Micro
-        "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf",  // 21: Qwen2.5-VL-3B
-        "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf",  // 22: Qwen3-VL-2B-Thinking
-        "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf"   // 23: Qwen3-VL-4B-Thinking
-    };
-
     public List<ModelPresetInfo> getPresetDomesticModels() {
+        // 统一数据来源：models_presets.json（唯一权威），含下载 URL/哈希/备用源等完整字段
         List<ModelPresetInfo> list = new ArrayList<>();
-        list.add(new ModelPresetInfo("qwen2.5-0.5b", "Qwen2.5-0.5B", "轻量级中文模型", PRESET_DOMESTIC_MODEL_URLS[0], 468, "Q4_K_M", 32768, 1024, 2,
-                null, 0, null, null,
-                // 备用源 ModelScope（设备实测可达，宁夏运营商封 hf-mirror IP 时自动切换）
-                "https://modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf", null,
-                "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db", null));
-        list.add(new ModelPresetInfo("qwen2.5-1.5b", "Qwen2.5-1.5B", "平衡性能中文模型", PRESET_DOMESTIC_MODEL_URLS[1], 950, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("qwen2.5-3b", "Qwen2.5-3B", "强推理中文模型", PRESET_DOMESTIC_MODEL_URLS[2], 1900, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("qwen2.5-coder-1.5b", "Qwen2.5-Coder-1.5B", "代码模型", PRESET_DOMESTIC_MODEL_URLS[3], 950, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("llama-3.2-1b", "Llama-3.2-1B", "Meta轻量模型", PRESET_DOMESTIC_MODEL_URLS[4], 750, "Q4_K_M", 8192, 1024, 2));
-        list.add(new ModelPresetInfo("llama-3.2-3b", "Llama-3.2-3B", "Meta平衡模型", PRESET_DOMESTIC_MODEL_URLS[5], 1900, "Q4_K_M", 8192, 2048, 4));
-        list.add(new ModelPresetInfo("phi-3.5-mini", "Phi-3.5-mini", "微软推理模型", PRESET_DOMESTIC_MODEL_URLS[6], 2200, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("phi-3-mini", "Phi-3-mini", "微软4K模型", PRESET_DOMESTIC_MODEL_URLS[7], 2300, "Q4", 4096, 4096, 8));
-        list.add(new ModelPresetInfo("minicpm3-4b", "MiniCPM3-4B", "面壁中文模型", PRESET_DOMESTIC_MODEL_URLS[8], 2400, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("glm-edge-1.5b", "GLM-Edge-1.5B", "智谱对话模型", PRESET_DOMESTIC_MODEL_URLS[9], 1000, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("deepseek-r1-1.5b", "DeepSeek-R1-1.5B", "推理模型", PRESET_DOMESTIC_MODEL_URLS[10], 1100, "Q4_K_M", 32768, 2048, 4));
-        // Qwen3 系列：支持思考链（深度思考模式可用），工具调用能力也更强
-        list.add(new ModelPresetInfo("qwen3-1.7b", "Qwen3-1.7B", "支持思考链的轻量中文模型", PRESET_DOMESTIC_MODEL_URLS[11], 1050, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("qwen3-4b", "Qwen3-4B（推荐）", "思考链+原生工具调用双全，本地Agent首选", PRESET_DOMESTIC_MODEL_URLS[12], 2400, "Q4_K_M", 32768, 4096, 8));
-        // 更多思考/推理模型：R1蒸馏系列自带<think>思考链，Qwen3支持双模式，其余为强推理模型
-        list.add(new ModelPresetInfo("qwen3-0.6b", "Qwen3-0.6B", "超轻量思考链模型", PRESET_DOMESTIC_MODEL_URLS[13], 380, "Q4_K_M", 32768, 1024, 2));
-        list.add(new ModelPresetInfo("qwen3-8b", "Qwen3-8B", "支持思考链的高性能中文模型", PRESET_DOMESTIC_MODEL_URLS[14], 4700, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("deepseek-r1-qwen-7b", "DeepSeek-R1-Qwen-7B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[15], 4400, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("deepseek-r1-llama-8b", "DeepSeek-R1-Llama-8B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[16], 4600, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("qwq-32b", "QwQ-32B", "旗舰级思考模型（需大内存）", PRESET_DOMESTIC_MODEL_URLS[17], 18500, "Q4_K_M", 32768, 20480, 28));
-        list.add(new ModelPresetInfo("phi-4-mini", "Phi-4-mini", "微软强推理小模型", PRESET_DOMESTIC_MODEL_URLS[18], 2300, "Q4_K_M", 131072, 4096, 8));
-        list.add(new ModelPresetInfo("gemma-3-4b", "Gemma-3-4B", "谷歌多语言推理模型", PRESET_DOMESTIC_MODEL_URLS[19], 2300, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
-        // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
-        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）",
-                "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
-                1840, "Q4_K_M", 32768, 4096, 8,
-                "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf", 1276,
-                "bc2b4d4f4dfc5d28109ade0fe797d3b9015b1fe600dc03076868328d990c3352",
-                "471220b286e984a20ba01bb080b52b1c78e9811de2f8fb761b1d39ea9e35b56f"));
-        list.add(new ModelPresetInfo("qwen3-vl-2b-thinking", "Qwen3-VL-2B-Thinking", "多模态Agent：视觉理解+思考链+原生工具调用",
-                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
-                1056, "Q4_K_M", 32768, 4096, 8,
-                "https://hf-mirror.com/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf", 424,
-                "06a77f027abc20f54197ce27b841881b97fdd1b74b0ec5f2794ec48e087745d9",
-                "48d1045b938a06a5e5531a9f91d4655ca1a3624c688aba0cef3744a332eb6c60",
-                // 备用源 ModelScope（同款 Thinking 版，实测可达；哈希为 ModelScope 文件实测值）
-                "https://modelscope.cn/models/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/master/Qwen3VL-2B-Thinking-Q4_K_M.gguf",
-                "https://modelscope.cn/models/Qwen/Qwen3-VL-2B-Thinking-GGUF/resolve/master/mmproj-Qwen3VL-2B-Thinking-Q8_0.gguf",
-                "991fec0d553b78b9ecac53f87fa6081eaabcbcf6a0a32b5db6e67ef3da48b869",
-                "ffc982b88e99206dd7f83da7063d38215184f3ca9f0fff0362d5889b9a200a14"));
-        list.add(new ModelPresetInfo("qwen3-vl-4b-thinking", "Qwen3-VL-4B-Thinking", "多模态Agent升级版：更强工具调用与推理（视觉+思考链）",
-                "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/Qwen3VL-4B-Thinking-Q4_K_M.gguf",
-                2381, "Q4_K_M", 32768, 6144, 8,
-                "https://hf-mirror.com/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/main/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf", 433,
-                "474ecaf1284aa6ff3273fb796c3cba55d2ee33ec0d8c63464fbd84500a9a462d",
-                "6b71c77c50944ec5d058d58ef39b687897567bea2a721ce49def98941db2cb96",
-                // 备用源 ModelScope（官方同款，哈希一致）
-                "https://modelscope.cn/models/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/master/Qwen3VL-4B-Thinking-Q4_K_M.gguf",
-                "https://modelscope.cn/models/Qwen/Qwen3-VL-4B-Thinking-GGUF/resolve/master/mmproj-Qwen3VL-4B-Thinking-Q8_0.gguf",
-                "474ecaf1284aa6ff3273fb796c3cba55d2ee33ec0d8c63464fbd84500a9a462d",
-                "6b71c77c50944ec5d058d58ef39b687897567bea2a721ce49def98941db2cb96"));
+        try {
+            List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(context);
+            if (presets != null) {
+                for (ModelPresetConfig.ModelPreset p : presets) {
+                    if (p == null || p.downloadUrl == null || p.downloadUrl.isEmpty()) continue;
+                    ModelPresetInfo info = ModelPresetConfig.toPresetInfo(p);
+                    if (info != null) list.add(info);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "getPresetDomesticModels failed: " + e.getMessage());
+        }
         return list;
     }
 
-    public static class ModelPresetInfo {
+public static class ModelPresetInfo {
         public final String id;
         public final String name;
         public final String description;
