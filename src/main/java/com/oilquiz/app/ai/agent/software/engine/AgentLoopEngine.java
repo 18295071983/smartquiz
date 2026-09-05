@@ -925,6 +925,7 @@ public class AgentLoopEngine {
         CountDownLatch latch = new CountDownLatch(1);
         final List<ToolCall> toolCallsHolder = new ArrayList<>();
         final StringBuilder reasoningBuf = new StringBuilder();
+        final StringBuilder fullContentBuf = new StringBuilder();  // 收集所有 token，兜底解析工具调用
         final String[] contentHolder = {null};
         final String[] errorHolder = {null};
         // Java 侧流式 tool_call 兜底状态：C++ is_tool_call 对 <tool_call> 标签格式失效时，
@@ -954,6 +955,7 @@ public class AgentLoopEngine {
                             if (!event.optBoolean("is_tool_call", false)) {
                                 String token = event.optString("content", "");
                                 if (!token.isEmpty()) {
+                                    fullContentBuf.append(token);  // 收集完整内容，兜底解析工具调用
                                     // Java 侧兜底：C++ is_tool_call 对 <tool_call> 标签格式失效时，
                                     // 流式吞掉标签格式的 tool_call 片段（支持跨 token 拆分/漏闭合补壳）
                                     String emit = filterStreamToken(token, streamFilterBuf, streamSwallowing, streamJsonDone, streamCloseBuf);
@@ -1035,9 +1037,28 @@ public class AgentLoopEngine {
         }
 
         String content = contentHolder[0] != null ? contentHolder[0].trim() : "";
+
+        // 兜底：C++ 层未下发 tool_call 事件时，从完整流式内容中解析 <tool_call> 标签
+        if (toolCallsHolder.isEmpty() && fullContentBuf.length() > 0) {
+            List<ToolCall> fallback = parseToolCallsTag(fullContentBuf.toString());
+            if (!fallback.isEmpty()) {
+                AILogger.i(TAG, "Fallback: parsed " + fallback.size() + " tool calls from stream content");
+                toolCallsHolder.addAll(fallback);
+            }
+        }
+        // complete 事件的 content 也可能包含工具调用（C++ is_tool_call 失效时）
+        if (toolCallsHolder.isEmpty() && !content.isEmpty()) {
+            List<ToolCall> fallback = parseToolCallsTag(content);
+            if (!fallback.isEmpty()) {
+                AILogger.i(TAG, "Fallback: parsed " + fallback.size() + " tool calls from complete content");
+                toolCallsHolder.addAll(fallback);
+            }
+        }
+
         AILogger.i(TAG, "generateWithChatJsonSync result: contentLen=" + content.length()
                 + " reasoningLen=" + reasoningBuf.length()
-                + " toolCalls=" + toolCallsHolder.size());
+                + " toolCalls=" + toolCallsHolder.size()
+                + " fullContentLen=" + fullContentBuf.length());
 
         return new GenerateResult(content, reasoningBuf.toString(), toolCallsHolder);
     }

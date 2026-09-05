@@ -345,42 +345,22 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             });
         }
 
-        // 本地 Agent 复活开关（spec §3.1.1，实验功能；默认 false）
-        // 启用后：本地模型走 AgentSoftwareLayer（意图编排 + 模型自主工具调用）。
-        // 崩溃加固已就位（n_ctx 守卫/内存钳制/GPU 层数修正/OpenCL 后端）。
+        // 本地 Agent 开关：启用后本地模型走 AgentSoftwareLayer，自动启用 FC 工具调用循环
         if (localAgentSwitch != null) {
             localAgentSwitch.setChecked(aiConfig.isLocalAgentEnabled());
             localAgentSwitch.setEnabled(true);
             localAgentSwitch.setAlpha(1.0f);
             localAgentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 aiConfig.setLocalAgentEnabled(isChecked);
-                // FC 开关随动：本地 Agent 关闭时强制禁用 FC（FC 依赖本地 Agent）
-                if (localFcSwitch != null) {
-                    localFcSwitch.setEnabled(isChecked);
-                    localFcSwitch.setAlpha(isChecked ? 1.0f : 0.4f);
-                    if (!isChecked && localFcSwitch.isChecked()) {
-                        localFcSwitch.setChecked(false);
-                        aiConfig.setFcEnabled(false);
-                    }
-                }
                 Toast.makeText(this, isChecked
-                        ? "本地Agent已启用（重启AI对话后生效）"
+                        ? "本地Agent已启用（含工具调用，重启AI对话后生效）"
                         : "本地Agent已禁用", Toast.LENGTH_SHORT).show();
             });
         }
 
-        // 本地 Agent 工具调用（FC）开关：模型按 Qwen 原生 <tool_call> 自主调用工具。
-        // 依赖 localAgentEnabled 开启；仅当本地 Agent 启用时允许打开。
+        // FC 开关已合并到本地 Agent，隐藏独立开关
         if (localFcSwitch != null) {
-            localFcSwitch.setChecked(aiConfig.isFcEnabled());
-            localFcSwitch.setEnabled(aiConfig.isLocalAgentEnabled());
-            localFcSwitch.setAlpha(aiConfig.isLocalAgentEnabled() ? 1.0f : 0.4f);
-            localFcSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                aiConfig.setFcEnabled(isChecked);
-                Toast.makeText(this, isChecked
-                        ? "本地Agent工具调用已启用（重启AI对话后生效）"
-                        : "本地Agent工具调用已禁用", Toast.LENGTH_SHORT).show();
-            });
+            localFcSwitch.setVisibility(View.GONE);
         }
 
         if (btnTestAi != null) {

@@ -4637,7 +4637,25 @@ public class AIChatActivity extends BaseActivity {
      * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
      */
     private void processChatMessageNormal(String message) {
-        if (aiService == null) { addSystemMessage("未选择本地模型，请切换到在线模型"); return; }
+        if (aiService == null) {
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("还没有配置模型")
+                        .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
+                                "📥 本地模型（推荐）\n" +
+                                "• 离线可用，无需网络\n" +
+                                "• 推荐 Qwen3.5-2B，约1.3GB\n\n" +
+                                "🌐 在线模型\n" +
+                                "• 功能更强，支持 Agent 工具调用")
+                        .setPositiveButton("去下载模型", (d, w) -> {
+                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
+                        })
+                        .setNegativeButton("稍后再说", null)
+                        .setCancelable(true)
+                        .show();
+            });
+            return;
+        }
         
         synchronized (streamingLock) {
             if (isGenerating) {
@@ -4731,6 +4749,41 @@ public class AIChatActivity extends BaseActivity {
      * 按当前实际架构精简：在线模型=完整 Agent，本地模型=普通对话，深度思考=模式。
      */
     private void showWelcomeGuide() {
+        // 检查是否已配置模型（本地或在线）
+        boolean hasLocalModel = false;
+        boolean hasOnlineModel = false;
+        try {
+            if (aiService != null && aiService.getCurrentModelName() != null) {
+                hasLocalModel = true;
+            }
+            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
+                hasOnlineModel = true;
+            }
+        } catch (Exception ignored) {}
+
+        if (!hasLocalModel && !hasOnlineModel) {
+            // 没有配置任何模型：用原生对话框引导
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("还没有配置模型")
+                        .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
+                                "📥 本地模型（推荐）\n" +
+                                "• 离线可用，无需网络\n" +
+                                "• 推荐 Qwen3.5-2B，约1.3GB\n\n" +
+                                "🌐 在线模型\n" +
+                                "• 功能更强，支持 Agent 工具调用\n" +
+                                "• 支持豆包、DeepSeek、通义千问等")
+                        .setPositiveButton("去下载模型", (d, w) -> {
+                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
+                        })
+                        .setNegativeButton("稍后再说", null)
+                        .setCancelable(true)
+                        .show();
+            });
+            return;
+        }
+
+        // 已有模型：正常欢迎引导
         StringBuilder guide = new StringBuilder();
         guide.append("👋 你好！我是答题宝 AI 助手\n\n");
         guide.append("我能帮你查天气、搜资料、翻译、做题、生成图片等，直接说需求就行。\n\n");
