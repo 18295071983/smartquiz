@@ -69,16 +69,17 @@ public class AIToolUsageGuide {
 
         // 1. 调用协议
         sb.append("【一、调用协议】\n");
-        sb.append("使用原生 function calling 调用工具，系统自动解析并执行：\n");
-        sb.append("  • 以原生 function calling 格式输出工具调用，系统自动解析并执行\n");
-        sb.append("  • 一次回复可输出多个工具调用\n");
-        sb.append("  • 参数为 JSON 对象，匹配下方工具定义的参数名与类型\n");
+        sb.append("使用原生 function calling 调用工具，无需任何 JSON 封装或文本格式标记：\n");
+        sb.append("  • 直接以原生 function calling 格式输出工具调用，系统会自动解析并执行\n");
+        sb.append("  • 不要在回复中构造 {\"tool_calls\": [...]} 之类的 JSON 封装，也不要使用 TOOLS_CALL/TOOLS_END 等文本标记\n");
+        sb.append("  • 可在一次回复中输出多个工具调用\n");
+        sb.append("  • 参数为 JSON 对象，严格匹配下方工具定义的参数名与类型\n");
         sb.append("  • 必填参数缺失会导致工具执行失败\n\n");
         sb.append("特殊命令：\n");
         sb.append("  • 输出 [TOOL_INFO: 工具名] 可获取该工具的详细参数说明\n");
         sb.append("  • 输出 [TOOL_GUIDE] 可再次查看本指南\n");
-        sb.append("  • 工具可组合使用，可同时调用多个工具（并行）\n");
-        sb.append("  • 工具失败时系统自动分析原因：参数错误会提示修正，工具不适用会推荐替代工具\n\n");
+        sb.append("  • 工具可组合使用，如查天气可先用 location 定位再用 ai_weather 查询\n");
+        sb.append("  • 工具失败时系统会自动分析原因：参数错误会提示修正，工具不适用会推荐替代工具\n\n");
 
         // 2. 工具清单（动态）
         sb.append("【二、可用工具清单】\n");
@@ -105,16 +106,24 @@ public class AIToolUsageGuide {
             sb.append("\n");
         }
 
-        // 3. 调用规则（只保留应用定制技术约束与行为原则，场景→工具映射交由模型自行判断）
+        // 3. 调用规则
         sb.append("【三、调用规则】\n");
-        sb.append("  1. 文件路径用绝对路径（如 /storage/emulated/0/...），工具才能定位到文件。\n");
-        sb.append("  2. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
-        sb.append("  3. 工具结果可能被自动摘要/截断，需要完整内容时细化查询条件。\n");
-        sb.append("  4. 同一工具连续失败 2 次换策略或向用户澄清。\n");
-        sb.append("  5. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
-        sb.append("  6. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n");
-        sb.append("  7. 信息不足时（实时数据/最新事件/超出已知范围的事实）用搜索类工具补全再答。\n");
-        sb.append("  8. 不确定时用工具测试：不确定参数、数据或结果时，直接调工具拿返回确认，以工具返回为准。\n\n");
+        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit。天气优先 ai_weather（结构化完整；查当前位置实时天气用经纬度最准——直接用 location 定位或环境上下文的 lat/lon；查具体城市用 city，可填城市名或和风城市编码），也可用 network_search 搜索；由你按情况判断。\n");
+        sb.append("  2. app_toolkit 仅在需要 OCR/图像处理/文件解析/网页解析等聚合能力时使用，通过 action 指定子操作。\n");
+        sb.append("  3. 数学计算可用 calculator 或 python_calculate，复杂数据分析用 python_analyze_data，任意 Python 代码用 python_execute，由你按场景选择。\n");
+        sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回文件不存在。\n");
+        sb.append("  5. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
+        sb.append("  6. 工具结果可能被自动摘要/截断，如需完整内容请细化查询条件。\n");
+        sb.append("  7. 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n");
+        sb.append("  8. 【重要】生成图片优先调用 image_gen 工具（会自动下载并内联显示在对话中），或 dashscope_media（通义万相）；也可直接输出 image_grid 组件标记展示图片。\n");
+        sb.append("     尽量避免用 python_execute 拼 URL、用 system_resource open_url 打开浏览器等方式绕路（这些方式图片无法在对话内展示）。\n");
+        sb.append("     图片生成后直接内联展示给用户，不要让用户离开对话去浏览器查看。\n");
+        sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
+        sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
+        sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
+        sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
+        sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
+        sb.append("  13. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n\n");
 
         // 4. 典型调用示例（示例已删除：让模型根据工具定义自行组织调用，不照抄示例）
         sb.append("【四、调用方式】\n");
@@ -125,7 +134,7 @@ public class AIToolUsageGuide {
         sb.append("【五、错误处理】\n");
         sb.append("  • 工具失败时系统会自动分析原因并给出建议，请根据建议修正参数或更换工具。\n");
         sb.append("  • 参数错误时系统会注入该工具的详细参数定义和缺失参数分析，请据此修正后重试。\n");
-        sb.append("  • 工具不适用时系统会推荐替代工具，可调用或向用户澄清。\n");
+        sb.append("  • 工具不适用时系统会推荐替代工具，请判断是否适合后调用。\n");
         sb.append("  • 如不确定工具参数，可输出 [TOOL_INFO: 工具名] 获取详细说明。\n");
         sb.append("  • 同一工具连续失败 2 次应更换策略或向用户澄清，不要无限重试。\n\n");
 

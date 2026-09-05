@@ -47,7 +47,7 @@ public final class AIServiceInitializer {
     private static final double INTEGRITY_THRESHOLD = 0.90;
 
     /** 默认预置模型：多模态 Agent（视觉理解 + 思考链 + 原生工具调用） */
-    public static final String DEFAULT_MODEL_ID = "qwen3-vl-2b-thinking";
+    public static final String DEFAULT_MODEL_ID = "qwen3.5-2b";
 
     /** 全局初始化互斥锁 */
     private static final Object INIT_LOCK = new Object();

@@ -3301,12 +3301,36 @@ public class AIWeatherManager implements AITool {
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
             normalizeParameters(parameters);
-            String action = (String) parameters.get("action");
+            Object actionObj = parameters.get("action");
+            String action = null;
+            if (actionObj != null) {
+                if (actionObj instanceof String) {
+                    action = (String) actionObj;
+                } else if (actionObj instanceof Number) {
+                    action = String.valueOf(actionObj);
+                } else {
+                    action = String.valueOf(actionObj);
+                }
+            }
             if (action == null) {
                 action = "current";
             }
             
-            String city = (String) parameters.get("city");
+            Object cityObj = parameters.get("city");
+            String city = null;
+            if (cityObj != null) {
+                if (cityObj instanceof String) {
+                    city = (String) cityObj;
+                } else if (cityObj instanceof Number) {
+                    city = String.valueOf(cityObj);
+                } else if (cityObj instanceof org.json.JSONObject) {
+                    // 模型可能传入 {"name":"北京"} 或 {"city":"北京"} 结构
+                    org.json.JSONObject jo = (org.json.JSONObject) cityObj;
+                    city = jo.optString("name", jo.optString("city", jo.optString("location", jo.toString())));
+                } else {
+                    city = String.valueOf(cityObj);
+                }
+            }
             Object latObj = parameters.get("lat");
             Object lonObj = parameters.get("lon");
             Double lat = null;
