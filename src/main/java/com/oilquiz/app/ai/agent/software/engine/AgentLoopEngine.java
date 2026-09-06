@@ -96,6 +96,7 @@ public class AgentLoopEngine {
         TOOL_LABELS.put("ai_weather", "天气");
         TOOL_LABELS.put("location", "位置");
         TOOL_LABELS.put("network_search", "搜索");
+        TOOL_LABELS.put("time_date", "时间日期");
         TOOL_LABELS.put("webpage_reader", "网页");
         TOOL_LABELS.put("smart_research", "调研");
         TOOL_LABELS.put("database", "题库");
@@ -163,9 +164,9 @@ public class AgentLoopEngine {
             {"file_generator", "生成文件,写文件,创建文件,保存为,导出文档,生成md,写markdown"},
             {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
     };
-    /** 常驻基础工具：只保留天气/时间/定位/搜索四个工具，其他不注入 */
+    /** 常驻基础工具：天气/时间/定位/搜索 + 长期记忆，其他按需注入 */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "ai_weather", "time_date", "location", "network_search"
+            "ai_weather", "time_date", "location", "network_search", "memory"
     };
 
     /** 动态工具关键词路由表：程序硬编码，消息命中关键词即注入对应动态工具
@@ -271,7 +272,7 @@ public class AgentLoopEngine {
         // 记录最近用户消息：ai_weather 缺城市参数时程序从原文提取城市名兜底
         this.lastUserMessage = userMessage != null ? userMessage : "";
 
-        // 只注入四个核心工具：天气/时间/定位/搜索，其他工具不注入
+        // 只注入五个核心工具：天气/时间/定位/搜索/记忆，其他工具不注入
         List<String> selectedTools = new ArrayList<>();
         for (String name : DEFAULT_CORE_TOOLS) {
             if (!selectedTools.contains(name)) {
@@ -280,13 +281,21 @@ public class AgentLoopEngine {
         }
         // 不注入大 schema 的 UI 工具
         selectedTools.removeIf(n -> "ui_component".equals(n) || "ui_component_plugin".equals(n));
-        // 动态注入集合：初始 = 四个核心工具；FC 循环按模型实际使用增长
+        // 动态注入集合：初始 = 五个核心工具；FC 循环按模型实际使用增长
         final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(selectedTools);
         String toolsJson = buildToolsJson(new ArrayList<>(activeTools));
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Initial tools: " + activeTools.size() + " tools, schema len: " + toolsJson.length());
         if (aiConfig != null && aiConfig.isFcEnabled()) {
-            showToast("🤖 本地Agent就绪: " + activeTools.size() + " 个核心工具");
+            // 就绪弹窗：列出常驻核心工具的能力名（TOOL_LABELS 友好名，缺省用原名）
+            StringBuilder readySb = new StringBuilder("🤖 本地Agent就绪：");
+            boolean first = true;
+            for (String t : activeTools) {
+                if (!first) readySb.append("、");
+                readySb.append(toolLabel(t));
+                first = false;
+            }
+            showToast(readySb.toString());
         }
 
         // 单次推理的 prompt token 预算（结合配置上下文容量）
@@ -967,7 +976,20 @@ public class AgentLoopEngine {
                             }
                             break;
                         case "tool_call":
-                            toolCallsHolder.add(parseToolCallEvent(event));
+                            // 流式增量事件（native §5.3 已 diff 去重，此处双保险）：
+                            // 同 name+arguments 视为同一次工具调用，重复跳过，避免工具重复执行
+                            {
+                                ToolCall tcEvent = parseToolCallEvent(event);
+                                boolean dup = false;
+                                for (ToolCall exist : toolCallsHolder) {
+                                    if (exist.toolName.equals(tcEvent.toolName)
+                                            && exist.args.toString().equals(tcEvent.args.toString())) {
+                                        dup = true;
+                                        break;
+                                    }
+                                }
+                                if (!dup) toolCallsHolder.add(tcEvent);
+                            }
                             break;
                         case "thinking":
                             // 实时思考增量事件：native 思考段每累积一段下发，思考区实时显示
@@ -1577,7 +1599,12 @@ public class AgentLoopEngine {
         // （模型直接回答、不注入工具），因此提示词只保留身份，
         // 工具调用规则/回答格式等指令段全部移除（模型已不再调用工具）。
         StringBuilder sb = new StringBuilder();
-        sb.append("你是答题宝AI助手，用中文简洁自然地与用户对话。\n\n");
+        // ---- 本地普通对话模式：纯聊天答疑角色 ----
+        sb.append("【角色】\n");
+        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手。\n");
+        sb.append("你的工作：与正在使用答题宝的用户进行自然对话，解答学习、生活、技术等各类问题，给出清晰有用的回答。\n");
+        sb.append("你的方式：不调用任何工具，完全依靠自身知识回答；不确定时如实说明，不编造。\n");
+        sb.append("你的风格：用中文，简洁自然、口语化，像熟悉的朋友聊天，先给结论再补细节。\n\n");
 
         return sb.toString();
     }
@@ -1597,11 +1624,17 @@ public class AgentLoopEngine {
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是答题宝AI助手，用中文简洁回答，需要信息时调用工具。\n\n");
+        // ---- 本地 FC/Agent 模式：聊天答疑 + 工具调用角色 ----
+        sb.append("【角色】\n");
+        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
+        sb.append("你的工作：与用户对话答疑，并在需要实时信息（天气/时间/位置/最新资讯）时主动调用工具获取，而不是靠训练知识猜测。\n");
+        sb.append("你的工具：网络搜索、天气查询、时间日期、位置定位、长期记忆，按需调用、可多轮、可组合。\n");
+        sb.append("你的方式：常识与知识类问题直接回答；实时信息以工具返回为准，直接采纳不怀疑。\n");
+        sb.append("你的风格：用中文，简洁自然，先结论后细节。\n\n");
 
-        // 工具说明：只注入四个核心工具，详细说明每个工具的action用法
+        // 工具说明：只注入五个核心工具，详细说明每个工具的action用法
         sb.append("【工具用法】\n");
-        sb.append("当前可用4个工具，按需求选择action调用：\n\n");
+        sb.append("当前可用5个工具，按需求选择action调用：\n\n");
 
         sb.append("1. 网络搜索(network_search) - 10个action：\n");
         sb.append("• search(query,limit=5)：关键词搜索，返回标题/链接/摘要列表\n");
@@ -1623,8 +1656,7 @@ public class AgentLoopEngine {
         sb.append("• action=air_quality：空气质量（需经纬度，传city时工具内部自动转坐标）\n");
         sb.append("• action=alerts：天气预警（需经纬度，传city时工具内部自动转坐标）\n");
         sb.append("• action=indices：生活指数（需经纬度，传city时工具内部自动转坐标）\n");
-        sb.append("• action=one_call：详细天气（必须传lat+lon经纬度）\n");
-        sb.append("• 参数：用户说了城市就传city；用户没说城市就先调location工具获取lat/lon再传。查当前位置天气用经纬度最准确。\n\n");
+        sb.append("• 参数：用户说了城市就传city（城市名或和风城市编码）；用户没说城市就先调location工具获取lat/lon再传。\n\n");
 
         sb.append("3. 时间日期(time_date)：\n");
         sb.append("• action=now：当前日期时间\n");
@@ -1636,20 +1668,28 @@ public class AgentLoopEngine {
         sb.append("• action=current：当前位置（经纬度/城市/详细地址）\n");
         sb.append("• 返回 lat/lon 可直接传给天气工具\n\n");
 
+        sb.append("5. 长期记忆(memory)：\n");
+        sb.append("• action=save(key,value)：保存一条用户信息（仅在用户明确要求记住、或主动告知个人信息/偏好时保存，不要擅自把普通聊天内容存为记忆；key 用英文短词如 user_name/preference_city）\n");
+        sb.append("• action=recall(key)：读取一条记忆\n");
+        sb.append("• action=delete(key)：删除单条记忆\n");
+        sb.append("• action=list：列出所有记忆\n");
+        sb.append("• 已存的记忆会自动注入到你的系统提示词中（跨对话保留），无需每次手动 recall\n\n");
+
+        sb.append("网络搜索仅在需要实时/外部信息（新闻、政策、价格、最新事件、链接内容、搜索指定资料）时使用；常识与知识类问题直接回答，不要搜索。\n");
         sb.append("不需要工具时直接回答。\n");
         sb.append("注意：action根据需求自由选择，不要被默认值限制。天气需要预报就用forecast，需要空气质量就用air_quality；搜索需要智能问答就用ask，需要读网页就用read_url，需要动态网页就用get_dynamic_content，按需选择最合适的action。\n\n");
 
         sb.append("【做法】\n");
-        sb.append("1. 直接调用工具。用户给的参数（城市/编码/时间/位置等）直接照用，先调用。\n");
-        sb.append("2. 查天气传位置参数：用户说了城市就传city(城市名或和风城市编码)；用户没说城市（如\"现在天气\"\"附近天气\"），先调location工具定位获取lat/lon，再用坐标参数调ai_weather查询。查当前位置天气用经纬度最准确。\n");
-        sb.append("3. 环境信息用工具获取：需要当前时间/日期/星期时，直接调 time_date(action=now) 获取，不要用训练数据中的时间；需要位置时直接调 location(action=current) 获取，不要猜测用户位置。重要：你的训练数据截止时间是过去的（如2023年），但真实当前时间以工具返回为准。工具返回的时间就是真实的当前实时时间，不是未来时间，不要因为比训练数据晚就误认为是未来日期。天气工具返回的当前天气(action=current/now)是实时数据，预报(action=forecast)才是未来几天的。\n");
-        sb.append("4. 工具调用后会返回结果。先分析结果内容：结果是否回答了用户问题？缺什么信息？据此决定下一步——已满足直接回答，不满足继续调工具补齐。\n");
-        sb.append("5. 工具返回的数据是准确实时的，直接采纳，不要编造结果里没有的数据。\n");
-        sb.append("6. 不确定时用工具测试：不确定参数、数据或结果时，直接调工具拿返回确认，以工具返回为准。\n");
-        sb.append("7. 信息不足时用搜索类工具补全再回答。\n");
-        sb.append("8. 工具失败换一个工具继续，不要因一次失败就放弃。\n");
-        sb.append("9. 可多轮调用：一次工具结果不够时继续调用，直到信息足够再回答。\n");
-        sb.append("10. 需要探索时主动用工具：结果不完整、不清晰或与用户问题不符时，换参数/换工具再试，直到拿到可用信息。\n\n");
+        sb.append("1. 先判断问题类型，再决定是否用工具：\n");
+        sb.append("   • 常识/知识类（概念、定义、原理、历史、人物、教材知识等训练已覆盖的）——直接回答，不要搜索，不要调工具。\n");
+        sb.append("   • 实时/时效类（时间、日期、天气、位置、价格、新闻、政策、链接内容等）——必须调用对应工具获取，不要用训练数据猜测。\n");
+        sb.append("2. 直接调用工具。用户给的参数（城市/编码/时间/位置等）直接照用，先调用，不要怀疑参数。\n");
+        sb.append("3. 查天气传位置参数：用户说了城市就传city(城市名或和风城市编码)；用户没说城市（如\"现在天气\"\"附近天气\"），先调location工具定位获取lat/lon，再用坐标参数调ai_weather查询。\n");
+        sb.append("4. 需要当前时间/日期/星期时，直接调 time_date(action=now)。时间工具返回的日期时间就是真实的当前时间，直接采用，不做任何怀疑和修正。你的训练数据截止于过去（如2023年），工具时间比训练时间晚是完全正常的——工具返回的就是\"现在\"，不是未来日期。不要纠结、不要评论\"未来\"、不要用训练数据覆盖工具时间。天气 action=current 返回的是实时天气，action=forecast 才是未来预报，二者不要混淆。\n");
+        sb.append("5. 工具返回的数据是绝对准确和实时的，直接采纳并总结提取关键信息。不要添加结果里没有的内容，不要用训练数据\"纠正\"或\"补充\"工具结果，不要夹带自己的推测。\n");
+        sb.append("6. 工具结果不够时：分析缺什么信息，继续调工具补齐，可多轮调用，直到信息足够再回答。\n");
+        sb.append("7. 不确定参数或数据时，直接调工具确认，以工具返回为准。\n");
+        sb.append("8. 工具失败换一个工具继续，不要因一次失败就放弃。\n\n");
 
         sb.append("【回答】\n");
         sb.append("中文简洁，先结论后细节；没把握时直说不知道。\n");

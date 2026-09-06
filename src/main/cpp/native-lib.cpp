@@ -974,8 +974,16 @@ namespace llama_jni {
 // 禁止模型输出 control/suppress token（防止把模板前缀 <|im_start|> 等当内容生成）。
 // 优先用 GGUF 的 tokenizer.ggml.suppress_tokens，未定义则遍历 vocab 的 control token；
 // EOG（正常结束标记）必须保留，否则生成永不结束。文件级函数，供多个推理类共用。
-static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab * vocab) {
+static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab * vocab,
+                                       const std::vector<llama_token>& preserved = {}) {
     if (smpl == nullptr || vocab == nullptr) return;
+    // §6.1 官方 preserved_tokens 语义：模板差分出的标记（<tool_call> 等）是工具调用的
+    // 必要结构，不能参与控制抑制（否则被 -INFINITY 禁掉，模型永远输不出工具标记——
+    // 潜在"光思考不执行工具"根因之一）
+    auto isPreserved = [&preserved](llama_token t) {
+        for (auto pt : preserved) if (pt == t) return true;
+        return false;
+    };
     std::vector<llama_logit_bias> biases;
     const llama_token * suppress = nullptr;
     int32_t n_suppress = 0;
@@ -983,13 +991,13 @@ static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab *
     int32_t n_vocab = llama_vocab_n_tokens(vocab);
     if (suppress != nullptr && n_suppress > 0) {
         for (int32_t i = 0; i < n_suppress; i++) {
-            if (!llama_vocab_is_eog(vocab, suppress[i])) {
+            if (!llama_vocab_is_eog(vocab, suppress[i]) && !isPreserved(suppress[i])) {
                 biases.push_back({ suppress[i], -INFINITY });
             }
         }
     } else {
         for (int32_t t = 0; t < n_vocab; t++) {
-            if (llama_vocab_is_control(vocab, t) && !llama_vocab_is_eog(vocab, t)) {
+            if (llama_vocab_is_control(vocab, t) && !llama_vocab_is_eog(vocab, t) && !isPreserved(t)) {
                 biases.push_back({ t, -INFINITY });
             }
         }
@@ -1003,7 +1011,7 @@ static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab *
         for (const char* m : chatml_markers) {
             if (strcmp(txt, m) == 0) { is_marker = true; break; }
         }
-        if (is_marker && !llama_vocab_is_eog(vocab, t)) {
+        if (is_marker && !llama_vocab_is_eog(vocab, t) && !isPreserved(t)) {
             // 去重（suppress/control 已禁的跳过）
             bool dup = false;
             for (auto& b : biases) if (b.token == t) { dup = true; break; }
@@ -1552,9 +1560,9 @@ public:
         // 之前 8K 上下文 512 曾触发 OOM（模型 2.4GB 常驻 + KV buffer），现 12K 上下文
         // 内存池 2048MB、KV 峰值 1080MB 有余量；如仍 OOM 回退 256。
         int n_batch_actual = batchSize;
-        if (this->gpuLayers > 0 && n_batch_actual < 1024) {
-            n_batch_actual = 1024;
-            LOGI("GPU mode: increasing batch size to %d for better prefill throughput", n_batch_actual);
+        if (this->gpuLayers > 0 && n_batch_actual < 512) {
+            n_batch_actual = 512;
+            LOGI("GPU mode: increasing batch size to %d for prefill throughput (capped 512 to limit peak memory)", n_batch_actual);
         }
         if (n_batch_actual > MAX_BATCH_SIZE) {
             n_batch_actual = MAX_BATCH_SIZE;
@@ -2748,7 +2756,8 @@ public:
      * 由 chatJson 调用（enableThinking 恒传 false，思考交给模板）。
      */
 
-    bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
+    bool generateStreamIncremental(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback,
+                                   const common_chat_params* chatParams = nullptr) {
         setPhase(GenPhase::PREPROCESS, "incr:entry");
         prefillStartTime = std::chrono::steady_clock::now();  // PREPROCESS：prefill 计时起点
         prefillDoneTokens = 0;
@@ -2787,16 +2796,41 @@ public:
         // 创建 sampler chain（与 generateStream 一致）
         auto sparams = llama_sampler_chain_default_params();
         struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
+        // §6.1 官方 preserved_tokens：模板差分出的标记（<tool_call>、thinking 标记等）转 token id，
+        // 参与 control suppression 时跳过，防止工具调用结构被采样器禁掉
+        std::vector<llama_token> preservedIds;
+        if (chatParams != nullptr) {
+            for (const auto& s : chatParams->preserved_tokens) {
+                if (s.empty()) continue;
+                int n = -llama_tokenize(vocab, s.c_str(), s.size(), NULL, 0, true, false);
+                if (n <= 0) continue;
+                std::vector<llama_token> ids(n);
+                if (llama_tokenize(vocab, s.c_str(), s.size(), ids.data(), ids.size(), true, false) < 0) continue;
+                for (auto id : ids) {
+                    if (std::find(preservedIds.begin(), preservedIds.end(), id) == preservedIds.end()) {
+                        preservedIds.push_back(id);
+                    }
+                }
+            }
+            LOGI("grammar: preserved tokens -> %zu ids", preservedIds.size());
+        }
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
-            addControlTokenSuppression(smpl, vocab);
+            addControlTokenSuppression(smpl, vocab, preservedIds);
             llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
             llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
+            // §6.3 官方 min_p 采样（llama.cpp 默认 0.05）：过滤低于 max_prob*min_p 的低概率
+            // token，小模型输出更干净、减少乱码与低质量续写（对工具调用 JSON 生成尤其有用）
+            llama_sampler_chain_add(smpl, llama_sampler_init_min_p(0.05f, 1));
             llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
             llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
+        // §6.1 官方 grammar 挂载已移除：autoparser 对 Qwen3-VL 模板的工具格式推断
+        // （XML 参数格式）与模型实际输出（JSON-in-tags）不一致，lazy 触发后遇 '{' 崩溃
+        // （Unexpected empty grammar stack）。保留官方 preserved_tokens 与 additional_stops，
+        // 工具参数完整性由流式 common_chat_parse 的 JSON 补全兜底。
 
         try {
         std::string promptToUse = prompt;
@@ -2926,6 +2960,7 @@ public:
         bool thinkingEnded = !enableThinking;
         int thinkingTokens = 0;
         std::string stopReason = "normal";
+        std::string stopBuf;   // §6.2 additional_stops 跨 token 尾部匹配缓冲
 
         auto start = std::chrono::steady_clock::now();
         decodeStartTime = std::chrono::steady_clock::now();  // decode 速度计时起点
@@ -3044,6 +3079,39 @@ public:
                 }
                 fullText += token;
                 callback(token, false, "");
+            }
+
+            // §6.2 官方 additional_stops：跨 token 尾部缓冲匹配（支持停止词被拆分成多个 token），
+            // 命中即停止，并把已累积输出中的停止词尾部裁掉（官方 server 同款语义）
+            {
+                stopBuf += token;
+                if (stopBuf.size() > 128) stopBuf.erase(0, stopBuf.size() - 128);
+                if (chatParams != nullptr) {
+                    size_t swMatchLen = 0;
+                    for (const auto& sw : chatParams->additional_stops) {
+                        if (sw.empty() || stopBuf.size() < sw.size()) continue;
+                        size_t pos = stopBuf.size() - sw.size();
+                        if (stopBuf.compare(pos, sw.size(), sw) == 0) {
+                            swMatchLen = sw.size();
+                            break;
+                        }
+                    }
+                    if (swMatchLen > 0) {
+                        const std::string swText = stopBuf.substr(stopBuf.size() - swMatchLen);
+                        if (!thinkingEnded && thinkingPending.size() >= swMatchLen
+                                && thinkingPending.compare(thinkingPending.size() - swMatchLen, swMatchLen, swText) == 0) {
+                            thinkingPending.erase(thinkingPending.size() - swMatchLen);
+                        } else if (fullText.size() >= swMatchLen
+                                && fullText.compare(fullText.size() - swMatchLen, swMatchLen, swText) == 0) {
+                            fullText.erase(fullText.size() - swMatchLen);
+                        }
+                        LOGI("Stop word matched (cross-token): '%s' len=%zu, stopping generation", swText.c_str(), swMatchLen);
+                        setStop(StopCause::STOP_WORD, "incr:add_stop");
+                        setPhase(GenPhase::COMPLETE, "incr:add_stop");
+                        stopReason = "stop_word";
+                        break;
+                    }
+                }
             }
 
             llama_batch batch = llama_batch_get_one(&new_token_id, 1);
@@ -3532,6 +3600,41 @@ public:
         const int PARTIAL_PARSE_INTERVAL = 4;   // 每收 N 个 token 检测一次（16→4：缩短泄漏窗口）
         int partialParseCounter = 0;
 
+        // §5.3 官方流式 tool_call 增量发布：复用 common_chat_parse（PEG + pending_tool_call）
+        // 的 partial 解析结果，diff 已发布集合，只发布"arguments 已闭合"且未发布过的 tool_call。
+        // Java 侧 AgentLoopEngine 流式收集（协议 tool_call 事件），complete 后再兜底漏网的。
+        std::vector<std::string> publishedToolCalls;
+        auto toolCallKey = [](const common_chat_tool_call& tc) -> std::string {
+            return tc.id.empty() ? ("nm:" + tc.name + "|" + tc.arguments) : ("id:" + tc.id);
+        };
+        auto jsonArgsClosed = [](const std::string& args) -> bool {
+            if (args.empty() || args.front() != '{') return false;
+            int depth = 0; bool inStr = false; bool esc = false;
+            for (char c : args) {
+                if (esc) { esc = false; continue; }
+                if (c == '\\' && inStr) { esc = true; continue; }
+                if (c == '"') { inStr = !inStr; continue; }
+                if (!inStr) {
+                    if (c == '{') depth++;
+                    else if (c == '}') { depth--; if (depth == 0) return true; }
+                }
+            }
+            return false;   // 未闭合（官方 json_brace_depth 同款逻辑，此处只判是否到闭合点）
+        };
+        auto publishToolCalls = [&](const std::vector<common_chat_tool_call>& tcs) {
+            for (const auto& tc : tcs) {
+                const std::string key = toolCallKey(tc);
+                if (std::find(publishedToolCalls.begin(), publishedToolCalls.end(), key) != publishedToolCalls.end()) continue;
+                if (!jsonArgsClosed(tc.arguments)) continue;   // 流式只发闭合完整版，避免 Java 执行半截参数
+                publishedToolCalls.push_back(key);
+                nlohmann::ordered_json j = {{"type", "tool_call"}, {"id", tc.id},
+                                            {"name", tc.name}, {"arguments", tc.arguments}};
+                jsonCallback(j.dump());
+                LOGI("chatJson: stream tool_call id=%s name=%s args=%zu chars",
+                     tc.id.c_str(), tc.name.c_str(), tc.arguments.size());
+            }
+        };
+
         // ---- 阶段A：ThinkingStage —— 思考段流式识别（THINKING 阶段）----
         // 用模板标签（mThinkStartTag/mThinkEndTags）识别完整前缀中的思考段：
         // 进入/退出思考态，标签不发给 UI（标签种类随模型模板变化，不硬编码）；
@@ -3626,6 +3729,7 @@ public:
                         if (!partial.tool_calls.empty()) {
                             isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
                             LOGI("chatJson: is_partial detected tool_call output");
+                            publishToolCalls(partial.tool_calls);   // §5.3 流式增量发布（diff + 闭合判断）
                         }
                     } catch (const std::exception& e) {
                         LOGW("chatJson: partial parse failed (ignored): %s", e.what());
@@ -3678,7 +3782,12 @@ public:
 
         bool genOk = false;
         try {
-            genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback);
+            // §6 官方 chat_params 全量接入：grammar(lazy)/preserved_tokens/additional_stops
+            LOGI("chatJson: params util -> grammar=%s(%zuB) lazy=%d triggers=%zu preserved=%zu stops=%zu",
+                 chat_params.grammar.empty() ? "none" : "set", chat_params.grammar.size(),
+                 (int)chat_params.grammar_lazy, chat_params.grammar_triggers.size(),
+                 chat_params.preserved_tokens.size(), chat_params.additional_stops.size());
+            genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback, &chat_params);
         } catch (const std::exception& e) {
             // GPU shader 编译失败等异常：转错误事件而非崩进程（libc++abi terminate）
             LOGE("chatJson generation threw: %s", e.what());
@@ -3750,6 +3859,12 @@ public:
 
         if (parseOk) {
             for (auto& tc : parsed.tool_calls) {
+                // §5.3 去重：流式已发布（含闭合判定的同 key）不重发，仅兜底漏网的
+                const std::string key = toolCallKey(tc);
+                if (std::find(publishedToolCalls.begin(), publishedToolCalls.end(), key) != publishedToolCalls.end()) {
+                    continue;
+                }
+                publishedToolCalls.push_back(key);
                 nlohmann::ordered_json j = {
                     {"type", "tool_call"},
                     {"id", tc.id},
@@ -3757,7 +3872,7 @@ public:
                     {"arguments", tc.arguments}
                 };
                 jsonCallback(j.dump());
-                LOGI("chatJson: tool_call id=%s name=%s", tc.id.c_str(), tc.name.c_str());
+                LOGI("chatJson: tool_call (final) id=%s name=%s", tc.id.c_str(), tc.name.c_str());
             }
             // 思考内容：common_chat_parse 解析出 reasoning_content 则用之，否则用模板标签
             // 手动提取的思考段（Qwen3 空格分隔 thinking 标签 parse 常解析不出）
@@ -4267,6 +4382,7 @@ public:
         LOGI("=== STREAM GENERATE WITH IMAGE END ===");
         return true;
     }
+
 };
 
 // InferenceContext::applyChatTemplateForMessages 的类外定义

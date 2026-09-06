@@ -11,8 +11,10 @@ import com.oilquiz.app.ai.tool.ToolDependencyChecker.DependencyCheckResult;
 import com.oilquiz.app.ai.tool.ToolDependencyChecker.PreToolCall;
 import com.oilquiz.app.util.AILogger;
 import com.google.gson.Gson;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -88,6 +90,23 @@ public class AgentService {
     // 通用块格式：<tool_call>...AgentLoopEngine 降级标签、部分模型自发输出）
     private static final Pattern TOOL_CALL_PATTERN_GENERIC_BLOCK = Pattern.compile(
         "<tool_call>[\\s\\S]*?\\{[\\s\\S]*?\"name\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]*?\"arguments\"\\s*:\\s*(\\{[\\s\\S]*?\\})[\\s\\S]*?</tool_call>",
+        Pattern.DOTALL
+    );
+
+    // Qwen3.5 XML 形态：tool_call 块内 function=工具名 + parameter=参数名 标签
+    // 完整块：<tool_call>...<function=...>......</tool_call>
+    private static final Pattern QWEN35_TOOL_CALL_BLOCK = Pattern.compile(
+        "<tool_call>\\s*<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*\\s*" + "</" + "tool_call>",
+        Pattern.DOTALL
+    );
+    // 兜底：<tool_call> 包裹缺失或未闭合（Qwen3-Coder 习惯直接输出 <function=，截断时 </tool_call> 丢失）
+    private static final Pattern QWEN35_FUNCTION_BARE_BLOCK = Pattern.compile(
+        "<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*(?:" + "</" + "function>|\\z)",
+        Pattern.DOTALL
+    );
+    // 参数：值捕获到 parameter 闭合标签、下一个 parameter 标签或 function 闭合标签为止（vLLM 同款容错，截断不丢参数）
+    private static final Pattern QWEN35_PARAM_BLOCK = Pattern.compile(
+        "<parameter=([^>\\n]+)>\\s*([\\s\\S]*?)(?=<parameter=|<" + "/parameter>|<" + "/function>|\\z)",
         Pattern.DOTALL
     );
 
@@ -510,6 +529,16 @@ public class AgentService {
 
         AILogger.d(TAG, "Parsing tool calls from: " + output.substring(0, Math.min(200, output.length())));
 
+        // Qwen3.5 XML 参数形态优先探测（tool_call 块内是 function= / parameter= 标签而非 JSON）
+        if (output.contains("<function=")) {
+            List<ToolCall> xmlCalls = parseQwen35XmlToolCalls(output);
+            if (!xmlCalls.isEmpty()) {
+                AILogger.d(TAG, "Parsed " + xmlCalls.size() + " Qwen3.5 XML tool calls");
+                return xmlCalls;
+            }
+            AILogger.w(TAG, "Qwen3.5 XML markers found but no valid tool calls parsed, falling back");
+        }
+
         // 优先匹配 Qwen2.5 原生格式（小模型最常自发输出的格式）
         Matcher mq = TOOL_CALL_PATTERN_QWEN_NATIVE.matcher(output);
         while (mq.find()) {
@@ -621,6 +650,91 @@ public class AgentService {
 
         AILogger.d(TAG, "Total tool calls found: " + calls.size());
         return calls;
+    }
+
+    /**
+     * 解析 Qwen3.5 原生 XML 参数形态工具调用。
+     * 官方模板格式（参考 Qwen/Qwen3.5-4B tokenizer_config.json）：
+     * tool_call 块内嵌套 function=工具名 与多个 parameter=参数名 值对，
+     * 参数值可为纯文本或 JSON（对象/数组/数字/布尔/null）。
+     * 与 Qwen3 的 JSON 形态（tool_call 块内 {"name":..., "arguments":{...}}）并存，
+     * 由 parseToolCalls 按输出形态自适应分发。
+     */
+    private List<ToolCall> parseQwen35XmlToolCalls(String output) {
+        List<ToolCall> calls = new ArrayList<>();
+        Matcher block = QWEN35_TOOL_CALL_BLOCK.matcher(output);
+        while (block.find()) {
+            ToolCall call = buildQwen35XmlToolCall(block.group(1), block.group(2));
+            if (call != null) calls.add(call);
+        }
+        if (calls.isEmpty()) {
+            // 兜底：<tool_call> 包裹缺失或未闭合（Qwen3-Coder 直接输出 <function=，截断丢 </tool_call>）
+            Matcher bare = QWEN35_FUNCTION_BARE_BLOCK.matcher(output);
+            while (bare.find()) {
+                ToolCall call = buildQwen35XmlToolCall(bare.group(1), bare.group(2));
+                if (call != null) calls.add(call);
+            }
+        }
+        return calls;
+    }
+
+    /**
+     * 构建单个 Qwen3.5 XML 工具调用：函数名容错匹配 + 参数提取 + 归一化 JSON arguments。
+     */
+    private ToolCall buildQwen35XmlToolCall(String rawName, String body) {
+        if (rawName == null || rawName.trim().isEmpty()) return null;
+        String resolved = resolveToolNameFlexible(rawName.trim());
+        if (resolved == null) {
+            AILogger.w(TAG, "Unrecognized tool name in Qwen3.5 XML output: " + rawName);
+            return null;
+        }
+        JSONObject args = new JSONObject();
+        Matcher pm = QWEN35_PARAM_BLOCK.matcher(body != null ? body : "");
+        boolean anyParam = false;
+        while (pm.find()) {
+            String paramName = pm.group(1).trim();
+            String paramValue = pm.group(2).trim();
+            if (paramName.isEmpty()) continue;
+            Object parsed = tryParseXmlParamValue(paramValue);
+            try {
+                args.put(paramName, parsed);
+            } catch (JSONException ignored) {
+                // 参数名非法键，跳过
+            }
+            anyParam = true;
+        }
+        if (!anyParam) {
+            AILogger.w(TAG, "Qwen3.5 XML tool call has no parameters: " + resolved);
+        }
+        return new ToolCall(resolved, args.toString());
+    }
+
+    /**
+     * Qwen3.5 XML 参数值解析：对象/数组按 JSON 解析（含嵌套），
+     * 标量走 stringToValue（数字/布尔/null/字符串），失败保留为字符串。
+     * 与 tinker-cookbook qwen3_5.py 的 json.loads 语义一致。
+     */
+    private static Object tryParseXmlParamValue(String raw) {
+        String v = raw.trim();
+        if (v.isEmpty()) return "";
+        if (v.startsWith("{")) {
+            try {
+                return new JSONObject(v);
+            } catch (JSONException ignored) {
+                // 非 JSON 对象，按普通文本处理
+            }
+        } else if (v.startsWith("[")) {
+            try {
+                return new JSONArray(v);
+            } catch (JSONException ignored) {
+                // 非 JSON 数组，按普通文本处理
+            }
+        }
+        try {
+            return new JSONTokener(v).nextValue();
+        } catch (JSONException e) {
+            return v;
+        }
     }
 
     /**
@@ -1535,4 +1649,15 @@ public class AgentService {
         return resolved != null && toolManager.hasTool(resolved);
     }
     public ToolDependencyChecker getDependencyChecker() { return dependencyChecker; }
+
+    /**
+     * 全部工具的 OpenAI function calling 格式定义（JSON 字符串）。
+     * 供本地 Agent 的 chatJson + tools 路径使用：C++ 层按模型模板注入工具定义
+     * （Qwen3.5 模板自动渲染 <tools> + XML 示例），模型按原生格式输出，
+     * common_chat_parse 负责解析——Java 侧无需再拼 system prompt 工具描述和正则解析。
+     */
+    public String getAgentOpenAIToolDefinitions() {
+        if (toolManager == null) return "[]";
+        return toolManager.getOpenAIToolDefinitions();
+    }
 }

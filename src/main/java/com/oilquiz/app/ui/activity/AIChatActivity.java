@@ -3315,7 +3315,7 @@ public class AIChatActivity extends BaseActivity {
         }
 
         // 允许"无文字直接发送图片"（拍照后直接点发送）
-        if (message.isEmpty() && savedAttachments.isEmpty()) { showToast("请输入消息"); return; }
+        if (message.isEmpty() && savedAttachments.isEmpty()) { showToast("说点什么再发送吧～（直接发图片也可以）"); return; }
 
         if (!hasImageAttachment && !ensureModelLoaded(message)) {
             AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false，仅加入历史不推理，msg=" + message);
@@ -4643,13 +4643,13 @@ public class AIChatActivity extends BaseActivity {
                         .setTitle("还没有配置模型")
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
                                 "📥 本地Agent模型（推荐）\n" +
-                                "• 支持工具调用、思考链、多模态\n" +
+                                "• 支持工具调用（天气/搜索/记忆等）、思考链、多模态\n" +
                                 "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB\n\n" +
                                 "💬 本地普通对话模型\n" +
                                 "• 轻量快速，仅普通对话\n" +
                                 "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
                                 "🌐 在线模型\n" +
-                                "• 功能更强，完整Agent 30+工具\n" +
+                                "• 功能更强，完整Agent 40+工具\n" +
                                 "• 支持豆包、DeepSeek、通义千问等")
                         .setPositiveButton("去下载模型", (d, w) -> {
                             startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
@@ -4772,7 +4772,7 @@ public class AIChatActivity extends BaseActivity {
                         .setTitle("还没有配置模型")
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
                                 "📥 本地模型（推荐）\n" +
-                                "• 离线可用，无需网络\n" +
+                                "• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n" +
                                 "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB（含多模态投影）\n\n" +
                                 "🌐 在线模型\n" +
                                 "• 功能更强，支持 Agent 工具调用\n" +
@@ -4805,9 +4805,9 @@ public class AIChatActivity extends BaseActivity {
             if (online) {
                 toolsInfo = "🛠 完整工具集（在线Agent）\n" +
                         "• 天气 ☁️ 搜索 🔍 计算 🔢 时间 🕐 定位 📍\n" +
-                        "• 文件生成 📄 图片生成 🎨 UI组件交互 🖼️\n" +
+                        "• 文件 📄 图片生成 🎨 UI组件 🖼️ 数据库 🗄️\n" +
                         "• 长期记忆 🧠 权限管理 🔐 工作区管理 📁\n" +
-                        "• 工具发现 🔧 共30+工具按需调用";
+                        "• 工具发现 🔧 共40+工具按需调用";
                 examples = "💡 试试对我说：\n" +
                         "「今天天气怎么样？」\n" +
                         "「帮我写一份周报」\n" +
@@ -4815,20 +4815,21 @@ public class AIChatActivity extends BaseActivity {
                         "「搜索一下最新油价」";
             } else {
                 toolsInfo = "🛠 核心工具（本地Agent）\n" +
-                        "• 天气 ☁️ 时间 🕐 定位 📍 搜索 🔍\n" +
-                        "（本地模型能力有限，仅注入4个核心工具）";
+                        "• 天气 ☁️ 时间 🕐 定位 📍 搜索 🔍 记忆 🧠\n" +
+                        "（常驻5个核心工具，模型调用到其他工具时自动动态加入）";
                 examples = "💡 试试对我说：\n" +
                         "「今天天气怎么样？」\n" +
                         "「现在几点了？」\n" +
-                        "「搜索一下最新油价」";
+                        "「搜索一下最新油价」\n" +
+                        "「记住我叫小明」";
             }
 
             new androidx.appcompat.app.AlertDialog.Builder(AIChatActivity.this)
                     .setTitle("使用说明")
                     .setMessage("👋 你好！我是答题宝 AI 助手\n\n" +
-                            "🚀 当前模式：" + (online ? "在线模型（完整Agent）" : "本地模型（离线对话）") + "\n" +
-                            "• 在线模型 — 完整 Agent：自动调用30+工具、多轮推理\n" +
-                            "• 本地模型 — 离线对话：4个核心工具，无需网络\n" +
+                            "🚀 当前模式：" + (online ? "在线模型（完整Agent）" : "本地模型（Agent）") + "\n" +
+                            "• 在线模型 — 完整 Agent：自动调用40+工具、多轮推理\n" +
+                            "• 本地模型 — Agent：5个核心工具（天气/时间/定位/搜索/记忆），无需网络\n" +
                             "• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n" +
                             toolsInfo + "\n\n" +
                             examples)
@@ -4958,7 +4959,7 @@ public class AIChatActivity extends BaseActivity {
             // 由 AgentChatHandler.startAgentLoop 内部再分流到 AgentSoftwareLayer（本地可调用工具）
             boolean localAgentEnabled = aiConfig != null && aiConfig.isLocalAgentEnabled();
             if (!useOnlineModel && !localAgentEnabled) {
-                addSystemMessage("🤖 本地模型暂不支持 Agent 工具调用，已使用普通对话。");
+                addSystemMessage("🤖 本地 Agent 未开启，已使用普通对话；开启“本地 Agent”开关后，本地模型可调用天气/时间/位置/搜索/记忆等工具。");
                 processChatMessageNormal(message);
                 return;
             }

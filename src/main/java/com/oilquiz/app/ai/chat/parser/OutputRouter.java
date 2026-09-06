@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat.parser;
 import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -206,9 +207,17 @@ public class OutputRouter {
 
         if (token.contains("</tool_call>")) {
             isInToolCall = false;
-            // 解析工具调用
+            // 解析工具调用（自适应：JSON 形态 / Qwen3.5 XML 参数形态）
             String jsonContent = extractBetweenTags(fullContentBuffer.toString(), "<tool_call>", "</tool_call>");
             if (jsonContent != null) {
+                if (jsonContent.contains("<function=")) {
+                    JSONObject parsedXml = parseQwen35XmlToolCall(jsonContent);
+                    if (parsedXml != null) {
+                        handler.onToolCall(parsedXml.optString("name", "unknown"),
+                                parsedXml.optJSONObject("parameters"));
+                        return;
+                    }
+                }
                 try {
                     JSONObject jsonData = new JSONObject(jsonContent);
                     String toolName = jsonData.optString("name", "unknown");
@@ -380,6 +389,75 @@ public class OutputRouter {
             return text.substring(startIndex + startTag.length(), endIndex);
         }
         return null;
+    }
+
+    /**
+     * 解析 Qwen3.5 XML 参数形态的单个工具调用块。
+     * 输入为 tool_call 块内部文本：function=工具名 + 多个 parameter=参数名 值对。
+     * 返回 {name: 工具名, parameters: {参数名: 值}}，解析失败返回 null。
+     */
+    private JSONObject parseQwen35XmlToolCall(String blockText) {
+        final String paramClose = "</" + "parameter>";
+        try {
+            int fnStart = blockText.indexOf("<function=");
+            if (fnStart < 0) return null;
+            int nameStart = fnStart + "<function=".length();
+            int nameEnd = blockText.indexOf('>', nameStart);
+            if (nameEnd <= nameStart) return null;
+            String toolName = blockText.substring(nameStart, nameEnd).trim();
+            if (toolName.isEmpty()) return null;
+
+            JSONObject params = new JSONObject();
+            int searchFrom = nameEnd + 1;
+            while (true) {
+                int pStart = blockText.indexOf("<parameter=", searchFrom);
+                if (pStart < 0) break;
+                int pNameStart = pStart + "<parameter=".length();
+                int pNameEnd = blockText.indexOf('>', pNameStart);
+                if (pNameEnd < 0) break;
+                String paramName = blockText.substring(pNameStart, pNameEnd).trim();
+                int vStart = pNameEnd + 1;
+                int vEnd = blockText.indexOf(paramClose, vStart);
+                if (vEnd < 0) break;
+                String paramValue = blockText.substring(vStart, vEnd).trim();
+                params.put(paramName, tryParseParamValue(paramValue));
+                searchFrom = vEnd + paramClose.length();
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("name", toolName);
+            result.put("parameters", params);
+            return result;
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to parse Qwen3.5 XML tool call: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 参数值尝试按 JSON 解析（对象/数组/标量），失败保留为字符串。
+     */
+    private static Object tryParseParamValue(String raw) {
+        String v = raw.trim();
+        if (v.isEmpty()) return "";
+        if (v.startsWith("{")) {
+            try {
+                return new JSONObject(v);
+            } catch (Exception ignored) {
+                // 非 JSON 对象，按普通文本处理
+            }
+        } else if (v.startsWith("[")) {
+            try {
+                return new org.json.JSONArray(v);
+            } catch (Exception ignored) {
+                // 非 JSON 数组，按普通文本处理
+            }
+        }
+        try {
+            return new JSONTokener(v).nextValue();
+        } catch (Exception e) {
+            return v;
+        }
     }
 
     private String extractDataType(String text) {
