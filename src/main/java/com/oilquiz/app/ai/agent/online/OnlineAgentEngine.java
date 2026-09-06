@@ -993,7 +993,26 @@ public class OnlineAgentEngine {
                         }
                     }
                     result.content = fullContent != null ? fullContent : "";
-                    result.reasoningContent = reasoningContent != null ? reasoningContent : "";
+                    // reasoning_content 兜底：优先用回调参数，为空或比thinkingChain短时用流式收集的内容
+                    String chainReasoning = "";
+                    try {
+                        OnlineThinkingChain.ThinkingBlock activeBlock = thinkingChain.getActiveBlock();
+                        if (activeBlock != null && activeBlock.reasoningContent != null) {
+                            chainReasoning = activeBlock.reasoningContent;
+                        }
+                    } catch (Exception ignored) {}
+                    if (reasoningContent != null && reasoningContent.length() >= chainReasoning.length()) {
+                        result.reasoningContent = reasoningContent;
+                    } else if (!chainReasoning.isEmpty()) {
+                        result.reasoningContent = chainReasoning;
+                        if (reasoningContent == null || reasoningContent.isEmpty()) {
+                            AILogger.w(TAG, "onComplete reasoningContent为空，使用thinkingChain兜底: " + chainReasoning.length() + " chars");
+                        } else {
+                            AILogger.w(TAG, "onComplete reasoningContent不完整(" + reasoningContent.length() + " chars)，使用thinkingChain兜底(" + chainReasoning.length() + " chars)");
+                        }
+                    } else {
+                        result.reasoningContent = "";
+                    }
                     result.toolCalls = toolCalls;
                     result.finishReason = finishReason;
 

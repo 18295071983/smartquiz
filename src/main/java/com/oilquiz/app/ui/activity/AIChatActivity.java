@@ -4642,11 +4642,15 @@ public class AIChatActivity extends BaseActivity {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
                         .setTitle("还没有配置模型")
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
-                                "📥 本地模型（推荐）\n" +
-                                "• 离线可用，无需网络\n" +
-                                "• 推荐 Qwen3.5-2B，约1.3GB\n\n" +
+                                "📥 本地Agent模型（推荐）\n" +
+                                "• 支持工具调用、思考链、多模态\n" +
+                                "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB\n\n" +
+                                "💬 本地普通对话模型\n" +
+                                "• 轻量快速，仅普通对话\n" +
+                                "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
                                 "🌐 在线模型\n" +
-                                "• 功能更强，支持 Agent 工具调用")
+                                "• 功能更强，完整Agent 30+工具\n" +
+                                "• 支持豆包、DeepSeek、通义千问等")
                         .setPositiveButton("去下载模型", (d, w) -> {
                             startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
                         })
@@ -4769,7 +4773,7 @@ public class AIChatActivity extends BaseActivity {
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
                                 "📥 本地模型（推荐）\n" +
                                 "• 离线可用，无需网络\n" +
-                                "• 推荐 Qwen3.5-2B，约1.3GB\n\n" +
+                                "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB（含多模态投影）\n\n" +
                                 "🌐 在线模型\n" +
                                 "• 功能更强，支持 Agent 工具调用\n" +
                                 "• 支持豆包、DeepSeek、通义千问等")
@@ -4783,31 +4787,55 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
 
-        // 已有模型：正常欢迎引导
-        StringBuilder guide = new StringBuilder();
-        guide.append("👋 你好！我是答题宝 AI 助手\n\n");
-        guide.append("我能帮你查天气、搜资料、翻译、做题、生成图片等，直接说需求就行。\n\n");
+        // 已有模型：弹窗显示使用说明，不发送到对话流
+        // 根据当前模型类型（在线/本地）动态显示不同的工具说明
+        boolean isOnlineModel = false;
+        try {
+            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
+                isOnlineModel = true;
+            }
+        } catch (Exception ignored) {}
 
-        guide.append("🚀 使用方式\n");
-        guide.append("──────────────\n");
-        guide.append("• 在线模型 — 完整 Agent：自动调用工具、多轮推理\n");
-        guide.append("  （模型设置中选择在线模型即可）\n");
-        guide.append("• 本地模型 — 普通对话：离线可用，无需网络\n");
-        guide.append("• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n");
+        final boolean online = isOnlineModel;
+        // 延迟500ms显示，确保Activity完全初始化
+        new android.os.Handler(getMainLooper()).postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            String toolsInfo;
+            String examples;
+            if (online) {
+                toolsInfo = "🛠 完整工具集（在线Agent）\n" +
+                        "• 天气 ☁️ 搜索 🔍 计算 🔢 时间 🕐 定位 📍\n" +
+                        "• 文件生成 📄 图片生成 🎨 UI组件交互 🖼️\n" +
+                        "• 长期记忆 🧠 权限管理 🔐 工作区管理 📁\n" +
+                        "• 工具发现 🔧 共30+工具按需调用";
+                examples = "💡 试试对我说：\n" +
+                        "「今天天气怎么样？」\n" +
+                        "「帮我写一份周报」\n" +
+                        "「画一只橘猫」\n" +
+                        "「搜索一下最新油价」";
+            } else {
+                toolsInfo = "🛠 核心工具（本地Agent）\n" +
+                        "• 天气 ☁️ 时间 🕐 定位 📍 搜索 🔍\n" +
+                        "（本地模型能力有限，仅注入4个核心工具）";
+                examples = "💡 试试对我说：\n" +
+                        "「今天天气怎么样？」\n" +
+                        "「现在几点了？」\n" +
+                        "「搜索一下最新油价」";
+            }
 
-        guide.append("🛠 常用能力\n");
-        guide.append("──────────────\n");
-        guide.append("• 天气 ☁️ 搜索 🔍 翻译 🌐 计算 🔢\n");
-        guide.append("• 查题 📚 文件 📂 定位 📍 图片生成 🎨\n");
-        guide.append("• 结构化信息会自动以卡片/图表展示\n\n");
-
-        guide.append("💡 试试对我说：\n");
-        guide.append("「今天天气怎么样？」\n");
-        guide.append("「帮我画一只橘猫」\n");
-        guide.append("「搜索一下最新油价」🎯");
-
-        addAIMessage(guide.toString());
-        scrollToBottom();
+            new androidx.appcompat.app.AlertDialog.Builder(AIChatActivity.this)
+                    .setTitle("使用说明")
+                    .setMessage("👋 你好！我是答题宝 AI 助手\n\n" +
+                            "🚀 当前模式：" + (online ? "在线模型（完整Agent）" : "本地模型（离线对话）") + "\n" +
+                            "• 在线模型 — 完整 Agent：自动调用30+工具、多轮推理\n" +
+                            "• 本地模型 — 离线对话：4个核心工具，无需网络\n" +
+                            "• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n" +
+                            toolsInfo + "\n\n" +
+                            examples)
+                    .setPositiveButton("知道了", null)
+                    .setCancelable(true)
+                    .show();
+        }, 500);
     }
 
     /** 关键词匹配辅助方法 */
