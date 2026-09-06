@@ -128,7 +128,6 @@ public class APIConfig implements Serializable {
         public static final String OPENAI = "openai";
         public static final String ANTHROPIC = "anthropic";
         public static final String GOOGLE = "google";
-        public static final String OPENWEATHERMAP = "openweathermap";
         public static final String HEFENG_WEATHER = "hefeng_weather";
         public static final String BING_SEARCH = "bing_search";
         public static final String GOOGLE_MAPS = "google_maps";

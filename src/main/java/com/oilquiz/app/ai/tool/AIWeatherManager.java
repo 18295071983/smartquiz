@@ -43,29 +43,18 @@ import java.util.HashMap;
         @Action(name = "air_quality", description = "Get air quality (空气质量)"),
         @Action(name = "alerts", description = "Get weather alerts (天气预警)"),
         @Action(name = "indices", description = "Get life indices (生活指数)"),
-        @Action(name = "all", description = "Get all weather info (全部)"),
-        @Action(name = "one_call", description = "Get one-call weather (当前+逐时+逐日+警报+日出日落, 需经纬度)")
+        @Action(name = "all", description = "Get all weather info (全部)")
     },
     params = {
         @Param(name = "city", type = "string", description = "City name 城市名 或 和风城市编码，与经纬度二选一", required = false),
         @Param(name = "lat", type = "float", description = "Latitude 纬度(与city二选一，配合lon；别名latitude)", required = false),
         @Param(name = "lon", type = "float", description = "Longitude 经度(与city二选一，配合lat；别名longitude)", required = false),
-        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)/one_call(详细天气,需经纬度)", required = false),
-        @Param(name = "exclude", type = "string", description = "one_call排除项(逗号分隔: current/minutely/hourly/daily/alerts)", required = false),
-        @Param(name = "units", type = "string", description = "单位(one_call用: metric/imperial)", required = false),
-        @Param(name = "lang", type = "string", description = "语言(one_call用，如zh_cn/en)", required = false)
+        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", required = false)
     }
 )
 public class AIWeatherManager implements AITool {
 
     private static final String TAG = "AIWeatherManager";
-    
-    // OpenWeatherMap API URLs
-    private static final String CURRENT_WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather";
-    private static final String ONE_CALL_URL = "https://api.openweathermap.org/data/3.0/onecall";
-    private static final String ONE_CALL_TIMESTAMP_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine";
-    private static final String ONE_CALL_DAILY_AGGREGATION_URL = "https://api.openweathermap.org/data/3.0/onecall/day_summary";
-    private static final String ONE_CALL_OVERVIEW_URL = "https://api.openweathermap.org/data/3.0/onecall/overview";
     
     // 和风天气 API URLs (all use the same JWT-authenticated host)
     private static final String DEFAULT_HEFENG_API_HOST = "https://m278m2y7ak.re.qweatherapi.com";
@@ -306,15 +295,6 @@ public class AIWeatherManager implements AITool {
         }
     }
 
-    private String getOpenWeatherMapApiKey() {
-        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-        String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
-        if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalStateException("OpenWeatherMap API Key未配置，请在设置中配置");
-        }
-        return apiKey;
-    }
-
     public WeatherProvider getWeatherProvider() {
         return currentProvider;
     }
@@ -457,19 +437,12 @@ public class AIWeatherManager implements AITool {
     }
 
     public enum WeatherProvider {
-        OPENWEATHERMAP,
         HEFENG
     }
 
     // 获取当前天气信息（根据选择的提供者调用相应API）
     public CompletableFuture<String> getCurrentWeather(String city) {
-        switch (currentProvider) {
-            case HEFENG:
-                return getHefengCurrentWeather(city);
-            case OPENWEATHERMAP:
-            default:
-                return getOpenWeatherMapCurrentWeather(city);
-        }
+        return getHefengCurrentWeather(city);
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon) {
@@ -477,13 +450,7 @@ public class AIWeatherManager implements AITool {
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon, String cityName) {
-        switch (currentProvider) {
-            case HEFENG:
-                return getHefengCurrentWeatherByLocation(lat, lon, cityName);
-            case OPENWEATHERMAP:
-            default:
-                return getOpenWeatherMapCurrentWeatherByLocation(lat, lon);
-        }
+        return getHefengCurrentWeatherByLocation(lat, lon, cityName);
     }
 
     /**
@@ -499,31 +466,6 @@ public class AIWeatherManager implements AITool {
                 return parseHefengWeatherResponse(response, null);
             } catch (Exception e) {
                 Log.e(TAG, "Error getting weather by location (direct)", e);
-                return "获取天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // OpenWeatherMap 当前天气查询
-    private CompletableFuture<String> getOpenWeatherMapCurrentWeather(String city) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
-                String urlString = CURRENT_WEATHER_URL + "?q=" + encodedCity + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlString).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseCurrentWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting current weather from OpenWeatherMap", e);
                 return "获取天气信息失败: " + e.getMessage();
             }
         });
@@ -558,29 +500,6 @@ public class AIWeatherManager implements AITool {
             } catch (Exception e) {
                 Log.e(TAG, "Error getting current weather by location from Hefeng", e);
                 return "天气信息:\n查询失败: " + e.getMessage();
-            }
-        });
-    }
-
-    private CompletableFuture<String> getOpenWeatherMapCurrentWeatherByLocation(double lat, double lon) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-
-                String urlString = CURRENT_WEATHER_URL + "?lat=" + lat + "&lon=" + lon + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlString).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseCurrentWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting current weather by location from OpenWeatherMap", e);
-                return "获取天气信息失败: " + e.getMessage();
             }
         });
     }
@@ -2802,467 +2721,6 @@ public class AIWeatherManager implements AITool {
         }
     }
 
-    // 获取详细天气信息（使用One Call 3.0，需要额外订阅）
-    public CompletableFuture<String> getOneCallWeather(double lat, double lon, String exclude, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                if (exclude != null && !exclude.isEmpty()) {
-                    urlBuilder.append("&exclude=").append(exclude);
-                }
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseOneCallWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting one call weather", e);
-                return "获取详细天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取指定时间的天气数据（历史或未来）
-    public CompletableFuture<String> getTimestampWeather(double lat, double lon, long timestamp, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_TIMESTAMP_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                urlBuilder.append("&dt=").append(timestamp);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseTimestampWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting timestamp weather", e);
-                return "获取指定时间天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取每日聚合天气数据
-    public CompletableFuture<String> getDailyAggregationWeather(double lat, double lon, long startDate, long endDate, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_DAILY_AGGREGATION_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                urlBuilder.append("&start_date=").append(startDate);
-                urlBuilder.append("&end_date=").append(endDate);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseDailyAggregationResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting daily aggregation weather", e);
-                return "获取每日聚合天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取天气概览
-    public CompletableFuture<String> getWeatherOverview(double lat, double lon, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_OVERVIEW_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseWeatherOverviewResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting weather overview", e);
-                return "获取天气概览失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 解析当前天气响应
-    private String parseCurrentWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取城市名称
-            String city = jsonObject.get("name").getAsString();
-            
-            // 获取天气信息
-            JsonArray weatherArray = jsonObject.getAsJsonArray("weather");
-            String weather = "N/A";
-            String description = "N/A";
-            if (weatherArray != null && weatherArray.size() > 0) {
-                JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                weather = weatherObject.get("main").getAsString();
-                description = weatherObject.get("description").getAsString();
-            }
-            
-            // 获取温度信息
-            JsonObject mainObject = jsonObject.getAsJsonObject("main");
-            String temp = mainObject.get("temp").getAsString();
-            String humidity = mainObject.get("humidity").getAsString();
-            
-            // 获取风速信息
-            JsonObject windObject = jsonObject.getAsJsonObject("wind");
-            String windSpeed = windObject.get("speed").getAsString();
-
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("城市: " + city + "\n");
-            weatherInfo.append("天气: " + weather + " - " + description + "\n");
-            weatherInfo.append("温度: " + temp + "°C\n");
-            weatherInfo.append("湿度: " + humidity + "%\n");
-            weatherInfo.append("风速: " + windSpeed + " m/s\n");
-
-            return "天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing current weather response", e);
-            return "解析天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析One Call 3.0天气响应
-    private String parseOneCallWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            String timezone = jsonObject.get("timezone").getAsString();
-            
-            // 获取当前天气
-            JsonObject current = jsonObject.getAsJsonObject("current");
-            long dt = current.get("dt").getAsLong();
-            double temp = current.get("temp").getAsDouble();
-            double feelsLike = current.get("feels_like").getAsDouble();
-            int humidity = current.get("humidity").getAsInt();
-            double windSpeed = current.get("wind_speed").getAsDouble();
-            
-            // 获取天气描述
-            JsonArray weatherArray = current.getAsJsonArray("weather");
-            String weather = "N/A";
-            String description = "N/A";
-            if (weatherArray != null && weatherArray.size() > 0) {
-                JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                weather = weatherObject.get("main").getAsString();
-                description = weatherObject.get("description").getAsString();
-            }
-            
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-            weatherInfo.append("时区: " + timezone + "\n");
-            weatherInfo.append("当前时间: " + new java.util.Date(dt * 1000) + "\n");
-            weatherInfo.append("天气: " + weather + " - " + description + "\n");
-            weatherInfo.append("温度: " + temp + "°C\n");
-            weatherInfo.append("体感温度: " + feelsLike + "°C\n");
-            weatherInfo.append("湿度: " + humidity + "%\n");
-            weatherInfo.append("风速: " + windSpeed + " m/s\n");
-            
-            // 检查是否有分钟预报
-            if (jsonObject.has("minutely")) {
-                JsonArray minutelyArray = jsonObject.getAsJsonArray("minutely");
-                weatherInfo.append("\n1小时分钟预报:\n");
-                for (int i = 0; i < Math.min(10, minutelyArray.size()); i++) {
-                    JsonObject minutely = minutelyArray.get(i).getAsJsonObject();
-                    long minutelyDt = minutely.get("dt").getAsLong();
-                    double precipitation = minutely.get("precipitation").getAsDouble();
-                    weatherInfo.append(new java.util.Date(minutelyDt * 1000) + ": 降水量 " + precipitation + " mm/h\n");
-                }
-            }
-            
-            // 检查是否有小时预报
-            if (jsonObject.has("hourly")) {
-                JsonArray hourlyArray = jsonObject.getAsJsonArray("hourly");
-                weatherInfo.append("\n24小时预报:\n");
-                for (int i = 0; i < Math.min(8, hourlyArray.size()); i++) {
-                    JsonObject hourly = hourlyArray.get(i).getAsJsonObject();
-                    long hourlyDt = hourly.get("dt").getAsLong();
-                    double hourlyTemp = hourly.get("temp").getAsDouble();
-                    int hourlyPop = (int) (hourly.get("pop").getAsDouble() * 100);
-                    weatherInfo.append(new java.util.Date(hourlyDt * 1000) + ": " + hourlyTemp + "°C, 降水概率: " + hourlyPop + "%\n");
-                }
-            }
-            
-            // 检查是否有每日预报
-            if (jsonObject.has("daily")) {
-                JsonArray dailyArray = jsonObject.getAsJsonArray("daily");
-                weatherInfo.append("\n7天预报:\n");
-                for (int i = 0; i < Math.min(3, dailyArray.size()); i++) {
-                    JsonObject daily = dailyArray.get(i).getAsJsonObject();
-                    long dailyDt = daily.get("dt").getAsLong();
-                    JsonObject dailyTemp = daily.getAsJsonObject("temp");
-                    double maxTemp = dailyTemp.get("max").getAsDouble();
-                    double minTemp = dailyTemp.get("min").getAsDouble();
-                    int dailyPop = (int) (daily.get("pop").getAsDouble() * 100);
-                    weatherInfo.append(new java.util.Date(dailyDt * 1000) + ": 最高 " + maxTemp + "°C, 最低 " + minTemp + "°C, 降水概率: " + dailyPop + "%\n");
-                }
-            }
-            
-            // 检查是否有警报
-            if (jsonObject.has("alerts")) {
-                JsonArray alertsArray = jsonObject.getAsJsonArray("alerts");
-                weatherInfo.append("\n天气警报:\n");
-                for (int i = 0; i < alertsArray.size(); i++) {
-                    JsonObject alert = alertsArray.get(i).getAsJsonObject();
-                    String senderName = alert.get("sender_name").getAsString();
-                    String event = alert.get("event").getAsString();
-                    long start = alert.get("start").getAsLong();
-                    long end = alert.get("end").getAsLong();
-                    String alertDescription = alert.get("description").getAsString();
-                    weatherInfo.append("事件: " + event + "\n");
-                    weatherInfo.append("来源: " + senderName + "\n");
-                    weatherInfo.append("开始: " + new java.util.Date(start * 1000) + "\n");
-                    weatherInfo.append("结束: " + new java.util.Date(end * 1000) + "\n");
-                    weatherInfo.append("描述: " + alertDescription + "\n\n");
-                }
-            }
-
-            return "详细天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing one call weather response", e);
-            return "解析详细天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析时间戳天气响应
-    private String parseTimestampWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            
-            // 获取时间戳天气数据
-            JsonArray dataArray = jsonObject.getAsJsonArray("data");
-            if (dataArray != null && dataArray.size() > 0) {
-                JsonObject data = dataArray.get(0).getAsJsonObject();
-                long dt = data.get("dt").getAsLong();
-                double temp = data.get("temp").getAsDouble();
-                double feelsLike = data.get("feels_like").getAsDouble();
-                int humidity = data.get("humidity").getAsInt();
-                double windSpeed = data.get("wind_speed").getAsDouble();
-                
-                // 获取天气描述
-                JsonArray weatherArray = data.getAsJsonArray("weather");
-                String weather = "N/A";
-                String description = "N/A";
-                if (weatherArray != null && weatherArray.size() > 0) {
-                    JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                    weather = weatherObject.get("main").getAsString();
-                    description = weatherObject.get("description").getAsString();
-                }
-                
-                StringBuilder weatherInfo = new StringBuilder();
-                weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-                weatherInfo.append("时间: " + new java.util.Date(dt * 1000) + "\n");
-                weatherInfo.append("天气: " + weather + " - " + description + "\n");
-                weatherInfo.append("温度: " + temp + "°C\n");
-                weatherInfo.append("体感温度: " + feelsLike + "°C\n");
-                weatherInfo.append("湿度: " + humidity + "%\n");
-                weatherInfo.append("风速: " + windSpeed + " m/s\n");
-                
-                return "指定时间天气信息:\n" + weatherInfo.toString();
-            } else {
-                return "未找到指定时间的天气数据";
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing timestamp weather response", e);
-            return "解析指定时间天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析每日聚合天气响应
-    private String parseDailyAggregationResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            
-            // 获取每日聚合数据
-            JsonArray dailyArray = jsonObject.getAsJsonArray("daily");
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n\n");
-            weatherInfo.append("每日聚合天气数据:\n");
-            
-            for (int i = 0; i < dailyArray.size(); i++) {
-                JsonObject daily = dailyArray.get(i).getAsJsonObject();
-                long dt = daily.get("dt").getAsLong();
-                JsonObject temp = daily.getAsJsonObject("temp");
-                double maxTemp = temp.get("max").getAsDouble();
-                double minTemp = temp.get("min").getAsDouble();
-                double avgTemp = temp.get("avg").getAsDouble();
-                int humidity = daily.get("humidity").getAsInt();
-                double windSpeed = daily.get("wind_speed").getAsDouble();
-                
-                // 获取天气描述
-                JsonArray weatherArray = daily.getAsJsonArray("weather");
-                String weather = "N/A";
-                String description = "N/A";
-                if (weatherArray != null && weatherArray.size() > 0) {
-                    JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                    weather = weatherObject.get("main").getAsString();
-                    description = weatherObject.get("description").getAsString();
-                }
-                
-                weatherInfo.append("日期: " + new java.util.Date(dt * 1000) + "\n");
-                weatherInfo.append("天气: " + weather + " - " + description + "\n");
-                weatherInfo.append("最高温度: " + maxTemp + "°C\n");
-                weatherInfo.append("最低温度: " + minTemp + "°C\n");
-                weatherInfo.append("平均温度: " + avgTemp + "°C\n");
-                weatherInfo.append("湿度: " + humidity + "%\n");
-                weatherInfo.append("风速: " + windSpeed + " m/s\n\n");
-            }
-            
-            return "每日聚合天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing daily aggregation response", e);
-            return "解析每日聚合天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析天气概览响应
-    private String parseWeatherOverviewResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            String timezone = jsonObject.get("timezone").getAsString();
-            
-            // 获取今天的概览
-            JsonObject today = jsonObject.getAsJsonObject("today");
-            String todaySummary = today.get("summary").getAsString();
-            
-            // 获取明天的概览
-            JsonObject tomorrow = jsonObject.getAsJsonObject("tomorrow");
-            String tomorrowSummary = tomorrow.get("summary").getAsString();
-            
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-            weatherInfo.append("时区: " + timezone + "\n\n");
-            weatherInfo.append("今天天气概览:\n" + todaySummary + "\n\n");
-            weatherInfo.append("明天天气概览:\n" + tomorrowSummary + "\n");
-            
-            return "天气概览:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing weather overview response", e);
-            return "解析天气概览失败: " + e.getMessage();
-        }
-    }
-
-    // 简化的天气查询方法（保持向后兼容）
-    public CompletableFuture<String> getWeather(String city) {
-        return getCurrentWeather(city);
-    }
-
-    // 工具使用说明
-    public String getWeatherToolUsage() {
-        return "天气工具使用说明:\n\n" +
-               "1. 基本天气查询: 输入城市名称，例如 '北京天气'\n" +
-               "2. 详细天气查询: 输入经纬度，例如 '详细天气 39.9 116.4'\n" +
-               "3. 历史天气查询: 输入经纬度和时间戳，例如 '历史天气 39.9 116.4 1620000000'\n" +
-               "4. 每日聚合天气: 输入经纬度和日期范围，例如 '每日天气 39.9 116.4 1620000000 1620864000'\n" +
-               "5. 天气概览: 输入经纬度，例如 '天气概览 39.9 116.4'\n\n" +
-               "注意: One Call 3.0 API 需要单独订阅，部分功能可能需要付费使用。\n" +
-               "如果使用默认API密钥，可能会遇到限制或错误。";
-    }
-    
-    @Override
-    public String getName() {
-        return "ai_weather";
-    }
-    
-    @Override
-    public String getDescription() {
-        return "天气查询工具，获取指定城市的天气信息";
-    }
-    
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
         
@@ -3377,15 +2835,6 @@ public class AIWeatherManager implements AITool {
                     }
                     break;
                 }
-                case "one_call": {
-                    if (!useLocation) {
-                        Map<String, Object> err = new HashMap<>();
-                        err.put("status", "error");
-                        err.put("error", "one_call 需要坐标参数 lat/lon");
-                        return new AIToolResult("缺少坐标参数: one_call 需要 lat/lon", err);
-                    }
-                    break;
-                }
                 default:
                     break;
             }
@@ -3405,8 +2854,6 @@ public class AIWeatherManager implements AITool {
                     return getIndicesAITool(city, lat, lon, useLocation);
                 case "all":
                     return getAllWeatherAITool(city, lat, lon, useLocation);
-                case "one_call":
-                    return getOneCallAITool(lat, lon, parameters);
                 default:
                     return getCurrentWeatherAITool(city, lat, lon, useLocation);
             }
@@ -3769,34 +3216,27 @@ public class AIWeatherManager implements AITool {
         }
     }
     
-    private AIToolResult getOneCallAITool(Double lat, Double lon, Map<String, Object> parameters) {
-        if (lat == null || lon == null) {
-            return new AIToolResult("one_call 需要提供经纬度", new HashMap<>());
-        }
-        
-        try {
-            String exclude = (String) parameters.get("exclude");
-            String units = (String) parameters.get("units");
-            String lang = (String) parameters.get("lang");
-            
-            String result = getOneCallWeather(lat, lon, exclude, units, lang).get(10, TimeUnit.SECONDS);
-            
-            Map<String, Object> resultMap = parseWeatherResultToMap(result);
-            return new AIToolResult(resultMap, new HashMap<>());
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting one call weather: " + e.getMessage(), e);
-            return new AIToolResult("获取详细天气信息失败: " + e.getMessage(), new HashMap<>());
-        }
+    @Override
+    public String getName() {
+        return "ai_weather";
     }
-    
+
+    @Override
+    public String getDescription() {
+        return "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数（和风天气数据源）。"
+                + "按用户需求选 action：current(实时)/forecast(未来几天)/hourly(逐小时)/"
+                + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
+                + "位置用 city=城市名 或 和风城市编码 或 lat+lon 经纬度(二选一)。";
+    }
+
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: current(当前天气), forecast(天气预报), hourly(24小时预报), air_quality(空气质量), alerts(天气预警), indices(生活指数), all(全部信息), one_call(详细天气)");
+        
         descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
         descriptions.put("lat", "纬度（用于按坐标查询）");
         descriptions.put("lon", "经度（用于按坐标查询）");
-        descriptions.put("provider", "API提供商: hefeng(和风天气), openweathermap");
+        
         return descriptions;
     }
 
@@ -3869,12 +3309,6 @@ public class AIWeatherManager implements AITool {
     private QueryRetryResult executeSmartQuery(String queryType, String city, Double lat, Double lon) {
         int maxAttempts = 2;
         WeatherProvider[] providers = {currentProvider};
-        
-        if (currentProvider == WeatherProvider.HEFENG) {
-            providers = new WeatherProvider[]{WeatherProvider.HEFENG, WeatherProvider.OPENWEATHERMAP};
-        } else {
-            providers = new WeatherProvider[]{WeatherProvider.OPENWEATHERMAP, WeatherProvider.HEFENG};
-        }
 
         String lastFxLink = null;
 

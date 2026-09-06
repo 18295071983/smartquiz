@@ -408,7 +408,7 @@
                 android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
-                <!-- 对话模式行（深度思考开关，对齐官方：输入区顶部） -->
+                <!-- 对话模式行：智能助手开关 + 深度思考开关（对齐官方：输入区顶部） -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -416,15 +416,22 @@
                     android:gravity="center_vertical"
                     android:paddingHorizontal="4dp"
                     android:paddingBottom="@dimen/space_6">
+                    <!-- 智能助手开关（最左）：开启后AI可用天气/时间/搜索/记忆等工具，即时生效 -->
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_normal_chat"
+                        android:id="@+id/chip_local_agent"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="💬 对话"
                         android:layout_marginEnd="@dimen/space_8"
-                        app:chipBackgroundColor="@color/primary_container"
-                        android:textColor="@color/on_primary_container"
-                        app:chipStrokeWidth="0dp"/>
+                        android:text="智能助手"
+                        android:checkable="true"
+                        app:chipIcon="@drawable/ic_ai_agent"
+                        app:chipIconSize="20dp"
+                        app:chipIconTint="@color/chip_gray_text"
+                        app:chipBackgroundColor="@color/chip_gray_bg"
+                        android:textColor="@color/text_secondary"
+                        app:chipStrokeWidth="1dp"
+                        app:chipStrokeColor="@color/border_light"
+                        app:checkedIconVisible="false"/>
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_deep_think"
                         android:layout_width="wrap_content"

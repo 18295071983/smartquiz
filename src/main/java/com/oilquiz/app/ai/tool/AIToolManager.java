@@ -990,18 +990,15 @@ public class AIToolManager {
             case "ai_weather":
                 return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
                         + "action: current(实时天气)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
-                        + "alerts(预警)/indices(生活指数)/all(全部)/one_call(一次返回当前+逐时+逐日+警报+日出日落,需经纬度)。"
+                        + "alerts(预警)/indices(生活指数)/all(全部)。"
                         + "city=城市名 或 和风城市编码 或 lat+lon=经纬度(经纬度别名 latitude/longitude 也可用)。"
                         + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
                         + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
                         + "别名: get_weather/weather。")
-                    .addParameter("action", "string", "操作类型: current(实时天气)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)/one_call(详细天气,需经纬度)，按用户需求选择", false)
+                    .addParameter("action", "string", "操作类型: current(实时天气)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，按用户需求选择", false)
                     .addParameter("city", "string", "城市名称 或 和风城市编码（与经纬度二选一）", false)
                     .addParameter("lat", "number", "纬度（与city二选一，配合lon；别名latitude）", false)
                     .addParameter("lon", "number", "经度（与city二选一，配合lat；别名longitude）", false)
-                    .addParameter("exclude", "string", "one_call排除项(逗号分隔: current/minutely/hourly/daily/alerts)，只返回未排除部分", false)
-                    .addParameter("units", "string", "单位(one_call用: metric/imperial)", false)
-                    .addParameter("lang", "string", "语言(one_call用，如zh_cn/en)", false)
                     .category("weather")
                     .build();
             case "network_search":
@@ -1528,7 +1525,9 @@ public class AIToolManager {
                 "image_generate_color", "image_generate_text",
                 "web_parse_html", "web_get_title", "web_get_links", "web_get_images", "web_get_text",
                 "get_info", "get_guide", "predict_intent", "debug_report"));
-        map.put("app_toolkit", appToolkit);
+        Map<String, List<String>> memory = new HashMap<>();
+        memory.put("action", Arrays.asList("save", "recall", "delete", "list", "clear"));
+        map.put("memory", memory);
         return map;
     }
 

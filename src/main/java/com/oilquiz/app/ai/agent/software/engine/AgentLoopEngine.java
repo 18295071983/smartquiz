@@ -153,7 +153,7 @@ public class AgentLoopEngine {
             {"calculator", "计算,算一下,算算,数学,求和,平均,等于多少,多少钱"},
             {"image_gen", "画图,画一张,生成图片,生成图像,画个,画一只,画一幅,ai绘图"},
             {"python_chart", "柱状图,折线图,饼图,散点图,数据可视化,生成图表,图表,画个图,画图表"},
-            {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我,记忆"},
+            {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我,记忆,我叫,我是,我喜欢"},
             {"speech_synthesis", "朗读,读出来,念出来,播报,语音播报,语音朗读,帮我读"},
             {"voice_input", "语音输入,听写,录音识别,语音转文字,语音打字"},
             {"excel_tool", "excel,表格文件,xlsx,xls,电子表格"},
@@ -1689,11 +1689,10 @@ public class AgentLoopEngine {
         sb.append("• 返回 lat/lon 可直接传给天气工具\n\n");
 
         sb.append("5. 长期记忆(memory)：\n");
-        sb.append("• action=save(key,value)：保存一条用户信息（仅在用户明确要求记住、或主动告知个人信息/偏好时保存，不要擅自把普通聊天内容存为记忆；key 用英文短词如 user_name/preference_city）\n");
-        sb.append("• action=recall(key)：读取一条记忆\n");
-        sb.append("• action=delete(key)：删除单条记忆\n");
-        sb.append("• action=list：列出所有记忆\n");
-        sb.append("• 已存的记忆会自动注入到你的系统提示词中（跨对话保留），无需每次手动 recall\n\n");
+        sb.append("• 用户主动告知姓名/称呼/偏好/常驻信息（如\"我叫小明\"\"我喜欢吃辣\"\"我在银川工作\"）时，必须调用 memory(action=save, key=英文短词, value=内容) 保存，不要只口头答应；用户明确说\"记住...\"时同样保存\n");
+        sb.append("• action=save(key,value)：保存；action=recall(key)：读取；action=delete(key)：删除单条；action=list：列出所有\n");
+        sb.append("• 已存记忆会自动注入到你的系统提示词【已存记忆】段（跨对话保留），后续直接使用即可，无需每次 recall\n");
+        sb.append("• 用户要求忘记/删除某条信息时调用 memory(action=delete, key=...)\n\n");
 
         sb.append("网络搜索仅在需要实时/外部信息（新闻、政策、价格、最新事件、链接内容、搜索指定资料）时使用；常识与知识类问题直接回答，不要搜索。\n");
         sb.append("不需要工具时直接回答。\n");

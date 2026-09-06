@@ -126,7 +126,7 @@ public class OnlineToolGuide {
         sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
         sb.append("  6. 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时放心调用，是否调用由你自主判断；信息已足够时自然回答即可\n");
         sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");
-        sb.append("     例如 ai_weather 可 current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)/one_call(详细天气需经纬度)，位置可用 city(城市名或和风城市编码) 或 lat+lon 经纬度；\n");
+        sb.append("     例如 ai_weather 可 current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，位置可用 city(城市名或和风城市编码) 或 lat+lon 经纬度；\n");
         sb.append("     network_search 可 search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage(本地抓取)/extract_info(提取信息)/summarize(摘要)/search_and_read(搜索并阅读)/get_dynamic_content(动态网页)/smart_search(智能搜索)/smart_read(智能阅读)，ask还可选model=concise/detail/research。\n");
         sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n");
         sb.append("  8. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造；不确定的时效性事实先查证再下结论。\n");

@@ -190,7 +190,6 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
     private View thinkingIndicator;
-    private Chip chipNormalChat;
     private Chip chipWeather;
     private Chip chipClear;
     /** 快捷工具栏：键盘弹出时自动折叠 */
@@ -229,6 +228,8 @@ public class AIChatActivity extends BaseActivity {
     /** 独立 Agent 执行面板已移除：Agent 过程改为组件插入式显示在 AI 消息内 */
     private ModelExecutionBridge modelBridge;
     private AIConfig aiConfig;
+    /** 输入区上方的本地Agent开关（Chip，即时生效） */
+    private com.google.android.material.chip.Chip chipLocalAgent;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
     private LocalBroadcastManager localBroadcastManager;
@@ -472,7 +473,6 @@ public class AIChatActivity extends BaseActivity {
             btnModelDownload = findViewById(R.id.btn_model_download);
             btnAiInit = findViewById(R.id.btn_ai_init);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
-            chipNormalChat = findViewById(R.id.chip_normal_chat);
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
 
@@ -589,6 +589,23 @@ public class AIChatActivity extends BaseActivity {
             onlineModelManager = coordinator.getOnlineModelManager();
             chatHistoryManager = coordinator.getChatHistoryManager();
             aiConfig = coordinator.getAIConfig();
+
+            // 本地Agent开关（Chip）：切换即写配置，processChatMessage 按 isLocalAgentEnabled() 路由，
+            // 因此下一条消息自动切换本地Agent/普通对话模式，无需重启
+            chipLocalAgent = findViewById(R.id.chip_local_agent);
+            if (chipLocalAgent != null && aiConfig != null) {
+                chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
+                updateAgentChip(chipLocalAgent);
+                chipLocalAgent.setOnClickListener(v -> {
+                    boolean next = !aiConfig.isLocalAgentEnabled();
+                    aiConfig.setLocalAgentEnabled(next);
+                    chipLocalAgent.setChecked(next);
+                    updateAgentChip(chipLocalAgent);
+                    showToast(next
+                            ? "智能助手已为您服务"
+                            : "智能助手已关闭：已进入快速模式");
+                });
+            }
 
             // 注册在线模型变更监听，确保模型切换后名称即时刷新
             registerModelChangeListener();
@@ -1372,27 +1389,6 @@ public class AIChatActivity extends BaseActivity {
                     .show();
             });
         }
-
-        // 普通对话入口
-        if (chipNormalChat != null) chipNormalChat.setOnClickListener(v -> {
-            animateModeSwitch(() -> {
-                ChatModeManager manager = ChatModeManager.getInstance(this);
-                boolean wasEnabled = manager.isDeepThinkingEnabled();
-                if (manager.setDeepThinkingEnabled(false)) {
-                    injectModeSwitchInstruction(
-                            wasEnabled ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL,
-                            ChatModeManager.ChatMode.NORMAL);
-                }
-                updateModeButtonText();
-                // 同步快捷区深度思考 chip 状态
-                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
-                if (chip != null) {
-                    chip.setChecked(false);
-                    updateDeepThinkChip(chip);
-                }
-                showToast("已关闭深度思考");
-            });
-        });
 
         // 快捷工具 chip 模块：统一绑定抽屉静态 chip 引导 + 动态创建聚合方案 chip
         com.google.android.material.chip.ChipGroup quickGroup = findViewById(R.id.quick_actions_chip_group);
@@ -7064,6 +7060,31 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /** 本地Agent开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
+    private void updateAgentChip(com.google.android.material.chip.Chip chip) {
+        if (chip == null) return;
+        boolean on = aiConfig != null && aiConfig.isLocalAgentEnabled();
+        if (on) {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.primary)));
+            chip.setTextColor(getColor(R.color.white));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.primary)));
+            chip.setText("智能助手 ON");
+            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.white)));
+        } else {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_bg)));
+            chip.setTextColor(getColor(R.color.chip_gray_text));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_stroke)));
+            chip.setText("智能助手");
+            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_text)));
+        }
+    }
+
     /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
     private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
         if (chip == null) return;
@@ -9600,6 +9621,11 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 同步本地Agent开关状态（可能在其他页面切换过）
+        if (chipLocalAgent != null && aiConfig != null) {
+            chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
+            updateAgentChip(chipLocalAgent);
+        }
         updateModeButtonText();
         updateApiBalanceDisplay();
         initAgentChatHandler();

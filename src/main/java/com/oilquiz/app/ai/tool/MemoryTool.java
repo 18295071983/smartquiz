@@ -43,7 +43,7 @@ public class MemoryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "长期记忆：跨会话保存/读取/删除用户信息。仅在用户明确要求记住、或主动告知个人信息/偏好时 save（不要擅自把普通聊天内容存为记忆）；需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
+        return "长期记忆：跨会话保存/读取/删除用户信息。用户主动告知姓名/称呼/偏好/常驻信息时主动 save（如\"我叫小明\"→save key=user_name value=小明）；用户说\"记住...\"时 save；不要擅自把普通聊天内容存为记忆。需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
     }
 
     @Override

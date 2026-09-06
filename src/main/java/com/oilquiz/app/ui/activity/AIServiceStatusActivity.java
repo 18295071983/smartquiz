@@ -353,8 +353,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             localAgentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 aiConfig.setLocalAgentEnabled(isChecked);
                 Toast.makeText(this, isChecked
-                        ? "本地Agent已启用（含工具调用，重启AI对话后生效）"
-                        : "本地Agent已禁用", Toast.LENGTH_SHORT).show();
+                        ? "本地Agent已启用（含工具调用，新消息即时生效）"
+                        : "本地Agent已禁用（新消息即时生效）", Toast.LENGTH_SHORT).show();
             });
         }
 

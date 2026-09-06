@@ -85,13 +85,13 @@ public class ApiConfigActivity extends BaseActivity {
     private List<APIConfig> filteredConfigs;
 
     private final String[] serviceTypes = {
-        "OpenAI", "Anthropic", "Google", "OpenWeatherMap", 
+        "OpenAI", "Anthropic", "Google",
         "和风天气", "Bing Search", "Google Maps", "自定义"
     };
     
     private final String[] serviceTypeValues = {
         APIConfig.ServiceType.OPENAI, APIConfig.ServiceType.ANTHROPIC,
-        APIConfig.ServiceType.GOOGLE, APIConfig.ServiceType.OPENWEATHERMAP,
+        APIConfig.ServiceType.GOOGLE,
         APIConfig.ServiceType.HEFENG_WEATHER, APIConfig.ServiceType.BING_SEARCH,
         APIConfig.ServiceType.GOOGLE_MAPS, APIConfig.ServiceType.CUSTOM
     };
