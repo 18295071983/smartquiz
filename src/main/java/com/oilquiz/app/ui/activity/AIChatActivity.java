@@ -4643,8 +4643,8 @@ public class AIChatActivity extends BaseActivity {
                         .setTitle("还没有配置模型")
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
                                 "📥 本地Agent模型（推荐）\n" +
-                                "• 支持工具调用（天气/搜索/记忆等）、思考链、多模态\n" +
-                                "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB\n\n" +
+                                "• 支持工具调用（天气/搜索/记忆等）、思考链\n" +
+                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
                                 "💬 本地普通对话模型\n" +
                                 "• 轻量快速，仅普通对话\n" +
                                 "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
@@ -4773,7 +4773,7 @@ public class AIChatActivity extends BaseActivity {
                         .setMessage("需要先下载或配置一个模型才能开始对话：\n\n" +
                                 "📥 本地模型（推荐）\n" +
                                 "• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n" +
-                                "• 推荐 Qwen3-VL-2B-Thinking，约1.5GB（含多模态投影）\n\n" +
+                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
                                 "🌐 在线模型\n" +
                                 "• 功能更强，支持 Agent 工具调用\n" +
                                 "• 支持豆包、DeepSeek、通义千问等")

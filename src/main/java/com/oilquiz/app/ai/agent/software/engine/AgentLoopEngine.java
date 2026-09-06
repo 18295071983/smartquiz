@@ -18,6 +18,11 @@ import com.oilquiz.app.util.AILogger;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -1594,12 +1599,26 @@ public class AgentLoopEngine {
 
     // ==================== Prompt 构建 ====================
 
+    /**
+     * 注入当前真实日期（只到天，不带时分）：保证同一天内 prompt 内容不变，
+     * KV 缓存可命中；具体时刻由 time_date 工具提供（fcMode）或如实说明（普通对话）。
+     */
+    private static String buildCurrentTimeLine(boolean fcMode) {
+        String today = new SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINA).format(new Date());
+        String timeHint = fcMode
+                ? "问具体时刻时调用 time_date(action=now) 工具获取"
+                : "问具体时刻时如实说明只能提供日期，无法给出准确时刻";
+        return "【当前真实日期】" + today + "\n"
+                + "用户问日期/星期时直接采用以上日期；" + timeHint + "。不要使用训练数据中的日期。\n\n";
+    }
+
     private String buildSystemPrompt() {
         // 极简提示词：意图命中走程序化输出（不经模型），意图未命中走普通对话
         // （模型直接回答、不注入工具），因此提示词只保留身份，
         // 工具调用规则/回答格式等指令段全部移除（模型已不再调用工具）。
         StringBuilder sb = new StringBuilder();
         // ---- 本地普通对话模式：纯聊天答疑角色 ----
+        sb.append(buildCurrentTimeLine(false));
         sb.append("【角色】\n");
         sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手。\n");
         sb.append("你的工作：与正在使用答题宝的用户进行自然对话，解答学习、生活、技术等各类问题，给出清晰有用的回答。\n");
@@ -1625,6 +1644,7 @@ public class AgentLoopEngine {
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         // ---- 本地 FC/Agent 模式：聊天答疑 + 工具调用角色 ----
+        sb.append(buildCurrentTimeLine(true));
         sb.append("【角色】\n");
         sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
         sb.append("你的工作：与用户对话答疑，并在需要实时信息（天气/时间/位置/最新资讯）时主动调用工具获取，而不是靠训练知识猜测。\n");
@@ -1665,7 +1685,7 @@ public class AgentLoopEngine {
         sb.append("• action=weekday：星期几\n\n");
 
         sb.append("4. 位置定位(location)：\n");
-        sb.append("• action=current：当前位置（经纬度/城市/详细地址）\n");
+        sb.append("• action=get_current：当前位置（经纬度/城市/详细地址）\n");
         sb.append("• 返回 lat/lon 可直接传给天气工具\n\n");
 
         sb.append("5. 长期记忆(memory)：\n");
@@ -2026,6 +2046,18 @@ public class AgentLoopEngine {
     /** 模型输出的 <tool_call> 标签（Qwen3 实测输出此格式，common_chat_parse 不识别） */
     private static final Pattern TOOL_CALL_TAG =
             Pattern.compile("<tool_call>(.*?)</tool_call>", Pattern.DOTALL);
+    // Qwen3.5 XML 形态（与 AgentService 一致）：tool_call 块内 function=工具名 + parameter=参数名 标签
+    private static final Pattern QWEN35_TOOL_CALL_BLOCK = Pattern.compile(
+            "<tool_call>\\s*<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*\\s*</tool_call>",
+            Pattern.DOTALL);
+    // 兜底：<tool_call> 包裹缺失或未闭合（Qwen3-Coder 习惯直接输出 <function=，截断时 </tool_call> 丢失）
+    private static final Pattern QWEN35_FUNCTION_BARE_BLOCK = Pattern.compile(
+            "<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*(?:" + "</" + "function>|\\z)",
+            Pattern.DOTALL);
+    // 参数：值捕获到 parameter 闭合标签、下一个 parameter 标签或 function 闭合标签为止（vLLM 同款容错，截断不丢参数）
+    private static final Pattern QWEN35_PARAM_BLOCK = Pattern.compile(
+            "<parameter=([^>\\n]+)>\\s*([\\s\\S]*?)(?=<parameter=|" + "</" + "parameter>|<" + "/function>|\\z)",
+            Pattern.DOTALL);
 
     /**
      * 从回复文本解析 <tool_call> 标签包裹的 JSON 工具调用（Qwen 原生格式，与 Qwen-Agent fncall 约定一致）。
@@ -2038,6 +2070,11 @@ public class AgentLoopEngine {
         Matcher tagMatcher = TOOL_CALL_TAG.matcher(response);
         while (tagMatcher.find()) {
             calls.addAll(parseToolCallJson(tagMatcher.group(1).trim()));
+        }
+        // Qwen3.5 XML 参数形态：tool_call 块内 function= 工具名 + parameter= 参数名 值对
+        // （与 Qwen3 的 JSON 形态并存，按形态自适应；C++ 解析失败时 Java 兜底也能接住）
+        if (calls.isEmpty()) {
+            calls = parseQwen35XmlToolCalls(response);
         }
         return calls;
     }
@@ -2071,6 +2108,80 @@ public class AgentLoopEngine {
             AILogger.w(TAG, "Parse tool call tag failed: " + truncate(jsonStr, 80));
         }
         return calls;
+    }
+
+    /**
+     * 解析 Qwen3.5 原生 XML 参数形态工具调用（与 AgentService 一致）。
+     * 官方模板格式（参考 Qwen/Qwen3.5 tokenizer_config.json）：
+     * tool_call 块内嵌套 function=工具名 与多个 parameter=参数名 值对，
+     * 参数值可为纯文本或 JSON（对象/数组/数字/布尔/null）。
+     * 与 Qwen3 的 JSON 形态（tool_call 块内 {"name":..., "arguments":{...}}）并存，
+     * 由 parseToolCallsTag 按输出形态自适应分发。
+     */
+    private List<ToolCall> parseQwen35XmlToolCalls(String response) {
+        List<ToolCall> calls = new ArrayList<>();
+        if (response == null) return calls;
+        Matcher block = QWEN35_TOOL_CALL_BLOCK.matcher(response);
+        while (block.find()) {
+            ToolCall call = buildQwen35XmlToolCall(block.group(1), block.group(2));
+            if (call != null) calls.add(call);
+        }
+        if (calls.isEmpty()) {
+            // 兜底：tool_call 包裹缺失或未闭合（Qwen3-Coder 直接输出 function=，截断丢闭合标签）
+            Matcher bare = QWEN35_FUNCTION_BARE_BLOCK.matcher(response);
+            while (bare.find()) {
+                ToolCall call = buildQwen35XmlToolCall(bare.group(1), bare.group(2));
+                if (call != null) calls.add(call);
+            }
+        }
+        return calls;
+    }
+
+    /** 构建单个 Qwen3.5 XML 工具调用：函数名模糊归一 + 参数提取为 JSON arguments */
+    private ToolCall buildQwen35XmlToolCall(String rawName, String body) {
+        if (rawName == null || rawName.trim().isEmpty()) return null;
+        String resolved = toolManager.resolveToolNameFuzzy(rawName.trim());
+        if (resolved == null) {
+            AILogger.w(TAG, "Unrecognized tool name in Qwen3.5 XML output: " + rawName);
+            return null;
+        }
+        JSONObject args = new JSONObject();
+        Matcher pm = QWEN35_PARAM_BLOCK.matcher(body != null ? body : "");
+        while (pm.find()) {
+            String paramName = pm.group(1).trim();
+            String paramValue = pm.group(2).trim();
+            if (paramName.isEmpty()) continue;
+            try {
+                args.put(paramName, tryParseXmlParamValue(paramValue));
+            } catch (JSONException ignored) {
+                // 参数名非法键，跳过
+            }
+        }
+        return new ToolCall(resolved, args);
+    }
+
+    /** Qwen3.5 XML 参数值解析：对象/数组按 JSON 解析（含嵌套），标量走 nextValue，失败保留为字符串 */
+    private static Object tryParseXmlParamValue(String raw) {
+        String v = raw.trim();
+        if (v.isEmpty()) return "";
+        if (v.startsWith("{")) {
+            try {
+                return new JSONObject(v);
+            } catch (JSONException ignored) {
+                // 非 JSON 对象，按普通文本处理
+            }
+        } else if (v.startsWith("[")) {
+            try {
+                return new JSONArray(v);
+            } catch (JSONException ignored) {
+                // 非 JSON 数组，按普通文本处理
+            }
+        }
+        try {
+            return new JSONTokener(v).nextValue();
+        } catch (JSONException e) {
+            return v;
+        }
     }
 
     /** 从单条工具调用 JSON 构建 ToolCall（名称/参数/ID 多别名兼容） */

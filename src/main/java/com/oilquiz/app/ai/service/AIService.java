@@ -3733,8 +3733,8 @@ public class AIService implements ComponentCallbacks2 {
             sb.append("你是答题宝智能助手，一个集成在答题宝App中的AI助手。请用中文简洁、准确地回答用户问题。\n");
             sb.append("【环境上下文】\n");
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                    "yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA);
-            sb.append("当前时间：").append(sdf.format(new java.util.Date()));
+                    "yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+            sb.append("当前日期：").append(sdf.format(new java.util.Date()));
             return sb.toString();
         } catch (Throwable t) {
             AILogger.w(TAG, "buildDefaultChatSystemPrompt failed: " + t.getMessage());

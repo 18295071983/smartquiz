@@ -1517,8 +1517,17 @@ public class AIToolManager {
                 "radar", "heatmap", "area", "table"));
         map.put("python_chart", chart);
         Map<String, List<String>> appToolkit = new HashMap<>();
-        appToolkit.put("action", Arrays.asList("weather", "calculate", "ocr",
-                "image", "web", "search", "translate", "unit_convert"));
+        // 与实际执行 switch 对齐（36 个真实 action，避免分类名调用落到 default 报"未知操作"）
+        appToolkit.put("action", Arrays.asList("weather_current", "weather_forecast", "weather_hourly",
+                "weather_air", "weather_alerts", "weather_indices", "weather_all", "calculate",
+                "ocr_recognize", "ocr_recognize_pdf", "ocr_set_language", "ocr_get_language",
+                "image_label_recognize", "image_label_set_threshold", "image_label_get_threshold",
+                "image_label_load_custom_model", "object_detect", "object_set_threshold",
+                "object_get_threshold", "object_set_multiple", "object_set_classification",
+                "image_save", "image_scale", "image_crop", "image_rotate",
+                "image_generate_color", "image_generate_text",
+                "web_parse_html", "web_get_title", "web_get_links", "web_get_images", "web_get_text",
+                "get_info", "get_guide", "predict_intent", "debug_report"));
         map.put("app_toolkit", appToolkit);
         return map;
     }

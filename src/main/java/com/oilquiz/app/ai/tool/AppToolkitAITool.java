@@ -37,9 +37,9 @@ import java.util.concurrent.TimeUnit;
         @Action(name = "weather_forecast", description = "查询天气预报"),
         @Action(name = "calculate", description = "数学计算"),
         @Action(name = "ocr_recognize", description = "OCR文字识别"),
-        @Action(name = "image_label", description = "图片标签识别"),
+        @Action(name = "image_label_recognize", description = "图片标签识别"),
         @Action(name = "object_detect", description = "物体检测"),
-        @Action(name = "webpage_parse", description = "网页解析")
+        @Action(name = "web_parse_html", description = "网页解析")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
